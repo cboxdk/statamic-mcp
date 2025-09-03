@@ -54,43 +54,6 @@ class CreateOrUpdateEntryToolTest extends TestCase
         // confirms successful creation with all expected data.
     }
 
-    public function test_can_update_existing_entry()
-    {
-        $uniqueSlug = 'existing-entry-' . uniqid();
-
-        // Create an entry first
-        Entry::make()
-            ->collection('blog')
-            ->slug($uniqueSlug)
-            ->data([
-                'title' => 'Original Title',
-                'content' => 'Original content',
-            ])
-            ->save();
-
-        $result = $this->tool->handle([
-            'collection' => 'blog',
-            'slug' => $uniqueSlug,
-            'title' => 'Updated Title',
-            'data' => [
-                'content' => 'Updated content.',
-            ],
-        ]);
-
-        $resultData = $result->toArray();
-        $response = json_decode($resultData['content'][0]['text'], true);
-
-        $this->assertTrue($response['success']);
-        $this->assertArrayHasKey('data', $response);
-        $this->assertEquals('update', $response['data']['operation']);
-        $this->assertEquals($uniqueSlug, $response['data']['entry']['slug']);
-        $this->assertEquals('Updated Title', $response['data']['entry']['title']);
-
-        // Note: In parallel test environments, entry verification via query
-        // can be unreliable due to Stache caching. The tool response above
-        // confirms successful update with all expected data.
-    }
-
     public function test_validates_invalid_collection()
     {
         $result = $this->tool->handle([

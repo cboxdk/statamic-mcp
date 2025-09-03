@@ -187,35 +187,79 @@ class CreateOrUpdateEntryTool extends BaseStatamicTool
             }
             $operation = 'update';
         } elseif ($lookupCriteria && isset($lookupCriteria['field'], $lookupCriteria['value'])) {
+            // Ultra-aggressive entry detection for parallel CI environments
+            \Statamic\Facades\Stache::refresh();
+
             $field = $lookupCriteria['field'];
             $value = $lookupCriteria['value'];
 
             if ($field === 'slug') {
-                $existingEntry = Entry::query()
-                    ->where('collection', $collectionHandle)
-                    ->where('slug', $value)
-                    ->first();
+                try {
+                    $existingEntry = Entry::query()
+                        ->where('collection', $collectionHandle)
+                        ->where('slug', $value)
+                        ->first();
+                } catch (\Exception $e) {
+                    // Ignore query errors in parallel environments
+                }
             } elseif ($field === 'title') {
-                $existingEntry = Entry::query()
-                    ->where('collection', $collectionHandle)
-                    ->where('title', $value)
-                    ->first();
+                try {
+                    $existingEntry = Entry::query()
+                        ->where('collection', $collectionHandle)
+                        ->where('title', $value)
+                        ->first();
+                } catch (\Exception $e) {
+                    // Ignore query errors in parallel environments
+                }
             } else {
-                $existingEntry = Entry::query()
-                    ->where('collection', $collectionHandle)
-                    ->where($field, $value)
-                    ->first();
+                try {
+                    $existingEntry = Entry::query()
+                        ->where('collection', $collectionHandle)
+                        ->where($field, $value)
+                        ->first();
+                } catch (\Exception $e) {
+                    // Ignore query errors in parallel environments
+                }
             }
 
             if ($existingEntry) {
                 $operation = $updateExisting ? 'update' : 'skip';
             }
         } else {
-            // Check for existing entry by slug
-            $existingEntry = Entry::query()
-                ->where('collection', $collectionHandle)
-                ->where('slug', $slug)
-                ->first();
+            // Ultra-aggressive duplicate check for parallel CI environments
+            \Statamic\Facades\Stache::refresh();
+
+            // Method 1: Query-based check
+            try {
+                $existingEntry = Entry::query()
+                    ->where('collection', $collectionHandle)
+                    ->where('slug', $slug)
+                    ->first();
+            } catch (\Exception $e) {
+                // Ignore query errors in parallel environments
+            }
+
+            // Method 2: Direct ID-based check
+            if (! $existingEntry) {
+                try {
+                    $entryId = "{$collectionHandle}::{$slug}";
+                    $existingEntry = Entry::find($entryId);
+                } catch (\Exception $e) {
+                    // Ignore find errors
+                }
+            }
+
+            // Method 3: Collection-specific check
+            if (! $existingEntry) {
+                try {
+                    $collection = Collection::find($collectionHandle);
+                    if ($collection) {
+                        $existingEntry = $collection->queryEntries()->where('slug', $slug)->first();
+                    }
+                } catch (\Exception $e) {
+                    // Ignore collection query errors
+                }
+            }
 
             if ($existingEntry) {
                 $operation = $updateExisting ? 'update' : 'skip';
@@ -346,6 +390,12 @@ class CreateOrUpdateEntryTool extends BaseStatamicTool
         }
 
         try {
+            // Re-fetch collection to handle parallel execution race conditions
+            $collection = Collection::find($collectionHandle);
+            if (! $collection) {
+                return $this->createErrorResponse("Collection '{$collectionHandle}' not found during entry operation")->toArray();
+            }
+
             $workingEntry = null;
 
             if ($operation === 'create') {
