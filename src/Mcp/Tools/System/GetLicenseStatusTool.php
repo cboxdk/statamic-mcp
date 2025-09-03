@@ -48,7 +48,7 @@ class GetLicenseStatusTool extends BaseStatamicTool
                     ],
                     'valid' => false,
                     'meta' => [
-                        'statamic_version' => app('statamic.version'),
+                        'statamic_version' => \Statamic\Statamic::version(),
                         'laravel_version' => app()->version(),
                         'timestamp' => now()->toISOString(),
                         'tool' => $this->getToolName(),
@@ -90,7 +90,7 @@ class GetLicenseStatusTool extends BaseStatamicTool
                 'license' => $licenseData,
                 'valid' => $proStatus,
                 'meta' => [
-                    'statamic_version' => app('statamic.version'),
+                    'statamic_version' => \Statamic\Statamic::version(),
                     'laravel_version' => app()->version(),
                     'timestamp' => now()->toISOString(),
                     'tool' => $this->getToolName(),

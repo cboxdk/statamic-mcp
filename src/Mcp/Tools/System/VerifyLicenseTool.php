@@ -51,7 +51,7 @@ class VerifyLicenseTool extends BaseStatamicTool
                         'message' => 'Statamic Pro is not installed - verification not possible',
                     ],
                     'meta' => [
-                        'statamic_version' => app('statamic.version'),
+                        'statamic_version' => \Statamic\Statamic::version(),
                         'laravel_version' => app()->version(),
                         'timestamp' => now()->toISOString(),
                         'tool' => $this->getToolName(),
@@ -98,7 +98,7 @@ class VerifyLicenseTool extends BaseStatamicTool
             return [
                 'verification' => $verificationData,
                 'meta' => [
-                    'statamic_version' => app('statamic.version'),
+                    'statamic_version' => \Statamic\Statamic::version(),
                     'laravel_version' => app()->version(),
                     'timestamp' => now()->toISOString(),
                     'tool' => $this->getToolName(),
