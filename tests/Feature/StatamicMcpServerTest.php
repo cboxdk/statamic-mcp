@@ -109,7 +109,7 @@ class StatamicMcpServerTest extends TestCase
     public function test_tool_categories_are_properly_organized()
     {
         $tools = $this->server->tools;
-        $expectedCategories = ['blueprints', 'collections', 'fieldsets', 'taxonomies', 'navigations', 'forms', 'entries', 'terms', 'globals', 'assets', 'groups', 'permissions', 'tags', 'modifiers', 'fieldtypes', 'scopes', 'filters', 'development', 'system', 'users'];
+        $expectedCategories = ['blueprints', 'collections', 'fieldsets', 'taxonomies', 'navigations', 'forms', 'entries', 'terms', 'globals', 'assets', 'groups', 'permissions', 'roles', 'sites', 'tags', 'modifiers', 'fieldtypes', 'scopes', 'filters', 'development', 'system', 'users'];
         $foundCategories = [];
 
         foreach ($tools as $toolClass) {

@@ -18,7 +18,7 @@ class SuggestTemplateOptimizationsTool extends BaseStatamicTool
      */
     protected function getToolName(): string
     {
-        return 'statamic.templates.suggest-optimizations';
+        return 'statamic.development.suggest-optimizations';
     }
 
     /**

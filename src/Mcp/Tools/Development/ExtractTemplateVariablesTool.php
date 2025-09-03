@@ -18,7 +18,7 @@ class ExtractTemplateVariablesTool extends BaseStatamicTool
      */
     protected function getToolName(): string
     {
-        return 'statamic.templates.extract-variables';
+        return 'statamic.development.extract-variables';
     }
 
     /**

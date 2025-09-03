@@ -23,7 +23,7 @@ class DetectUnusedTemplatesTool extends BaseStatamicTool
      */
     protected function getToolName(): string
     {
-        return 'statamic.templates.detect-unused';
+        return 'statamic.development.detect-unused';
     }
 
     /**

@@ -18,7 +18,7 @@ class AnalyzeTemplatePerformanceTool extends BaseStatamicTool
      */
     protected function getToolName(): string
     {
-        return 'statamic.templates.analyze-performance';
+        return 'statamic.development.analyze-template-performance';
     }
 
     /**

@@ -1,601 +1,742 @@
-# AI Conversation Examples
+# MCP Tools Usage Examples
 
-Real-world examples of how to use the Statamic MCP Server with AI assistants.
+Real-world examples demonstrating the 135 MCP tools provided by the Statamic MCP Server.
 
-## System Analysis Conversations
+## Table of Contents
 
-### "What version of Statamic is installed?"
+- [System Analysis](#system-analysis)
+- [Blueprint Management](#blueprint-management) 
+- [Content Operations](#content-operations)
+- [Template Development](#template-development)
+- [E-commerce Setup](#e-commerce-setup)
+- [Multi-site Management](#multi-site-management)
+- [Form Processing](#form-processing)
+- [Asset Management](#asset-management)
+- [User Management](#user-management)
+- [Performance Optimization](#performance-optimization)
 
-**AI Response:**
-> I'll check your Statamic installation information.
+## System Analysis
 
-*Uses `statamic.system.info` tool*
+### Comprehensive System Health Check
 
+**Scenario**: Analyzing a complete Statamic installation to understand its current state.
+
+```bash
+# Get system overview
+curl -X POST http://localhost/mcp/statamic.system.info \
+  -d '{"include_config": true, "include_environment": true, "include_collections": true}'
+
+# Check system health
+curl -X POST http://localhost/mcp/statamic.system.health-check \
+  -d '{"include_recommendations": true}'
+
+# Analyze cache performance  
+curl -X POST http://localhost/mcp/statamic.system.cache.status \
+  -d '{"include_sizes": true, "include_stats": true}'
+```
+
+**AI Assistant Response:**
 > Your Statamic installation:
-> - **Version**: 5.32.0
-> - **Edition**: Pro (licensed)
-> - **Storage**: Mixed (file-based + Runway database)
-> - **Cache**: Redis (working)
-> - **Multi-site**: Yes (3 sites configured)
-> - **Features**: API enabled, Live Preview enabled, Static caching active
+> - **Version**: 5.46.0 Pro (licensed)
+> - **Storage**: File-based with Redis cache
+> - **Collections**: 4 collections, 247 entries
+> - **Multi-site**: 3 sites (EN, DA, DE)
+> - **Health**: ✅ All systems operational
+> - **Cache**: 89% hit rate, 234MB total size
+> - **Recommendation**: Consider enabling static caching for better performance
 
-### "What addons do I have installed?"
+### Addon Discovery and Analysis
 
-**AI Response:**
-> Let me scan your installed Statamic addons.
+**Scenario**: Understanding installed addons and their capabilities.
 
-*Uses `statamic.addons.scan` with all options enabled*
+```bash
+# Discover all addons with full details
+curl -X POST http://localhost/mcp/statamic.development.addons \
+  -d '{"include_tags": true, "include_modifiers": true, "include_fieldtypes": true, "include_documentation": true}'
 
-> **Installed Addons:**
-> 1. **SEO Pro** (statamic/seo-pro v6.2.1)
->    - Tags: `seo`, `seo:title`, `seo:description`
->    - Modifiers: `seo_title`, `og_title`
->    - Documentation: https://statamic.dev/seo-pro
-> 
-> 2. **Simple Commerce** (doublethreedigital/simple-commerce v6.1.8)
->    - Tags: `sc:cart`, `sc:products`, `sc:checkout`
->    - Field types: `money`, `product_variants`
->    - Documentation: https://simple-commerce.duncanmcclean.com
+# Analyze specific addon capabilities
+curl -X POST http://localhost/mcp/statamic.development.addon-discovery \
+  -d '{"addon_name": "seo-pro", "include_tags": true}'
+```
+
+**Response Example:**
+```json
+{
+  "success": true,
+  "data": {
+    "addons": [
+      {
+        "name": "SEO Pro",
+        "package": "statamic/seo-pro",
+        "version": "6.2.1",
+        "tags": ["seo", "seo:title", "seo:meta"],
+        "modifiers": ["seo_title", "meta_description"],
+        "fieldtypes": [],
+        "documentation": "https://statamic.dev/seo-pro"
+      }
+    ]
+  }
+}
+```
+
+## Blueprint Management
+
+### Creating a Complete Content Structure
+
+**Scenario**: Setting up a blog with articles, authors, and categories.
+
+```bash
+# 1. Create article blueprint
+curl -X POST http://localhost/mcp/statamic.blueprints.create \
+  -d '{
+    "handle": "article",
+    "title": "Article",
+    "namespace": "collections",
+    "fields": [
+      {"handle": "title", "field": {"type": "text", "required": true}},
+      {"handle": "slug", "field": {"type": "slug", "from": "title"}},
+      {"handle": "content", "field": {"type": "bard", "toolbar_buttons": ["h2","h3","bold","italic","link"]}},
+      {"handle": "author", "field": {"type": "users", "max_items": 1}},
+      {"handle": "categories", "field": {"type": "taxonomy", "taxonomies": ["categories"]}},
+      {"handle": "featured_image", "field": {"type": "assets", "container": "main", "max_files": 1}},
+      {"handle": "published_at", "field": {"type": "date"}}
+    ]
+  }'
+
+# 2. Create categories taxonomy
+curl -X POST http://localhost/mcp/statamic.taxonomies.create \
+  -d '{
+    "handle": "categories",
+    "title": "Categories",
+    "blueprint": "category"
+  }'
+
+# 3. Generate TypeScript types
+curl -X POST http://localhost/mcp/statamic.blueprints.types \
+  -d '{
+    "blueprints": "article",
+    "namespace": "collections",
+    "format": "ts",
+    "include_relationships": true
+  }'
+```
+
+### Blueprint Analysis and Validation
+
+**Scenario**: Analyzing existing blueprints for conflicts and optimization opportunities.
+
+```bash
+# Scan all blueprints with relationships
+curl -X POST http://localhost/mcp/statamic.blueprints.scan \
+  -d '{
+    "include_relationships": true,
+    "include_validation": true,
+    "include_field_details": true
+  }'
+
+# Check for field conflicts
+curl -X POST http://localhost/mcp/statamic.blueprints.field-conflicts \
+  -d '{
+    "namespace": "collections",
+    "severity": "warning"
+  }'
+
+# Analyze field dependencies
+curl -X POST http://localhost/mcp/statamic.blueprints.field-dependencies \
+  -d '{
+    "blueprint": "article",
+    "namespace": "collections",
+    "include_reverse": true
+  }'
+```
+
+## Content Operations
+
+### Batch Content Management
+
+**Scenario**: Managing hundreds of entries efficiently.
+
+```bash
+# List all entries with filtering
+curl -X POST http://localhost/mcp/statamic.entries.list \
+  -d '{
+    "collection": "articles",
+    "status": "published",
+    "limit": 50,
+    "sort": "published_at",
+    "order": "desc"
+  }'
+
+# Batch publish multiple entries
+curl -X POST http://localhost/mcp/statamic.entries.batch_operation \
+  -d '{
+    "collection": "articles",
+    "operation": "publish",
+    "entries": ["entry-1", "entry-2", "entry-3"]
+  }'
+
+# Search across all collections
+curl -X POST http://localhost/mcp/statamic.entries.search \
+  -d '{
+    "query": "Laravel development",
+    "collections": ["articles", "tutorials"],
+    "fields": ["title", "content"],
+    "limit": 20
+  }'
+```
+
+### Content Import/Export
+
+**Scenario**: Migrating content between environments.
+
+```bash
+# Export entries to JSON
+curl -X POST http://localhost/mcp/statamic.entries.import_export \
+  -d '{
+    "operation": "export",
+    "collection": "articles",
+    "format": "json",
+    "file_path": "exports/articles.json"
+  }'
+
+# Import entries from CSV
+curl -X POST http://localhost/mcp/statamic.entries.import_export \
+  -d '{
+    "operation": "import",
+    "collection": "products",
+    "format": "csv",
+    "data": "name,price,description\nProduct 1,99.99,Great product"
+  }'
+```
+
+### Entry Versioning and Scheduling
+
+**Scenario**: Managing editorial workflows with versions and scheduled publishing.
+
+```bash
+# List entry versions
+curl -X POST http://localhost/mcp/statamic.entries.versioning \
+  -d '{
+    "collection": "articles",
+    "id": "article-123",
+    "operation": "list"
+  }'
+
+# Schedule entry publishing
+curl -X POST http://localhost/mcp/statamic.entries.scheduling_workflow \
+  -d '{
+    "collection": "articles",
+    "id": "article-123",
+    "schedule_data": {
+      "publish_at": "2025-01-15T09:00:00Z",
+      "unpublish_at": "2025-02-15T17:00:00Z"
+    }
+  }'
+```
+
+## Template Development
+
+### Antlers Template Development
+
+**Scenario**: Creating and validating Antlers templates with AI assistance.
+
+```bash
+# Get template hints for specific blueprint
+curl -X POST http://localhost/mcp/statamic.development.antlers-validate \
+  -d '{
+    "template": "{{ title }}{{ author:name }}{{ content }}{{ categories }}{{ title }}{{ /categories }}",
+    "blueprint": "article",
+    "strict_mode": true,
+    "include_suggestions": true
+  }'
+
+# Analyze template performance
+curl -X POST http://localhost/mcp/statamic.templates.analyze-performance \
+  -d '{
+    "template_path": "resources/views/blog/show.antlers.html",
+    "include_suggestions": true,
+    "benchmark_runs": 10
+  }'
+```
+
+**AI Response Example:**
+> **Template Validation Results:**
+> - ✅ `{{ title }}` - Valid field from article blueprint
+> - ✅ `{{ author:name }}` - Correct relationship syntax
+> - ✅ `{{ content }}` - Valid Bard field
+> - ✅ `{{ categories }}{{ title }}{{ /categories }}` - Correct loop syntax
 >
-> You also have access to the Statamic marketplace with 200+ community addons.
+> **Performance Suggestions:**
+> - Consider eager loading author relationship
+> - Cache expensive calculations
+> - Optimize image processing for featured images
 
-## Blueprint Analysis Conversations
+### Blade Template Linting
 
-### "Show me my blueprint structures"
+**Scenario**: Ensuring Blade templates follow Statamic best practices.
 
-**AI Response:**
-> I'll analyze all your Statamic blueprints.
+```bash
+# Lint Blade template with auto-fix suggestions
+curl -X POST http://localhost/mcp/statamic.development.blade-lint \
+  -d '{
+    "template": "@php $entries = Entry::all(); @endphp\n<div>\n@foreach($entries as $entry)\n<h2>{{ $entry->title }}</h2>\n@endforeach\n</div>",
+    "auto_fix": true,
+    "policy": "strict"
+  }'
 
-*Uses `statamic.blueprints.scan` with relationships and validation*
-
-> **Found 5 Blueprints:**
-> 
-> **Article Blueprint:**
-> - `title` (text, required)
-> - `slug` (slug, from title)
-> - `content` (bard with image and quote sets)
-> - `author` (users relationship)
-> - `categories` (taxonomy:categories, multiple)
-> - `featured_image` (assets, max 1)
-> - `published_at` (date)
-> 
-> **Product Blueprint:**
-> - `name` (text, required)
-> - `price` (money, required) 
-> - `variants` (replicator: size, color, stock)
-> - `gallery` (assets, multiple)
-> - `description` (markdown)
-> 
-> **Relationships Found:**
-> - Articles → Users (author)
-> - Articles → Categories taxonomy
-> - Products → Asset containers
-
-### "Generate TypeScript types for my Article blueprint"
-
-**AI Response:**
-> I'll generate TypeScript interfaces for your Article blueprint.
-
-*Uses `statamic.blueprints.types` with TypeScript format*
-
-> ```typescript
-> export interface Article {
->   id: string;
->   title: string;
->   slug: string;
->   content: BardContent[];
->   author?: User;
->   categories: Category[];
->   featured_image?: Asset;
->   published_at?: string;
->   created_at: string;
->   updated_at: string;
-> }
-> 
-> export interface BardContent {
->   type: 'paragraph' | 'heading' | 'image' | 'quote';
->   attrs?: Record<string, any>;
->   content?: BardContent[];
-> }
-> 
-> export interface User {
->   id: string;
->   name: string;
->   email: string;
-> }
-> 
-> export interface Category {
->   id: string;
->   title: string;
->   slug: string;
-> }
-> ```
-
-## Documentation Search Conversations
-
-### "How do I configure a Bard field?"
-
-**AI Response:**
-> Let me search for Bard field configuration documentation.
-
-*Uses `statamic.docs.search` for "bard field configuration"*
-
-> **Bard Field Configuration:**
-> 
-> The Bard field is a rich content editor that supports:
-> 
-> **Basic Configuration:**
-> ```yaml
-> handle: content
-> field:
->   type: bard
->   display: Content
->   toolbar_buttons:
->     - h2
->     - h3
->     - bold
->     - italic
->     - unorderedlist
->     - orderedlist
->     - removeformat
->     - quote
->     - anchor
->     - image
->     - table
-> ```
-> 
-> **Custom Sets:**
-> ```yaml
-> field:
->   type: bard
->   sets:
->     image:
->       display: Image
->       fields:
->         - handle: image
->           field: 
->             type: assets
->             container: main
->         - handle: caption
->           field:
->             type: text
->     quote:
->       display: Quote
->       fields:
->         - handle: text
->           field:
->             type: textarea
->         - handle: author
->           field:
->             type: text
-> ```
-> 
-> **Advanced Options:**
-> - `save_html: true` - Save as HTML instead of ProseMirror JSON
-> - `toolbar_buttons` - Customize available buttons
-> - `link_noopener: true` - Add security attributes to links
-> - `target_blank: true` - Open links in new tab
-> 
-> Full documentation: https://statamic.dev/fieldtypes/bard
-
-### "Find form tag documentation"
-
-**AI Response:**
-> I'll search for Statamic form tag documentation.
-
-*Uses `statamic.docs.search` for "form tag" in tags section*
-
-> **Form Tags Documentation:**
-> 
-> **Basic Form Creation:**
-> ```blade
-> <s:form:create handle="contact">
->   <div class="field">
->     <label for="name">Name</label>
->     <input type="text" name="name" value="{{ old:name }}" required>
->     {{ error:name }}
->   </div>
->   
->   <div class="field">
->     <label for="email">Email</label>
->     <input type="email" name="email" value="{{ old:email }}" required>
->     {{ error:email }}
->   </div>
->   
->   <div class="field">
->     <label for="message">Message</label>
->     <textarea name="message" required>{{ old:message }}</textarea>
->     {{ error:message }}
->   </div>
->   
->   <button type="submit">Send Message</button>
-> </s:form:create>
-> ```
-> 
-> **Available Form Tags:**
-> - `<s:form:create>` - Create form with validation
-> - `<s:form:errors>` - Display validation errors
-> - `<s:form:success>` - Show success message
-> - `{{ old:field_name }}` - Repopulate field values
-> - `{{ error:field_name }}` - Show field-specific errors
-> 
-> **Form Configuration:**
-> Forms are configured in `resources/forms/` with blueprints and email settings.
-
-## Template Development Conversations
-
-### "Help me create an Antlers template for blog entries"
-
-**AI Response:**
-> I'll help you create an Antlers template for displaying blog entries. First, let me get some context about your blueprints.
-
-*Uses `statamic.blueprints.scan` and `statamic.antlers.hints` for blog/article context*
-
-> Based on your Article blueprint, here's a comprehensive blog template:
-> 
-> ```antlers
-> {{# Blog listing page #}}
-> <div class="blog-container">
->   <h1>Latest Articles</h1>
->   
->   {{ collection:articles sort="published_at:desc" limit="10" }}
->     <article class="blog-post">
->       <header>
->         <h2><a href="{{ url }}">{{ title }}</a></h2>
->         <div class="meta">
->           {{ if author }}
->             by {{ author:name }}
->           {{ /if }}
->           {{ if published_at }}
->             on {{ published_at format="F j, Y" }}
->           {{ /if }}
->         </div>
->       </header>
->       
->       {{ if featured_image }}
->         <img src="{{ featured_image:url }}" 
->              alt="{{ featured_image:alt ? featured_image:alt : title }}"
->              class="featured-image">
->       {{ /if }}
->       
->       <div class="content">
->         {{ content | truncate:200 }}
->       </div>
->       
->       {{ if categories }}
->         <div class="categories">
->           {{ categories }}
->             <span class="category">{{ title }}</span>
->           {{ /categories }}
->         </div>
->       {{ /if }}
->       
->       <a href="{{ url }}" class="read-more">Read More</a>
->     </article>
->   {{ /collection:articles }}
-> </div>
-> ```
-> 
-> **Available Variables:**
-> Based on your Article blueprint, you have access to:
-> - `title`, `slug`, `content` (Bard field)
-> - `author` (User relationship) 
-> - `categories` (Taxonomy)
-> - `featured_image` (Asset)
-> - `published_at` (Date)
-
-### "Validate this Antlers template"
-
-**User provides:**
-```antlers
-{{ title }}
-{{ author.name }}
-{{ content }}
-{{ category:title }}
+# Get Blade component hints
+curl -X POST http://localhost/mcp/statamic.development.blade-hints \
+  -d '{
+    "blueprint": "article",
+    "include_components": true,
+    "include_best_practices": true
+  }'
 ```
 
 **AI Response:**
-> Let me validate your Antlers template against your blueprints.
-
-*Uses `statamic.antlers.validate` with the provided template*
-
-> **Validation Results:**
-> 
-> ✅ **Valid:**
-> - `{{ title }}` - Available in Article blueprint
-> - `{{ content }}` - Available as Bard field
-> 
-> ⚠️ **Issues Found:**
-> 1. `{{ author.name }}` should be `{{ author:name }}`
->    - Use colon syntax for relationship fields
-> 
-> 2. `{{ category:title }}` should be `{{ categories }}{{ title }}{{ /categories }}`
->    - Field name is `categories` (plural)
->    - Multiple categories require loop syntax
-> 
-> **Corrected Template:**
-> ```antlers
-> {{ title }}
-> {{ if author }}{{ author:name }}{{ /if }}
-> {{ content }}
-> {{ categories }}
->   {{ title }}
-> {{ /categories }}
-> ```
-
-### "Lint this Blade template"
-
-**User provides:**
-```blade
-@php 
-$entries = Entry::all();
-$categories = \Statamic\Facades\Taxonomy::find('categories');
-@endphp
-
-<div>
-  @foreach($entries as $entry)
-    <h2>{{ $entry->title }}</h2>
-    <img src="{{ $entry->featured_image }}">
-  @endforeach
-</div>
-```
-
-**AI Response:**
-> I'll lint your Blade template for Statamic best practices.
-
-*Uses `statamic.blade.lint` with auto-fix suggestions*
-
-> **❌ Issues Found:**
-> 
-> 1. **Direct Facade Usage** (Line 2-3)
->    - Avoid `Entry::all()` and `\Statamic\Facades\Taxonomy::find()` in views
->    - Use Statamic Blade tags instead
-> 
-> 2. **Missing Alt Text** (Line 8)
->    - Images must have alt attributes for accessibility
-> 
-> 3. **Inline PHP** (Lines 1-4)
->    - Move data logic to controller or use Statamic tags
-> 
-> **✅ Auto-fix Suggestions:**
+> **Issues Found:**
+> 1. **Direct Facade Usage**: Replace `Entry::all()` with `<s:collection>` tag
+> 2. **Missing Security**: Escape output with `{{ }}` instead of `{!! !!}`
+>
+> **Auto-fix Suggestion:**
 > ```blade
 > <div>
->   <s:collection from="entries">
+>   <s:collection from="articles">
 >     <h2>{{ title }}</h2>
->     <img src="{{ featured_image:url }}" 
->          alt="{{ featured_image:alt ? featured_image:alt : title }}">
 >   </s:collection>
 > </div>
 > ```
-> 
-> **Improvements:**
-> - ✅ Uses `<s:collection>` tag instead of facade
-> - ✅ Proper alt text with fallback
-> - ✅ No inline PHP required
-> - ✅ Follows Statamic conventions
 
-## Field Type Exploration Conversations
+### Template Variable Analysis
 
-### "What's the difference between Replicator and Grid fields?"
+**Scenario**: Understanding available variables in templates.
+
+```bash
+# Extract variables from existing template
+curl -X POST http://localhost/mcp/statamic.templates.extract-variables \
+  -d '{
+    "template_path": "resources/views/blog/index.blade.php",
+    "include_dependencies": true,
+    "analyze_relationships": true
+  }'
+
+# Detect unused templates
+curl -X POST http://localhost/mcp/statamic.templates.detect-unused \
+  -d '{
+    "template_type": "antlers",
+    "include_partials": true
+  }'
+```
+
+## E-commerce Setup
+
+### Complete Product Catalog System
+
+**Scenario**: Building a comprehensive e-commerce solution.
+
+```bash
+# 1. Create product collection
+curl -X POST http://localhost/mcp/statamic.collections.create \
+  -d '{
+    "handle": "products",
+    "title": "Products",
+    "blueprint": "product",
+    "route": "/products/{slug}",
+    "sites": ["default"]
+  }'
+
+# 2. Create product blueprint with variants
+curl -X POST http://localhost/mcp/statamic.blueprints.create \
+  -d '{
+    "handle": "product",
+    "title": "Product",
+    "namespace": "collections",
+    "fields": [
+      {"handle": "name", "field": {"type": "text", "required": true}},
+      {"handle": "price", "field": {"type": "money", "required": true}},
+      {"handle": "sale_price", "field": {"type": "money"}},
+      {"handle": "description", "field": {"type": "markdown"}},
+      {"handle": "gallery", "field": {"type": "assets", "container": "products", "max_files": 10}},
+      {"handle": "variants", "field": {
+        "type": "replicator",
+        "sets": {
+          "variant": {
+            "display": "Product Variant",
+            "fields": [
+              {"handle": "name", "field": {"type": "text"}},
+              {"handle": "sku", "field": {"type": "text"}},
+              {"handle": "price", "field": {"type": "money"}},
+              {"handle": "stock", "field": {"type": "integer"}}
+            ]
+          }
+        }
+      }},
+      {"handle": "categories", "field": {"type": "taxonomy", "taxonomies": ["product_categories"]}},
+      {"handle": "featured", "field": {"type": "toggle"}},
+      {"handle": "in_stock", "field": {"type": "toggle", "default": true}}
+    ]
+  }'
+
+# 3. Create product categories taxonomy
+curl -X POST http://localhost/mcp/statamic.taxonomies.create \
+  -d '{
+    "handle": "product_categories",
+    "title": "Product Categories"
+  }'
+
+# 4. Bulk create products
+curl -X POST http://localhost/mcp/statamic.entries.batch_operation \
+  -d '{
+    "collection": "products",
+    "operation": "create",
+    "data": [
+      {
+        "name": "Wireless Headphones",
+        "price": 99.99,
+        "description": "High-quality wireless headphones",
+        "in_stock": true,
+        "featured": true
+      },
+      {
+        "name": "Bluetooth Speaker",
+        "price": 49.99,
+        "description": "Portable Bluetooth speaker",
+        "in_stock": true
+      }
+    ]
+  }'
+```
+
+## Multi-site Management
+
+### Managing Multiple Locales
+
+**Scenario**: Setting up and managing a multi-language website.
+
+```bash
+# Create additional site configurations
+curl -X POST http://localhost/mcp/statamic.sites.create \
+  -d '{
+    "handle": "danish",
+    "name": "Danish Site",
+    "url": "https://example.dk",
+    "locale": "da_DK"
+  }'
+
+curl -X POST http://localhost/mcp/statamic.sites.create \
+  -d '{
+    "handle": "german", 
+    "name": "German Site",
+    "url": "https://example.de",
+    "locale": "de_DE"
+  }'
+
+# List all sites with statistics
+curl -X POST http://localhost/mcp/statamic.sites.list \
+  -d '{
+    "include_stats": true
+  }'
+
+# Switch active site context
+curl -X POST http://localhost/mcp/statamic.sites.switch \
+  -d '{
+    "handle": "danish"
+  }'
+
+# Get entries for specific site
+curl -X POST http://localhost/mcp/statamic.entries.list \
+  -d '{
+    "collection": "articles",
+    "site": "danish",
+    "limit": 10
+  }'
+```
+
+### Global Variables Management
+
+**Scenario**: Managing site-wide settings across multiple languages.
+
+```bash
+# Create global set for site settings
+curl -X POST http://localhost/mcp/statamic.globals.sets.create \
+  -d '{
+    "handle": "site_settings",
+    "title": "Site Settings",
+    "blueprint": "site_settings"
+  }'
+
+# Update global values for specific site
+curl -X POST http://localhost/mcp/statamic.globals.update \
+  -d '{
+    "handle": "site_settings",
+    "site": "danish",
+    "data": {
+      "site_name": "Mit Website",
+      "contact_email": "kontakt@example.dk",
+      "phone": "+45 12 34 56 78"
+    }
+  }'
+
+# Get global values across all sites
+curl -X POST http://localhost/mcp/statamic.globals.values.list \
+  -d '{
+    "handle": "site_settings"
+  }'
+```
+
+## Form Processing
+
+### Advanced Form Management
+
+**Scenario**: Creating contact forms with validation and email notifications.
+
+```bash
+# Create contact form
+curl -X POST http://localhost/mcp/statamic.forms.create \
+  -d '{
+    "handle": "contact",
+    "title": "Contact Form",
+    "fields": [
+      {"handle": "name", "field": {"type": "text", "required": true, "display": "Full Name"}},
+      {"handle": "email", "field": {"type": "email", "required": true}},
+      {"handle": "subject", "field": {"type": "select", "options": ["General Inquiry", "Support", "Sales"]}},
+      {"handle": "message", "field": {"type": "textarea", "required": true}},
+      {"handle": "newsletter", "field": {"type": "checkboxes", "options": ["Subscribe to newsletter"]}}
+    ],
+    "email": {
+      "to": "admin@example.com",
+      "subject": "New Contact Form Submission",
+      "template": "emails.contact"
+    },
+    "store": true
+  }'
+
+# Get form submissions with analytics
+curl -X POST http://localhost/mcp/statamic.forms.submissions.stats \
+  -d '{
+    "form": "contact",
+    "period": "month",
+    "include_fields": true
+  }'
+
+# Export submissions for analysis
+curl -X POST http://localhost/mcp/statamic.forms.submissions.export \
+  -d '{
+    "form": "contact",
+    "format": "csv",
+    "date_range": {
+      "start": "2025-01-01",
+      "end": "2025-01-31"
+    }
+  }'
+```
+
+## Asset Management
+
+### Digital Asset Organization
+
+**Scenario**: Managing thousands of images and documents efficiently.
+
+```bash
+# List assets with filtering
+curl -X POST http://localhost/mcp/statamic.assets.list \
+  -d '{
+    "container": "main",
+    "type": "image",
+    "folder": "products",
+    "include_meta": true,
+    "limit": 50
+  }'
+
+# Batch rename assets
+curl -X POST http://localhost/mcp/statamic.assets.batch_operation \
+  -d '{
+    "container": "main",
+    "operation": "rename",
+    "assets": [
+      {"path": "old-image.jpg", "new_name": "product-hero-image.jpg"},
+      {"path": "temp-photo.png", "new_name": "category-banner.png"}
+    ]
+  }'
+
+# Move assets to organized folders
+curl -X POST http://localhost/mcp/statamic.assets.move \
+  -d '{
+    "container": "main",
+    "path": "uploads/random-image.jpg",
+    "destination_container": "main", 
+    "destination_path": "products/electronics/smartphone.jpg"
+  }'
+
+# Update asset metadata
+curl -X POST http://localhost/mcp/statamic.assets.update \
+  -d '{
+    "container": "main",
+    "path": "products/smartphone.jpg",
+    "meta": {
+      "title": "Latest Smartphone Model",
+      "alt": "Black smartphone with large display",
+      "description": "Product photo for e-commerce listing"
+    }
+  }'
+```
+
+## User Management
+
+### Role-Based Access Control
+
+**Scenario**: Setting up a team with different permission levels.
+
+```bash
+# Create custom roles
+curl -X POST http://localhost/mcp/statamic.roles.create \
+  -d '{
+    "handle": "content_editor",
+    "title": "Content Editor", 
+    "permissions": [
+      "view cp",
+      "edit entries",
+      "publish entries",
+      "edit assets"
+    ]
+  }'
+
+curl -X POST http://localhost/mcp/statamic.roles.create \
+  -d '{
+    "handle": "content_manager",
+    "title": "Content Manager",
+    "permissions": [
+      "view cp",
+      "edit entries",
+      "publish entries", 
+      "delete entries",
+      "edit assets",
+      "delete assets",
+      "edit blueprints"
+    ]
+  }'
+
+# Create users with roles
+curl -X POST http://localhost/mcp/statamic.users.create \
+  -d '{
+    "email": "editor@example.com",
+    "name": "Content Editor",
+    "roles": ["content_editor"],
+    "data": {
+      "bio": "Responsible for blog content",
+      "department": "Marketing"
+    }
+  }'
+
+# Create user groups for organization
+curl -X POST http://localhost/mcp/statamic.groups.create \
+  -d '{
+    "handle": "marketing_team",
+    "title": "Marketing Team",
+    "users": ["editor@example.com", "manager@example.com"]
+  }'
+
+# List users with filtering
+curl -X POST http://localhost/mcp/statamic.users.list \
+  -d '{
+    "role": "content_editor",
+    "active": true,
+    "limit": 20
+  }'
+```
+
+## Performance Optimization
+
+### Cache Management and Performance Monitoring
+
+**Scenario**: Optimizing a high-traffic Statamic website.
+
+```bash
+# Analyze current cache status
+curl -X POST http://localhost/mcp/statamic.system.cache.status \
+  -d '{
+    "include_sizes": true,
+    "include_stats": true
+  }'
+
+# Clear specific cache types
+curl -X POST http://localhost/mcp/statamic.system.cache.clear \
+  -d '{
+    "types": ["stache", "static"],
+    "force": false
+  }'
+
+# Advanced Stache management
+curl -X POST http://localhost/mcp/statamic.system.stache-management \
+  -d '{
+    "operation": "analyze",
+    "include_stats": true
+  }'
+
+# Monitor system performance
+curl -X POST http://localhost/mcp/statamic.system.performance-monitor \
+  -d '{
+    "duration": 30,
+    "include_queries": true,
+    "include_cache": true
+  }'
+
+# Search index optimization
+curl -X POST http://localhost/mcp/statamic.system.search-index-analyzer \
+  -d '{
+    "include_suggestions": true,
+    "rebuild": false
+  }'
+```
+
+**AI Response Example:**
+> **Performance Analysis Results:**
+> - **Cache Hit Rate**: 94% (excellent)
+> - **Average Response Time**: 245ms
+> - **Database Queries**: 12 avg per request (consider optimization)
+> - **Memory Usage**: 128MB avg (within limits)
+>
+> **Recommendations:**
+> 1. Enable static caching for anonymous users
+> 2. Implement image optimization pipeline
+> 3. Consider query optimization for entry relationships
+> 4. Set up Redis cache for sessions
+
+### Template Performance Analysis
+
+**Scenario**: Identifying and fixing slow templates.
+
+```bash
+# Analyze template performance
+curl -X POST http://localhost/mcp/statamic.templates.analyze-performance \
+  -d '{
+    "template_path": "resources/views/blog/index.blade.php",
+    "include_suggestions": true,
+    "benchmark_runs": 50
+  }'
+
+# Get optimization suggestions
+curl -X POST http://localhost/mcp/statamic.templates.suggest-optimizations \
+  -d '{
+    "template_path": "resources/views/products/index.antlers.html",
+    "performance_focus": true,
+    "accessibility_focus": true
+  }'
+```
 
 **AI Response:**
-> I'll explain the differences between Replicator and Grid field types.
+> **Template Performance Analysis:**
+> - **Average Render Time**: 89ms (slow)
+> - **Memory Usage**: 45MB per render
+> - **Bottlenecks**: 
+>   - N+1 query problem with product variants (45ms)
+>   - Large image processing (28ms)
+>   - Complex taxonomy queries (16ms)
+>
+> **Optimization Suggestions:**
+> 1. **Eager Load Relationships**: Use `with` parameter in collection tag
+> 2. **Image Optimization**: Implement responsive images with proper sizing
+> 3. **Query Caching**: Cache taxonomy queries for 1 hour
+> 4. **Pagination**: Limit products per page to 24 instead of 100
 
-*Uses `statamic.fieldtypes.list` for both field types with examples*
-
-> **Replicator vs Grid Field Types:**
-> 
-> **Replicator Field:**
-> - **Purpose**: Flexible, repeatable content blocks with different types
-> - **Structure**: Each item can be a different "set" with unique fields
-> - **Best for**: Mixed content like article sections, landing page builders
-> 
-> ```yaml
-> replicator_field:
->   type: replicator
->   sets:
->     text_block:
->       display: Text Block
->       fields:
->         - handle: heading
->           field: { type: text }
->         - handle: content
->           field: { type: markdown }
->     image_block:
->       display: Image
->       fields:
->         - handle: image
->           field: { type: assets }
->         - handle: caption
->           field: { type: text }
-> ```
-> 
-> **Grid Field:**
-> - **Purpose**: Uniform, tabular data with consistent columns
-> - **Structure**: Every row has the same field structure
-> - **Best for**: Tables, pricing tiers, team members
-> 
-> ```yaml
-> grid_field:
->   type: grid
->   fields:
->     - handle: name
->       field: { type: text }
->     - handle: position
->       field: { type: text }
->     - handle: email
->       field: { type: email }
->     - handle: photo
->       field: { type: assets, max_files: 1 }
-> ```
-> 
-> **When to Use:**
-> - **Replicator**: Variable content types (like page builders)
-> - **Grid**: Consistent data structures (like data tables)
-
-### "Show me all relationship field types"
-
-**AI Response:**
-> I'll list all field types that handle relationships.
-
-*Uses `statamic.fieldtypes.list` with category "relationships"*
-
-> **Relationship Field Types:**
-> 
-> **1. Entries**
-> - Links to other entries
-> - Can filter by collection
-> - Supports multiple selections
-> 
-> ```yaml
-> related_articles:
->   type: entries
->   collections: [blog, news]
->   max_items: 3
-> ```
-> 
-> **2. Taxonomy**
-> - Links to taxonomy terms
-> - Can specify which taxonomies
-> - Supports creation of new terms
-> 
-> ```yaml
-> categories:
->   type: taxonomy
->   taxonomies: [categories, tags]
->   create: true
-> ```
-> 
-> **3. Users**
-> - Links to user accounts
-> - Can filter by role/group
-> - Supports multiple selections
-> 
-> ```yaml
-> authors:
->   type: users
->   roles: [author, editor]
->   max_items: 2
-> ```
-> 
-> **4. Collections**
-> - References entire collections
-> - Used for navigation and organization
-> 
-> ```yaml
-> featured_collection:
->   type: collections
->   max_items: 1
-> ```
-> 
-> **5. Assets**
-> - Links to files/images
-> - Can specify container
-> - Supports upload and organization
-> 
-> ```yaml
-> gallery:
->   type: assets
->   container: images
->   folder: gallery
->   max_files: 10
-> ```
-
-## Advanced Workflow Conversations
-
-### "Set up a complete product catalog system"
-
-**AI Response:**
-> I'll help you design a complete product catalog system. Let me first analyze your current setup and then provide recommendations.
-
-*Uses multiple tools: `statamic.system.info`, `statamic.blueprints.scan`, `statamic.addons.scan`*
-
-> **Current Setup Analysis:**
-> - Statamic Pro (multi-site capable)
-> - No e-commerce addon detected
-> - File-based storage (suitable for products)
-> - Redis cache (good for performance)
-> 
-> **Recommended Architecture:**
-> 
-> **1. Install E-commerce Addon:**
-> ```bash
-> composer require doublethreedigital/simple-commerce
-> ```
-> 
-> **2. Product Blueprint:**
-> ```yaml
-> title: Product
-> fields:
->   - handle: title
->     field: { type: text, required: true }
->   - handle: slug
->     field: { type: slug, from: title }
->   - handle: price
->     field: { type: money, required: true }
->   - handle: sale_price
->     field: { type: money }
->   - handle: description
->     field: { type: markdown }
->   - handle: gallery
->     field: { type: assets, container: products, max_files: 10 }
->   - handle: variants
->     field:
->       type: replicator
->       sets:
->         variant:
->           fields:
->             - handle: name
->               field: { type: text }
->             - handle: price
->               field: { type: money }
->             - handle: sku
->               field: { type: text }
->             - handle: stock
->               field: { type: integer }
->   - handle: categories
->     field: { type: taxonomy, taxonomies: [product_categories] }
->   - handle: featured
->     field: { type: toggle }
->   - handle: in_stock
->     field: { type: toggle, default: true }
-> ```
-> 
-> **3. Category Taxonomy:**
-> ```yaml
-> title: Product Categories
-> handle: product_categories
-> ```
-> 
-> **4. Product Listing Template:**
-> ```blade
-> <div class="product-grid">
->   <s:collection from="products" sort="featured:desc|title:asc">
->     <div class="product-card">
->       <a href="{{ url }}">
->         @if($gallery)
->           <img src="{{ gallery.0:url }}" alt="{{ gallery.0:alt ?? title }}">
->         @endif
->         <h3>{{ title }}</h3>
->         <p class="price">
->           @if($sale_price)
->             <span class="sale">${{ sale_price }}</span>
->             <span class="original">${{ price }}</span>
->           @else
->             ${{ price }}
->           @endif
->         </p>
->       </a>
->     </div>
->   </s:collection>
-> </div>
-> ```
-> 
-> **Next Steps:**
-> 1. Create the product blueprint
-> 2. Set up product categories taxonomy  
-> 3. Create product listing and detail templates
-> 4. Configure Simple Commerce for cart/checkout
-> 5. Add search and filtering functionality
-
-This comprehensive example shows how the MCP server can provide end-to-end development assistance, from system analysis to complete feature implementation.
+This comprehensive set of examples demonstrates how the 135 MCP tools can be used to build, manage, and optimize complex Statamic applications efficiently. Each tool provides specific functionality while working together as a cohesive system for complete CMS management.
