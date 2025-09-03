@@ -1,0 +1,187 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Call to an undefined method DOMNode\:\:getAttribute\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: src/Mcp/Tools/Services/DocumentationContentService.php
+
+		-
+			message: '#^Cannot access property \$length on DOMNodeList\<DOMNode\>\|false\.$#'
+			identifier: property.nonObject
+			count: 1
+			path: src/Mcp/Tools/Services/DocumentationContentService.php
+
+		-
+			message: '#^Cannot call method item\(\) on DOMNodeList\<DOMNode\>\|false\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: src/Mcp/Tools/Services/DocumentationContentService.php
+
+		-
+			message: '#^Method Cboxdk\\StatamicMcp\\Mcp\\Tools\\Services\\DocumentationContentService\:\:extractContentFromHTML\(\) has parameter \$docInfo with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Mcp/Tools/Services/DocumentationContentService.php
+
+		-
+			message: '#^Method Cboxdk\\StatamicMcp\\Mcp\\Tools\\Services\\DocumentationContentService\:\:extractContentFromHTML\(\) should return string but returns string\|null\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Mcp/Tools/Services/DocumentationContentService.php
+
+		-
+			message: '#^Method Cboxdk\\StatamicMcp\\Mcp\\Tools\\Services\\DocumentationContentService\:\:fetchContent\(\) has parameter \$docInfo with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Mcp/Tools/Services/DocumentationContentService.php
+
+		-
+			message: '#^Method Cboxdk\\StatamicMcp\\Mcp\\Tools\\Services\\DocumentationContentService\:\:fetchUrl\(\) should return string\|null but returns string\|true\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Mcp/Tools/Services/DocumentationContentService.php
+
+		-
+			message: '#^Method Cboxdk\\StatamicMcp\\Mcp\\Tools\\Services\\DocumentationContentService\:\:generateCoreContent\(\) has parameter \$docInfo with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Mcp/Tools/Services/DocumentationContentService.php
+
+		-
+			message: '#^Method Cboxdk\\StatamicMcp\\Mcp\\Tools\\Services\\DocumentationContentService\:\:generateFieldTypeContent\(\) has parameter \$docInfo with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Mcp/Tools/Services/DocumentationContentService.php
+
+		-
+			message: '#^Method Cboxdk\\StatamicMcp\\Mcp\\Tools\\Services\\DocumentationContentService\:\:generateMockContent\(\) has parameter \$docInfo with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Mcp/Tools/Services/DocumentationContentService.php
+
+		-
+			message: '#^Method Cboxdk\\StatamicMcp\\Mcp\\Tools\\Services\\DocumentationContentService\:\:generateTagContent\(\) has parameter \$docInfo with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Mcp/Tools/Services/DocumentationContentService.php
+
+		-
+			message: '#^Parameter \#1 \$node of method Cboxdk\\StatamicMcp\\Mcp\\Tools\\Services\\DocumentationContentService\:\:nodeToMarkdown\(\) expects DOMNode, DOMNode\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Mcp/Tools/Services/DocumentationContentService.php
+
+		-
+			message: '#^Parameter \#1 \$string of function trim expects string, string\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Mcp/Tools/Services/DocumentationContentService.php
+
+		-
+			message: '#^Method Cboxdk\\StatamicMcp\\Mcp\\Tools\\Services\\DocumentationMapService\:\:fetchUrl\(\) should return string\|null but returns string\|true\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Mcp/Tools/Services/DocumentationMapService.php
+
+		-
+			message: '#^Method Cboxdk\\StatamicMcp\\Mcp\\Tools\\Services\\DocumentationMapService\:\:generateAddonUrls\(\) has parameter \$config with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Mcp/Tools/Services/DocumentationMapService.php
+
+		-
+			message: '#^Method Cboxdk\\StatamicMcp\\Mcp\\Tools\\Services\\DocumentationMapService\:\:inferDocumentationInfo\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Mcp/Tools/Services/DocumentationMapService.php
+
+		-
+			message: '#^Argument of an invalid type list\<string\>\|false supplied for foreach, only iterables are supported\.$#'
+			identifier: foreach.nonIterable
+			count: 1
+			path: src/Mcp/Tools/Services/DocumentationSearchService.php
+
+		-
+			message: '#^Method Cboxdk\\StatamicMcp\\Mcp\\Tools\\Services\\DocumentationSearchService\:\:calculateRelevance\(\) has parameter \$docInfo with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Mcp/Tools/Services/DocumentationSearchService.php
+
+		-
+			message: '#^Method Cboxdk\\StatamicMcp\\Mcp\\Tools\\Services\\DocumentationSearchService\:\:calculateRelevance\(\) has parameter \$searchTerms with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Mcp/Tools/Services/DocumentationSearchService.php
+
+		-
+			message: '#^Method Cboxdk\\StatamicMcp\\Mcp\\Tools\\Services\\DocumentationSearchService\:\:createExcerpt\(\) has parameter \$searchTerms with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Mcp/Tools/Services/DocumentationSearchService.php
+
+		-
+			message: '#^Parameter \#1 \$array of function array_filter expects array, list\<string\>\|false given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Mcp/Tools/Services/DocumentationSearchService.php
+
+		-
+			message: '#^Parameter \#1 \$string of function strlen expects string, string\|false given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Mcp/Tools/Services/DocumentationSearchService.php
+
+		-
+			message: '#^Parameter \#3 \$subject of function preg_replace expects array\<float\|int\|string\>\|string, string\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Mcp/Tools/Services/DocumentationSearchService.php
+
+		-
+			message: '#^Cannot access offset 0 on list\<string\>\|false\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/Mcp/Tools/Strategies/SyntaxValidationStrategy.php
+
+		-
+			message: '#^Empty array passed to foreach\.$#'
+			identifier: foreach.emptyArray
+			count: 1
+			path: src/Mcp/Tools/Strategies/TagValidationStrategy.php
+
+		-
+			message: '#^Parameter \#1 \$param of method Cboxdk\\StatamicMcp\\Mcp\\Tools\\Strategies\\TagValidationStrategy\:\:getSimilarParameters\(\) expects string, int\|string given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Mcp/Tools/Strategies/TagValidationStrategy.php
+
+		-
+			message: '#^Method Cboxdk\\StatamicMcp\\Mcp\\Tools\\Strategies\\ValidationStrategy\:\:appliesTo\(\) has parameter \$content with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Mcp/Tools/Strategies/ValidationStrategy.php
+
+		-
+			message: '#^Method Cboxdk\\StatamicMcp\\Mcp\\Tools\\Strategies\\ValidationStrategy\:\:appliesTo\(\) has parameter \$context with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Mcp/Tools/Strategies/ValidationStrategy.php
+
+		-
+			message: '#^Method Cboxdk\\StatamicMcp\\Mcp\\Tools\\Strategies\\ValidationStrategy\:\:validate\(\) has parameter \$content with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Mcp/Tools/Strategies/ValidationStrategy.php
+
+		-
+			message: '#^Method Cboxdk\\StatamicMcp\\Mcp\\Tools\\Strategies\\ValidationStrategy\:\:validate\(\) has parameter \$context with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Mcp/Tools/Strategies/ValidationStrategy.php
+
+		-
+			message: '#^Method Cboxdk\\StatamicMcp\\Mcp\\Tools\\Strategies\\ValidationStrategy\:\:validate\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Mcp/Tools/Strategies/ValidationStrategy.php

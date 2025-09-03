@@ -1,0 +1,94 @@
+<?php
+
+/**
+ * @param string|null $key
+ * @param mixed $default
+ * @return mixed|\Illuminate\Contracts\Foundation\Application
+ */
+function config($key = null, $default = null)
+{
+    return $key ? $default : app('config');
+}
+
+/**
+ * @param string|null $abstract
+ * @param array $parameters
+ * @return mixed|\Illuminate\Contracts\Foundation\Application
+ */
+function app($abstract = null, array $parameters = [])
+{
+    return $abstract ? resolve($abstract, $parameters) : \Illuminate\Container\Container::getInstance();
+}
+
+/**
+ * @param string $path
+ * @return string
+ */
+function base_path($path = '')
+{
+    return '/path/to/base' . ($path ? '/' . $path : '');
+}
+
+/**
+ * @param string $path
+ * @return string
+ */
+function resource_path($path = '')
+{
+    return '/path/to/resources' . ($path ? '/' . $path : '');
+}
+
+/**
+ * @param string $path
+ * @return string
+ */
+function storage_path($path = '')
+{
+    return '/path/to/storage' . ($path ? '/' . $path : '');
+}
+
+/**
+ * @param string $path
+ * @return string
+ */
+function public_path($path = '')
+{
+    return '/path/to/public' . ($path ? '/' . $path : '');
+}
+
+/**
+ * @param string $path
+ * @return string
+ */
+function config_path($path = '')
+{
+    return '/path/to/config' . ($path ? '/' . $path : '');
+}
+
+/**
+ * @return \Carbon\Carbon
+ */
+function now()
+{
+    return \Carbon\Carbon::now();
+}
+
+namespace Illuminate\Support\Facades;
+
+/**
+ * @method static void call(string $command, array $parameters = [])
+ */
+class Artisan
+{
+}
+
+/**
+ * @method static mixed store(string $key = null)
+ * @method static bool put(string $key, mixed $value, int $seconds = null)
+ * @method static mixed get(string $key, mixed $default = null)
+ * @method static bool forget(string $key)
+ * @method static bool flush()
+ */
+class Cache
+{
+}

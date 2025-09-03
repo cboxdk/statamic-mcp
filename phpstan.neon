@@ -1,0 +1,62 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+    - phpstan-baseline.neon
+
+parameters:
+    level: 8
+    paths:
+        - src
+    excludePaths:
+        - src/Console/InstallCommand.php
+    ignoreErrors:
+        # Allow dynamic properties for Statamic facades
+        - '#Access to an undefined property Statamic\\.*::\$.*#'
+        # Allow calls to undefined methods on Statamic facades
+        - '#Call to an undefined method Statamic\\.*::.*#'
+        # Allow undefined classes for optional Statamic features
+        - '#Class [\\A-Za-z0-9_]+\\Statamic[\\A-Za-z0-9_]+ not found#'
+        # Allow undefined classes in match expressions for optional features
+        - '#Undefined class \\Statamic\\.*#'
+        # Allow reflection-based calls
+        - '#Parameter .* of method .* expects .*, mixed given#'
+        # Allow array access on potentially undefined arrays
+        - '#Offset .* does not exist on array.*#'
+        # Allow config() helper with dynamic keys
+        - '#Function config invoked with .* parameters, 0-2 required#'
+        # Allow Laravel helper functions
+        - '#Function app invoked with .* parameters, 0-1 required#'
+        # Allow method chaining on potentially null values for Statamic models
+        - '#Cannot call method .* on .*\|null#'
+        # Allow dynamic calls for MCP tool registration
+        - '#Call to an undefined static method Laravel\\Mcp\\.*#'
+        # Allow MCP prompt class extensions  
+        - '#Class Cboxdk\\StatamicMcp\\Mcp\\Prompts\\PageBuilderFieldsetsPrompt extends unknown class Laravel\\Mcp\\Server\\Prompts\\Prompt#'
+        # Allow mixed types in tool results
+        - '#Method .* should return .* but returns mixed#'
+        # Allow isset() on potentially undefined array keys
+        - '#Offset string does not exist on array.*#'
+        # Allow Statamic form contract comparisons to null
+        - '#Strict comparison using === between Statamic\\Contracts\\Forms\\.*Form and null will always evaluate to false#'
+        - '#Strict comparison using === between Statamic\\Contracts\\Forms\\.*Submission and null will always evaluate to false#'
+        # Allow unresolvable types from Statamic contracts
+        - '#Call to method .* on an unknown class Statamic\\Contracts\\Forms\\.*#'
+        - '#Parameter .* contains unresolvable type#'
+        - '#Return type .* contains unresolvable type#'
+        - '#Unable to resolve the template type .* in call to method.*#'
+        # Allow validation array comparisons in entry tools
+        - '#Strict comparison using === between array\{\} and array\{\} will always evaluate to true#'
+
+    reportUnmatchedIgnoredErrors: false
+
+    bootstrapFiles:
+        - tests/bootstrap.php
+
+    # Statamic and Laravel specific stubs
+    # stubFiles:
+    #     - stubs/statamic.stub
+    #     - stubs/laravel.stub
+
+    # Enable parallel processing
+    parallel:
+        jobSize: 20
+        processTimeout: 600.0

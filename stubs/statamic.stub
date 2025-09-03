@@ -1,0 +1,143 @@
+<?php
+
+namespace Statamic\Facades;
+
+/**
+ * @method static \Statamic\Contracts\Entries\Entry make()
+ * @method static \Statamic\Contracts\Entries\Entry find(string $id)
+ * @method static \Statamic\Entries\EntryCollection all()
+ * @method static \Statamic\Entries\EntryQueryBuilder query()
+ */
+class Entry
+{
+}
+
+/**
+ * @method static \Statamic\Fields\Blueprint make(string $handle = null)
+ * @method static \Statamic\Fields\Blueprint find(string $handle)
+ * @method static \Illuminate\Support\Collection all()
+ */
+class Blueprint
+{
+}
+
+/**
+ * @method static \Statamic\Contracts\Taxonomies\Taxonomy make(string $handle = null)
+ * @method static \Statamic\Contracts\Taxonomies\Taxonomy findByHandle(string $handle)
+ * @method static \Statamic\Taxonomies\TaxonomyCollection all()
+ */
+class Taxonomy
+{
+}
+
+/**
+ * @method static \Statamic\Contracts\Taxonomies\Term make()
+ * @method static \Statamic\Contracts\Taxonomies\Term find(string $id)
+ * @method static \Statamic\Terms\TermCollection all()
+ * @method static \Statamic\Terms\TermQueryBuilder query()
+ */
+class Term
+{
+}
+
+/**
+ * @method static \Statamic\Contracts\Collections\Collection make(string $handle = null)
+ * @method static \Statamic\Contracts\Collections\Collection findByHandle(string $handle)
+ * @method static \Statamic\Collections\CollectionRepository all()
+ */
+class Collection
+{
+}
+
+/**
+ * @method static \Statamic\Contracts\Assets\AssetContainer make(string $handle = null)
+ * @method static \Statamic\Contracts\Assets\AssetContainer find(string $handle)
+ * @method static \Statamic\Assets\AssetContainerCollection all()
+ */
+class AssetContainer
+{
+}
+
+/**
+ * @method static \Statamic\Contracts\Forms\Form make(string $handle = null)
+ * @method static \Statamic\Contracts\Forms\Form find(string $handle)
+ * @method static \Statamic\Forms\FormCollection all()
+ */
+class Form
+{
+}
+
+/**
+ * @method static \Statamic\Contracts\Globals\GlobalSet make(string $handle = null)
+ * @method static \Statamic\Contracts\Globals\GlobalSet findByHandle(string $handle)
+ * @method static \Statamic\Globals\GlobalCollection all()
+ */
+class GlobalSet
+{
+}
+
+/**
+ * @method static \Statamic\Contracts\Structures\Nav make(string $handle = null)
+ * @method static \Statamic\Contracts\Structures\Nav find(string $handle)
+ * @method static \Statamic\Structures\NavCollection all()
+ * @method static \Statamic\Contracts\Structures\Nav findByHandle(string $handle)
+ */
+class Nav
+{
+}
+
+/**
+ * @method static \Statamic\Contracts\Auth\User make()
+ * @method static \Statamic\Contracts\Auth\User find(string $id)
+ * @method static \Statamic\Auth\UserCollection all()
+ * @method static \Statamic\Auth\UserQueryBuilder query()
+ */
+class User
+{
+}
+
+/**
+ * @method static \Statamic\Contracts\Auth\UserGroup make(string $handle = null)
+ * @method static \Statamic\Contracts\Auth\UserGroup find(string $handle)
+ * @method static \Statamic\Auth\UserGroupCollection all()
+ */
+class UserGroup
+{
+}
+
+/**
+ * @method static \Statamic\Contracts\Permissions\Permission make(string $value)
+ * @method static \Illuminate\Support\Collection all()
+ * @method static array tree()
+ */
+class Permission
+{
+}
+
+/**
+ * @method static \Statamic\Sites\Site make(string $handle = null)
+ * @method static \Statamic\Sites\Site find(string $handle)
+ * @method static \Statamic\Sites\Sites all()
+ * @method static \Statamic\Sites\Site default()
+ * @method static \Statamic\Sites\Site current()
+ */
+class Site
+{
+}
+
+/**
+ * @method static void clear()
+ * @method static void warm()
+ * @method static \Statamic\Stache\Stache store()
+ */
+class Stache
+{
+}
+
+/**
+ * @method static string version()
+ * @method static bool pro()
+ */
+class Statamic
+{
+}

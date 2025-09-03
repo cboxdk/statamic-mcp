@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    
+    name: Create Release
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: 8.4
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, imagick
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress --no-dev
+
+      - name: Create temporary .env file
+        run: echo "APP_KEY=base64:SGk1bGF2ZWw=" > .env
+
+      - name: Run tests
+        run: ./vendor/bin/pest --parallel
+
+      - name: Fix code formatting
+        run: ./vendor/bin/pint
+
+      - name: Run static analysis
+        run: ./vendor/bin/phpstan analyse
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          if [ -f CHANGELOG.md ]; then
+            # Extract changelog for this version
+            awk '/^## \[/{if(p) exit; if(/\[${{ github.ref_name }}\]/) p=1; next} p' CHANGELOG.md > release_notes.txt
+          else
+            echo "Automated release for ${{ github.ref_name }}" > release_notes.txt
+          fi
+
+      - name: Create Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: Release ${{ github.ref_name }}
+          body_path: release_notes.txt
+          draft: false
+          prerelease: false

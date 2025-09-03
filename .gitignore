@@ -1,0 +1,10 @@
+node_modules
+vendor
+composer.lock
+.phpunit.result.cache
+/.idea
+
+# Testing
+.phpunit.cache
+.pest-mutate-cache
+tests/__fixtures__/**

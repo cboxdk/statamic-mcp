@@ -1,0 +1,56 @@
+{
+    "name": "cboxdk/statamic-mcp",
+    "autoload": {
+        "psr-4": {
+            "Cboxdk\\StatamicMcp\\": "src"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Cboxdk\\StatamicMcp\\Tests\\": "tests"
+        }
+    },
+    "require": {
+        "statamic/cms": "^5.0",
+        "laravel/mcp": "^0.1.1",
+        "symfony/yaml": "^7.3"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^9.0",
+        "pestphp/pest": "^4.0@dev",
+        "pestphp/pest-plugin-laravel": "^4.0@dev",
+        "laravel/pint": "^1.17",
+        "larastan/larastan": "^3.0"
+    },
+    "scripts": {
+        "test": "pest --parallel",
+        "test:coverage": "pest --parallel --coverage",
+        "pint": "pint",
+        "pint:test": "pint --test",
+        "stan": "phpstan analyse",
+        "quality": [
+            "@pint",
+            "@stan",
+            "@test"
+        ]
+    },
+    "config": {
+        "allow-plugins": {
+            "pixelfear/composer-dist-plugin": true,
+            "pestphp/pest-plugin": true
+        }
+    },
+    "extra": {
+        "statamic": {
+            "name": "Statamic Mcp",
+            "description": "Statamic Mcp addon"
+        },
+        "laravel": {
+            "providers": [
+                "Cboxdk\\StatamicMcp\\ServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}

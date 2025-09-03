@@ -1,0 +1,25 @@
+{
+    "preset": "laravel",
+    "rules": {
+        "method_chaining_indentation": true,
+        "multiline_whitespace_before_semicolons": {
+            "strategy": "no_multi_line"
+        },
+        "single_trait_insert_per_statement": true,
+        "blank_line_before_statement": {
+            "statements": [
+                "return"
+            ]
+        },
+        "concat_space": {
+            "spacing": "one"
+        },
+        "ordered_imports": {
+            "sort_algorithm": "alpha"
+        },
+        "php_unit_fqcn_annotation": true,
+        "phpdoc_separation": true,
+        "phpdoc_single_line_var_spacing": true,
+        "trailing_comma_in_multiline": true
+    }
+}
