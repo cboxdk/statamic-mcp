@@ -156,13 +156,13 @@ class CreateEntryTool extends BaseStatamicTool
         // Check for existing entry with same slug (aggressive check for parallel execution)
         \Statamic\Facades\Stache::refresh();
         $existingEntry = Entry::query()->where('collection', $collectionHandle)->where('slug', $slug)->first();
-        
+
         // Additional check using Entry::find as fallback
-        if (!$existingEntry) {
+        if (! $existingEntry) {
             $entryId = "{$collectionHandle}::{$slug}";
             $existingEntry = Entry::find($entryId);
         }
-        
+
         if ($existingEntry) {
             return $this->createErrorResponse("Entry with slug '{$slug}' already exists in collection '{$collectionHandle}'")->toArray();
         }
