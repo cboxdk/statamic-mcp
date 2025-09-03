@@ -70,9 +70,9 @@ class GetGlobalValuesTool extends BaseStatamicTool
 
         try {
             // Validate site
-            if (! Site::all()->map->handle()->contains($siteHandle)) {
+            if (! Site::all()->map(fn ($item) => $item->handle())->contains($siteHandle)) {
                 return $this->createErrorResponse("Site '{$siteHandle}' not found", [
-                    'available_sites' => Site::all()->map->handle()->all(),
+                    'available_sites' => Site::all()->map(fn ($item) => $item->handle())->all(),
                 ])->toArray();
             }
 
@@ -80,7 +80,7 @@ class GetGlobalValuesTool extends BaseStatamicTool
 
             if (! $globalSet) {
                 return $this->createErrorResponse("Global set '{$globalSetHandle}' not found", [
-                    'available_sets' => GlobalSet::all()->map->handle()->all(),
+                    'available_sets' => GlobalSet::all()->map(fn ($item) => $item->handle())->all(),
                 ])->toArray();
             }
 

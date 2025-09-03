@@ -90,7 +90,7 @@ class UpdateRoleTool extends BaseStatamicTool
 
             if (! $role) {
                 return $this->createErrorResponse("Role '{$handle}' not found", [
-                    'available_roles' => Role::all()->map->handle()->all(),
+                    'available_roles' => Role::all()->map(fn ($item) => $item->handle())->all(),
                 ])->toArray();
             }
 
@@ -292,7 +292,7 @@ class UpdateRoleTool extends BaseStatamicTool
                         'is_super' => $user->isSuper(),
                         'other_roles' => $user->roles()
                             ->filter(fn ($r) => $r->handle() !== $roleHandle)
-                            ->map->handle()
+                            ->map(fn ($item) => $item->handle())
                             ->all(),
                     ];
                 })->all();

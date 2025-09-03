@@ -56,7 +56,7 @@ class ToolCache
             'result' => $result,
             'cached_at' => Carbon::now()->toIso8601String(),
             'dependencies' => $dependencies,
-            'statamic_version' => app('statamic.version'),
+            'statamic_version' => \Statamic\Statamic::version(),
         ];
 
         Cache::put($key, $cachedData, $ttl);
@@ -92,7 +92,7 @@ class ToolCache
         }
 
         // Check if Statamic version changed
-        if (($cached['statamic_version'] ?? '') !== app('statamic.version')) {
+        if (($cached['statamic_version'] ?? '') !== \Statamic\Statamic::version()) {
             ToolLogger::cacheEvent($toolName, 'cache_invalidated', $key, ['reason' => 'version_changed']);
             self::forget($toolName, 'discovery');
 

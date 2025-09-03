@@ -83,10 +83,17 @@ class CreateSiteTool extends BaseStatamicTool
         $attributes = $arguments['attributes'] ?? [];
 
         try {
-            // Check if site already exists
-            if (Site::get($handle)) {
+            // Check if site already exists by reading current config
+            $configPath = config_path('statamic/sites.php');
+            $existingSites = [];
+            if (file_exists($configPath)) {
+                $sitesConfig = include $configPath;
+                $existingSites = array_keys($sitesConfig['sites'] ?? []);
+            }
+
+            if (in_array($handle, $existingSites)) {
                 return $this->createErrorResponse("Site with handle '{$handle}' already exists", [
-                    'existing_sites' => Site::all()->map->handle()->all(),
+                    'existing_sites' => $existingSites,
                 ])->toArray();
             }
 
@@ -114,16 +121,28 @@ class CreateSiteTool extends BaseStatamicTool
 
             // Write config to file
             $configPath = config_path('statamic/sites.php');
+            $configDir = dirname($configPath);
+
+            // Ensure config directory exists
+            if (! is_dir($configDir)) {
+                mkdir($configDir, 0755, true);
+            }
+
             $configContent = "<?php\n\nreturn " . var_export($sitesConfig, true) . ";\n";
 
             if (! file_put_contents($configPath, $configContent)) {
                 return $this->createErrorResponse('Failed to write sites configuration file')->toArray();
             }
 
-            // Clear caches
+            // Clear caches and reload configuration
             Stache::clear();
-            if (function_exists('config_clear')) {
-                config_clear();
+
+            // Force reload of site configuration
+            app('config')->set('statamic.sites', include $configPath);
+
+            // Clear Laravel config cache
+            if (app()->has('cache')) {
+                app('cache')->forget('config.statamic.sites');
             }
 
             // Create the site object for response

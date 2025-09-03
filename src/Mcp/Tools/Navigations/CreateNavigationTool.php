@@ -7,6 +7,7 @@ use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
 use Laravel\Mcp\Server\Tools\Annotations\Title;
 use Laravel\Mcp\Server\Tools\ToolInputSchema;
 use Statamic\Facades\Nav;
+use Statamic\Facades\Site;
 
 #[Title('Create Statamic Navigation')]
 class CreateNavigationTool extends BaseStatamicTool
@@ -78,6 +79,18 @@ class CreateNavigationTool extends BaseStatamicTool
             return $this->createErrorResponse("Navigation '{$handle}' already exists")->toArray();
         }
 
+        // Validate sites
+        if (! empty($sites)) {
+            $availableSites = Site::all()->map(fn ($site) => $site->handle())->all();
+            $invalidSites = array_diff($sites, $availableSites);
+            if (! empty($invalidSites)) {
+                return $this->createErrorResponse('Invalid site handles provided', [
+                    'invalid_sites' => $invalidSites,
+                    'available_sites' => $availableSites,
+                ])->toArray();
+            }
+        }
+
         $config = [
             'title' => $title,
             'sites' => $sites,
@@ -144,7 +157,7 @@ class CreateNavigationTool extends BaseStatamicTool
                     'title' => $nav->title(),
                     'sites' => $nav->sites(),
                     'blueprint' => $nav->blueprint()?->handle(),
-                    'collections' => $nav->collections()?->map->handle()->all() ?? [],
+                    'collections' => $nav->collections()?->map(fn ($item) => $item->handle())->all() ?? [],
                     'max_depth' => $nav->maxDepth(),
                     'expects_root' => $nav->expectsRoot(),
                 ],

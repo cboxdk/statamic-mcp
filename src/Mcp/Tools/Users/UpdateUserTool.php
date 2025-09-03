@@ -113,7 +113,7 @@ class UpdateUserTool extends BaseStatamicTool
             $originalData = [
                 'email' => $user->email(),
                 'name' => $user->name(),
-                'roles' => $user->roles()->map->handle()->all(),
+                'roles' => $user->roles()->map(fn ($item) => $item->handle())->all(),
                 'is_super' => $user->isSuper(),
             ];
 
@@ -168,7 +168,7 @@ class UpdateUserTool extends BaseStatamicTool
                 $changes['roles'] = ['from' => $originalData['roles'], 'to' => $validRoles];
             } else {
                 // Add/remove individual roles
-                $currentRoles = $user->roles()->map->handle()->all();
+                $currentRoles = $user->roles()->map(fn ($item) => $item->handle())->all();
 
                 if (! empty($addRoles)) {
                     $validAddRoles = $this->validateRoles($addRoles);
@@ -242,7 +242,7 @@ class UpdateUserTool extends BaseStatamicTool
                     'id' => $user->id(),
                     'email' => $user->email(),
                     'name' => $user->name(),
-                    'roles' => $user->roles()->map->handle()->all(),
+                    'roles' => $user->roles()->map(fn ($item) => $item->handle())->all(),
                     'is_super' => $user->isSuper(),
                     'is_activated' => $user->isActivated() ?? true,
                 ],
@@ -269,7 +269,7 @@ class UpdateUserTool extends BaseStatamicTool
             $role = Role::find($roleHandle);
             if (! $role) {
                 return $this->createErrorResponse("Role '{$roleHandle}' not found", [
-                    'available_roles' => Role::all()->map->handle()->all(),
+                    'available_roles' => Role::all()->map(fn ($item) => $item->handle())->all(),
                 ])->toArray();
             }
             $validRoles[] = $roleHandle;

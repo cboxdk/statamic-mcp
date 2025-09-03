@@ -57,7 +57,7 @@ class GetTaxonomyTool extends BaseStatamicTool
                 'sites' => $taxonomy->sites(),
                 'blueprint' => $taxonomy->blueprint()?->handle(),
                 'path' => $taxonomy->path(),
-                'collections' => $taxonomy->collections()?->map->handle()->all() ?? [],
+                'collections' => $taxonomy->collections()?->map(fn ($item) => $item->handle())->all() ?? [],
                 'preview_targets' => $taxonomy->previewTargets(),
             ];
 

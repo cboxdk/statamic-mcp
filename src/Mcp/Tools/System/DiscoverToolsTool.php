@@ -29,7 +29,7 @@ class DiscoverToolsTool extends BaseStatamicTool
      */
     protected function getToolDescription(): string
     {
-        return 'Discover all available MCP tools with their schemas, parameters, and examples';
+        return 'Discover available MCP tools with pagination support. Supports filtering by domain/action, search, and optional schemas/examples. Use limit/offset for pagination.';
     }
 
     /**
@@ -55,6 +55,12 @@ class DiscoverToolsTool extends BaseStatamicTool
             ->optional()
             ->string('search')
             ->description('Search tools by name or description')
+            ->optional()
+            ->integer('limit')
+            ->description('Maximum number of tools to return (default: 50, max: 100)')
+            ->optional()
+            ->integer('offset')
+            ->description('Number of tools to skip (for pagination)')
             ->optional();
     }
 
@@ -73,21 +79,42 @@ class DiscoverToolsTool extends BaseStatamicTool
         $includeExamples = $arguments['include_examples'] ?? false;
         $includeAnnotations = $arguments['include_annotations'] ?? false;
         $search = $arguments['search'] ?? null;
+        $limit = min($arguments['limit'] ?? 50, 100); // Default 50, max 100
+        $offset = max($arguments['offset'] ?? 0, 0);
 
         try {
             $allTools = $this->discoverAllTools();
             $filteredTools = $this->filterTools($allTools, $domain, $action, $search);
+            $totalFilteredCount = (int) count($filteredTools);
+
+            // Apply pagination
+            $paginatedTools = array_slice($filteredTools, $offset, $limit);
+            $returnedCount = (int) count($paginatedTools);
 
             $toolCatalog = [];
             $statistics = [
-                'total_tools' => 0,
+                'total_tools' => $totalFilteredCount,
+                'returned_tools' => 0,
                 'domains' => [],
                 'actions' => [],
                 'readonly_tools' => 0,
                 'write_tools' => 0,
             ];
 
+            // Calculate statistics from ALL filtered tools (not just paginated)
             foreach ($filteredTools as $toolData) {
+                $statistics['domains'][$toolData['domain']] = ($statistics['domains'][$toolData['domain']] ?? 0) + 1;
+                $statistics['actions'][$toolData['action']] = ($statistics['actions'][$toolData['action']] ?? 0) + 1;
+
+                if (in_array('IsReadOnly', $toolData['annotations'])) {
+                    $statistics['readonly_tools']++;
+                } else {
+                    $statistics['write_tools']++;
+                }
+            }
+
+            // Process only paginated tools for response
+            foreach ($paginatedTools as $toolData) {
                 $toolInfo = [
                     'name' => $toolData['name'],
                     'description' => $toolData['description'],
@@ -109,22 +136,20 @@ class DiscoverToolsTool extends BaseStatamicTool
                 }
 
                 $toolCatalog[] = $toolInfo;
-
-                // Update statistics
-                $statistics['total_tools']++;
-                $statistics['domains'][$toolData['domain']] = ($statistics['domains'][$toolData['domain']] ?? 0) + 1;
-                $statistics['actions'][$toolData['action']] = ($statistics['actions'][$toolData['action']] ?? 0) + 1;
-
-                if (in_array('IsReadOnly', $toolData['annotations'])) {
-                    $statistics['readonly_tools']++;
-                } else {
-                    $statistics['write_tools']++;
-                }
+                $statistics['returned_tools']++;
             }
 
-            return [
+            $response = [
                 'tools' => $toolCatalog,
                 'statistics' => $statistics,
+                'pagination' => [
+                    'total_count' => $totalFilteredCount,
+                    'returned_count' => $returnedCount,
+                    'offset' => $offset,
+                    'limit' => $limit,
+                    'has_more' => (int) ($offset + $limit) < $totalFilteredCount,
+                    'next_offset' => ((int) ($offset + $limit) < $totalFilteredCount) ? (int) ($offset + $limit) : null,
+                ],
                 'meta' => [
                     'filtered_by_domain' => $domain,
                     'filtered_by_action' => $action,
@@ -139,6 +164,21 @@ class DiscoverToolsTool extends BaseStatamicTool
                     'actions' => array_keys($statistics['actions']),
                 ],
             ];
+
+            // Add warnings for large responses
+            $warnings = [];
+            if ($includeSchemas && $includeExamples && $returnedCount > 20) {
+                $warnings[] = 'Response may be large with both schemas and examples included for ' . $returnedCount . ' tools. Consider using smaller limit or excluding one option.';
+            }
+            if ($returnedCount > 50) {
+                $warnings[] = 'Large tool count (' . $returnedCount . '). Consider using domain/action filters for better performance.';
+            }
+
+            if (! empty($warnings)) {
+                $response['warnings'] = $warnings;
+            }
+
+            return $response;
 
         } catch (\Exception $e) {
             return $this->createErrorResponse('Failed to discover tools: ' . $e->getMessage())->toArray();

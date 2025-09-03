@@ -59,42 +59,57 @@ class SchemaIntrospectionService
     }
 }
 
-class MockToolSchema
+use Laravel\Mcp\Server\Tools\ToolInputSchema;
+
+class MockToolSchema extends ToolInputSchema
 {
     /** @var array<string, array<string, mixed>> */
     public array $fields = [];
 
-    public function string(string $name): self
+    public function string(string $name): static
     {
+        parent::string($name);
         $this->fields[$name] = ['type' => 'string'];
 
         return $this;
     }
 
-    public function integer(string $name): self
+    public function integer(string $name): static
     {
+        parent::integer($name);
         $this->fields[$name] = ['type' => 'integer'];
 
         return $this;
     }
 
-    public function boolean(string $name): self
+    public function boolean(string $name): static
     {
+        parent::boolean($name);
         $this->fields[$name] = ['type' => 'boolean'];
 
         return $this;
     }
 
+    public function number(string $name): static
+    {
+        parent::number($name);
+        $this->fields[$name] = ['type' => 'number'];
+
+        return $this;
+    }
+
     /** @param  array<string, mixed>  $config */
-    public function raw(string $name, array $config): self
+    public function raw(string $name, array $config): static
     {
         $this->fields[$name] = array_merge(['type' => 'raw'], $config);
 
         return $this;
     }
 
-    public function description(string $description): self
+    public function description(string $description): static
     {
+        parent::description($description);
+
         if (! empty($this->fields)) {
             $lastField = array_key_last($this->fields);
             $this->fields[$lastField]['description'] = $description;
@@ -103,18 +118,22 @@ class MockToolSchema
         return $this;
     }
 
-    public function required(): self
+    public function required(bool $required = true): static
     {
+        parent::required($required);
+
         if (! empty($this->fields)) {
             $lastField = array_key_last($this->fields);
-            $this->fields[$lastField]['required'] = true;
+            $this->fields[$lastField]['required'] = $required;
         }
 
         return $this;
     }
 
-    public function optional(): self
+    public function optional(): static
     {
+        parent::optional();
+
         if (! empty($this->fields)) {
             $lastField = array_key_last($this->fields);
             $this->fields[$lastField]['required'] = false;

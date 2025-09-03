@@ -50,13 +50,13 @@ class ScanFieldsetsTool extends BaseStatamicTool
 
         try {
             $fieldsetPaths = glob(resource_path('fieldsets/*.yaml'));
-            
+
             if ($fieldsetPaths === false) {
                 $fieldsetPaths = [];
             }
 
             $fieldsets = [];
-            
+
             foreach ($fieldsetPaths as $path) {
                 $handle = basename($path, '.yaml');
                 $fieldsetData = [
@@ -94,7 +94,6 @@ class ScanFieldsetsTool extends BaseStatamicTool
     /**
      * Find where a fieldset is being used.
      *
-     * @param  string  $handle
      *
      * @return array<string, mixed>
      */

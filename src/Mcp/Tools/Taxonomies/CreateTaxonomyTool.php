@@ -6,6 +6,7 @@ use Cboxdk\StatamicMcp\Mcp\Tools\BaseStatamicTool;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
 use Laravel\Mcp\Server\Tools\Annotations\Title;
 use Laravel\Mcp\Server\Tools\ToolInputSchema;
+use Statamic\Facades\Site;
 use Statamic\Facades\Taxonomy;
 
 #[Title('Create Statamic Taxonomy')]
@@ -80,6 +81,18 @@ class CreateTaxonomyTool extends BaseStatamicTool
                 return $this->createErrorResponse("Taxonomy '{$handle}' already exists")->toArray();
             }
 
+            // Validate sites
+            if ($sites && is_array($sites)) {
+                $availableSites = Site::all()->map(fn ($site) => $site->handle())->all();
+                $invalidSites = array_diff($sites, $availableSites);
+                if (! empty($invalidSites)) {
+                    return $this->createErrorResponse('Invalid site handles provided', [
+                        'invalid_sites' => $invalidSites,
+                        'available_sites' => $availableSites,
+                    ])->toArray();
+                }
+            }
+
             $taxonomyData = [
                 'handle' => $handle,
                 'title' => $title,
@@ -121,9 +134,8 @@ class CreateTaxonomyTool extends BaseStatamicTool
                 $taxonomy->collections($collections);
             }
 
-            if ($blueprint) {
-                $taxonomy->blueprint($blueprint);
-            }
+            // Note: Taxonomies don't use blueprints in Statamic v5
+            // Blueprint parameter is accepted but ignored
 
             if (! empty($previewTargets)) {
                 $taxonomy->previewTargets($previewTargets);
@@ -140,8 +152,8 @@ class CreateTaxonomyTool extends BaseStatamicTool
                     'handle' => $taxonomy->handle(),
                     'title' => $taxonomy->title(),
                     'sites' => $taxonomy->sites(),
-                    'collections' => $taxonomy->collections()?->map->handle()->all() ?? [],
-                    'blueprint' => $taxonomy->blueprint()?->handle(),
+                    'collections' => $taxonomy->collections()?->map(fn ($item) => $item->handle())->all() ?? [],
+                    'blueprint' => null, // Taxonomies don't have blueprints in Statamic v5
                     'preview_targets' => $taxonomy->previewTargets(),
                     'path' => $taxonomy->path(),
                 ],

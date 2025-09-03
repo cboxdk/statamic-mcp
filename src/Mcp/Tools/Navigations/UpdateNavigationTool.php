@@ -98,7 +98,7 @@ class UpdateNavigationTool extends BaseStatamicTool
         }
 
         // Check for collections change
-        $currentCollections = $nav->collections()?->map->handle()->all() ?? [];
+        $currentCollections = $nav->collections()?->map(fn ($item) => $item->handle())->all() ?? [];
         if ($newCollections !== null && $newCollections !== $currentCollections) {
             $changes['collections'] = ['from' => $currentCollections, 'to' => $newCollections];
         }
@@ -122,7 +122,7 @@ class UpdateNavigationTool extends BaseStatamicTool
                     'title' => $nav->title(),
                     'sites' => $nav->sites(),
                     'blueprint' => $nav->blueprint()?->handle(),
-                    'collections' => $nav->collections()?->map->handle()->all() ?? [],
+                    'collections' => $nav->collections()?->map(fn ($item) => $item->handle())->all() ?? [],
                     'max_depth' => $nav->maxDepth(),
                     'expects_root' => $nav->expectsRoot(),
                 ],
@@ -176,7 +176,7 @@ class UpdateNavigationTool extends BaseStatamicTool
                     'title' => $nav->title(),
                     'sites' => $nav->sites(),
                     'blueprint' => $nav->blueprint()?->handle(),
-                    'collections' => $nav->collections()?->map->handle()->all() ?? [],
+                    'collections' => $nav->collections()?->map(fn ($item) => $item->handle())->all() ?? [],
                     'max_depth' => $nav->maxDepth(),
                     'expects_root' => $nav->expectsRoot(),
                 ],

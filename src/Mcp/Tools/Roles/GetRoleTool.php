@@ -66,7 +66,7 @@ class GetRoleTool extends BaseStatamicTool
 
             if (! $role) {
                 return $this->createErrorResponse("Role '{$handle}' not found", [
-                    'available_roles' => Role::all()->map->handle()->all(),
+                    'available_roles' => Role::all()->map(fn ($item) => $item->handle())->all(),
                 ])->toArray();
             }
 
@@ -86,7 +86,7 @@ class GetRoleTool extends BaseStatamicTool
                         'is_super' => $user->isSuper(),
                         'additional_roles' => $user->roles()
                             ->filter(fn ($r) => $r->handle() !== $handle)
-                            ->map->handle()
+                            ->map(fn ($item) => $item->handle())
                             ->all(),
                     ];
                 })->all();
@@ -103,7 +103,7 @@ class GetRoleTool extends BaseStatamicTool
                 'related_data' => [
                     'other_roles' => Role::all()
                         ->filter(fn ($r) => $r->handle() !== $handle)
-                        ->map->handle()
+                        ->map(fn ($item) => $item->handle())
                         ->all(),
                 ],
             ];

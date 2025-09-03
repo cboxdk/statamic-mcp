@@ -69,6 +69,9 @@ class CreateUserTool extends BaseStatamicTool
             ->optional()
             ->boolean('send_activation_email')
             ->description('Send activation email to the user')
+            ->optional()
+            ->boolean('dry_run')
+            ->description('Simulate the user creation without actually creating the user')
             ->optional();
     }
 
@@ -89,6 +92,7 @@ class CreateUserTool extends BaseStatamicTool
         $super = $arguments['super'] ?? false;
         $data = $arguments['data'] ?? [];
         $sendActivationEmail = $arguments['send_activation_email'] ?? false;
+        $dryRun = $arguments['dry_run'] ?? false;
 
         try {
             // Check if user already exists
@@ -107,7 +111,7 @@ class CreateUserTool extends BaseStatamicTool
                 $role = Role::find($roleHandle);
                 if (! $role) {
                     return $this->createErrorResponse("Role '{$roleHandle}' not found", [
-                        'available_roles' => Role::all()->map->handle()->all(),
+                        'available_roles' => Role::all()->map(fn ($item) => $item->handle())->all(),
                     ])->toArray();
                 }
                 $validRoles[] = $roleHandle;
@@ -136,6 +140,23 @@ class CreateUserTool extends BaseStatamicTool
                 $data = $validatedData;
             }
 
+            if ($dryRun) {
+                return [
+                    'success' => true,
+                    'dry_run' => true,
+                    'would_create' => [
+                        'email' => $email,
+                        'name' => $name,
+                        'roles' => $validRoles,
+                        'groups' => $validGroups,
+                        'is_super' => $super,
+                        'has_password' => ! empty($password),
+                        'data_fields' => array_keys($data),
+                        'send_activation_email' => $sendActivationEmail,
+                    ],
+                ];
+            }
+
             // Create the user
             $userData = array_merge([
                 'email' => $email,
@@ -158,7 +179,12 @@ class CreateUserTool extends BaseStatamicTool
 
             // Assign roles
             if (! empty($validRoles)) {
-                $user->assignRoles($validRoles);
+                foreach ($validRoles as $roleHandle) {
+                    $role = Role::find($roleHandle);
+                    if ($role) {
+                        $user->assignRole($role);
+                    }
+                }
             }
 
             // Assign groups
@@ -195,11 +221,11 @@ class CreateUserTool extends BaseStatamicTool
                     'id' => $user->id(),
                     'email' => $user->email(),
                     'name' => $user->name(),
-                    'roles' => $user->roles()->map->handle()->all(),
-                    'groups' => $user->groups()->map->handle()->all() ?? [],
+                    'roles' => $user->roles()->map(fn ($item) => $item->handle())->all(),
+                    'groups' => $user->groups()->map(fn ($item) => $item->handle())->all() ?? [],
                     'is_super' => $user->isSuper(),
-                    'has_password' => $user->hasPassword(),
-                    'is_activated' => $user->isActivated() ?? true,
+                    'has_password' => ! empty($user->password()),
+                    'is_activated' => true, // Always activated in Statamic v5
                 ],
                 'data_fields' => array_keys($data),
                 'activation_email_sent' => $sendActivationEmail && ! isset($emailError),

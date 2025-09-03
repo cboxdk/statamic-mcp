@@ -69,8 +69,8 @@ class GetGroupTool extends BaseStatamicTool
                         'id' => $user->id(),
                         'email' => $user->email(),
                         'name' => $user->name(),
-                        'roles' => $user->roles()->map->handle()->toArray(),
-                        'groups' => $user->groups()->map->handle()->toArray(),
+                        'roles' => $user->roles()->map(fn ($item) => $item->handle())->toArray(),
+                        'groups' => $user->groups()->map(fn ($item) => $item->handle())->toArray(),
                     ];
                 })->toArray();
             } else {

@@ -72,7 +72,7 @@ class ListTaxonomyTool extends BaseStatamicTool
                     $taxonomyData['sites'] = $taxonomy->sites();
                     $taxonomyData['blueprint'] = $taxonomy->blueprint()?->handle();
                     $taxonomyData['path'] = $taxonomy->path();
-                    $taxonomyData['collections'] = $taxonomy->collections()?->map->handle()->all() ?? [];
+                    $taxonomyData['collections'] = $taxonomy->collections()?->map(fn ($item) => $item->handle())->all() ?? [];
                     $taxonomyData['preview_targets'] = $taxonomy->previewTargets();
                 }
 

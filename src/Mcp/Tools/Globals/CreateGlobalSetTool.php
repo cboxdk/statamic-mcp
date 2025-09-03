@@ -71,7 +71,7 @@ class CreateGlobalSetTool extends BaseStatamicTool
     {
         $handle = $arguments['handle'];
         $title = $arguments['title'] ?? ucwords(str_replace(['_', '-'], ' ', $handle));
-        $sites = $arguments['sites'] ?? Site::all()->map->handle()->all();
+        $sites = $arguments['sites'] ?? Site::all()->map(fn ($site) => $site->handle())->all();
         $blueprintHandle = $arguments['blueprint'] ?? null;
         $initialValues = $arguments['initial_values'] ?? [];
 
@@ -79,12 +79,12 @@ class CreateGlobalSetTool extends BaseStatamicTool
             // Check if global set already exists
             if (GlobalSet::findByHandle($handle)) {
                 return $this->createErrorResponse("Global set with handle '{$handle}' already exists", [
-                    'existing_sets' => GlobalSet::all()->map->handle()->all(),
+                    'existing_sets' => GlobalSet::all()->map(fn ($set) => $set->handle())->all(),
                 ])->toArray();
             }
 
             // Validate sites
-            $availableSites = Site::all()->map->handle()->all();
+            $availableSites = Site::all()->map(fn ($site) => $site->handle())->all();
             $invalidSites = array_diff($sites, $availableSites);
             if (! empty($invalidSites)) {
                 return $this->createErrorResponse('Invalid site handles provided', [
@@ -105,10 +105,8 @@ class CreateGlobalSetTool extends BaseStatamicTool
             }
 
             // Create the global set
-            $globalSet = GlobalSet::make()
-                ->handle($handle)
-                ->title($title)
-                ->sites($sites);
+            $globalSet = GlobalSet::make($handle)
+                ->title($title);
 
             if ($blueprint) {
                 $globalSet->blueprint($blueprint->handle());
@@ -120,9 +118,16 @@ class CreateGlobalSetTool extends BaseStatamicTool
             if (! empty($initialValues)) {
                 $defaultSite = Site::default()->handle();
                 if (in_array($defaultSite, $sites)) {
-                    $localizedSet = $globalSet->in($defaultSite);
-                    $localizedSet->data($initialValues);
-                    $localizedSet->save();
+                    // Reload the global set to get proper instance for localization
+                    $reloadedGlobalSet = GlobalSet::findByHandle($handle);
+                    // @phpstan-ignore-next-line - Global set was just created so this check is defensive
+                    if ($reloadedGlobalSet) {
+                        $localizedSet = $reloadedGlobalSet->in($defaultSite);
+                        if ($localizedSet) {
+                            $localizedSet->data($initialValues);
+                            $localizedSet->save();
+                        }
+                    }
                 }
             }
 

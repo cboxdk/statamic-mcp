@@ -84,7 +84,7 @@ class UpdateSiteTool extends BaseStatamicTool
             $currentSite = Site::get($handle);
             if (! $currentSite) {
                 return $this->createErrorResponse("Site '{$handle}' not found", [
-                    'available_sites' => Site::all()->map->handle()->all(),
+                    'available_sites' => Site::all()->map(fn ($item) => $item->handle())->all(),
                 ])->toArray();
             }
 

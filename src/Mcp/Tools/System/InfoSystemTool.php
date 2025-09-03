@@ -326,7 +326,7 @@ class InfoSystemTool extends BaseStatamicTool
                         'handle' => $collection->handle(),
                         'title' => $collection->title(),
                         'route' => $collection->route(),
-                        'blueprints' => $collection->entryBlueprints()->map->handle()->toArray(),
+                        'blueprints' => $collection->entryBlueprints()->map(fn ($item) => $item->handle())->toArray(),
                         'sites' => $collection->sites()->toArray(),
                         'dated' => $collection->dated(),
                         'orderable' => $collection->orderable(),

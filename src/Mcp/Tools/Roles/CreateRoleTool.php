@@ -74,7 +74,7 @@ class CreateRoleTool extends BaseStatamicTool
             // Check if role already exists
             if (Role::find($handle)) {
                 return $this->createErrorResponse("Role with handle '{$handle}' already exists", [
-                    'existing_roles' => Role::all()->map->handle()->all(),
+                    'existing_roles' => Role::all()->map(fn ($item) => $item->handle())->all(),
                 ])->toArray();
             }
 
@@ -105,8 +105,11 @@ class CreateRoleTool extends BaseStatamicTool
             // Create the role
             $role = Role::make()
                 ->handle($handle)
-                ->title($title)
-                ->addPermissions($permissions);
+                ->title($title);
+
+            if (! empty($permissions)) {
+                $role->permissions($permissions);
+            }
 
             $role->save();
 

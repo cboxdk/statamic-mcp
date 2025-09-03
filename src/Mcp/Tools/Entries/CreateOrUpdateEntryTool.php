@@ -136,7 +136,7 @@ class CreateOrUpdateEntryTool extends BaseStatamicTool
         }
 
         // Validate site (optimized)
-        if ($site && ! Site::all()->map->handle()->contains($site)) {
+        if ($site && ! Site::all()->map(fn ($item) => $item->handle())->contains($site)) {
             return $this->createErrorResponse("Site '{$site}' not found")->toArray();
         }
 

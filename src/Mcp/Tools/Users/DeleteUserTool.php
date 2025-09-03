@@ -165,7 +165,7 @@ class DeleteUserTool extends BaseStatamicTool
                 'id' => $user->id(),
                 'email' => $user->email(),
                 'name' => $user->name(),
-                'roles' => $user->roles()->map->handle()->all(),
+                'roles' => $user->roles()->map(fn ($item) => $item->handle())->all(),
                 'is_super' => $user->isSuper(),
             ];
 
@@ -240,8 +240,8 @@ class DeleteUserTool extends BaseStatamicTool
             'email' => $user->email(),
             'name' => $user->name(),
             'data' => $user->data()->all(),
-            'roles' => $user->roles()->map->handle()->all(),
-            'groups' => $user->groups()->map->handle()->all() ?? [],
+            'roles' => $user->roles()->map(fn ($item) => $item->handle())->all(),
+            'groups' => $user->groups()->map(fn ($item) => $item->handle())->all() ?? [],
             'is_super' => $user->isSuper(),
             'backup_timestamp' => now()->toISOString(),
         ];

@@ -64,7 +64,7 @@ class SwitchSiteTool extends BaseStatamicTool
             $newDefaultSite = Site::get($newDefault);
             if (! $newDefaultSite) {
                 return $this->createErrorResponse("Site '{$newDefault}' not found", [
-                    'available_sites' => Site::all()->map->handle()->all(),
+                    'available_sites' => Site::all()->map(fn ($item) => $item->handle())->all(),
                 ])->toArray();
             }
 

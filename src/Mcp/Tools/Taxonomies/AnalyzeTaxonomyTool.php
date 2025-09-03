@@ -57,7 +57,7 @@ class AnalyzeTaxonomyTool extends BaseStatamicTool
 
             foreach ($taxonomies as $taxonomy) {
                 $termCount = Term::whereTaxonomy($taxonomy->handle())->count();
-                $collections = $taxonomy->collections()?->map->handle()->all() ?? [];
+                $collections = $taxonomy->collections()?->map(fn ($item) => $item->handle())->all() ?? [];
 
                 $taxonomyAnalysis = [
                     'handle' => $taxonomy->handle(),

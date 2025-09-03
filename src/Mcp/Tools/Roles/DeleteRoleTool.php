@@ -77,7 +77,7 @@ class DeleteRoleTool extends BaseStatamicTool
             $role = Role::find($handle);
             if (! $role) {
                 return $this->createErrorResponse("Role '{$handle}' not found", [
-                    'available_roles' => Role::all()->map->handle()->all(),
+                    'available_roles' => Role::all()->map(fn ($item) => $item->handle())->all(),
                 ])->toArray();
             }
 
@@ -91,7 +91,7 @@ class DeleteRoleTool extends BaseStatamicTool
                 $reassignmentTarget = Role::find($reassignToRole);
                 if (! $reassignmentTarget) {
                     return $this->createErrorResponse("Reassignment target role '{$reassignToRole}' not found", [
-                        'available_roles' => Role::all()->map->handle()->all(),
+                        'available_roles' => Role::all()->map(fn ($item) => $item->handle())->all(),
                     ])->toArray();
                 }
 
@@ -130,7 +130,7 @@ class DeleteRoleTool extends BaseStatamicTool
                         'name' => $user->name(),
                         'other_roles' => $user->roles()
                             ->filter(fn ($r) => $r->handle() !== $handle)
-                            ->map->handle()
+                            ->map(fn ($item) => $item->handle())
                             ->all(),
                     ];
                 })->all();
@@ -187,7 +187,7 @@ class DeleteRoleTool extends BaseStatamicTool
                 'user_handling' => $userHandling,
                 'backup_created' => $backupData !== null,
                 'backup_data' => $createBackup ? $backupData : null,
-                'remaining_roles' => Role::all()->map->handle()->all(),
+                'remaining_roles' => Role::all()->map(fn ($item) => $item->handle())->all(),
             ];
 
         } catch (\Exception $e) {
@@ -216,7 +216,7 @@ class DeleteRoleTool extends BaseStatamicTool
                     'id' => $user->id(),
                     'email' => $user->email(),
                     'name' => $user->name(),
-                    'all_roles' => $user->roles()->map->handle()->all(),
+                    'all_roles' => $user->roles()->map(fn ($item) => $item->handle())->all(),
                 ];
             })->all(),
             'backup_timestamp' => now()->toISOString(),

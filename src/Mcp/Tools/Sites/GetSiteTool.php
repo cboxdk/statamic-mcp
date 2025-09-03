@@ -61,7 +61,7 @@ class GetSiteTool extends BaseStatamicTool
 
             if (! $site) {
                 return $this->createErrorResponse("Site '{$handle}' not found", [
-                    'available_sites' => Site::all()->map->handle()->all(),
+                    'available_sites' => Site::all()->map(fn ($item) => $item->handle())->all(),
                 ])->toArray();
             }
 
@@ -88,7 +88,7 @@ class GetSiteTool extends BaseStatamicTool
             return [
                 'site' => $siteData,
                 'relations' => [
-                    'other_sites' => Site::all()->filter(fn ($s) => $s->handle() !== $handle)->map->handle()->all(),
+                    'other_sites' => Site::all()->filter(fn ($s) => $s->handle() !== $handle)->map(fn ($item) => $item->handle())->all(),
                     'is_multisite' => Site::multiEnabled(),
                 ],
             ];

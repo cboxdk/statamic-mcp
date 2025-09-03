@@ -63,7 +63,7 @@ class GetNavigationTool extends BaseStatamicTool
                 'sites' => $nav->sites(),
                 'blueprint' => $nav->blueprint()?->handle(),
                 'path' => $nav->path(),
-                'collections' => $nav->collections()?->map->handle()->all() ?? [],
+                'collections' => $nav->collections()?->map(fn ($item) => $item->handle())->all() ?? [],
                 'max_depth' => $nav->maxDepth(),
                 'expects_root' => $nav->expectsRoot(),
             ];

@@ -65,7 +65,7 @@ class ListNavigationsTool extends BaseStatamicTool
                     $navData['sites'] = $nav->sites();
                     $navData['blueprint'] = $nav->blueprint()?->handle();
                     $navData['path'] = $nav->path();
-                    $navData['collections'] = $nav->collections()?->map->handle()->all() ?? [];
+                    $navData['collections'] = $nav->collections()?->map(fn ($item) => $item->handle())->all() ?? [];
                     $navData['max_depth'] = $nav->maxDepth();
                     $navData['expects_root'] = $nav->expectsRoot();
                 }

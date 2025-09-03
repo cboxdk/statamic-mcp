@@ -74,7 +74,7 @@ class DeleteSiteTool extends BaseStatamicTool
             $site = Site::get($handle);
             if (! $site) {
                 return $this->createErrorResponse("Site '{$handle}' not found", [
-                    'available_sites' => Site::all()->map->handle()->all(),
+                    'available_sites' => Site::all()->map(fn ($item) => $item->handle())->all(),
                 ])->toArray();
             }
 
@@ -171,7 +171,7 @@ class DeleteSiteTool extends BaseStatamicTool
                 'content_analysis' => $contentAnalysis,
                 'content_cleanup' => $contentCleanupResult,
                 'backup_created' => $backupPath ? basename($backupPath) : false,
-                'remaining_sites' => Site::all()->map->handle()->all(),
+                'remaining_sites' => Site::all()->map(fn ($item) => $item->handle())->all(),
                 'next_steps' => [
                     'verify_config' => 'Check config/statamic/sites.php for the updated configuration',
                     'restart_required' => 'You may need to restart your application for changes to take effect',

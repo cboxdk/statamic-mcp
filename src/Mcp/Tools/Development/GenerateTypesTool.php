@@ -60,34 +60,43 @@ class GenerateTypesTool extends BaseStatamicTool
      */
     protected function execute(array $arguments): array
     {
-        $format = $arguments['format'];
-        $collections = $arguments['collections'] ?? null;
-        $blueprints = $arguments['blueprints'] ?? null;
-        $includeFieldsets = $arguments['include_fieldsets'] ?? true;
-        $exportInterfaces = $arguments['export_interfaces'] ?? ($format === 'typescript');
+        try {
+            $format = $arguments['format'];
+            $collections = $arguments['collections'] ?? null;
+            $blueprints = $arguments['blueprints'] ?? null;
+            $includeFieldsets = $arguments['include_fieldsets'] ?? true;
+            $exportInterfaces = $arguments['export_interfaces'] ?? ($format === 'typescript');
 
-        // Get blueprints to process
-        $blueprintsToProcess = $this->getBlueprintsToProcess($collections, $blueprints);
+            // Get blueprints to process
+            $blueprintsToProcess = $this->getBlueprintsToProcess($collections, $blueprints);
 
-        if (empty($blueprintsToProcess)) {
-            return $this->createErrorResponse('No blueprints found to process')->toArray();
+            if (empty($blueprintsToProcess)) {
+                return $this->createErrorResponse('No blueprints found to process')->toArray();
+            }
+
+            // Generate types based on format
+            $generatedTypes = match ($format) {
+                'typescript' => $this->generateTypeScriptTypes($blueprintsToProcess, $exportInterfaces),
+                'php' => $this->generatePhpTypes($blueprintsToProcess, $exportInterfaces),
+                'json' => $this->generateJsonTypes($blueprintsToProcess),
+                default => throw new \InvalidArgumentException("Unsupported format: {$format}"),
+            };
+
+            return [
+                'format' => $format,
+                'blueprints_processed' => count($blueprintsToProcess),
+                'generated_types' => $generatedTypes,
+                'export_interfaces' => $exportInterfaces,
+                'include_fieldsets' => $includeFieldsets,
+            ];
+
+        } catch (\Exception $e) {
+            return $this->createErrorResponse('Failed to generate types: ' . $e->getMessage(), [
+                'exception_type' => get_class($e),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ])->toArray();
         }
-
-        // Generate types based on format
-        $generatedTypes = match ($format) {
-            'typescript' => $this->generateTypeScriptTypes($blueprintsToProcess, $exportInterfaces),
-            'php' => $this->generatePhpTypes($blueprintsToProcess, $exportInterfaces),
-            'json' => $this->generateJsonTypes($blueprintsToProcess),
-            default => throw new \InvalidArgumentException("Unsupported format: {$format}"),
-        };
-
-        return [
-            'format' => $format,
-            'blueprints_processed' => count($blueprintsToProcess),
-            'generated_types' => $generatedTypes,
-            'export_interfaces' => $exportInterfaces,
-            'include_fieldsets' => $includeFieldsets,
-        ];
     }
 
     /**
@@ -103,25 +112,53 @@ class GenerateTypesTool extends BaseStatamicTool
         $allBlueprints = [];
 
         if ($blueprints) {
-            // Get specific blueprints
+            // Get specific blueprints by handle
             foreach ($blueprints as $blueprintHandle) {
-                $blueprint = Blueprint::find($blueprintHandle);
-                if ($blueprint) {
-                    $allBlueprints[$blueprintHandle] = $blueprint;
+                try {
+                    // Try different namespace lookups
+                    $blueprint = Blueprint::find("collections.{$blueprintHandle}")
+                        ?? Blueprint::find($blueprintHandle);
+
+                    if ($blueprint) {
+                        $allBlueprints[$blueprintHandle] = $blueprint;
+                    }
+                } catch (\Exception $e) {
+                    // Skip invalid blueprints
+                    continue;
                 }
             }
         } else {
-            // Get blueprints from collections or all collections
-            $collectionsToProcess = $collections ? $collections : Collection::all()->keys()->all();
+            // Get all available blueprints from multiple namespaces
+            try {
+                // Get collection blueprints
+                if ($collections) {
+                    foreach ($collections as $collectionHandle) {
+                        $collection = Collection::find($collectionHandle);
+                        if ($collection && $collection->entryBlueprints()) {
+                            foreach ($collection->entryBlueprints() as $blueprint) {
+                                if ($blueprint) {
+                                    $allBlueprints[$blueprint->handle()] = $blueprint;
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Get all blueprints from collections namespace
+                    $blueprintFiles = glob(resource_path('blueprints/collections/*.yaml'));
 
-            foreach ($collectionsToProcess as $collectionHandle) {
-                $collection = Collection::find($collectionHandle);
-                if ($collection) {
-                    $entryBlueprints = $collection->entryBlueprints();
-                    foreach ($entryBlueprints as $blueprint) {
-                        $allBlueprints[$blueprint->handle()] = $blueprint;
+                    if (is_array($blueprintFiles)) {
+                        foreach ($blueprintFiles as $file) {
+                            $handle = basename($file, '.yaml');
+                            $blueprint = Blueprint::find("collections.{$handle}");
+                            if ($blueprint) {
+                                $allBlueprints[$handle] = $blueprint;
+                            }
+                        }
                     }
                 }
+            } catch (\Exception $e) {
+                // Fallback: return empty array if blueprint discovery fails
+                return [];
             }
         }
 
@@ -140,20 +177,49 @@ class GenerateTypesTool extends BaseStatamicTool
         $types = [];
 
         foreach ($blueprints as $handle => $blueprint) {
-            $interfaceName = $this->toPascalCase($handle);
-            $keyword = $exportInterfaces ? 'export interface' : 'interface';
+            try {
+                $interfaceName = $this->toPascalCase($handle);
+                $keyword = $exportInterfaces ? 'export interface' : 'interface';
 
-            $typeDefinition = "{$keyword} {$interfaceName} {\n";
+                $typeDefinition = "{$keyword} {$interfaceName} {\n";
 
-            foreach ($blueprint->fields()->all() as $fieldHandle => $field) {
-                $tsType = $this->mapFieldTypeToTypeScript($field->type());
-                $optional = $field->get('required', false) ? '' : '?';
-                $typeDefinition .= "  {$fieldHandle}{$optional}: {$tsType};\n";
+                // Get blueprint fields
+                $blueprintFields = $blueprint->fields();
+                $fields = $blueprintFields->all();
+
+                foreach ($fields as $fieldHandle => $field) {
+                    try {
+                        $fieldType = 'string'; // default
+                        if (is_object($field) && method_exists($field, 'type')) {
+                            $fieldType = $field->type();
+                        } elseif (is_array($field) && isset($field['type'])) {
+                            $fieldType = $field['type'];
+                        }
+
+                        $tsType = $this->mapFieldTypeToTypeScript($fieldType);
+
+                        $required = false;
+                        if (is_object($field) && method_exists($field, 'get')) {
+                            $required = $field->get('required', false);
+                        } elseif (is_array($field)) {
+                            $required = $field['required'] ?? false;
+                        }
+
+                        $optional = $required ? '' : '?';
+                        $typeDefinition .= "  {$fieldHandle}{$optional}: {$tsType};\n";
+                    } catch (\Exception $e) {
+                        // Skip problematic fields, use fallback type
+                        $typeDefinition .= "  {$fieldHandle}?: any; // Error: {$e->getMessage()}\n";
+                    }
+                }
+
+                $typeDefinition .= '}';
+                $types[$handle] = $typeDefinition;
+
+            } catch (\Exception $e) {
+                // Add error information to types
+                $types[$handle] = "// Error generating type for {$handle}: " . $e->getMessage();
             }
-
-            $typeDefinition .= '}';
-
-            $types[$handle] = $typeDefinition;
         }
 
         return $types;

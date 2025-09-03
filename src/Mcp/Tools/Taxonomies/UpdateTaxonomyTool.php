@@ -85,7 +85,7 @@ class UpdateTaxonomyTool extends BaseStatamicTool
             $originalData = [
                 'title' => $taxonomy->title(),
                 'sites' => $taxonomy->sites(),
-                'collections' => $taxonomy->collections()?->map->handle()->all() ?? [],
+                'collections' => $taxonomy->collections()?->map(fn ($item) => $item->handle())->all() ?? [],
                 'blueprint' => $taxonomy->blueprint()?->handle(),
                 'preview_targets' => $taxonomy->previewTargets(),
             ];
@@ -101,8 +101,8 @@ class UpdateTaxonomyTool extends BaseStatamicTool
                     $proposedChanges['sites'] = ['from' => $taxonomy->sites(), 'to' => $sites];
                 }
 
-                if ($collections !== null && $collections !== ($taxonomy->collections()?->map->handle()->all() ?? [])) {
-                    $proposedChanges['collections'] = ['from' => $taxonomy->collections()?->map->handle()->all() ?? [], 'to' => $collections];
+                if ($collections !== null && $collections !== ($taxonomy->collections()?->map(fn ($item) => $item->handle())->all() ?? [])) {
+                    $proposedChanges['collections'] = ['from' => $taxonomy->collections()?->map(fn ($item) => $item->handle())->all() ?? [], 'to' => $collections];
                 }
 
                 if ($blueprint !== null && $blueprint !== $taxonomy->blueprint()?->handle()) {
@@ -132,7 +132,7 @@ class UpdateTaxonomyTool extends BaseStatamicTool
                 $changes['sites'] = ['from' => $originalData['sites'], 'to' => $sites];
             }
 
-            if ($collections !== null && $collections !== ($taxonomy->collections()?->map->handle()->all() ?? [])) {
+            if ($collections !== null && $collections !== ($taxonomy->collections()?->map(fn ($item) => $item->handle())->all() ?? [])) {
                 $taxonomy->collections($collections);
                 $changes['collections'] = ['from' => $originalData['collections'], 'to' => $collections];
             }
@@ -166,7 +166,7 @@ class UpdateTaxonomyTool extends BaseStatamicTool
                     'handle' => $taxonomy->handle(),
                     'title' => $taxonomy->title(),
                     'sites' => $taxonomy->sites(),
-                    'collections' => $taxonomy->collections()?->map->handle()->all() ?? [],
+                    'collections' => $taxonomy->collections()?->map(fn ($item) => $item->handle())->all() ?? [],
                     'blueprint' => $taxonomy->blueprint()?->handle(),
                     'preview_targets' => $taxonomy->previewTargets(),
                     'path' => $taxonomy->path(),

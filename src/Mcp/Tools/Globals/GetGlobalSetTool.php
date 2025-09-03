@@ -65,7 +65,7 @@ class GetGlobalSetTool extends BaseStatamicTool
 
             if (! $globalSet) {
                 return $this->createErrorResponse("Global set '{$handle}' not found", [
-                    'available_sets' => GlobalSet::all()->map->handle()->all(),
+                    'available_sets' => GlobalSet::all()->map(fn ($item) => $item->handle())->all(),
                 ])->toArray();
             }
 

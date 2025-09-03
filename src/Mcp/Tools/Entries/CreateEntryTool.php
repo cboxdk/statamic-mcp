@@ -113,7 +113,7 @@ class CreateEntryTool extends BaseStatamicTool
         }
 
         // Validate site (optimized)
-        if ($site && ! Site::all()->map->handle()->contains($site)) {
+        if ($site && ! Site::all()->map(fn ($item) => $item->handle())->contains($site)) {
             return $this->createErrorResponse("Site '{$site}' not found")->toArray();
         }
 
@@ -151,6 +151,12 @@ class CreateEntryTool extends BaseStatamicTool
             }
         } elseif ($date) {
             return $this->createErrorResponse("Collection '{$collectionHandle}' is not dated, but date was provided")->toArray();
+        }
+
+        // Check for existing entry with same slug
+        $existingEntry = Entry::query()->where('collection', $collectionHandle)->where('slug', $slug)->first();
+        if ($existingEntry) {
+            return $this->createErrorResponse("Entry with slug '{$slug}' already exists in collection '{$collectionHandle}'")->toArray();
         }
 
         // Merge title into data

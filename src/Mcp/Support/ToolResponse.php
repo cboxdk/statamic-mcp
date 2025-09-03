@@ -26,7 +26,7 @@ class ToolResponse
             'data' => $data,
             'meta' => array_merge([
                 'timestamp' => Carbon::now()->toIso8601String(),
-                'statamic_version' => app('statamic.version'),
+                'statamic_version' => \Statamic\Statamic::version(),
                 'laravel_version' => app()->version(),
             ], $meta),
         ];
@@ -59,7 +59,7 @@ class ToolResponse
             ],
             'meta' => array_merge([
                 'timestamp' => Carbon::now()->toIso8601String(),
-                'statamic_version' => app('statamic.version'),
+                'statamic_version' => \Statamic\Statamic::version(),
                 'laravel_version' => app()->version(),
             ], $meta),
         ];

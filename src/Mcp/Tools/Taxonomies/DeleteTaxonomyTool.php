@@ -60,7 +60,7 @@ class DeleteTaxonomyTool extends BaseStatamicTool
             // Safety checks
             $warnings = [];
             $termCount = Term::whereTaxonomy($handle)->count();
-            $usedByCollections = $taxonomy->collections()?->map->handle()->all() ?? [];
+            $usedByCollections = $taxonomy->collections()?->map(fn ($item) => $item->handle())->all() ?? [];
 
             if ($termCount > 0) {
                 $warnings[] = "Taxonomy has {$termCount} terms";
