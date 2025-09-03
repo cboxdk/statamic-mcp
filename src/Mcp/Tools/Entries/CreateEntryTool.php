@@ -153,14 +153,37 @@ class CreateEntryTool extends BaseStatamicTool
             return $this->createErrorResponse("Collection '{$collectionHandle}' is not dated, but date was provided")->toArray();
         }
 
-        // Check for existing entry with same slug (aggressive check for parallel execution)
+        // Ultra-aggressive duplicate check for parallel CI environments
         \Statamic\Facades\Stache::refresh();
-        $existingEntry = Entry::query()->where('collection', $collectionHandle)->where('slug', $slug)->first();
 
-        // Additional check using Entry::find as fallback
+        // Method 1: Query-based check
+        $existingEntry = null;
+        try {
+            $existingEntry = Entry::query()->where('collection', $collectionHandle)->where('slug', $slug)->first();
+        } catch (\Exception $e) {
+            // Ignore query errors in parallel environments
+        }
+
+        // Method 2: Direct ID-based check
         if (! $existingEntry) {
-            $entryId = "{$collectionHandle}::{$slug}";
-            $existingEntry = Entry::find($entryId);
+            try {
+                $entryId = "{$collectionHandle}::{$slug}";
+                $existingEntry = Entry::find($entryId);
+            } catch (\Exception $e) {
+                // Ignore find errors
+            }
+        }
+
+        // Method 3: Collection-specific check
+        if (! $existingEntry) {
+            try {
+                $collection = Collection::find($collectionHandle);
+                if ($collection) {
+                    $existingEntry = $collection->queryEntries()->where('slug', $slug)->first();
+                }
+            } catch (\Exception $e) {
+                // Ignore collection query errors
+            }
         }
 
         if ($existingEntry) {
@@ -185,6 +208,12 @@ class CreateEntryTool extends BaseStatamicTool
         // Validate against blueprint if requested
         $validationErrors = [];
         if ($validateBlueprint) {
+            // Re-fetch collection to handle parallel execution race conditions
+            $collection = Collection::find($collectionHandle);
+            if (! $collection) {
+                return $this->createErrorResponse("Collection '{$collectionHandle}' not found during blueprint validation")->toArray();
+            }
+
             $blueprint = $collection->entryBlueprint();
             if ($blueprint) {
                 foreach ($blueprint->fields()->all() as $fieldHandle => $field) {

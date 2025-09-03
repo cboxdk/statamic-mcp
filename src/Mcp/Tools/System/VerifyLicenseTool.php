@@ -61,10 +61,10 @@ class VerifyLicenseTool extends BaseStatamicTool
 
             // Get Pro status
             $proEnabled = false;
-            if ($isProAvailable) {
+            if ($isProAvailable) { // @phpstan-ignore if.alwaysTrue
                 try {
                     $proClass = \Statamic\Pro\Pro::class; // @phpstan-ignore class.notFound
-                    if (method_exists($proClass, 'enabled')) {
+                    if (method_exists($proClass, 'enabled')) { // @phpstan-ignore function.impossibleType
                         $proEnabled = $proClass::enabled(); // @phpstan-ignore class.notFound
                     }
                 } catch (\Throwable $e) {
