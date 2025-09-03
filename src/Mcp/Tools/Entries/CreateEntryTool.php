@@ -153,7 +153,8 @@ class CreateEntryTool extends BaseStatamicTool
             return $this->createErrorResponse("Collection '{$collectionHandle}' is not dated, but date was provided")->toArray();
         }
 
-        // Check for existing entry with same slug
+        // Check for existing entry with same slug (with cache refresh for accuracy)
+        \Statamic\Facades\Stache::refresh();
         $existingEntry = Entry::query()->where('collection', $collectionHandle)->where('slug', $slug)->first();
         if ($existingEntry) {
             return $this->createErrorResponse("Entry with slug '{$slug}' already exists in collection '{$collectionHandle}'")->toArray();

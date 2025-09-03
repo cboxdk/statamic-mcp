@@ -17,7 +17,7 @@ class CreateOrUpdateEntryToolTest extends TestCase
         $this->tool = new CreateOrUpdateEntryTool;
 
         // Ensure clean state and create blog collection for all tests
-        \Statamic\Facades\Stache::clear();
+        // Note: Don't clear Stache here to avoid fixture file conflicts in parallel execution
 
         // Only create if it doesn't exist to avoid conflicts
         if (! \Statamic\Facades\Collection::find('blog')) {
