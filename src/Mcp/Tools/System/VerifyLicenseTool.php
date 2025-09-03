@@ -40,58 +40,31 @@ class VerifyLicenseTool extends BaseStatamicTool
         $includeDiagnostics = $arguments['include_diagnostics'] ?? false;
 
         try {
-            // Check if Statamic Pro is available
-            $isProAvailable = class_exists(\Statamic\Pro\Pro::class);
-
-            if (! $isProAvailable) {
-                return [
-                    'verification' => [
-                        'valid' => false,
-                        'status' => 'pro_not_installed',
-                        'message' => 'Statamic Pro is not installed - verification not possible',
-                    ],
-                    'meta' => [
-                        'statamic_version' => \Statamic\Statamic::version(),
-                        'laravel_version' => app()->version(),
-                        'timestamp' => now()->toISOString(),
-                        'tool' => $this->getToolName(),
-                    ],
-                ];
-            }
-
-            // Get Pro status
-            $proEnabled = false;
-            if ($isProAvailable) { // @phpstan-ignore if.alwaysTrue
-                try {
-                    $proClass = \Statamic\Pro\Pro::class; // @phpstan-ignore class.notFound
-                    if (method_exists($proClass, 'enabled')) { // @phpstan-ignore function.impossibleType
-                        $proEnabled = $proClass::enabled(); // @phpstan-ignore class.notFound
-                    }
-                } catch (\Throwable $e) {
-                    // Ignore errors when Pro class is not available
-                }
-            }
+            // Check if Statamic Pro is enabled using the official method
+            $proEnabled = \Statamic\Statamic::pro();
 
             $verificationData = [
                 'valid' => $proEnabled,
-                'status' => $proEnabled ? 'valid' : 'invalid',
+                'status' => $proEnabled ? 'valid' : 'free_mode',
                 'pro_enabled' => $proEnabled,
                 'local_check' => 'passed',
+                'message' => $proEnabled ? 'Statamic Pro is active and valid' : 'Running in free mode',
             ];
 
             if ($checkRemote && $proEnabled) {
                 // Note: Remote verification would require actual Statamic Pro license checking
                 // This is a placeholder for the actual implementation
                 $verificationData['remote_check'] = 'not_implemented';
-                $verificationData['message'] = 'Remote license verification not implemented';
+                $verificationData['message'] .= ' (Remote verification not implemented)';
             }
 
             if ($includeDiagnostics) {
                 $verificationData['diagnostics'] = [
-                    'pro_class_exists' => $isProAvailable,
+                    'pro_enabled' => $proEnabled,
                     'config_path' => config_path(),
                     'environment' => app()->environment(),
                     'debug_mode' => config('app.debug', false),
+                    'statamic_version' => \Statamic\Statamic::version(),
                 ];
             }
 

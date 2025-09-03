@@ -36,44 +36,14 @@ class GetLicenseStatusTool extends BaseStatamicTool
         $includeDetails = $arguments['include_details'] ?? false;
 
         try {
-            // Check if Statamic Pro is available
-            $isProAvailable = class_exists(\Statamic\Pro\Pro::class);
-
-            if (! $isProAvailable) {
-                return [
-                    'license' => [
-                        'status' => 'not_installed',
-                        'type' => 'free',
-                        'message' => 'Statamic Pro is not installed',
-                    ],
-                    'valid' => false,
-                    'meta' => [
-                        'statamic_version' => \Statamic\Statamic::version(),
-                        'laravel_version' => app()->version(),
-                        'timestamp' => now()->toISOString(),
-                        'tool' => $this->getToolName(),
-                    ],
-                ];
-            }
-
-            // Get Pro status if available
-            $proStatus = false;
-            if ($isProAvailable) { // @phpstan-ignore if.alwaysTrue
-                try {
-                    $proClass = \Statamic\Pro\Pro::class; // @phpstan-ignore class.notFound
-                    if (method_exists($proClass, 'enabled')) { // @phpstan-ignore function.impossibleType
-                        $proStatus = $proClass::enabled(); // @phpstan-ignore class.notFound
-                    }
-                } catch (\Throwable $e) {
-                    // Ignore errors when Pro class is not available
-                }
-            }
+            // Check if Statamic Pro is enabled using the official method
+            $proStatus = \Statamic\Statamic::pro();
 
             $licenseData = [
                 'status' => $proStatus ? 'active' : 'inactive',
                 'type' => $proStatus ? 'pro' : 'free',
-                'pro_available' => $isProAvailable,
                 'pro_enabled' => $proStatus,
+                'message' => $proStatus ? 'Statamic Pro is active' : 'Statamic is running in free mode',
             ];
 
             if ($includeDetails && $proStatus) {
