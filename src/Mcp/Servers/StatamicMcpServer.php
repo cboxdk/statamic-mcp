@@ -134,15 +134,16 @@ use Cboxdk\StatamicMcp\Mcp\Tools\System\CacheStatusTool;
 use Cboxdk\StatamicMcp\Mcp\Tools\System\ClearCacheTool;
 use Cboxdk\StatamicMcp\Mcp\Tools\System\DiscoverToolsTool;
 use Cboxdk\StatamicMcp\Mcp\Tools\System\DocsSystemTool;
+use Cboxdk\StatamicMcp\Mcp\Tools\System\GetLicenseStatusTool;
 use Cboxdk\StatamicMcp\Mcp\Tools\System\GetToolSchemaTool;
 use Cboxdk\StatamicMcp\Mcp\Tools\System\InfoSystemTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\System\LicenseManagementTool;
 use Cboxdk\StatamicMcp\Mcp\Tools\System\PerformanceMonitorTool;
 use Cboxdk\StatamicMcp\Mcp\Tools\System\PreferencesManagementTool;
 use Cboxdk\StatamicMcp\Mcp\Tools\System\SearchIndexAnalyzerTool;
 use Cboxdk\StatamicMcp\Mcp\Tools\System\SitesTool;
 use Cboxdk\StatamicMcp\Mcp\Tools\System\StacheManagementTool;
 use Cboxdk\StatamicMcp\Mcp\Tools\System\SystemHealthCheckTool;
+use Cboxdk\StatamicMcp\Mcp\Tools\System\VerifyLicenseTool;
 // Tags Tools
 use Cboxdk\StatamicMcp\Mcp\Tools\Tags\ListTagsTool;
 // Taxonomies Tools
@@ -326,7 +327,8 @@ class StatamicMcpServer extends Server
         CacheStatusTool::class,
         DocsSystemTool::class,
         SystemHealthCheckTool::class,
-        LicenseManagementTool::class,
+        GetLicenseStatusTool::class,
+        VerifyLicenseTool::class,
         PerformanceMonitorTool::class,
         PreferencesManagementTool::class,
         StacheManagementTool::class,

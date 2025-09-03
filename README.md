@@ -495,7 +495,8 @@ statamic-mcp/
 │       ├── InfoSystemTool.php
 │       ├── CacheSystemTool.php
 │       ├── DocsSystemTool.php
-│       ├── LicenseManagementTool.php
+│       ├── GetLicenseStatusTool.php
+│       ├── VerifyLicenseTool.php
 │       ├── PreferencesManagementTool.php
 │       ├── StacheManagementTool.php
 │       ├── SearchIndexAnalyzerTool.php
