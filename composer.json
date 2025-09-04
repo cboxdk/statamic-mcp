@@ -51,6 +51,9 @@
             ]
         }
     },
+    "suggest": {
+        "laravel/boost": "Enhances the development experience when working with this Statamic MCP server by providing powerful Laravel-specific tools and debugging capabilities"
+    },
     "minimum-stability": "dev",
     "prefer-stable": true
 }

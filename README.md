@@ -21,6 +21,25 @@ php artisan mcp:statamic:install
 # The addon automatically registers with Laravel's MCP server
 ```
 
+### 🎯 Recommended: Laravel Boost Integration
+
+We strongly recommend installing **Laravel Boost** alongside this Statamic MCP server for the best development experience:
+
+```bash
+composer require laravel/boost --dev
+```
+
+**Why use both?**
+- **Laravel Boost** and **Statamic MCP Server** run in parallel, complementing each other perfectly
+- **Laravel Boost** provides Laravel-specific tools (Eloquent, database, debugging, Artisan commands)
+- **Statamic MCP Server** provides Statamic-specific tools (blueprints, collections, entries, assets)
+- Together, they give you complete AI-assisted development capabilities for your Statamic/Laravel application
+
+With both installed, your AI assistant can:
+- Use Laravel Boost for database queries, debugging, and Laravel framework operations
+- Use Statamic MCP for content management, blueprint operations, and Statamic-specific tasks
+- Seamlessly work across both the Laravel framework and Statamic CMS layers
+
 ### Development Installation
 
 For local development or contributing:
