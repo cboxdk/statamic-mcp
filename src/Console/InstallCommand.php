@@ -10,7 +10,7 @@ use function Laravel\Prompts\multiselect;
 
 class InstallCommand extends Command
 {
-    protected $signature = 'mcp:statamic:install {--force : Overwrite existing configuration}';
+    protected $signature = 'mcp:statamic:install {--force : Overwrite existing configuration} {--debug : Show debug information}';
 
     protected $description = 'Install and configure Statamic MCP Server for AI assistants';
 
@@ -166,8 +166,9 @@ class InstallCommand extends Command
         $selected = multiselect(
             label: 'Which AI assistants would you like to configure?',
             options: $choices,
+            default: array_keys($choices), // Auto-select all detected agents
             required: false,
-            hint: 'Use space to select, enter to confirm'
+            hint: 'Use space to select/deselect, enter to confirm'
         );
 
         return $selected;
@@ -283,20 +284,81 @@ class InstallCommand extends Command
     protected function detectClaudeCli(): bool
     {
         try {
+            if ($this->option('debug')) {
+                $this->line('🐛 Debug: Checking for Claude CLI...');
+            }
+
             // Check for claude command (handles aliases too)
             $result = Process::run(['bash', '-c', 'command -v claude']);
+            if ($this->option('debug')) {
+                $this->line("🐛 Debug: 'command -v claude' result: " . ($result->successful() ? 'SUCCESS' : 'FAILED'));
+                $this->line("🐛 Debug: Output: '" . trim($result->output()) . "'");
+                $this->line("🐛 Debug: Error: '" . trim($result->errorOutput()) . "'");
+            }
             if ($result->successful()) {
+                if ($this->option('debug')) {
+                    $this->line('🐛 Debug: Claude CLI detected via command -v');
+                }
+
                 return true;
+            }
+
+            // Try alternative detection methods
+            $alternatives = [
+                ['which', 'claude'],
+                ['bash', '-c', 'type claude'],
+                ['bash', '-c', 'whereis claude'],
+            ];
+
+            foreach ($alternatives as $cmd) {
+                $result = Process::run($cmd);
+                if ($this->option('debug')) {
+                    $this->line("🐛 Debug: '" . implode(' ', $cmd) . "' result: " . ($result->successful() ? 'SUCCESS' : 'FAILED'));
+                    $this->line("🐛 Debug: Output: '" . trim($result->output()) . "'");
+                }
+                if ($result->successful() && ! empty(trim($result->output()))) {
+                    $output = trim($result->output());
+
+                    // Special handling for whereis which returns "claude:" format
+                    if (str_contains($cmd[count($cmd) - 1], 'whereis') && $output === 'claude:') {
+                        // whereis found it but didn't provide a path, skip this result
+                        if ($this->option('debug')) {
+                            $this->line('🐛 Debug: whereis found claude but no path, skipping');
+                        }
+                        continue;
+                    }
+
+                    if ($this->option('debug')) {
+                        $this->line('🐛 Debug: Claude CLI detected via ' . implode(' ', $cmd));
+                    }
+
+                    return true;
+                }
             }
 
             // Also check for Claude Code JetBrains plugin
             $jetbrainsPlugins = glob($this->getHomeDirectory() . '/Library/Application Support/JetBrains/*/plugins/claude-code-jetbrains-plugin');
+            if ($this->option('debug')) {
+                $this->line('🐛 Debug: JetBrains plugins found: ' . count($jetbrainsPlugins));
+            }
             if (! empty($jetbrainsPlugins)) {
+                if ($this->option('debug')) {
+                    $this->line('🐛 Debug: Claude CLI detected via JetBrains plugin');
+                }
+
                 return true;
+            }
+
+            if ($this->option('debug')) {
+                $this->line('🐛 Debug: No Claude CLI detected');
             }
 
             return false;
         } catch (\Exception $e) {
+            if ($this->option('debug')) {
+                $this->line('🐛 Debug: Exception during Claude CLI detection: ' . $e->getMessage());
+            }
+
             return false;
         }
     }
@@ -770,11 +832,14 @@ MARKDOWN;
     {
         // Try to register with Claude MCP command if available
         try {
-            // Check if claude command is available
-            $claudeCheck = Process::run(['bash', '-c', 'command -v claude']);
-            if ($claudeCheck->failed()) {
+            // Use the same detection logic as detectClaudeCli()
+            if (! $this->detectClaudeCli()) {
+                $this->line('  ℹ️  Claude CLI not detected, skipping automatic registration');
+
                 return; // Claude CLI not available
             }
+
+            $this->line('  🔄 Attempting to register with Claude CLI...');
 
             // Try to add MCP server via command line (run from Laravel root)
             $mcpCommand = [
@@ -788,9 +853,17 @@ MARKDOWN;
 
             if ($result->successful()) {
                 $this->info('✅ MCP server registered with Claude CLI');
+            } else {
+                $this->warn('⚠️  Claude CLI registration failed, but .mcp.json was created');
+                if ($this->getOutput()->isVerbose()) {
+                    $this->line('  Error: ' . $result->errorOutput());
+                    $this->line('  Output: ' . $result->output());
+                }
+                $this->line('  💡 You can manually register with: claude mcp add statamic "php artisan mcp:start statamic" --scope project');
             }
         } catch (\Exception $e) {
-            // Ignore errors - .mcp.json was already created
+            $this->warn('⚠️  Error during Claude CLI registration: ' . $e->getMessage());
+            $this->line('  💡 You can manually register with: claude mcp add statamic "php artisan mcp:start statamic" --scope project');
         }
     }
 
