@@ -6,6 +6,8 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Process;
 
+use function Laravel\Prompts\multiselect;
+
 class InstallCommand extends Command
 {
     protected $signature = 'mcp:statamic:install {--force : Overwrite existing configuration}';
@@ -57,24 +59,208 @@ class InstallCommand extends Command
 
     protected function configureAiAssistants()
     {
-        $this->info('🤖 Configuring AI assistants...');
+        $this->info('🤖 Detecting AI assistants...');
+
+        // Detect available AI agents/environments
+        $availableAgents = $this->detectAiAgents();
+
+        if (empty($availableAgents)) {
+            $this->warn('No AI agents detected. You can manually configure them later.');
+            $this->newLine();
+            return;
+        }
+
+        $this->info('Found ' . count($availableAgents) . ' AI agent(s): ' . implode(', ', array_keys($availableAgents)));
+        $this->newLine();
+
+        // Ask user which agents to configure
+        $selectedAgents = $this->selectTargetAgents($availableAgents);
+
+        if (empty($selectedAgents)) {
+            $this->info('No agents selected for configuration.');
+            $this->newLine();
+            return;
+        }
+
+        $this->info('🔧 Configuring selected AI assistants...');
 
         $projectPath = base_path();
-        $assistants = [
-            'Claude Code' => $this->configureClaudeCode($projectPath),
-            'Cursor' => $this->configureCursor($projectPath),
-            'Cline' => $this->configureCline($projectPath),
-        ];
+        $configuredCount = 0;
 
-        foreach ($assistants as $name => $configured) {
+        foreach ($selectedAgents as $agent) {
+            $configured = false;
+
+            switch ($agent) {
+                case 'Claude Code':
+                    $configured = $this->configureClaudeCode($projectPath);
+                    break;
+                case 'Cursor':
+                    $configured = $this->configureCursor($projectPath);
+                    break;
+                case 'Cline':
+                    $configured = $this->configureCline($projectPath);
+                    break;
+            }
+
             if ($configured) {
-                $this->info("✅ {$name} configuration created/updated");
+                $this->info("✅ {$agent} configuration created/updated");
+                $configuredCount++;
             } else {
-                $this->warn("⏭️  {$name} not configured (not detected or skipped)");
+                $this->warn("⏭️  {$agent} configuration skipped");
             }
         }
 
+        $this->info("Configured {$configuredCount} of " . count($selectedAgents) . " selected agents.");
         $this->newLine();
+    }
+
+    protected function detectAiAgents(): array
+    {
+        $agents = [];
+
+        // Detect Claude Code
+        if ($this->detectClaudeCode()) {
+            $agents['Claude Code'] = [
+                'type' => 'claude-code',
+                'detected' => true,
+                'description' => 'Claude Code CLI or desktop app detected'
+            ];
+        }
+
+        // Detect Cursor
+        if ($this->detectCursor()) {
+            $agents['Cursor'] = [
+                'type' => 'cursor',
+                'detected' => true,
+                'description' => 'Cursor IDE detected'
+            ];
+        }
+
+        // Detect Cline (VS Code extension)
+        if ($this->detectCline()) {
+            $agents['Cline'] = [
+                'type' => 'cline',
+                'detected' => true,
+                'description' => 'VS Code with Cline extension detected'
+            ];
+        }
+
+        return $agents;
+    }
+
+    protected function selectTargetAgents(array $availableAgents): array
+    {
+        if ($this->option('force')) {
+            // If force option is used, configure all detected agents
+            return array_keys($availableAgents);
+        }
+
+        // Use Laravel Prompts multiselect for interactive selection
+        $choices = [];
+        foreach ($availableAgents as $name => $info) {
+            $choices[$name] = $name . ' - ' . $info['description'];
+        }
+
+        $selected = multiselect(
+            label: 'Which AI assistants would you like to configure?',
+            options: $choices,
+            required: false,
+            hint: 'Use space to select, enter to confirm'
+        );
+
+        return $selected;
+    }
+
+    protected function detectClaudeCode(): bool
+    {
+        // Check for Claude CLI
+        if ($this->detectClaudeCli()) {
+            return true;
+        }
+
+        // Check for Claude desktop app
+        $homeDir = $this->getHomeDirectory();
+        $desktopPaths = [
+            '/Applications/Claude.app',  // macOS
+            $homeDir . '/Library/Application Support/Claude', // macOS config
+            $homeDir . '/.config/claude', // Linux
+            (isset($_SERVER['APPDATA']) ? $_SERVER['APPDATA'] . '/Claude' : null), // Windows
+        ];
+
+        foreach ($desktopPaths as $path) {
+            if ($path && (File::exists($path) || File::isDirectory($path))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    protected function detectCursor(): bool
+    {
+        // Check for Cursor application
+        $cursorPaths = [
+            '/Applications/Cursor.app', // macOS
+            '/usr/local/bin/cursor', // Linux
+            $this->which('cursor'), // Any system PATH
+        ];
+
+        foreach ($cursorPaths as $path) {
+            if ($path && File::exists($path)) {
+                return true;
+            }
+        }
+
+        // Check if .cursorrules already exists (indicates Cursor usage)
+        if (File::exists(base_path('.cursorrules'))) {
+            return true;
+        }
+
+        return false;
+    }
+
+    protected function detectCline(): bool
+    {
+        // Check for VS Code installation
+        $vscodePaths = [
+            '/Applications/Visual Studio Code.app', // macOS
+            '/usr/local/bin/code', // Linux
+            $this->which('code'), // Any system PATH
+        ];
+
+        $vscodeInstalled = false;
+        foreach ($vscodePaths as $path) {
+            if ($path && File::exists($path)) {
+                $vscodeInstalled = true;
+                break;
+            }
+        }
+
+        if (!$vscodeInstalled) {
+            return false;
+        }
+
+        // Check for existing VS Code settings with Cline configuration
+        $vscodeSettings = base_path('.vscode/settings.json');
+        if (File::exists($vscodeSettings)) {
+            $settings = json_decode(File::get($vscodeSettings), true) ?? [];
+            if (isset($settings['cline.mcpServers'])) {
+                return true;
+            }
+        }
+
+        // If VS Code is installed, we assume Cline could be installed
+        return true;
+    }
+
+    protected function which(string $command): ?string
+    {
+        try {
+            $result = Process::run(['which', $command]);
+            return $result->successful() ? trim($result->output()) : null;
+        } catch (\Exception $e) {
+            return null;
+        }
     }
 
     protected function configureClaudeCode(string $projectPath): bool
@@ -114,8 +300,8 @@ class InstallCommand extends Command
 
     protected function configureClaudeCodeModern(string $projectPath): bool
     {
-        // Get the Laravel project root (not the addon directory)
-        $laravelRoot = dirname(dirname($projectPath)); // Go up from addons/cboxdk/statamic-mcp to project root
+        // Get the Laravel project root
+        $laravelRoot = $this->getLaravelRoot();
         $mcpConfigPath = $laravelRoot . '/.mcp.json';
 
         $config = [];
@@ -355,7 +541,7 @@ This project uses Statamic MCP Server for enhanced AI-assisted development.
 - **statamic.blueprints.scan**: Analyze blueprint structures
 - **statamic.blueprints.validate**: Validate blueprint configuration
 
-### Entry & Content Tools  
+### Entry & Content Tools
 - **statamic.entries.list**: List entries with pagination
 - **statamic.entries.get**: Get specific entry
 - **statamic.entries.create**: Create new entries
@@ -608,5 +794,29 @@ MARKDOWN;
     protected function getHomeDirectory(): string
     {
         return $_SERVER['HOME'] ?? $_SERVER['USERPROFILE'] ?? '';
+    }
+
+    protected function getLaravelRoot(): string
+    {
+        // Start from base_path() and walk up to find the Laravel root
+        $current = base_path();
+
+        // If we're in an addon directory, we need to find the actual Laravel project root
+        while ($current && $current !== '/') {
+            // Check if this directory contains artisan and composer.json (Laravel project root)
+            if (File::exists($current . '/artisan') && File::exists($current . '/composer.json')) {
+                return $current;
+            }
+
+            // Go up one directory
+            $parent = dirname($current);
+            if ($parent === $current) {
+                break; // Reached the root directory
+            }
+            $current = $parent;
+        }
+
+        // Fallback to base_path if we can't find Laravel root
+        return base_path();
     }
 }
