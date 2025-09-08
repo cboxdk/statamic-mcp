@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📚 Documentation
+    url: https://github.com/cboxdk/statamic-mcp/blob/main/README.md
+    about: Read the documentation before opening an issue
+  - name: 💬 Statamic Discord
+    url: https://statamic.com/discord
+    about: Ask questions and discuss with the Statamic community
+  - name: 🔍 Statamic Documentation
+    url: https://statamic.dev
+    about: Official Statamic documentation for reference
+  - name: 🤖 MCP Protocol Documentation
+    url: https://modelcontextprotocol.io
+    about: Learn more about the Model Context Protocol

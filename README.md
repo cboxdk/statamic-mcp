@@ -2,6 +2,25 @@
 
 A comprehensive MCP (Model Context Protocol) server for Statamic CMS that provides AI assistants with structured access to Statamic's content management capabilities through a clean, organized tool architecture.
 
+> [!WARNING]
+> **🚧 Alpha Software - Expect Bugs!**
+> 
+> This MCP server is currently in **alpha stage**. With over 100+ tools available, many of which were AI-generated, comprehensive testing is an ongoing process that takes time.
+> 
+> **What to expect:**
+> - 🐛 **Bugs and errors** - This is alpha software, things will break
+> - 🤖 **AI-generated tools** - Some tools were created with AI assistance and may have edge cases
+> - 🔧 **Ongoing improvements** - We're actively testing and refining all tools
+> - 📈 **Rapid iteration** - Frequent updates as we discover and fix issues
+> 
+> **How you can help:**
+> - 🧪 **Test the tools** in your Statamic projects
+> - 🐞 **Report bugs** by [creating issues](https://github.com/cboxdk/statamic-mcp/issues)
+> - 🎯 **Submit PRs** with fixes and improvements
+> - 💬 **Share feedback** on what works and what doesn't
+> 
+> Your testing and contributions help make this tool better for everyone! 🙏
+
 ## 📋 Requirements
 
 - PHP 8.2+

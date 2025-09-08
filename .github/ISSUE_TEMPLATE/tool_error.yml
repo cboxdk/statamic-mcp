@@ -1,0 +1,139 @@
+name: 🔧 Tool Error Report
+description: Report an error or issue with a specific MCP tool
+labels: ["tool-error", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template when a specific MCP tool is not working as expected. For general bugs, please use the Bug Report template.
+
+  - type: input
+    id: tool-name
+    attributes:
+      label: Tool Name
+      description: Which MCP tool is having issues?
+      placeholder: statamic.blueprints.create
+    validations:
+      required: true
+
+  - type: textarea
+    id: tool-input
+    attributes:
+      label: Tool Input/Parameters
+      description: What parameters did you pass to the tool?
+      placeholder: |
+        ```json
+        {
+          "namespace": "collections",
+          "handle": "blog",
+          "sections": {
+            "main": {
+              "fields": [...]
+            }
+          }
+        }
+        ```
+      render: json
+    validations:
+      required: true
+
+  - type: textarea
+    id: error-output
+    attributes:
+      label: Error Output
+      description: What error or unexpected output did you receive?
+      placeholder: |
+        ```json
+        {
+          "success": false,
+          "errors": ["..."],
+          "meta": {...}
+        }
+        ```
+      render: json
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-output
+    attributes:
+      label: Expected Output
+      description: What output did you expect to receive?
+      placeholder: |
+        The tool should have created a blueprint and returned...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: tool-category
+    attributes:
+      label: Tool Category
+      options:
+        - Blueprint Tools
+        - Collection Tools
+        - Entry Tools
+        - Taxonomy Tools
+        - Asset Tools
+        - User Tools
+        - System Tools
+        - Navigation Tools
+        - Forms Tools
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: statamic-state
+    attributes:
+      label: Statamic State
+      description: Relevant state of your Statamic installation
+      placeholder: |
+        - Collections present: blog, pages, products
+        - Blueprints: default, article, product
+        - Any custom addons or modifications
+        - Relevant config settings
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs
+      description: Include any relevant logs from storage/logs/
+      placeholder: |
+        ```
+        [2024-01-15 10:30:00] local.ERROR: ...
+        ```
+      render: shell
+    validations:
+      required: false
+
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: Frequency
+      description: How often does this error occur?
+      options:
+        - Always (100% reproducible)
+        - Often (>50% of the time)
+        - Sometimes (<50% of the time)
+        - Rarely
+        - Only happened once
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: debugging-steps
+    attributes:
+      label: Debugging Steps Taken
+      options:
+        - label: Cleared Statamic cache (`php artisan statamic:stache:clear`)
+          required: false
+        - label: Cleared Laravel cache (`php artisan cache:clear`)
+          required: false
+        - label: Checked file permissions
+          required: false
+        - label: Verified tool works with different parameters
+          required: false
+        - label: Tested in fresh Statamic installation
+          required: false

@@ -1,0 +1,130 @@
+name: 🐛 Bug Report
+description: Report a bug or unexpected behavior in the Statamic MCP Server
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this issue! Please provide as much detail as possible to help us reproduce and fix the bug.
+
+  - type: textarea
+    id: bug-description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is.
+      placeholder: When I use the statamic.entries.create tool, it fails with...
+    validations:
+      required: true
+
+  - type: textarea
+    id: how-to-reproduce
+    attributes:
+      label: How to Reproduce
+      description: Steps to reproduce the behavior
+      placeholder: |
+        1. Call the tool 'statamic.entries.create' with...
+        2. Provide these parameters...
+        3. See error...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+      placeholder: The entry should be created successfully and return...
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual-behavior
+    attributes:
+      label: Actual Behavior
+      description: What actually happened? Include any error messages.
+      placeholder: |
+        The tool returned an error:
+        ```
+        Error message here
+        ```
+    validations:
+      required: true
+
+  - type: input
+    id: tool-name
+    attributes:
+      label: Tool Name
+      description: Which MCP tool is affected? (e.g., statamic.entries.create)
+      placeholder: statamic.entries.create
+    validations:
+      required: false
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Please complete the following information
+      value: |
+        **Application:**
+        - Statamic Version: 
+        - Laravel Version: 
+        - PHP Version: 
+        - Statamic MCP Version: 
+        - Laravel Boost Version (if installed): 
+
+        **MCP Client:**
+        - Client Type: (e.g., Claude Desktop, Cursor, VSCode, etc.)
+        - Client Version: 
+
+        **Server:**
+        - OS: 
+        - Node Version (if applicable): 
+    validations:
+      required: true
+
+  - type: dropdown
+    id: statamic-edition
+    attributes:
+      label: Statamic Edition
+      options:
+        - Statamic Solo (Free)
+        - Statamic Pro (Licensed)
+        - Statamic Pro (Unlicensed/Trial)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: installation-method
+    attributes:
+      label: Installation Method
+      options:
+        - Fresh Installation via Composer
+        - Existing Project (Statamic Starter Kit)
+        - Existing Project (Custom)
+        - Peak, Rad Pack, or Other Starter Kit
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Add any other context, screenshots, or code samples about the problem here.
+      placeholder: |
+        ```php
+        // Relevant code or configuration
+        ```
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Checklist
+      options:
+        - label: I've searched for similar issues and couldn't find anything relevant
+          required: true
+        - label: I've read the alpha disclaimer and understand this is experimental software
+          required: true
+        - label: I can reproduce this issue consistently
+          required: false

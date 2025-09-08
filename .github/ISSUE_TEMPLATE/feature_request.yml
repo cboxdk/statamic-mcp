@@ -1,0 +1,100 @@
+name: ✨ Feature Request
+description: Suggest a new MCP tool or enhancement for existing tools
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a feature! Please provide details about your use case and how this would improve your Statamic development workflow.
+
+  - type: dropdown
+    id: feature-type
+    attributes:
+      label: Feature Type
+      options:
+        - New MCP Tool
+        - Enhancement to Existing Tool
+        - New Tool Category
+        - Integration Feature
+        - Performance Improvement
+        - Documentation Improvement
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem-description
+    attributes:
+      label: Problem Description
+      description: What problem are you trying to solve? What's the use case?
+      placeholder: |
+        When working with Statamic collections, I often need to...
+        Currently, I have to manually...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed Solution
+      description: How would you like to see this implemented?
+      placeholder: |
+        Add a new tool called `statamic.collections.export` that...
+        The tool should accept these parameters...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Have you considered any alternative solutions or workarounds?
+      placeholder: |
+        I've tried using the existing tools but...
+        Another approach could be...
+    validations:
+      required: false
+
+  - type: textarea
+    id: example-usage
+    attributes:
+      label: Example Usage
+      description: Provide an example of how this feature would be used
+      placeholder: |
+        ```javascript
+        // Example MCP tool call
+        {
+          "tool": "statamic.collections.export",
+          "parameters": {
+            "collection": "blog",
+            "format": "json"
+          }
+        }
+        ```
+    validations:
+      required: false
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How important is this feature for your workflow?
+      options:
+        - Nice to have
+        - Would improve productivity
+        - Important for my use case
+        - Critical/Blocking my work
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I'm willing to help implement this feature
+          required: false
+        - label: I'm willing to test this feature
+          required: false
+        - label: I can provide more details if needed
+          required: false
