@@ -291,6 +291,13 @@ class CreateOrUpdateEntryTool extends BaseStatamicTool
 
         // Validate against blueprint
         $validationErrors = [];
+
+        // Re-fetch collection to handle parallel execution race conditions
+        $collection = Collection::find($collectionHandle);
+        if (! $collection) {
+            return $this->createErrorResponse("Collection '{$collectionHandle}' not found during blueprint validation")->toArray();
+        }
+
         $blueprint = $collection->entryBlueprint();
 
         if ($validateBlueprint && $blueprint) {

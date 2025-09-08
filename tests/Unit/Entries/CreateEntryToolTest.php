@@ -114,7 +114,7 @@ class CreateEntryToolTest extends TestCase
         $this->assertArrayHasKey('data', $response);
 
         // Verify entry was NOT actually created
-        $entry = Entry::query()->where('collection', 'blog')->where('slug', 'dry-run-entry')->first();
+        $entry = Entry::query()->where('collection', 'blog')->where('slug', $dryRunSlug)->first();
         $this->assertNull($entry);
     }
 

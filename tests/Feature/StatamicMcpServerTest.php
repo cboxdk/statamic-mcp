@@ -7,24 +7,23 @@ use Cboxdk\StatamicMcp\Tests\TestCase;
 
 class StatamicMcpServerTest extends TestCase
 {
-    protected StatamicMcpServer $server;
-
-    protected function setUp(): void
+    protected function getServer(): StatamicMcpServer
     {
-        parent::setUp();
-        $this->server = new StatamicMcpServer;
+        return app(StatamicMcpServer::class);
     }
 
     public function test_mcp_server_can_be_instantiated()
     {
-        expect($this->server)->toBeInstanceOf(StatamicMcpServer::class);
-        expect($this->server->name())->toBeString();
-        expect($this->server->version())->toBeString();
+        $server = $this->getServer();
+        expect($server)->toBeInstanceOf(StatamicMcpServer::class);
+        expect($server->name())->toBeString();
+        expect($server->version())->toBeString();
     }
 
     public function test_all_registered_tools_can_be_instantiated()
     {
-        $tools = $this->server->tools;
+        $server = $this->getServer();
+        $tools = $server->tools;
 
         expect($tools)->toBeArray();
         expect(count($tools))->toBeGreaterThan(0);
@@ -52,7 +51,8 @@ class StatamicMcpServerTest extends TestCase
 
     public function test_all_registered_prompts_can_be_instantiated()
     {
-        $prompts = $this->server->prompts;
+        $server = $this->getServer();
+        $prompts = $server->prompts;
 
         expect($prompts)->toBeArray();
 
@@ -69,7 +69,8 @@ class StatamicMcpServerTest extends TestCase
 
     public function test_mcp_server_tool_definitions_are_valid()
     {
-        $tools = $this->server->tools;
+        $server = $this->getServer();
+        $tools = $server->tools;
 
         foreach ($tools as $toolClass) {
             $tool = app($toolClass);
@@ -92,7 +93,8 @@ class StatamicMcpServerTest extends TestCase
 
     public function test_no_duplicate_tool_names()
     {
-        $tools = $this->server->tools;
+        $server = $this->getServer();
+        $tools = $server->tools;
         $toolNames = [];
 
         foreach ($tools as $toolClass) {
@@ -108,7 +110,8 @@ class StatamicMcpServerTest extends TestCase
 
     public function test_tool_categories_are_properly_organized()
     {
-        $tools = $this->server->tools;
+        $server = $this->getServer();
+        $tools = $server->tools;
         $expectedCategories = ['blueprints', 'collections', 'fieldsets', 'taxonomies', 'navigations', 'forms', 'entries', 'terms', 'globals', 'assets', 'groups', 'permissions', 'roles', 'sites', 'tags', 'modifiers', 'fieldtypes', 'scopes', 'filters', 'development', 'system', 'users'];
         $foundCategories = [];
 
