@@ -17,28 +17,49 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Check if release already exists
+        id: check_release
+        run: |
+          # Check if a release already exists for this tag
+          if gh release view ${{ github.ref_name }} > /dev/null 2>&1; then
+            echo "Release for ${{ github.ref_name }} already exists. Skipping release creation."
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "No existing release found for ${{ github.ref_name }}. Proceeding with release creation."
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Setup PHP
+        if: steps.check_release.outputs.exists == 'false'
         uses: shivammathur/setup-php@v2
         with:
           php-version: 8.4
           extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, imagick
 
       - name: Install dependencies
+        if: steps.check_release.outputs.exists == 'false'
         run: composer install --prefer-dist --no-progress
 
       - name: Create temporary .env file
+        if: steps.check_release.outputs.exists == 'false'
         run: echo "APP_KEY=base64:SGk1bGF2ZWw=" > .env
 
       - name: Run tests
+        if: steps.check_release.outputs.exists == 'false'
         run: ./vendor/bin/pest --parallel
 
       - name: Fix code formatting
+        if: steps.check_release.outputs.exists == 'false'
         run: ./vendor/bin/pint
 
       - name: Run static analysis
+        if: steps.check_release.outputs.exists == 'false'
         run: ./vendor/bin/phpstan analyse
 
       - name: Generate changelog
+        if: steps.check_release.outputs.exists == 'false'
         id: changelog
         run: |
           if [ -f CHANGELOG.md ]; then
@@ -49,6 +70,7 @@ jobs:
           fi
 
       - name: Create Release
+        if: steps.check_release.outputs.exists == 'false'
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
