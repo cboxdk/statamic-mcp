@@ -58,32 +58,6 @@ With both installed, your AI assistant can:
 - Use Statamic MCP for content management, blueprint operations, and Statamic-specific tasks
 - Seamlessly work across both the Laravel framework and Statamic CMS layers
 
-### Development Installation
-
-For local development or contributing:
-
-```bash
-# Clone the repository into your Statamic project's addons folder
-mkdir -p addons/cboxdk
-cd addons/cboxdk
-git clone https://github.com/cboxdk/statamic-mcp.git
-
-# Add to composer.json repositories section
-"repositories": [
-    {
-        "type": "path",
-        "url": "addons/cboxdk/statamic-mcp"
-    }
-]
-
-# Install the addon
-composer require cboxdk/statamic-mcp:@dev
-
-# Install dependencies
-cd addons/cboxdk/statamic-mcp
-composer install
-```
-
 ## ✨ Features
 
 The MCP server provides 100+ tools organized into logical categories that mirror Statamic's architecture:
@@ -555,6 +529,32 @@ php artisan vendor:publish --tag=statamic-mcp-config
 ```
 
 Configure blueprint paths, linting rules, cache settings, and more in `config/statamic_mcp.php`.
+
+## Development Installation
+
+For local development or contributing:
+
+```bash
+# Clone the repository into your Statamic project's addons folder
+mkdir -p addons/cboxdk
+cd addons/cboxdk
+git clone https://github.com/cboxdk/statamic-mcp.git
+
+# Add to composer.json repositories section
+"repositories": [
+    {
+        "type": "path",
+        "url": "addons/cboxdk/statamic-mcp"
+    }
+]
+
+# Install the addon
+composer require cboxdk/statamic-mcp:@dev
+
+# Install dependencies
+cd addons/cboxdk/statamic-mcp
+composer install
+```
 
 ## 🧪 Development & Testing
 
