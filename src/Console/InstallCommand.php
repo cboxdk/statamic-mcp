@@ -67,6 +67,7 @@ class InstallCommand extends Command
         if (empty($availableAgents)) {
             $this->warn('No AI agents detected. You can manually configure them later.');
             $this->newLine();
+
             return;
         }
 
@@ -79,6 +80,7 @@ class InstallCommand extends Command
         if (empty($selectedAgents)) {
             $this->info('No agents selected for configuration.');
             $this->newLine();
+
             return;
         }
 
@@ -110,7 +112,7 @@ class InstallCommand extends Command
             }
         }
 
-        $this->info("Configured {$configuredCount} of " . count($selectedAgents) . " selected agents.");
+        $this->info("Configured {$configuredCount} of " . count($selectedAgents) . ' selected agents.');
         $this->newLine();
     }
 
@@ -123,7 +125,7 @@ class InstallCommand extends Command
             $agents['Claude Code'] = [
                 'type' => 'claude-code',
                 'detected' => true,
-                'description' => 'Claude Code CLI or desktop app detected'
+                'description' => 'Claude Code CLI or desktop app detected',
             ];
         }
 
@@ -132,7 +134,7 @@ class InstallCommand extends Command
             $agents['Cursor'] = [
                 'type' => 'cursor',
                 'detected' => true,
-                'description' => 'Cursor IDE detected'
+                'description' => 'Cursor IDE detected',
             ];
         }
 
@@ -141,7 +143,7 @@ class InstallCommand extends Command
             $agents['Cline'] = [
                 'type' => 'cline',
                 'detected' => true,
-                'description' => 'VS Code with Cline extension detected'
+                'description' => 'VS Code with Cline extension detected',
             ];
         }
 
@@ -236,7 +238,7 @@ class InstallCommand extends Command
             }
         }
 
-        if (!$vscodeInstalled) {
+        if (! $vscodeInstalled) {
             return false;
         }
 
@@ -257,6 +259,7 @@ class InstallCommand extends Command
     {
         try {
             $result = Process::run(['which', $command]);
+
             return $result->successful() ? trim($result->output()) : null;
         } catch (\Exception $e) {
             return null;
