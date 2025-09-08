@@ -1,5 +1,9 @@
 {
     "name": "cboxdk/statamic-mcp",
+    "description": "AI-powered development tools for Statamic CMS. Provides 100+ MCP tools for blueprints, entries, collections, and more.",
+    "keywords": ["statamic", "mcp", "ai", "claude", "cursor", "development", "tools", "laravel"],
+    "homepage": "https://github.com/cboxdk/statamic-mcp",
+    "license": "MIT",
     "autoload": {
         "psr-4": {
             "Cboxdk\\StatamicMcp\\": "src"
@@ -42,8 +46,8 @@
     },
     "extra": {
         "statamic": {
-            "name": "Statamic Mcp",
-            "description": "Statamic Mcp addon"
+            "name": "Statamic MCP Server",
+            "description": "AI-powered development tools for Statamic CMS. Provides 100+ MCP tools for blueprints, entries, collections, and more."
         },
         "laravel": {
             "providers": [

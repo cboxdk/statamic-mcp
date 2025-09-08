@@ -26,7 +26,6 @@ A comprehensive MCP (Model Context Protocol) server for Statamic CMS that provid
 - PHP 8.2+
 - Laravel 11+
 - Statamic 5.0+
-- Laravel MCP Server (`laravel/mcp` ^0.1.1)
 
 ## 🚀 Installation
 
@@ -87,7 +86,7 @@ composer install
 
 ## ✨ Features
 
-The MCP server is organized into five logical categories that mirror Statamic's architecture:
+The MCP server provides 100+ tools organized into logical categories that mirror Statamic's architecture:
 
 ### 📋 Blueprint Tools
 **Purpose**: Manage blueprint definitions and schema
@@ -305,35 +304,13 @@ All structural and content changes automatically clear relevant caches:
 
 ## 🤖 AI Assistant Setup
 
-### Claude Code (Anthropic) - **Recommended**
 
-Add to your Claude Code MCP configuration:
-
-**macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-**Windows**: `%APPDATA%\Claude\claude_desktop_config.json`  
-**Linux**: `~/.config/claude/claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
-    "statamic": {
-      "command": "php",
-      "args": [
-        "/absolute/path/to/your/project/artisan",
-        "mcp:serve",
-        "statamic"
-      ],
-      "env": {
-        "APP_ENV": "local"
-      }
-    }
-  }
-}
+```bash
+# Run the installation command to set up MCP
+php artisan mcp:statamic:install
 ```
 
-### Other AI Assistants
-
-For **Cursor**, **Cline**, **Copilot**, and other AI assistant setups, see [docs/AI_ASSISTANT_SETUP.md](docs/AI_ASSISTANT_SETUP.md).
+See [docs/AI_ASSISTANT_SETUP.md](docs/AI_ASSISTANT_SETUP.md) for more details or manual setup.
 
 ## 💡 Example Usage with AI
 
