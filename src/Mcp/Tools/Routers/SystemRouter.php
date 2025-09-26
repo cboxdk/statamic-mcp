@@ -159,11 +159,7 @@ class SystemRouter extends BaseRouter
 
         // Check if tool is enabled for current context
         if (! $this->isCliContext() && ! $this->isWebToolEnabled()) {
-            return $this->createPermissionDeniedResponse(
-                $action,
-                'System tool is disabled for web access',
-                ['tool_enabled_for_web']
-            );
+            return $this->createErrorResponse('Permission denied: System tool is disabled for web access')->toArray();
         }
 
         // Apply security checks for web context
@@ -384,7 +380,7 @@ class SystemRouter extends BaseRouter
     private function clearCache(array $arguments): array
     {
         if (! $this->hasPermission('manage', 'cache')) {
-            return $this->createPermissionDeniedResponse('clear', 'cache');
+            return $this->createErrorResponse('Permission denied: Cannot clear cache')->toArray();
         }
 
         try {
@@ -420,7 +416,7 @@ class SystemRouter extends BaseRouter
     private function warmCache(array $arguments): array
     {
         if (! $this->hasPermission('manage', 'cache')) {
-            return $this->createPermissionDeniedResponse('warm', 'cache');
+            return $this->createErrorResponse('Permission denied: Cannot warm cache')->toArray();
         }
 
         try {
@@ -458,7 +454,7 @@ class SystemRouter extends BaseRouter
     private function getConfig(array $arguments): array
     {
         if (! $this->hasPermission('view', 'config')) {
-            return $this->createPermissionDeniedResponse('get', 'config');
+            return $this->createErrorResponse('Permission denied: Cannot get config')->toArray();
         }
 
         try {
@@ -510,7 +506,7 @@ class SystemRouter extends BaseRouter
     private function setConfig(array $arguments): array
     {
         if (! $this->hasPermission('manage', 'config')) {
-            return $this->createPermissionDeniedResponse('set', 'config');
+            return $this->createErrorResponse('Permission denied: Cannot set config')->toArray();
         }
 
         try {

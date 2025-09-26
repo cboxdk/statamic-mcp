@@ -9,8 +9,38 @@ This is a Statamic addon that functions as an MCP (Model Context Protocol) serve
 ## Key Dependencies
 
 - **Statamic CMS**: ^5.0 (required)
-- **Laravel MCP**: ^0.1.1 (required - must be in `require` section, not `require-dev`)
+- **Laravel MCP**: ^0.2.0 (required - must be in `require` section, not `require-dev`)
 - **Orchestra Testbench**: ^9.0 (dev dependency for testing)
+
+## Web MCP Endpoint
+
+This addon supports web-accessible MCP endpoints for browser-based integrations. See [docs/WEB_MCP_SETUP.md](docs/WEB_MCP_SETUP.md) for detailed setup instructions.
+
+### Quick Setup
+
+```env
+# Enable web MCP endpoint
+STATAMIC_MCP_WEB_ENABLED=true
+STATAMIC_MCP_WEB_PATH="/mcp/statamic"
+```
+
+The endpoint will be available at `https://your-site.test/mcp/statamic` with Basic Auth using Statamic credentials.
+
+### MCP Client Configuration
+
+```json
+{
+    "mcpServers": {
+        "statamic": {
+            "url": "https://your-site.test/mcp/statamic",
+            "auth": {
+                "username": "your-email@example.com",
+                "password": "your-statamic-password"
+            }
+        }
+    }
+}
+```
 
 ## Development Commands
 
@@ -91,12 +121,231 @@ The main entry point is `src/ServiceProvider.php` which extends `Statamic\Provid
 ### Addon Registration
 The addon is registered through Laravel's service provider discovery mechanism via the `extra.laravel.providers` configuration in `composer.json`.
 
-## Important Implementation Notes
+## Laravel MCP v0.2.0 Tool Development Guide
+
+**CRITICAL**: This project uses Laravel MCP v0.2.0 which has specific patterns that MUST be followed exactly.
+
+### Required Tool Structure
+
+All tools MUST extend `BaseStatamicTool` which provides standardized error handling and MCP compliance:
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace Cboxdk\StatamicMcp\Mcp\Tools\Domain;
+
+use Cboxdk\StatamicMcp\Mcp\Tools\BaseStatamicTool;
+use Illuminate\JsonSchema\JsonSchema;
+use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly; // Optional
+
+#[IsReadOnly] // Optional annotation
+class ExampleTool extends BaseStatamicTool
+{
+    protected function getToolName(): string
+    {
+        return 'statamic.domain.action';
+    }
+
+    protected function getToolDescription(): string
+    {
+        return 'Clear description of what this tool does';
+    }
+
+    protected function defineSchema(JsonSchema $schema): array
+    {
+        return [
+            'required_field' => JsonSchema::string()
+                ->description('Field description')
+                ->required(),
+            'optional_field' => JsonSchema::boolean()
+                ->description('Optional field description'),
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $arguments
+     * @return array<string, mixed>
+     */
+    protected function execute(array $arguments): array
+    {
+        // Tool implementation
+        return ['result' => 'data'];
+    }
+}
+```
+
+### Schema Definition Requirements
+
+**NEVER use fluent chaining** - Laravel MCP v0.2.0 uses array return format:
+
+❌ **WRONG (v0.1.x pattern)**:
+```php
+protected function defineSchema(ToolInputSchema $schema): ToolInputSchema
+{
+    return $schema
+        ->string('field')
+        ->description('desc')
+        ->required();
+}
+```
+
+✅ **CORRECT (v0.2.0 pattern)**:
+```php
+protected function defineSchema(JsonSchema $schema): array
+{
+    return [
+        'field' => JsonSchema::string()
+            ->description('Field description')
+            ->required(),
+        'optional' => JsonSchema::boolean()
+            ->description('Optional field'),
+    ];
+}
+```
+
+### Schema Field Types
+
+Available JsonSchema field types:
+- `JsonSchema::string()` - Text input
+- `JsonSchema::boolean()` - True/false
+- `JsonSchema::integer()` - Whole numbers
+- `JsonSchema::number()` - Decimal numbers
+- `JsonSchema::array()` - Arrays
+- `JsonSchema::object()` - Objects
+
+### Required Method Signatures
+
+All tool methods MUST have exact signatures:
+
+```php
+abstract protected function getToolName(): string;
+abstract protected function getToolDescription(): string;
+abstract protected function defineSchema(JsonSchema $schema): array;
+abstract protected function execute(array $arguments): array;
+```
+
+### Dry-Run Support
+
+For tools that modify data, add dry-run support:
+
+```php
+protected function defineSchema(JsonSchema $schema): array
+{
+    return array_merge([
+        'handle' => JsonSchema::string()->description('Blueprint handle')->required(),
+        'title' => JsonSchema::string()->description('Blueprint title'),
+    ], $this->addDryRunSchema());
+}
+
+protected function execute(array $arguments): array
+{
+    if ($this->isDryRun($arguments)) {
+        return $this->simulateOperation('create_blueprint', [$arguments['handle']]);
+    }
+
+    // Actual implementation
+}
+```
+
+### Error Handling
+
+Use BaseStatamicTool's standardized error methods:
+
+```php
+// Success response
+return $this->createSuccessResponse($data);
+
+// Error response
+return $this->createErrorResponse('Error message')->toArray();
+
+// Not found response
+return $this->createNotFoundResponse('Blueprint', $handle)->toArray();
+```
+
+### Tool Annotations
+
+Available annotations:
+- `#[IsReadOnly]` - Tool only reads data
+- `#[IsIdempotent]` - Tool can be called multiple times safely
+- `#[Title('Custom Title')]` - Override tool title
+
+### Important Implementation Notes
 
 Since this addon builds on Laravel's MCP server, ensure that:
 1. MCP server configurations and handlers are properly registered in the ServiceProvider
 2. Any Statamic-specific MCP extensions are documented
 3. The addon follows both Statamic addon conventions and MCP server patterns
+4. **NEVER override the `handle()` method** - Laravel MCP v0.2.0 handles tool execution automatically
+
+### Common Migration Patterns (v0.1.x → v0.2.0)
+
+When updating existing tools, follow these patterns:
+
+**Import Changes:**
+```php
+// OLD v0.1.x
+use Laravel\Mcp\Server\Tools\ToolInputSchema;
+use Laravel\Mcp\Server\Tools\ToolResult;
+
+// NEW v0.2.0
+use Illuminate\JsonSchema\JsonSchema;
+// No ToolResult needed - handled automatically
+```
+
+**Method Signature Changes:**
+```php
+// OLD v0.1.x
+protected function defineSchema(ToolInputSchema $schema): ToolInputSchema
+public function handle(array $arguments): ToolResult
+
+// NEW v0.2.0
+protected function defineSchema(JsonSchema $schema): array
+protected function execute(array $arguments): array
+```
+
+**Schema Definition Migration:**
+```php
+// OLD v0.1.x (fluent chaining)
+return $schema
+    ->string('handle')->description('Blueprint handle')->required()
+    ->boolean('include_details')->description('Include details')->optional();
+
+// NEW v0.2.0 (array format)
+return [
+    'handle' => JsonSchema::string()->description('Blueprint handle')->required(),
+    'include_details' => JsonSchema::boolean()->description('Include details'),
+];
+```
+
+**addDryRunSchema Migration:**
+```php
+// OLD v0.1.x
+return $this->addDryRunSchema($schema)
+    ->string('handle')->required();
+
+// NEW v0.2.0
+return array_merge([
+    'handle' => JsonSchema::string()->required(),
+], $this->addDryRunSchema());
+```
+
+### Validation Rules
+
+✅ **DO:**
+- Always use `JsonSchema` static methods for field definitions
+- Return arrays from `defineSchema()`
+- Use `BaseStatamicTool` error response methods
+- Include proper PHPDoc type annotations
+- Use tool annotations for behavior (`#[IsReadOnly]`)
+
+❌ **DON'T:**
+- Use fluent chaining (old v0.1.x pattern)
+- Override the `handle()` method
+- Import or use `ToolResult` class
+- Import or use `ToolInputSchema` class
+- Return non-array values from `defineSchema()`
 
 ## CRITICAL: No Hardcoded Templates
 
@@ -237,59 +486,248 @@ Where:
 - `domain` = The Statamic concept (blueprints, collections, entries, etc.)
 - `action` = The specific operation (list, get, create, update, delete, etc.)
 
-### Single-Purpose Tool Guidelines
+### Modern Tool Architecture: Router Pattern
 
-**CRITICAL**: Each MCP tool must perform exactly ONE action following the Command Pattern.
+**EVOLUTION**: This project has evolved from 140+ single-purpose tools to a **router-based architecture** for better scalability and maintainability.
 
-**IMPORTANT**: When creating new tools, ALWAYS ensure they follow single-purpose design:
-- Each tool performs exactly one specific action
-- No conditional logic based on action parameters
-- Clear, focused schema without action enums
-- Descriptive tool names that indicate exact purpose
+#### 🎯 Router Pattern Benefits:
+- **Reduced Tool Count**: Group related operations into domain routers
+- **Better Organization**: Clear domain boundaries and action routing
+- **Simplified LLM Selection**: Fewer tools to choose from, clearer purposes
+- **Easier Maintenance**: Single file per domain instead of scattered files
+- **Performance**: Reduced overhead and faster tool loading
 
-#### ❌ WRONG: Multi-purpose tools with action conditionals
+### Router Tool Structure
+
+Each domain has a **single router tool** that handles all operations within that domain:
+
 ```php
-class BlueprintsStructureTool {
-    protected function defineSchema(ToolInputSchema $schema): ToolInputSchema {
-        return $schema->raw('action', ['enum' => ['list', 'get', 'create']]);
+class BlueprintsRouter extends BaseStatamicTool
+{
+    protected function getToolName(): string
+    {
+        return 'statamic.blueprints';
     }
-    
-    protected function execute(array $arguments): array {
-        return match($arguments['action']) {
-            'list' => $this->listBlueprints(),
-            'get' => $this->getBlueprint(),
-            'create' => $this->createBlueprint(),
+
+    protected function getToolDescription(): string
+    {
+        return 'Manage Statamic blueprints: list, get, create, update, delete, scan, generate, and analyze';
+    }
+
+    protected function defineSchema(JsonSchema $schema): array
+    {
+        return [
+            'action' => JsonSchema::string()
+                ->description('Action to perform')
+                ->enum(['list', 'get', 'create', 'update', 'delete', 'scan', 'generate', 'types'])
+                ->required(),
+            'handle' => JsonSchema::string()
+                ->description('Blueprint handle (required for get, update, delete)'),
+            'namespace' => JsonSchema::string()
+                ->description('Blueprint namespace (collections, taxonomies, globals)'),
+            'fields' => JsonSchema::array()
+                ->description('Field definitions for create/update operations'),
+            'include_details' => JsonSchema::boolean()
+                ->description('Include detailed field information'),
+            'output_format' => JsonSchema::string()
+                ->description('Output format for types action (typescript, php, json-schema)')
+                ->enum(['typescript', 'php', 'json-schema', 'all']),
+        ];
+    }
+
+    protected function execute(array $arguments): array
+    {
+        $action = $arguments['action'];
+
+        return match ($action) {
+            'list' => $this->listBlueprints($arguments),
+            'get' => $this->getBlueprint($arguments),
+            'create' => $this->createBlueprint($arguments),
+            'update' => $this->updateBlueprint($arguments),
+            'delete' => $this->deleteBlueprint($arguments),
+            'scan' => $this->scanBlueprints($arguments),
+            'generate' => $this->generateBlueprint($arguments),
+            'types' => $this->analyzeTypes($arguments),
+            default => $this->createErrorResponse("Unknown action: {$action}")->toArray(),
+        };
+    }
+
+    private function listBlueprints(array $arguments): array
+    {
+        // Implementation for listing blueprints
+    }
+
+    private function getBlueprint(array $arguments): array
+    {
+        // Implementation for getting a specific blueprint
+    }
+
+    // ... other action methods
+}
+```
+
+### Architectural Patterns
+
+#### 1. 🏗️ **Facade Pattern** (for commonly used combinations)
+
+```php
+class StatamicContentFacade extends BaseStatamicTool
+{
+    protected function getToolName(): string
+    {
+        return 'statamic.content.workflow';
+    }
+
+    protected function defineSchema(JsonSchema $schema): array
+    {
+        return [
+            'workflow' => JsonSchema::string()
+                ->enum(['setup_collection', 'bulk_import', 'content_audit'])
+                ->required(),
+            'collection' => JsonSchema::string()->description('Collection handle'),
+            'data' => JsonSchema::array()->description('Data for operations'),
+        ];
+    }
+
+    protected function execute(array $arguments): array
+    {
+        return match ($arguments['workflow']) {
+            'setup_collection' => $this->setupCollection($arguments),
+            'bulk_import' => $this->bulkImport($arguments),
+            'content_audit' => $this->contentAudit($arguments),
+        };
+    }
+
+    private function setupCollection(array $arguments): array
+    {
+        // Orchestrates: create collection → create blueprint → create initial entries
+        $results = [];
+
+        $results['collection'] = $this->collectionRouter->execute([
+            'action' => 'create',
+            'handle' => $arguments['collection'],
+        ]);
+
+        $results['blueprint'] = $this->blueprintsRouter->execute([
+            'action' => 'create',
+            'handle' => $arguments['collection'],
+            'fields' => $arguments['fields'] ?? [],
+        ]);
+
+        return $results;
+    }
+}
+```
+
+#### 2. 🔗 **Chain of Responsibility** (for prioritized operations)
+
+```php
+class StatamicValidationChain extends BaseStatamicTool
+{
+    protected function execute(array $arguments): array
+    {
+        $validators = [
+            new BlueprintValidator(),
+            new FieldValidator(),
+            new RelationshipValidator(),
+            new SecurityValidator(),
+        ];
+
+        $results = ['passed' => [], 'failed' => [], 'warnings' => []];
+
+        foreach ($validators as $validator) {
+            $result = $validator->validate($arguments['data']);
+
+            if ($result['critical_failure']) {
+                // Stop chain on critical failure
+                return $this->createErrorResponse($result['message'])->toArray();
+            }
+
+            $results['passed'][] = $validator->getName();
+            $results['warnings'] = array_merge($results['warnings'], $result['warnings']);
+        }
+
+        return $results;
+    }
+}
+```
+
+#### 3. 🎯 **Strategy Pattern** (for different implementations)
+
+```php
+class StatamicExportStrategy extends BaseStatamicTool
+{
+    protected function defineSchema(JsonSchema $schema): array
+    {
+        return [
+            'strategy' => JsonSchema::string()
+                ->enum(['json', 'yaml', 'csv', 'xml'])
+                ->required(),
+            'collection' => JsonSchema::string()->required(),
+            'format_options' => JsonSchema::object()
+                ->description('Strategy-specific formatting options'),
+        ];
+    }
+
+    protected function execute(array $arguments): array
+    {
+        $strategy = $this->getExportStrategy($arguments['strategy']);
+
+        return $strategy->export(
+            $arguments['collection'],
+            $arguments['format_options'] ?? []
+        );
+    }
+
+    private function getExportStrategy(string $type): ExportStrategyInterface
+    {
+        return match ($type) {
+            'json' => new JsonExportStrategy(),
+            'yaml' => new YamlExportStrategy(),
+            'csv' => new CsvExportStrategy(),
+            'xml' => new XmlExportStrategy(),
         };
     }
 }
 ```
 
-#### ✅ CORRECT: Single-purpose tools with clear schemas
-```php
-class ListBlueprintsTool {
-    protected function getToolName(): string {
-        return 'statamic.blueprints.list';
-    }
-    
-    protected function defineSchema(ToolInputSchema $schema): ToolInputSchema {
-        return $schema
-            ->string('namespace')->optional()
-            ->boolean('include_details')->optional();
-    }
-    
-    protected function execute(array $arguments): array {
-        // Only lists blueprints - no conditionals or actions
-        return $this->listBlueprints($arguments);
-    }
-}
-```
+### New Tool Organization
 
-#### Benefits of Single-Purpose Tools:
-1. **Reduced Token Overhead**: No complex conditional schemas
-2. **Better Performance**: LLM makes faster, more accurate tool selections
-3. **Clearer Documentation**: Each tool has precise purpose and parameters
-4. **Better Error Handling**: Specific error messages for each operation
-5. **Easier Testing**: Each tool can be tested in isolation
+#### Domain Routers (Core Tools)
+- `statamic.blueprints` - Blueprint management router
+- `statamic.collections` - Collection management router
+- `statamic.entries` - Entry management router
+- `statamic.taxonomies` - Taxonomy management router
+- `statamic.globals` - Global management router
+- `statamic.assets` - Asset management router
+- `statamic.users` - User management router
+- `statamic.system` - System operations router
+
+#### Workflow Facades (Common Combinations)
+- `statamic.content.workflow` - Common content workflows
+- `statamic.development.workflow` - Development workflows
+- `statamic.deployment.workflow` - Deployment workflows
+
+#### Specialized Tools
+- `statamic.validation.chain` - Validation chain processor
+- `statamic.export.strategy` - Export strategy processor
+- `statamic.import.strategy` - Import strategy processor
+
+### Migration Strategy
+
+1. **Phase 1**: Create router tools for each domain
+2. **Phase 2**: Implement facade patterns for common workflows
+3. **Phase 3**: Add strategy patterns for configurable operations
+4. **Phase 4**: Retire single-purpose tools gradually
+5. **Phase 5**: Add chain of responsibility for complex validations
+
+### Benefits of Router Architecture:
+1. **Scalability**: Easy to add new actions without new tools
+2. **Maintainability**: Single file per domain reduces fragmentation
+3. **Performance**: Fewer tools to load and choose from
+4. **Clarity**: Clear domain boundaries and action routing
+5. **Testing**: Easier to test complete domain functionality
+6. **Documentation**: Single place for all domain operations
 
 ### Blueprint Tools ✅
 **Purpose**: Manage blueprint definitions and schema
@@ -517,13 +955,239 @@ composer quality  # Runs: pint + stan + test
 3. Verify all tests pass with `composer test`
 4. Use `composer quality` for complete validation
 
+## Quick Reference: Router Pattern Templates
+
+### Domain Router Template
+
+Use this template when creating domain router tools:
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
+
+use Cboxdk\StatamicMcp\Mcp\Tools\BaseStatamicTool;
+use Illuminate\JsonSchema\JsonSchema;
+use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
+
+class DomainRouter extends BaseStatamicTool
+{
+    protected function getToolName(): string
+    {
+        return 'statamic.domain';
+    }
+
+    protected function getToolDescription(): string
+    {
+        return 'Manage domain resources: list, get, create, update, delete operations';
+    }
+
+    protected function defineSchema(JsonSchema $schema): array
+    {
+        return [
+            'action' => JsonSchema::string()
+                ->description('Action to perform')
+                ->enum(['list', 'get', 'create', 'update', 'delete'])
+                ->required(),
+            'handle' => JsonSchema::string()
+                ->description('Resource handle (required for get, update, delete)'),
+            'data' => JsonSchema::array()
+                ->description('Resource data for create/update operations'),
+            'filters' => JsonSchema::object()
+                ->description('Filtering options for list operations'),
+        ];
+    }
+
+    /**
+     * Route actions to appropriate handlers.
+     *
+     * @param  array<string, mixed>  $arguments
+     * @return array<string, mixed>
+     */
+    protected function execute(array $arguments): array
+    {
+        $action = $arguments['action'];
+
+        // Validate action-specific requirements
+        if (in_array($action, ['get', 'update', 'delete']) && empty($arguments['handle'])) {
+            return $this->createErrorResponse("Handle is required for {$action} action")->toArray();
+        }
+
+        return match ($action) {
+            'list' => $this->list($arguments),
+            'get' => $this->get($arguments),
+            'create' => $this->create($arguments),
+            'update' => $this->update($arguments),
+            'delete' => $this->delete($arguments),
+            default => $this->createErrorResponse("Unknown action: {$action}")->toArray(),
+        };
+    }
+
+    private function list(array $arguments): array
+    {
+        // Implementation for listing resources
+        return ['resources' => []];
+    }
+
+    private function get(array $arguments): array
+    {
+        // Implementation for getting a specific resource
+        return ['resource' => []];
+    }
+
+    private function create(array $arguments): array
+    {
+        // Implementation for creating a resource
+        return ['created' => true];
+    }
+
+    private function update(array $arguments): array
+    {
+        // Implementation for updating a resource
+        return ['updated' => true];
+    }
+
+    private function delete(array $arguments): array
+    {
+        // Implementation for deleting a resource
+        return ['deleted' => true];
+    }
+}
+```
+
+### Workflow Facade Template
+
+Use this template for common workflow combinations:
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace Cboxdk\StatamicMcp\Mcp\Tools\Workflows;
+
+use Cboxdk\StatamicMcp\Mcp\Tools\BaseStatamicTool;
+use Illuminate\JsonSchema\JsonSchema;
+
+class WorkflowFacade extends BaseStatamicTool
+{
+    protected function getToolName(): string
+    {
+        return 'statamic.domain.workflow';
+    }
+
+    protected function getToolDescription(): string
+    {
+        return 'Execute common domain workflows: setup, import, export, audit';
+    }
+
+    protected function defineSchema(JsonSchema $schema): array
+    {
+        return [
+            'workflow' => JsonSchema::string()
+                ->description('Workflow to execute')
+                ->enum(['setup', 'import', 'export', 'audit'])
+                ->required(),
+            'config' => JsonSchema::object()
+                ->description('Workflow-specific configuration'),
+            'data' => JsonSchema::array()
+                ->description('Data for the workflow'),
+        ];
+    }
+
+    protected function execute(array $arguments): array
+    {
+        return match ($arguments['workflow']) {
+            'setup' => $this->executeSetup($arguments),
+            'import' => $this->executeImport($arguments),
+            'export' => $this->executeExport($arguments),
+            'audit' => $this->executeAudit($arguments),
+            default => $this->createErrorResponse("Unknown workflow: {$arguments['workflow']}")->toArray(),
+        };
+    }
+
+    private function executeSetup(array $arguments): array
+    {
+        // Orchestrate multiple operations for setup
+        $results = [];
+
+        // Step 1: Create structure
+        $results['structure'] = $this->createStructure($arguments['config']);
+
+        // Step 2: Setup content
+        $results['content'] = $this->setupContent($arguments['data']);
+
+        // Step 3: Configure settings
+        $results['settings'] = $this->configureSettings($arguments['config']);
+
+        return $results;
+    }
+
+    // ... other workflow methods
+}
+```
+
+### Strategy Pattern Template
+
+Use this template for configurable implementations:
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace Cboxdk\StatamicMcp\Mcp\Tools\Strategies;
+
+use Cboxdk\StatamicMcp\Mcp\Tools\BaseStatamicTool;
+use Illuminate\JsonSchema\JsonSchema;
+
+class StrategyTool extends BaseStatamicTool
+{
+    protected function getToolName(): string
+    {
+        return 'statamic.domain.strategy';
+    }
+
+    protected function defineSchema(JsonSchema $schema): array
+    {
+        return [
+            'strategy' => JsonSchema::string()
+                ->description('Strategy to use')
+                ->enum(['strategy_a', 'strategy_b', 'strategy_c'])
+                ->required(),
+            'input' => JsonSchema::array()
+                ->description('Input data for processing')
+                ->required(),
+            'options' => JsonSchema::object()
+                ->description('Strategy-specific options'),
+        ];
+    }
+
+    protected function execute(array $arguments): array
+    {
+        $strategy = $this->getStrategy($arguments['strategy']);
+
+        return $strategy->process(
+            $arguments['input'],
+            $arguments['options'] ?? []
+        );
+    }
+
+    private function getStrategy(string $type): StrategyInterface
+    {
+        return match ($type) {
+            'strategy_a' => new ConcreteStrategyA(),
+            'strategy_b' => new ConcreteStrategyB(),
+            'strategy_c' => new ConcreteStrategyC(),
+            default => throw new \InvalidArgumentException("Unknown strategy: {$type}"),
+        };
+    }
+}
+``i`
 ## Configuration
 
 The addon supports configuration via `config/statamic_mcp.php` for:
 - Primary templating language (Antlers/Blade preference)
-- Blueprint and fieldset paths
 - Blade policy rules (forbidden patterns, preferred approaches)
-- Cache and performance settings
-- Rate limiting and debug options
-
-See PRD.md for complete requirements and acceptance criteria.

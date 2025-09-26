@@ -1,183 +1,226 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Concerns;
 
-use Laravel\Mcp\Server\Tools\ToolInputSchema;
+use Illuminate\JsonSchema\JsonSchema;
 
 trait HasCommonSchemas
 {
     /**
      * Add blueprint parameter to schema.
+     *
+     * @return array<string, mixed>
      */
-    protected function addBlueprintSchema(ToolInputSchema $schema, bool $required = false): ToolInputSchema
+    protected function addBlueprintSchema(bool $required = false): array
     {
-        $schema = $schema->string('blueprint')
+        $schema = JsonSchema::string()
             ->description('Blueprint handle to work with (optional for general queries)');
 
-        return $required ? $schema->required() : $schema->optional();
+        return [
+            'blueprint' => $required ? $schema->required() : $schema,
+        ];
     }
 
     /**
      * Add context parameter to schema.
+     *
+     * @return array<string, mixed>
      */
-    protected function addContextSchema(ToolInputSchema $schema): ToolInputSchema
+    protected function addContextSchema(): array
     {
-        return $schema->string('context')
-            ->description('Template context: entry, collection, taxonomy, global, or general')
-            ->optional();
+        return [
+            'context' => JsonSchema::string()
+                ->description('Template context: entry, collection, taxonomy, global, or general'),
+        ];
     }
 
     /**
      * Add validation parameters to schema.
+     *
+     * @return array<string, mixed>
      */
-    protected function addValidationSchema(ToolInputSchema $schema): ToolInputSchema
+    protected function addValidationSchema(): array
     {
-        return $schema->boolean('strict_mode')
-            ->description('Enable strict validation mode for enhanced error checking')
-            ->optional();
+        return [
+            'strict_mode' => JsonSchema::boolean()
+                ->description('Enable strict validation mode for enhanced error checking'),
+        ];
     }
 
     /**
      * Add examples parameter to schema.
+     *
+     * @return array<string, mixed>
      */
-    protected function addExamplesSchema(ToolInputSchema $schema): ToolInputSchema
+    protected function addExamplesSchema(): array
     {
-        return $schema->boolean('include_examples')
-            ->description('Include usage examples in the response')
-            ->optional();
+        return [
+            'include_examples' => JsonSchema::boolean()
+                ->description('Include usage examples in the response'),
+        ];
     }
 
     /**
      * Add limit parameter to schema.
+     *
+     * @return array<string, mixed>
      */
-    protected function addLimitSchema(ToolInputSchema $schema, int $default = 50, int $max = 1000): ToolInputSchema
+    protected function addLimitSchema(int $default = 50, int $max = 1000): array
     {
-        return $schema->raw('limit', [
-            'type' => 'integer',
-            'description' => "Maximum number of results to return (default: {$default}, max: {$max})",
-            'minimum' => 1,
-            'maximum' => $max,
-            'default' => $default,
-        ])->optional();
+        return [
+            'limit' => JsonSchema::integer()
+                ->description("Maximum number of results to return (default: {$default}, max: {$max})")
+                ->min(1)
+                ->max($max)
+                ->default($default),
+        ];
     }
 
     /**
      * Add offset parameter to schema.
+     *
+     * @return array<string, mixed>
      */
-    protected function addOffsetSchema(ToolInputSchema $schema): ToolInputSchema
+    protected function addOffsetSchema(): array
     {
-        return $schema->raw('offset', [
-            'type' => 'integer',
-            'description' => 'Number of results to skip (for pagination)',
-            'minimum' => 0,
-            'default' => 0,
-        ])->optional();
+        return [
+            'offset' => JsonSchema::integer()
+                ->description('Number of results to skip (for pagination)')
+                ->min(0)
+                ->default(0),
+        ];
     }
 
     /**
      * Add search query parameter to schema.
+     *
+     * @return array<string, mixed>
      */
-    protected function addSearchSchema(ToolInputSchema $schema, bool $required = false): ToolInputSchema
+    protected function addSearchSchema(bool $required = false): array
     {
-        $schema = $schema->string('query')
+        $schema = JsonSchema::string()
             ->description('Search query or filter term');
 
-        return $required ? $schema->required() : $schema->optional();
+        return [
+            'query' => $required ? $schema->required() : $schema,
+        ];
     }
 
     /**
      * Add type parameter to schema with enum values.
      *
      * @param  array<int, string>  $types
+     *
+     * @return array<string, mixed>
      */
-    protected function addTypeSchema(ToolInputSchema $schema, array $types, bool $required = false): ToolInputSchema
+    protected function addTypeSchema(array $types, bool $required = false): array
     {
-        $schema = $schema->raw('type', [
-            'type' => 'string',
-            'description' => 'Type of resource to work with',
-            'enum' => $types,
-        ]);
+        $schema = JsonSchema::string()
+            ->description('Type of resource to work with')
+            ->enum($types);
 
-        return $required ? $schema->required() : $schema->optional();
+        return [
+            'type' => $required ? $schema->required() : $schema,
+        ];
     }
 
     /**
      * Add action parameter to schema with enum values.
      *
      * @param  array<int, string>  $actions
+     *
+     * @return array<string, mixed>
      */
-    protected function addActionSchema(ToolInputSchema $schema, array $actions): ToolInputSchema
+    protected function addActionSchema(array $actions): array
     {
-        return $schema->raw('action', [
-            'type' => 'string',
-            'description' => 'Action to perform',
-            'enum' => $actions,
-        ])->required();
+        return [
+            'action' => JsonSchema::string()
+                ->description('Action to perform')
+                ->enum($actions)
+                ->required(),
+        ];
     }
 
     /**
      * Add handle parameter to schema.
+     *
+     * @return array<string, mixed>
      */
-    protected function addHandleSchema(ToolInputSchema $schema, string $description = 'Handle/identifier for the resource'): ToolInputSchema
+    protected function addHandleSchema(string $description = 'Handle/identifier for the resource'): array
     {
-        return $schema->string('handle')
-            ->description($description)
-            ->required();
+        return [
+            'handle' => JsonSchema::string()
+                ->description($description)
+                ->required(),
+        ];
     }
 
     /**
      * Add template parameter to schema.
      *
      * @param  array<int, string>  $templates
+     *
+     * @return array<string, mixed>
      */
-    protected function addTemplateSchema(ToolInputSchema $schema, array $templates = []): ToolInputSchema
+    protected function addTemplateSchema(array $templates = []): array
     {
         if (empty($templates)) {
-            return $schema->string('template')
-                ->description('Template name or type to use')
-                ->optional();
+            return [
+                'template' => JsonSchema::string()
+                    ->description('Template name or type to use'),
+            ];
         }
 
-        return $schema->raw('template', [
-            'type' => 'string',
-            'description' => 'Template type to use',
-            'enum' => $templates,
-            'default' => 'custom',
-        ])->optional();
+        return [
+            'template' => JsonSchema::string()
+                ->description('Template type to use')
+                ->enum($templates)
+                ->default('custom'),
+        ];
     }
 
     /**
      * Add cache-related parameters to schema.
+     *
+     * @return array<string, mixed>
      */
-    protected function addCacheSchema(ToolInputSchema $schema): ToolInputSchema
+    protected function addCacheSchema(): array
     {
-        return $schema->boolean('clear_cache')
-            ->description('Clear relevant caches after operation')
-            ->optional();
+        return [
+            'clear_cache' => JsonSchema::boolean()
+                ->description('Clear relevant caches after operation'),
+        ];
     }
 
     /**
      * Add verbose output parameter to schema.
+     *
+     * @return array<string, mixed>
      */
-    protected function addVerboseSchema(ToolInputSchema $schema): ToolInputSchema
+    protected function addVerboseSchema(): array
     {
-        return $schema->boolean('verbose')
-            ->description('Include detailed information in response')
-            ->optional();
+        return [
+            'verbose' => JsonSchema::boolean()
+                ->description('Include detailed information in response'),
+        ];
     }
 
     /**
      * Add format parameter to schema.
      *
      * @param  array<int, string>  $formats
+     *
+     * @return array<string, mixed>
      */
-    protected function addFormatSchema(ToolInputSchema $schema, array $formats = ['json', 'yaml']): ToolInputSchema
+    protected function addFormatSchema(array $formats = ['json', 'yaml']): array
     {
-        return $schema->raw('format', [
-            'type' => 'string',
-            'description' => 'Output format for structured data',
-            'enum' => $formats,
-            'default' => 'json',
-        ])->optional();
+        return [
+            'format' => JsonSchema::string()
+                ->description('Output format for structured data')
+                ->enum($formats)
+                ->default('json'),
+        ];
     }
 }

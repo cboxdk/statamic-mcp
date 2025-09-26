@@ -207,11 +207,7 @@ class UsersRouter extends BaseRouter
 
         // Check if tool is enabled for current context
         if (! $this->isCliContext() && ! $this->isWebToolEnabled()) {
-            return $this->createPermissionDeniedResponse(
-                $action,
-                'Users tool is disabled for web access',
-                ['tool_enabled_for_web']
-            );
+            return $this->createErrorResponse('Permission denied: Users tool is disabled for web access')->toArray();
         }
 
         // Apply security checks for web context
@@ -318,7 +314,7 @@ class UsersRouter extends BaseRouter
     private function listUsers(array $arguments): array
     {
         if (! $this->hasPermission('view', 'users')) {
-            return $this->createPermissionDeniedResponse('list', 'users');
+            return $this->createErrorResponse('Permission denied: Cannot list users')->toArray();
         }
 
         try {
@@ -366,7 +362,7 @@ class UsersRouter extends BaseRouter
     private function getUser(array $arguments): array
     {
         if (! $this->hasPermission('view', 'users')) {
-            return $this->createPermissionDeniedResponse('view', 'users');
+            return $this->createErrorResponse('Permission denied: Cannot view users')->toArray();
         }
 
         try {
@@ -379,7 +375,7 @@ class UsersRouter extends BaseRouter
 
             $user = $id ? User::find($id) : User::findByEmail($email);
             if (! $user) {
-                return $this->createNotFoundResponse('User', $id ?? $email);
+                return $this->createErrorResponse('User not found: ' . ($id ?? $email))->toArray();
             }
 
             $data = [
@@ -414,7 +410,7 @@ class UsersRouter extends BaseRouter
     private function createUser(array $arguments): array
     {
         if (! $this->hasPermission('create', 'users')) {
-            return $this->createPermissionDeniedResponse('create', 'users');
+            return $this->createErrorResponse('Permission denied: Cannot create users')->toArray();
         }
 
         try {
@@ -482,7 +478,7 @@ class UsersRouter extends BaseRouter
     private function updateUser(array $arguments): array
     {
         if (! $this->hasPermission('edit', 'users')) {
-            return $this->createPermissionDeniedResponse('update', 'users');
+            return $this->createErrorResponse('Permission denied: Cannot update users')->toArray();
         }
 
         try {
@@ -496,7 +492,7 @@ class UsersRouter extends BaseRouter
 
             $user = $id ? User::find($id) : User::findByEmail($email);
             if (! $user) {
-                return $this->createNotFoundResponse('User', $id ?? $email);
+                return $this->createErrorResponse('User not found: ' . ($id ?? $email))->toArray();
             }
 
             // Update user data
@@ -539,7 +535,7 @@ class UsersRouter extends BaseRouter
     private function deleteUser(array $arguments): array
     {
         if (! $this->hasPermission('delete', 'users')) {
-            return $this->createPermissionDeniedResponse('delete', 'users');
+            return $this->createErrorResponse('Permission denied: Cannot delete users')->toArray();
         }
 
         try {
@@ -552,7 +548,7 @@ class UsersRouter extends BaseRouter
 
             $user = $id ? User::find($id) : User::findByEmail($email);
             if (! $user) {
-                return $this->createNotFoundResponse('User', $id ?? $email);
+                return $this->createErrorResponse('User not found: ' . ($id ?? $email))->toArray();
             }
 
             // Prevent deletion of super user if it's the only one
@@ -620,7 +616,7 @@ class UsersRouter extends BaseRouter
     private function assignRole(array $arguments): array
     {
         if (! $this->hasPermission('edit', 'users')) {
-            return $this->createPermissionDeniedResponse('assign_role', 'users');
+            return $this->createErrorResponse('Permission denied: Cannot assign role to users')->toArray();
         }
 
         try {
@@ -634,12 +630,12 @@ class UsersRouter extends BaseRouter
 
             $user = $id ? User::find($id) : User::findByEmail($email);
             if (! $user) {
-                return $this->createNotFoundResponse('User', $id ?? $email);
+                return $this->createErrorResponse('User not found: ' . ($id ?? $email))->toArray();
             }
 
             $role = Role::find($roleHandle);
             if (! $role) {
-                return $this->createNotFoundResponse('Role', $roleHandle);
+                return $this->createErrorResponse("Role not found: {$roleHandle}")->toArray();
             }
 
             $user->assignRole($role);
@@ -671,7 +667,7 @@ class UsersRouter extends BaseRouter
     private function removeRole(array $arguments): array
     {
         if (! $this->hasPermission('edit', 'users')) {
-            return $this->createPermissionDeniedResponse('remove_role', 'users');
+            return $this->createErrorResponse('Permission denied: Cannot remove role from users')->toArray();
         }
 
         try {
@@ -685,12 +681,12 @@ class UsersRouter extends BaseRouter
 
             $user = $id ? User::find($id) : User::findByEmail($email);
             if (! $user) {
-                return $this->createNotFoundResponse('User', $id ?? $email);
+                return $this->createErrorResponse('User not found: ' . ($id ?? $email))->toArray();
             }
 
             $role = Role::find($roleHandle);
             if (! $role) {
-                return $this->createNotFoundResponse('Role', $roleHandle);
+                return $this->createErrorResponse("Role not found: {$roleHandle}")->toArray();
             }
 
             $user->removeRole($role);
@@ -724,7 +720,7 @@ class UsersRouter extends BaseRouter
     private function listRoles(array $arguments): array
     {
         if (! $this->hasPermission('view', 'roles')) {
-            return $this->createPermissionDeniedResponse('list', 'roles');
+            return $this->createErrorResponse('Permission denied: Cannot list roles')->toArray();
         }
 
         try {
@@ -762,7 +758,7 @@ class UsersRouter extends BaseRouter
     private function getRole(array $arguments): array
     {
         if (! $this->hasPermission('view', 'roles')) {
-            return $this->createPermissionDeniedResponse('view', 'roles');
+            return $this->createErrorResponse('Permission denied: Cannot view roles')->toArray();
         }
 
         try {
@@ -774,7 +770,7 @@ class UsersRouter extends BaseRouter
 
             $role = Role::find($handle);
             if (! $role) {
-                return $this->createNotFoundResponse('Role', $handle);
+                return $this->createErrorResponse("Role not found: {$handle}")->toArray();
             }
 
             $data = [
@@ -803,7 +799,7 @@ class UsersRouter extends BaseRouter
     private function createRole(array $arguments): array
     {
         if (! $this->hasPermission('create', 'roles')) {
-            return $this->createPermissionDeniedResponse('create', 'roles');
+            return $this->createErrorResponse('Permission denied: Cannot create roles')->toArray();
         }
 
         try {
@@ -856,7 +852,7 @@ class UsersRouter extends BaseRouter
     private function updateRole(array $arguments): array
     {
         if (! $this->hasPermission('edit', 'roles')) {
-            return $this->createPermissionDeniedResponse('update', 'roles');
+            return $this->createErrorResponse('Permission denied: Cannot update roles')->toArray();
         }
 
         try {
@@ -869,7 +865,7 @@ class UsersRouter extends BaseRouter
 
             $role = Role::find($handle);
             if (! $role) {
-                return $this->createNotFoundResponse('Role', $handle);
+                return $this->createErrorResponse("Role not found: {$handle}")->toArray();
             }
 
             if (isset($data['title'])) {
@@ -908,7 +904,7 @@ class UsersRouter extends BaseRouter
     private function deleteRole(array $arguments): array
     {
         if (! $this->hasPermission('delete', 'roles')) {
-            return $this->createPermissionDeniedResponse('delete', 'roles');
+            return $this->createErrorResponse('Permission denied: Cannot delete roles')->toArray();
         }
 
         try {
@@ -920,7 +916,7 @@ class UsersRouter extends BaseRouter
 
             $role = Role::find($handle);
             if (! $role) {
-                return $this->createNotFoundResponse('Role', $handle);
+                return $this->createErrorResponse("Role not found: {$handle}")->toArray();
             }
 
             // Check if role is assigned to users
@@ -963,7 +959,7 @@ class UsersRouter extends BaseRouter
     private function listGroups(array $arguments): array
     {
         if (! $this->hasPermission('view', 'user_groups')) {
-            return $this->createPermissionDeniedResponse('list', 'user_groups');
+            return $this->createErrorResponse('Permission denied: Cannot list user groups')->toArray();
         }
 
         try {
@@ -996,7 +992,7 @@ class UsersRouter extends BaseRouter
     private function getGroup(array $arguments): array
     {
         if (! $this->hasPermission('view', 'user_groups')) {
-            return $this->createPermissionDeniedResponse('view', 'user_groups');
+            return $this->createErrorResponse('Permission denied: Cannot view user groups')->toArray();
         }
 
         try {
@@ -1008,7 +1004,7 @@ class UsersRouter extends BaseRouter
 
             $group = UserGroup::find($handle);
             if (! $group) {
-                return $this->createNotFoundResponse('User Group', $handle);
+                return $this->createErrorResponse("User group not found: {$handle}")->toArray();
             }
 
             $data = [
@@ -1041,7 +1037,7 @@ class UsersRouter extends BaseRouter
     private function createGroup(array $arguments): array
     {
         if (! $this->hasPermission('create', 'user_groups')) {
-            return $this->createPermissionDeniedResponse('create', 'user_groups');
+            return $this->createErrorResponse('Permission denied: Cannot create user groups')->toArray();
         }
 
         try {
@@ -1098,7 +1094,7 @@ class UsersRouter extends BaseRouter
     private function updateGroup(array $arguments): array
     {
         if (! $this->hasPermission('edit', 'user_groups')) {
-            return $this->createPermissionDeniedResponse('update', 'user_groups');
+            return $this->createErrorResponse('Permission denied: Cannot update user groups')->toArray();
         }
 
         try {
@@ -1111,7 +1107,7 @@ class UsersRouter extends BaseRouter
 
             $group = UserGroup::find($handle);
             if (! $group) {
-                return $this->createNotFoundResponse('User Group', $handle);
+                return $this->createErrorResponse("User group not found: {$handle}")->toArray();
             }
 
             if (isset($data['title'])) {
@@ -1154,7 +1150,7 @@ class UsersRouter extends BaseRouter
     private function deleteGroup(array $arguments): array
     {
         if (! $this->hasPermission('delete', 'user_groups')) {
-            return $this->createPermissionDeniedResponse('delete', 'user_groups');
+            return $this->createErrorResponse('Permission denied: Cannot delete user groups')->toArray();
         }
 
         try {
@@ -1166,7 +1162,7 @@ class UsersRouter extends BaseRouter
 
             $group = UserGroup::find($handle);
             if (! $group) {
-                return $this->createNotFoundResponse('User Group', $handle);
+                return $this->createErrorResponse("User group not found: {$handle}")->toArray();
             }
 
             $group->delete();

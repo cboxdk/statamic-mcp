@@ -184,11 +184,7 @@ class BlueprintsRouter extends BaseRouter
 
         // Check if tool is enabled for current context
         if (! $this->isCliContext() && ! $this->isWebToolEnabled()) {
-            return $this->createPermissionDeniedResponse(
-                $action,
-                'Blueprints tool is disabled for web access',
-                ['tool_enabled_for_web']
-            );
+            return $this->createErrorResponse('Permission denied: Blueprints tool is disabled for web access')->toArray();
         }
 
         // Apply security checks for web context
@@ -316,7 +312,7 @@ class BlueprintsRouter extends BaseRouter
                     ->firstWhere('handle', $handle);
 
             if (! $blueprint) {
-                return $this->createNotFoundResponse('Blueprint', $handle);
+                return $this->createErrorResponse("Blueprint not found: {$handle}")->toArray();
             }
 
             $data = [
@@ -463,7 +459,7 @@ class BlueprintsRouter extends BaseRouter
                     ->firstWhere('handle', $handle);
 
             if (! $blueprint) {
-                return $this->createNotFoundResponse('Blueprint', $handle);
+                return $this->createErrorResponse("Blueprint not found: {$handle}")->toArray();
             }
 
             // Basic validation - check if fields are valid

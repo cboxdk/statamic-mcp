@@ -149,11 +149,7 @@ class StructuresRouter extends BaseRouter
 
         // Check if tool is enabled for current context
         if (! $this->isCliContext() && ! $this->isWebToolEnabled()) {
-            return $this->createPermissionDeniedResponse(
-                $action,
-                'Structures tool is disabled for web access',
-                ['tool_enabled_for_web']
-            );
+            return $this->createErrorResponse('Permission denied: Structures tool is disabled for web access')->toArray();
         }
 
         // Apply security checks for web context
@@ -305,7 +301,7 @@ class StructuresRouter extends BaseRouter
                         'sites' => $collection->sites()->all(),
                         'search_index' => $collection->searchIndex(),
                         'revisions' => $collection->revisionsEnabled(),
-                        'default_status' => $collection->defaultStatus(),
+                        'default_status' => $collection->defaultPublishState(),
                         'entry_count' => $collection->queryEntries()->count(),
                     ]);
                 }
@@ -337,7 +333,7 @@ class StructuresRouter extends BaseRouter
             $collection = Collection::find($handle);
 
             if (! $collection) {
-                return $this->createNotFoundResponse('Collection', $handle);
+                return $this->createErrorResponse("Collection not found: {$handle}")->toArray();
             }
 
             $data = [
@@ -356,7 +352,7 @@ class StructuresRouter extends BaseRouter
                 'sites' => $collection->sites()->all(),
                 'search_index' => $collection->searchIndex(),
                 'revisions' => $collection->revisionsEnabled(),
-                'default_status' => $collection->defaultStatus(),
+                'default_status' => $collection->defaultPublishState(),
                 'past_date_behavior' => $collection->pastDateBehavior(),
                 'future_date_behavior' => $collection->futureDateBehavior(),
                 'entry_count' => $collection->queryEntries()->count(),
@@ -380,7 +376,7 @@ class StructuresRouter extends BaseRouter
     private function createCollection(array $arguments): array
     {
         if (! $this->hasPermission('create', 'collections')) {
-            return $this->createPermissionDeniedResponse('create', 'collections');
+            return $this->createErrorResponse('Permission denied: Cannot create collections')->toArray();
         }
 
         try {
@@ -462,7 +458,7 @@ class StructuresRouter extends BaseRouter
     private function updateCollection(array $arguments): array
     {
         if (! $this->hasPermission('edit', 'collections')) {
-            return $this->createPermissionDeniedResponse('update', 'collections');
+            return $this->createErrorResponse('Permission denied: Cannot update collections')->toArray();
         }
 
         try {
@@ -471,7 +467,7 @@ class StructuresRouter extends BaseRouter
 
             $collection = Collection::find($handle);
             if (! $collection) {
-                return $this->createNotFoundResponse('Collection', $handle);
+                return $this->createErrorResponse("Collection not found: {$handle}")->toArray();
             }
 
             // Update configuration
@@ -520,7 +516,7 @@ class StructuresRouter extends BaseRouter
     private function deleteCollection(array $arguments): array
     {
         if (! $this->hasPermission('delete', 'collections')) {
-            return $this->createPermissionDeniedResponse('delete', 'collections');
+            return $this->createErrorResponse('Permission denied: Cannot delete collections')->toArray();
         }
 
         try {
@@ -528,7 +524,7 @@ class StructuresRouter extends BaseRouter
             $collection = Collection::find($handle);
 
             if (! $collection) {
-                return $this->createNotFoundResponse('Collection', $handle);
+                return $this->createErrorResponse("Collection not found: {$handle}")->toArray();
             }
 
             // Check for existing entries
@@ -623,7 +619,7 @@ class StructuresRouter extends BaseRouter
             $taxonomy = Taxonomy::find($handle);
 
             if (! $taxonomy) {
-                return $this->createNotFoundResponse('Taxonomy', $handle);
+                return $this->createErrorResponse("Taxonomy not found: {$handle}")->toArray();
             }
 
             $data = [
@@ -653,7 +649,7 @@ class StructuresRouter extends BaseRouter
     private function createTaxonomy(array $arguments): array
     {
         if (! $this->hasPermission('create', 'taxonomies')) {
-            return $this->createPermissionDeniedResponse('create', 'taxonomies');
+            return $this->createErrorResponse('Permission denied: Cannot create taxonomies')->toArray();
         }
 
         try {
@@ -702,7 +698,7 @@ class StructuresRouter extends BaseRouter
     private function updateTaxonomy(array $arguments): array
     {
         if (! $this->hasPermission('edit', 'taxonomies')) {
-            return $this->createPermissionDeniedResponse('update', 'taxonomies');
+            return $this->createErrorResponse('Permission denied: Cannot update taxonomies')->toArray();
         }
 
         try {
@@ -711,7 +707,7 @@ class StructuresRouter extends BaseRouter
 
             $taxonomy = Taxonomy::find($handle);
             if (! $taxonomy) {
-                return $this->createNotFoundResponse('Taxonomy', $handle);
+                return $this->createErrorResponse("Taxonomy not found: {$handle}")->toArray();
             }
 
             if (isset($data['title'])) {
@@ -746,7 +742,7 @@ class StructuresRouter extends BaseRouter
     private function deleteTaxonomy(array $arguments): array
     {
         if (! $this->hasPermission('delete', 'taxonomies')) {
-            return $this->createPermissionDeniedResponse('delete', 'taxonomies');
+            return $this->createErrorResponse('Permission denied: Cannot delete taxonomies')->toArray();
         }
 
         try {
@@ -754,7 +750,7 @@ class StructuresRouter extends BaseRouter
             $taxonomy = Taxonomy::find($handle);
 
             if (! $taxonomy) {
-                return $this->createNotFoundResponse('Taxonomy', $handle);
+                return $this->createErrorResponse("Taxonomy not found: {$handle}")->toArray();
             }
 
             // Check for existing terms
@@ -849,7 +845,7 @@ class StructuresRouter extends BaseRouter
             $navigation = Nav::find($handle);
 
             if (! $navigation) {
-                return $this->createNotFoundResponse('Navigation', $handle);
+                return $this->createErrorResponse("Navigation not found: {$handle}")->toArray();
             }
 
             $data = [
@@ -883,7 +879,7 @@ class StructuresRouter extends BaseRouter
     private function createNavigation(array $arguments): array
     {
         if (! $this->hasPermission('create', 'navigation')) {
-            return $this->createPermissionDeniedResponse('create', 'navigation');
+            return $this->createErrorResponse('Permission denied: Cannot create navigation')->toArray();
         }
 
         try {
@@ -936,7 +932,7 @@ class StructuresRouter extends BaseRouter
     private function updateNavigation(array $arguments): array
     {
         if (! $this->hasPermission('edit', 'navigation')) {
-            return $this->createPermissionDeniedResponse('update', 'navigation');
+            return $this->createErrorResponse('Permission denied: Cannot update navigation')->toArray();
         }
 
         try {
@@ -945,7 +941,7 @@ class StructuresRouter extends BaseRouter
 
             $navigation = Nav::find($handle);
             if (! $navigation) {
-                return $this->createNotFoundResponse('Navigation', $handle);
+                return $this->createErrorResponse("Navigation not found: {$handle}")->toArray();
             }
 
             if (isset($data['title'])) {
@@ -984,7 +980,7 @@ class StructuresRouter extends BaseRouter
     private function deleteNavigation(array $arguments): array
     {
         if (! $this->hasPermission('delete', 'navigation')) {
-            return $this->createPermissionDeniedResponse('delete', 'navigation');
+            return $this->createErrorResponse('Permission denied: Cannot delete navigation')->toArray();
         }
 
         try {
@@ -992,7 +988,7 @@ class StructuresRouter extends BaseRouter
             $navigation = Nav::find($handle);
 
             if (! $navigation) {
-                return $this->createNotFoundResponse('Navigation', $handle);
+                return $this->createErrorResponse("Navigation not found: {$handle}")->toArray();
             }
 
             $navigation->delete();
@@ -1082,7 +1078,7 @@ class StructuresRouter extends BaseRouter
             $site = Site::get($handle);
 
             if (! $site) {
-                return $this->createNotFoundResponse('Site', $handle);
+                return $this->createErrorResponse("Site not found: {$handle}")->toArray();
             }
 
             $data = [

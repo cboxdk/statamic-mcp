@@ -38,7 +38,7 @@ class InstallCommand extends Command
     {
         $this->info('📋 Publishing configuration...');
 
-        $configExists = File::exists(config_path('statamic_mcp.php'));
+        $configExists = File::exists(config_path('statamic/mcp.php'));
 
         if ($configExists && ! $this->option('force')) {
             if (! $this->confirm('Configuration already exists. Overwrite?')) {
@@ -493,7 +493,7 @@ class InstallCommand extends Command
             'command' => 'php',
             'args' => [
                 $projectPath . '/artisan',
-                'mcp:serve',
+                'mcp:start',
                 'statamic',
             ],
             'env' => [
@@ -557,18 +557,18 @@ class InstallCommand extends Command
         $this->line('  4. Ask your AI: "What Statamic MCP tools are available?"');
         $this->newLine();
 
-        $this->info('📖 Available MCP Tools (140+ tools):');
-        $this->line('  • statamic.system.info - System information & analysis');
-        $this->line('  • statamic.blueprints.list - List all blueprints with details');
-        $this->line('  • statamic.entries.list - List entries with pagination');
-        $this->line('  • statamic.collections.list - List all collections');
-        $this->line('  • statamic.globals.values.list - List global values');
-        $this->line('  • statamic.users.list - List users with roles');
-        $this->line('  • statamic.system.cache - Advanced cache management');
-        $this->line('  • statamic.development.templates.unused - Find unused templates');
-        $this->line('  • statamic.development.performance.analyze - Template performance analysis');
-        $this->line('  • statamic.system.tools.discover - Discover all available tools');
-        $this->line('  • And 130+ more tools across 15 categories...');
+        $this->info('📖 Available MCP Tools (Router Architecture):');
+        $this->line('  🚦 Domain Routers (6 tools consolidating 140+ operations):');
+        $this->line('  • statamic.content - Manage entries, terms, globals content (40+ operations)');
+        $this->line('  • statamic.structures - Collections, taxonomies, navigations, sites (30+ operations)');
+        $this->line('  • statamic.assets - Asset containers and file operations (20+ operations)');
+        $this->line('  • statamic.users - Users, roles, user groups, permissions (25+ operations)');
+        $this->line('  • statamic.system - Cache, health, config, system info (15+ operations)');
+        $this->line('  • statamic.blueprints - Blueprint CRUD, scanning, type generation (10+ operations)');
+        $this->newLine();
+        $this->line('  🎓 Agent Education Tools (2 specialized tools):');
+        $this->line('  • statamic.system.discover - Intent-based tool discovery with recommendations');
+        $this->line('  • statamic.system.schema - Detailed tool schema inspection and documentation');
         $this->newLine();
 
         $this->info('📋 Manual Configuration:');
@@ -587,69 +587,92 @@ class InstallCommand extends Command
 This project uses Statamic MCP Server for enhanced AI-assisted development.
 
 ## MCP Server Configuration
-- Command: php artisan mcp:serve statamic
+- Command: php artisan mcp:start statamic
 - Project Path: {$projectPath}
-- Tools Available: 11 MCP tools for Statamic development
+- Tools Available: 8 MCP tools (Router Architecture)
 
-## Available MCP Tools (140+ tools)
+## MCP Tools Architecture (Router-Based)
 
-### System & Discovery Tools
-- **statamic.system.info**: Get Statamic installation information
-- **statamic.system.cache**: Advanced cache management
-- **statamic.system.health**: System health check
-- **statamic.system.tools.discover**: Discover all available tools dynamically
+### 🚦 Domain Routers (6 Core Tools)
 
-### Blueprint Tools
-- **statamic.blueprints.list**: List all blueprints
-- **statamic.blueprints.get**: Get specific blueprint details
-- **statamic.blueprints.create**: Create new blueprints
-- **statamic.blueprints.scan**: Analyze blueprint structures
-- **statamic.blueprints.validate**: Validate blueprint configuration
+#### statamic.content
+**Purpose**: Unified content management across all content types
+**Actions**: list, get, create, update, delete, publish, unpublish, search
+**Handles**: entries (15+ ops), terms (10+ ops), globals (10+ ops)
+**Example**: `{"action": "list", "type": "entries", "collection": "blog"}`
 
-### Entry & Content Tools
-- **statamic.entries.list**: List entries with pagination
-- **statamic.entries.get**: Get specific entry
-- **statamic.entries.create**: Create new entries
-- **statamic.entries.update**: Update existing entries
-- **statamic.entries.delete**: Delete entries safely
+#### statamic.structures
+**Purpose**: Manage all structural elements of your Statamic site
+**Actions**: list, get, create, update, delete, reorder
+**Handles**: collections (8+ ops), taxonomies (7+ ops), navigations (6+ ops), sites (5+ ops)
+**Example**: `{"action": "create", "type": "collection", "handle": "products"}`
 
-### Global Tools
-- **statamic.globals.values.list**: List global values
-- **statamic.globals.values.get**: Get specific global values
-- **statamic.globals.values.update**: Update global values
-- **statamic.globals.sets.list**: List global sets
+#### statamic.assets
+**Purpose**: Complete asset and media file management
+**Actions**: list, upload, move, rename, delete, metadata, regenerate
+**Handles**: containers (5+ ops), assets (15+ ops)
+**Example**: `{"action": "upload", "container": "images", "file": "..."}`
 
-### Development Tools
-- **statamic.development.templates.unused**: Find unused templates
-- **statamic.development.performance.analyze**: Analyze template performance
-- **statamic.development.templates.optimize**: Suggest optimizations
-- **statamic.development.templates.variables**: Extract template variables
+#### statamic.users
+**Purpose**: User, role, and permission management
+**Actions**: list, get, create, update, delete, assign-role, permissions
+**Handles**: users (10+ ops), roles (8+ ops), user groups (6+ ops)
+**Example**: `{"action": "assign-role", "user": "123", "role": "editor"}`
+
+#### statamic.system
+**Purpose**: System operations and maintenance
+**Actions**: info, cache-clear, cache-warm, health-check, config, discover
+**Handles**: cache (5+ ops), health (3+ ops), config (4+ ops), info (3+ ops)
+**Example**: `{"action": "cache-clear", "types": ["stache", "static"]}`
+
+#### statamic.blueprints
+**Purpose**: Blueprint schema management and type generation
+**Actions**: list, get, create, update, delete, scan, generate, types
+**Handles**: all blueprint operations (10+ ops)
+**Example**: `{"action": "generate", "type": "typescript", "blueprint": "article"}`
+
+### 🎓 Agent Education Tools (2 Specialized Tools)
+
+#### statamic.system.discover
+**Purpose**: Help AI agents discover the right tools for their intent
+**Features**:
+- Intent-based tool recommendations
+- Usage examples for common workflows
+- Tool capability search
+**Example**: `{"intent": "create a blog", "context": "new project"}`
+
+#### statamic.system.schema
+**Purpose**: Detailed schema inspection for any tool
+**Features**:
+- Complete parameter documentation
+- Valid value enumerations
+- Response format examples
+**Example**: `{"tool": "statamic.content", "action": "create"}`
 
 ## Development Guidelines
 
-### Statamic Best Practices
-1. **Use MCP tools to understand the project**:
-   - Start with `statamic.system.info` to understand the installation
-   - Use `statamic.system.tools.discover` to see all available tools
-   - Use `statamic.blueprints.list` to see blueprint structures
-   - Use `statamic.entries.list` with pagination for large datasets
+### Router Pattern Usage
 
-2. **Blueprint & Content Management**:
-   - Use `statamic.blueprints.create` for new blueprints
-   - Use `statamic.entries.create` to create content
-   - Use `statamic.globals.values.update` for global settings
-   - All structural changes automatically clear relevant caches
+1. **Start with Discovery**:
+   - Use `statamic.system.discover` to find the right tool for your intent
+   - Use `statamic.system.schema` to understand tool parameters and responses
+   - Use `statamic.system` with action "info" for installation details
 
-3. **Template Development**:
-   - Use `statamic.development.templates.unused` to find unused templates
-   - Use `statamic.development.performance.analyze` for performance issues
-   - Use `statamic.development.templates.optimize` for suggestions
-   - Avoid direct facade calls in views: prefer Statamic tags
+2. **Router Pattern Syntax**:
+   - Each router handles multiple related operations via the "action" parameter
+   - Always specify both "action" and relevant type/target parameters
+   - Example: `{"action": "list", "type": "entries", "collection": "blog"}`
 
-4. **Performance & Caching**:
-   - MCP tools automatically purge caches after structural changes
-   - Use pagination parameters to avoid large responses (limit, filter)
-   - Blueprint scanning supports `include_fields: false` for performance
+3. **Content Operations**:
+   - Use `statamic.content` for all entry, term, and global value operations
+   - Use `statamic.structures` for collections, taxonomies, navigations
+   - Use `statamic.blueprints` for schema management and type generation
+
+4. **Performance & Best Practices**:
+   - Router tools consolidate operations for better performance
+   - Automatic cache clearing after structural changes
+   - Pagination support with limit and offset parameters
+   - Dry-run support for safe testing of modifications
 
 ### Code Quality Rules
 - No inline PHP in Blade templates
@@ -679,64 +702,63 @@ This file provides AI assistants with comprehensive understanding of the Statami
 
 ## MCP Server Overview
 
-The Statamic MCP Server provides 140+ specialized tools for enhanced Statamic development:
+The Statamic MCP Server uses a revolutionary router-based architecture with 8 powerful tools:
 
-### Key Tool Categories
+### Router Architecture (6 + 2 Tools)
 
-**Blueprints** (10+ tools): List, get, create, update, delete, validate, scan
-**Collections** (6+ tools): List, get, create, update, delete, reorder
-**Entries** (15+ tools): CRUD operations, publishing, relationships, batch operations
-**Taxonomies** (7+ tools): List, get, create, update, delete, analyze, terms
-**Globals** (9+ tools): Sets and values management across sites
-**Users & Roles** (11+ tools): User management, roles, permissions
-**Assets** (8+ tools): File management, upload, move, rename, delete
-**Forms** (10+ tools): Form configuration, submissions, export
-**Sites** (6+ tools): Multi-site configuration and management
-**Development** (15+ tools): Template analysis, performance, optimization
-**System** (13+ tools): Cache, health, monitoring, discovery
+**Domain Routers** (6 core tools consolidating 140+ operations):
+- **statamic.content**: Unified content management (entries, terms, globals - 35+ ops)
+- **statamic.structures**: Structural elements (collections, taxonomies, navigations, sites - 26+ ops)
+- **statamic.assets**: Complete asset management (containers, files, metadata - 20+ ops)
+- **statamic.users**: User and permission management (users, roles, groups - 24+ ops)
+- **statamic.system**: System operations (cache, health, config, info - 15+ ops)
+- **statamic.blueprints**: Schema management (CRUD, scanning, type generation - 10+ ops)
 
-Use `statamic.system.tools.discover` to explore all available tools with their schemas.
+**Agent Education Tools** (2 specialized tools):
+- **statamic.system.discover**: Intent-based tool discovery and recommendations
+- **statamic.system.schema**: Detailed tool schema inspection and documentation
+
+Use `statamic.system.discover` to find the right tool for your intent and `statamic.system.schema` for detailed documentation.
 
 ## Usage Patterns
 
 ### Discovery Phase
 Always start development sessions with:
-1. `statamic.system.info` - Understand the installation
-2. `statamic.system.tools.discover` - See all available tools
-3. `statamic.blueprints.list` - Map content structure
-4. `statamic.collections.list` - See collection configuration
+1. `statamic.system.discover` - Find the right tool for your intent
+2. `statamic.system` (action: "info") - Understand the installation
+3. `statamic.system.schema` - Get detailed tool documentation when needed
+4. `statamic.structures` (action: "list", type: "collections") - Map content structure
 
 ### Development Phase
-For template work:
-- Use `statamic.development.templates.unused` to find unused templates
-- Use `statamic.development.performance.analyze` for performance analysis
-- Use `statamic.development.templates.optimize` for optimization suggestions
+For content work:
+- Use `statamic.content` with appropriate actions (list, get, create, update, delete)
+- Use `statamic.structures` for collections, taxonomies, navigations
+- Use `statamic.blueprints` for schema management and type generation
 
-For content management:
-- Use `statamic.entries.list` to browse content
-- Use `statamic.globals.values.list` for global settings
+For system operations:
+- Use `statamic.system` for cache management, health checks, configuration
+- Use `statamic.assets` for file and media management
+- Use `statamic.users` for user, role, and permission management
 
 ### Content Architecture
-Create structures with appropriate tools:
+Create structures with appropriate router tools:
 
 **Creating a Collection:**
-Use `statamic.collections.create` with proper configuration
+Use `statamic.structures` with `{"action": "create", "type": "collection", "handle": "blog"}`
 
 **Creating Blueprints:**
-Use `statamic.blueprints.create` with field definitions
+Use `statamic.blueprints` with `{"action": "create", "handle": "article", "fields": [...]}`
 
 **Managing Entries:**
-Use `statamic.entries.create`, `statamic.entries.update`, `statamic.entries.delete`
+Use `statamic.content` with `{"action": "create", "type": "entries", "collection": "blog"}`
 
 **Global Settings:**
-Use `statamic.globals.sets.create` for new global sets
-Use `statamic.globals.values.update` for content
+Use `statamic.content` with `{"action": "update", "type": "globals", "set": "site_settings"}`
 
 ### Code Generation & Analysis
-- Generate types with `statamic.blueprints.types`
-- Analyze performance with `statamic.development.performance.analyze`
-- Find unused code with `statamic.development.templates.unused`
-- Extract variables with `statamic.development.templates.variables`
+- Generate types with `statamic.blueprints` (action: "generate", type: "typescript")
+- Use `statamic.system.discover` to find tools for specific development tasks
+- Use `statamic.system.schema` to understand tool parameters and response formats
 
 ## Statamic Development Best Practices
 
@@ -810,21 +832,29 @@ Always consider the project's primary templating language when making suggestion
 
 When working with Statamic projects:
 
-1. **Always use MCP tools** to understand the current state
-2. **Reference actual blueprints** rather than assuming structure
-3. **Validate suggestions** against real configuration
-4. **Provide working examples** based on actual field types
-5. **Consider the full context** (addons, configuration, relationships)
+1. **Start with discovery** - Use `statamic.system.discover` to find the right tool for your task
+2. **Use router tools** - Each domain router handles multiple related operations efficiently
+3. **Check schemas** - Use `statamic.system.schema` for detailed parameter documentation
+4. **Validate with real data** - Router tools provide current, accurate project state
+5. **Follow router patterns** - Always use action-based syntax for consistent behavior
 
 ## Error Handling
 
-All MCP tools provide consistent error responses. When tools return errors:
-- Check field/blueprint existence with `statamic.blueprints.scan`
-- Verify syntax with validation tools
-- Search documentation for proper usage patterns
-- Consider alternative approaches
+All router tools provide consistent error responses. When tools return errors:
+- Use `statamic.system.discover` to find the correct tool and action for your intent
+- Use `statamic.system.schema` to verify parameter requirements and formats
+- Check blueprints with `statamic.blueprints` (action: "scan")
+- Validate project state with appropriate router tools
 
-This guideline ensures AI assistants provide accurate, contextual, and practical Statamic development assistance.
+## Router Architecture Benefits
+
+- **Reduced Complexity**: 8 tools instead of 140+ individual tools
+- **Better Performance**: Consolidated operations with intelligent routing
+- **Easier Discovery**: Intent-based tool finding with `statamic.system.discover`
+- **Consistent Patterns**: All routers use action-based parameter syntax
+- **Self-Documenting**: Built-in schema inspection with `statamic.system.schema`
+
+This router architecture ensures AI assistants provide efficient, accurate, and scalable Statamic development assistance.
 MARKDOWN;
     }
 
