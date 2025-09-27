@@ -19,7 +19,12 @@ class AssetsRouterTest extends TestCase
         parent::setUp();
         $this->router = new AssetsRouter;
 
-        // Set up test storage
+        // Set up test storage with proper disk configuration
+        config(['filesystems.disks.assets' => [
+            'driver' => 'local',
+            'root' => storage_path('framework/testing/disks/assets'),
+        ]]);
+
         Storage::fake('assets');
     }
 

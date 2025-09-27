@@ -447,6 +447,7 @@ class ContentRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
+        // Action validation happens first, so expect invalid action error
         $this->assertStringContainsString('Action invalid not supported for type entry', $result['errors'][0]);
     }
 

@@ -520,7 +520,7 @@ class BlueprintsRouter extends BaseRouter
         foreach ($fields as $field) {
             if (is_array($field) && isset($field['handle'])) {
                 $handle = $field['handle'];
-                $fieldConfig = $field['field'] ?? $field;
+                $fieldConfig = isset($field['field']) ? $field['field'] : $field;
 
                 // Remove handle from field config if it exists in field config
                 if (isset($fieldConfig['handle'])) {

@@ -7,6 +7,7 @@ namespace Cboxdk\StatamicMcp\Tests\Feature\Routers;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\BlueprintsRouter;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Statamic\Facades\Blueprint;
+use Statamic\Facades\Collection;
 use Statamic\Fields\Blueprint as BlueprintObject;
 
 class BlueprintsRouterTest extends TestCase
@@ -21,25 +22,75 @@ class BlueprintsRouterTest extends TestCase
 
     public function test_list_all_blueprints(): void
     {
+        // Clear any existing mocks and set up fresh ones
+        Blueprint::clearResolvedInstances();
+        Blueprint::shouldReceive('in')
+            ->with('collections')
+            ->andReturn(collect([]));
+        Blueprint::shouldReceive('in')
+            ->with('taxonomies')
+            ->andReturn(collect([]));
+        Blueprint::shouldReceive('in')
+            ->with('globals')
+            ->andReturn(collect([]));
+        Blueprint::shouldReceive('in')
+            ->with('forms')
+            ->andReturn(collect([]));
+        Blueprint::shouldReceive('in')
+            ->with('assets')
+            ->andReturn(collect([]));
+        Blueprint::shouldReceive('in')
+            ->with('users')
+            ->andReturn(collect([]));
+
+        // Mock Collection facade to return empty collection list
+        Collection::shouldReceive('all')
+            ->andReturn(collect([]));
+
         $result = $this->router->execute([
             'action' => 'list',
         ]);
 
-        // Mock setup isn't properly configured, so expect failure
-        $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Failed to list blueprints:', $result['errors'][0]);
+        // Router should work and return blueprints (empty or with test data)
+        $this->assertTrue($result['success']);
+        $this->assertArrayHasKey('blueprints', $result['data']);
     }
 
     public function test_list_blueprints_by_namespace(): void
     {
+        // Clear any existing mocks and set up fresh ones
+        Blueprint::clearResolvedInstances();
+        Blueprint::shouldReceive('in')
+            ->with('collections')
+            ->andReturn(collect([]));
+        Blueprint::shouldReceive('in')
+            ->with('taxonomies')
+            ->andReturn(collect([]));
+        Blueprint::shouldReceive('in')
+            ->with('globals')
+            ->andReturn(collect([]));
+        Blueprint::shouldReceive('in')
+            ->with('forms')
+            ->andReturn(collect([]));
+        Blueprint::shouldReceive('in')
+            ->with('assets')
+            ->andReturn(collect([]));
+        Blueprint::shouldReceive('in')
+            ->with('users')
+            ->andReturn(collect([]));
+
+        // Mock Collection facade to return empty collection list
+        Collection::shouldReceive('all')
+            ->andReturn(collect([]));
+
         $result = $this->router->execute([
             'action' => 'list',
             'namespace' => 'collections',
         ]);
 
-        // Mock setup isn't properly configured, so expect failure
-        $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Failed to list blueprints:', $result['errors'][0]);
+        // Router should work and return blueprints filtered by namespace
+        $this->assertTrue($result['success']);
+        $this->assertArrayHasKey('blueprints', $result['data']);
     }
 
     public function test_list_blueprints_with_details(): void
@@ -106,13 +157,38 @@ class BlueprintsRouterTest extends TestCase
 
     public function test_scan_blueprints(): void
     {
+        // Clear any existing mocks and set up fresh ones
+        Blueprint::clearResolvedInstances();
+        Blueprint::shouldReceive('in')
+            ->with('collections')
+            ->andReturn(collect([]));
+        Blueprint::shouldReceive('in')
+            ->with('taxonomies')
+            ->andReturn(collect([]));
+        Blueprint::shouldReceive('in')
+            ->with('globals')
+            ->andReturn(collect([]));
+        Blueprint::shouldReceive('in')
+            ->with('forms')
+            ->andReturn(collect([]));
+        Blueprint::shouldReceive('in')
+            ->with('assets')
+            ->andReturn(collect([]));
+        Blueprint::shouldReceive('in')
+            ->with('users')
+            ->andReturn(collect([]));
+
+        // Mock Collection facade to return empty collection list
+        Collection::shouldReceive('all')
+            ->andReturn(collect([]));
+
         $result = $this->router->execute([
             'action' => 'scan',
         ]);
 
-        // Mock setup isn't properly configured, so expect failure
-        $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Failed to list blueprints:', $result['errors'][0]);
+        // Router should work and return blueprint scan results
+        $this->assertTrue($result['success']);
+        $this->assertArrayHasKey('blueprints', $result['data']);
     }
 
     public function test_types_analysis_typescript(): void
