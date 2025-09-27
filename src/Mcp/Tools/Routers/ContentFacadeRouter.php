@@ -322,10 +322,8 @@ class ContentFacadeRouter extends BaseRouter
      * Validate content audit workflow requirements.
      *
      * @param  array<string, mixed>  $arguments
-     *
-     * @return array<string, mixed>|null
      */
-    private function validateContentAuditRequirements(array $arguments): ?array
+    private function validateContentAuditRequirements(array $arguments): null
     {
         // Content audit can work without specific requirements - filters are optional
         return null;
@@ -335,10 +333,8 @@ class ContentFacadeRouter extends BaseRouter
      * Validate cross reference workflow requirements.
      *
      * @param  array<string, mixed>  $arguments
-     *
-     * @return array<string, mixed>|null
      */
-    private function validateCrossReferenceRequirements(array $arguments): ?array
+    private function validateCrossReferenceRequirements(array $arguments): null
     {
         // Cross reference can work without specific requirements - filters are optional
         return null;
@@ -637,18 +633,18 @@ class ContentFacadeRouter extends BaseRouter
 
         try {
             foreach ($data as $index => $item) {
-                try {
-                    // Validate item data against blueprint
-                    $results['processed']++;
+                // Validate item data against blueprint
+                $results['processed']++;
 
-                    // Simulate creation (would use appropriate router)
+                // Simulate creation (would use appropriate router)
+                // In real implementation, this would call the appropriate router
+                if (is_array($item) && ! empty($item)) {
                     $results['successful']++;
-
-                } catch (\Exception $e) {
+                } else {
                     $results['failed']++;
                     $results['errors'][] = [
                         'index' => $index,
-                        'error' => $e->getMessage(),
+                        'error' => 'Invalid item data',
                         'data' => $item,
                     ];
                 }
@@ -741,7 +737,7 @@ class ContentFacadeRouter extends BaseRouter
             $results['summary']['quality_score'] = $totalContent > 0 ? max(0, 100 - ($results['summary']['issues_found'] / $totalContent * 100)) : 100;
 
             $results['success'] = true;
-            $results['message'] = "Content audit completed successfully";
+            $results['message'] = 'Content audit completed successfully';
 
             return $results;
 
@@ -784,7 +780,16 @@ class ContentFacadeRouter extends BaseRouter
 
                 foreach ($entries as $entry) {
                     // Check for term relationships (simplified)
-                    $termReferences = 0; // Would analyze entry data for term references
+                    // In real implementation, this would analyze entry data for term references
+                    $entryData = $entry->data();
+                    $termReferences = 0;
+
+                    // Simulate checking for taxonomy field relationships
+                    foreach ($entryData as $field => $value) {
+                        if (is_array($value) && str_contains($field, 'tax')) {
+                            $termReferences += count($value);
+                        }
+                    }
 
                     if ($termReferences === 0) {
                         $results['statistics']['orphaned_entries']++;
@@ -815,7 +820,7 @@ class ContentFacadeRouter extends BaseRouter
             }
 
             $results['success'] = true;
-            $results['message'] = "Cross reference analysis completed successfully";
+            $results['message'] = 'Cross reference analysis completed successfully';
 
             return $results;
 
@@ -852,22 +857,21 @@ class ContentFacadeRouter extends BaseRouter
             $sourceEntries = Entry::query()->where('collection', $sourceCollection)->get();
 
             foreach ($sourceEntries as $entry) {
-                try {
-                    $results['processed']++;
+                $results['processed']++;
 
-                    // Validate data compatibility between collections
-                    // (would check blueprint field compatibility)
+                // Validate data compatibility between collections
+                // (would check blueprint field compatibility)
+                // Create duplicated entry in target collection
+                // (would use entries router)
 
-                    // Create duplicated entry in target collection
-                    // (would use entries router)
-
+                // Simulate validation and duplication
+                if ($entry->published()) {
                     $results['successful']++;
-
-                } catch (\Exception $e) {
+                } else {
                     $results['failed']++;
                     $results['errors'][] = [
                         'entry_id' => $entry->id(),
-                        'error' => $e->getMessage(),
+                        'error' => 'Entry not published, cannot duplicate',
                     ];
                 }
             }
