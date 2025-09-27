@@ -6,6 +6,7 @@ namespace Cboxdk\StatamicMcp\Tests\Feature\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\ContentRouter;
 use Cboxdk\StatamicMcp\Tests\TestCase;
+use Illuminate\Support\Facades\Storage;
 use Statamic\Facades\Collection;
 use Statamic\Facades\Entry;
 use Statamic\Facades\GlobalSet;
@@ -20,6 +21,14 @@ class ContentRouterTest extends TestCase
     {
         parent::setUp();
         $this->router = new ContentRouter;
+
+        // Set up test storage with proper disk configuration
+        config(['filesystems.disks.assets' => [
+            'driver' => 'local',
+            'root' => storage_path('framework/testing/disks/assets'),
+        ]]);
+
+        Storage::fake('assets');
 
         // Create test collection
         Collection::make('articles')
