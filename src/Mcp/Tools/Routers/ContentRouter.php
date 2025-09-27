@@ -9,12 +9,16 @@ use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\HasCommonSchemas;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\RouterHelpers;
 use Illuminate\JsonSchema\JsonSchema;
+use Illuminate\Support\Facades\Validator;
 use Statamic\Facades\Collection;
 use Statamic\Facades\Entry;
 use Statamic\Facades\GlobalSet;
 use Statamic\Facades\Site;
 use Statamic\Facades\Taxonomy;
 use Statamic\Facades\Term;
+use Statamic\Fields\Validator as FieldsValidator;
+use Statamic\Rules\UniqueEntryValue;
+use Statamic\Rules\UniqueTermValue;
 use Statamic\Support\Str;
 
 class ContentRouter extends BaseRouter
@@ -643,12 +647,67 @@ class ContentRouter extends BaseRouter
         try {
             $entry = Entry::make()
                 ->collection($collection)
-                ->locale($site)
-                ->data($data);
+                ->locale($site);
 
-            // Generate slug if not provided
-            if (! $entry->slug() && isset($data['title'])) {
+            // Set slug from arguments or generate from title
+            if (! empty($arguments['slug'])) {
+                $requestedSlug = $arguments['slug'];
+
+                // Use Statamic's built-in validation for unique slugs
+                $slugValidator = Validator::make(['slug' => $requestedSlug], [
+                    'slug' => [
+                        'required',
+                        'string',
+                        new UniqueEntryValue($collection->handle(), null, $site),
+                    ],
+                ]);
+
+                if ($slugValidator->fails()) {
+                    $errors = $slugValidator->errors()->get('slug');
+
+                    return $this->createErrorResponse('Slug validation failed: ' . implode(', ', $errors))->toArray();
+                }
+
+                $entry->slug($requestedSlug);
+            } elseif (! $entry->slug() && isset($data['title'])) {
                 $entry->slug(Str::slug($data['title']));
+            }
+
+            // Get blueprint and validate field data
+            $blueprint = $entry->blueprint();
+
+            if ($blueprint && ! empty($data)) {
+                // Add slug to data for validation if it's set
+                $dataWithSlug = $data;
+                if ($entry->slug()) {
+                    $dataWithSlug['slug'] = $entry->slug();
+                }
+
+                // Use Statamic's Fields Validator for blueprint-based validation
+                $fieldsValidator = (new FieldsValidator)
+                    ->fields($blueprint->fields()->addValues($dataWithSlug))
+                    ->withContext([
+                        'entry' => $entry,
+                        'collection' => $collection,
+                        'site' => $site,
+                    ]);
+
+                try {
+                    $validatedData = $fieldsValidator->validate();
+                    // Remove slug from validated data since it's handled separately
+                    unset($validatedData['slug']);
+                    $entry->data($validatedData);
+                } catch (\Illuminate\Validation\ValidationException $e) {
+                    $errors = [];
+                    foreach ($e->errors() as $field => $fieldErrors) {
+                        $errors[] = "{$field}: " . implode(', ', $fieldErrors);
+                    }
+
+                    return $this->createErrorResponse('Field validation failed: ' . implode('; ', $errors))->toArray();
+                }
+            } else {
+                // No blueprint validation, set data directly
+                $entry->data($data);
             }
 
             $entry->save();
@@ -976,14 +1035,67 @@ class ContentRouter extends BaseRouter
 
         try {
             $term = Term::make()
-                ->taxonomy($taxonomy)
-                ->data($data);
+                ->taxonomy($taxonomy);
 
             // Set slug if provided, otherwise generate from title
             if (! empty($arguments['slug'])) {
-                $term->slug($arguments['slug']);
+                $requestedSlug = $arguments['slug'];
+
+                // Use Statamic's built-in validation for unique slugs
+                $slugValidator = Validator::make(['slug' => $requestedSlug], [
+                    'slug' => [
+                        'required',
+                        'string',
+                        new UniqueTermValue($taxonomy->handle(), null, $site),
+                    ],
+                ]);
+
+                if ($slugValidator->fails()) {
+                    $errors = $slugValidator->errors()->get('slug');
+
+                    return $this->createErrorResponse('Slug validation failed: ' . implode(', ', $errors))->toArray();
+                }
+
+                $term->slug($requestedSlug);
             } elseif (! $term->slug() && isset($data['title'])) {
                 $term->slug(Str::slug($data['title']));
+            }
+
+            // Get blueprint and validate field data
+            $blueprint = $term->blueprint();
+
+            if ($blueprint && ! empty($data)) {
+                // Add slug to data for validation if it's set
+                $dataWithSlug = $data;
+                if ($term->slug()) {
+                    $dataWithSlug['slug'] = $term->slug();
+                }
+
+                // Use Statamic's Fields Validator for blueprint-based validation
+                $fieldsValidator = (new FieldsValidator)
+                    ->fields($blueprint->fields()->addValues($dataWithSlug))
+                    ->withContext([
+                        'term' => $term,
+                        'taxonomy' => $taxonomy,
+                        'site' => $site,
+                    ]);
+
+                try {
+                    $validatedData = $fieldsValidator->validate();
+                    // Remove slug from validated data since it's handled separately
+                    unset($validatedData['slug']);
+                    $term->data($validatedData);
+                } catch (\Illuminate\Validation\ValidationException $e) {
+                    $errors = [];
+                    foreach ($e->errors() as $field => $fieldErrors) {
+                        $errors[] = "{$field}: " . implode(', ', $fieldErrors);
+                    }
+
+                    return $this->createErrorResponse('Field validation failed: ' . implode('; ', $errors))->toArray();
+                }
+            } else {
+                // No blueprint validation, set data directly
+                $term->data($data);
             }
 
             $term->save();
