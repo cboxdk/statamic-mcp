@@ -82,6 +82,7 @@ jobs:
           git diff --staged --quiet || git commit -m "Auto-fix code formatting [skip ci]"
 
       - name: Push formatting changes
+        if: github.event_name == 'push'
         uses: ad-m/github-push-action@master
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
