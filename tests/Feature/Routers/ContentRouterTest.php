@@ -431,7 +431,7 @@ class ContentRouterTest extends TestCase
     {
         // Ensure the main global set exists with data
         $globalSet = GlobalSet::find($this->globalHandle);
-        if (!$globalSet) {
+        if (! $globalSet) {
             $this->fail("Global set '{$this->globalHandle}' not found in test setup");
         }
 
@@ -460,7 +460,7 @@ class ContentRouterTest extends TestCase
     {
         // Set some values for the global set
         $globalSet = GlobalSet::find($this->globalHandle);
-        if (!$globalSet) {
+        if (! $globalSet) {
             $this->fail("Global set '{$this->globalHandle}' not found");
         }
         $localization = $globalSet->makeLocalization('default');
@@ -506,7 +506,7 @@ class ContentRouterTest extends TestCase
             ],
         ]);
 
-        if (!$result['success']) {
+        if (! $result['success']) {
             dump('Update global failed:', $result);
         }
 
