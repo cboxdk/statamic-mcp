@@ -19,6 +19,12 @@ class ContentRouterTest extends TestCase
 
     private string $testId;
 
+    private string $collectionHandle;
+
+    private string $taxonomyHandle;
+
+    private string $globalHandle;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -35,19 +41,22 @@ class ContentRouterTest extends TestCase
 
         Storage::fake('assets');
 
-        // Create test collection
-        Collection::make('articles')
+        // Create test collection with unique handle
+        $this->collectionHandle = "articles-{$this->testId}";
+        Collection::make($this->collectionHandle)
             ->title('Articles')
-            ->routes('/articles/{slug}')
+            ->routes("/articles-{$this->testId}/{slug}")
             ->save();
 
-        // Create test taxonomy
-        Taxonomy::make('categories')
+        // Create test taxonomy with unique handle
+        $this->taxonomyHandle = "categories-{$this->testId}";
+        Taxonomy::make($this->taxonomyHandle)
             ->title('Categories')
             ->save();
 
-        // Create test global set
-        GlobalSet::make('settings')
+        // Create test global set with unique handle
+        $this->globalHandle = "settings-{$this->testId}";
+        GlobalSet::make($this->globalHandle)
             ->title('Site Settings')
             ->save();
     }
@@ -56,7 +65,7 @@ class ContentRouterTest extends TestCase
     {
         // Clear all existing entries in the articles collection
         Entry::query()
-            ->where('collection', 'articles')
+            ->where('collection', $this->collectionHandle)
             ->get()
             ->each(function ($entry) {
                 $entry->delete();
@@ -65,7 +74,7 @@ class ContentRouterTest extends TestCase
         // Create test entries with unique IDs
         Entry::make()
             ->id("entry1-{$this->testId}")
-            ->collection('articles')
+            ->collection($this->collectionHandle)
             ->slug("first-article-{$this->testId}")
             ->data([
                 'title' => 'First Article',
@@ -75,7 +84,7 @@ class ContentRouterTest extends TestCase
 
         Entry::make()
             ->id("entry2-{$this->testId}")
-            ->collection('articles')
+            ->collection($this->collectionHandle)
             ->slug("second-article-{$this->testId}")
             ->data([
                 'title' => 'Second Article',
@@ -86,7 +95,7 @@ class ContentRouterTest extends TestCase
         $result = $this->router->execute([
             'action' => 'list',
             'type' => 'entry',
-            'collection' => 'articles',
+            'collection' => $this->collectionHandle,
         ]);
 
         $this->assertTrue($result['success']);
@@ -106,7 +115,7 @@ class ContentRouterTest extends TestCase
 
         Entry::make()
             ->id($uniqueId)
-            ->collection('articles')
+            ->collection($this->collectionHandle)
             ->slug($uniqueSlug)
             ->data([
                 'title' => 'Test Article',
@@ -118,7 +127,7 @@ class ContentRouterTest extends TestCase
         $result = $this->router->execute([
             'action' => 'get',
             'type' => 'entry',
-            'collection' => 'articles',
+            'collection' => $this->collectionHandle,
             'id' => $uniqueId,
         ]);
 
@@ -139,7 +148,7 @@ class ContentRouterTest extends TestCase
         $result = $this->router->execute([
             'action' => 'create',
             'type' => 'entry',
-            'collection' => 'articles',
+            'collection' => $this->collectionHandle,
             'slug' => $uniqueSlug,
             'data' => [
                 'title' => 'New Article',
@@ -159,7 +168,7 @@ class ContentRouterTest extends TestCase
         $this->assertEquals('New Article', $data['title']);
 
         // Verify entry exists
-        $entry = Entry::query()->where('collection', 'articles')->where('slug', $uniqueSlug)->first();
+        $entry = Entry::query()->where('collection', $this->collectionHandle)->where('slug', $uniqueSlug)->first();
         $this->assertNotNull($entry);
         $this->assertEquals('New Article', $entry->get('title'));
     }
@@ -171,7 +180,7 @@ class ContentRouterTest extends TestCase
 
         $entry = Entry::make()
             ->id($uniqueId)
-            ->collection('articles')
+            ->collection($this->collectionHandle)
             ->slug($uniqueSlug)
             ->data(['title' => 'Original Title'])
             ->save();
@@ -179,7 +188,7 @@ class ContentRouterTest extends TestCase
         $result = $this->router->execute([
             'action' => 'update',
             'type' => 'entry',
-            'collection' => 'articles',
+            'collection' => $this->collectionHandle,
             'id' => $uniqueId,
             'data' => [
                 'title' => 'Updated Title',
@@ -201,7 +210,7 @@ class ContentRouterTest extends TestCase
 
         Entry::make()
             ->id($uniqueId)
-            ->collection('articles')
+            ->collection($this->collectionHandle)
             ->slug($uniqueSlug)
             ->data(['title' => 'To Delete'])
             ->save();
@@ -211,7 +220,7 @@ class ContentRouterTest extends TestCase
         $result = $this->router->execute([
             'action' => 'delete',
             'type' => 'entry',
-            'collection' => 'articles',
+            'collection' => $this->collectionHandle,
             'id' => $uniqueId,
         ]);
 
@@ -226,7 +235,7 @@ class ContentRouterTest extends TestCase
 
         $entry = Entry::make()
             ->id($uniqueId)
-            ->collection('articles')
+            ->collection($this->collectionHandle)
             ->slug($uniqueSlug)
             ->data(['title' => 'Draft Article'])
             ->published(false);
@@ -238,7 +247,7 @@ class ContentRouterTest extends TestCase
         $result = $this->router->execute([
             'action' => 'publish',
             'type' => 'entry',
-            'collection' => 'articles',
+            'collection' => $this->collectionHandle,
             'id' => $uniqueId,
         ]);
 
@@ -255,7 +264,7 @@ class ContentRouterTest extends TestCase
 
         $entry = Entry::make()
             ->id($uniqueId)
-            ->collection('articles')
+            ->collection($this->collectionHandle)
             ->slug($uniqueSlug)
             ->data(['title' => 'Published Article'])
             ->published(true);
@@ -267,7 +276,7 @@ class ContentRouterTest extends TestCase
         $result = $this->router->execute([
             'action' => 'unpublish',
             'type' => 'entry',
-            'collection' => 'articles',
+            'collection' => $this->collectionHandle,
             'id' => $uniqueId,
         ]);
 
@@ -284,13 +293,13 @@ class ContentRouterTest extends TestCase
         $businessSlug = "business-{$this->testId}";
 
         Term::make()
-            ->taxonomy('categories')
+            ->taxonomy($this->taxonomyHandle)
             ->slug($techSlug)
             ->data(['title' => 'Technology'])
             ->save();
 
         Term::make()
-            ->taxonomy('categories')
+            ->taxonomy($this->taxonomyHandle)
             ->slug($businessSlug)
             ->data(['title' => 'Business'])
             ->save();
@@ -298,7 +307,7 @@ class ContentRouterTest extends TestCase
         $result = $this->router->execute([
             'action' => 'list',
             'type' => 'term',
-            'taxonomy' => 'categories',
+            'taxonomy' => $this->taxonomyHandle,
         ]);
 
         $this->assertTrue($result['success']);
@@ -316,7 +325,7 @@ class ContentRouterTest extends TestCase
         $uniqueSlug = "science-{$this->testId}";
 
         Term::make()
-            ->taxonomy('categories')
+            ->taxonomy($this->taxonomyHandle)
             ->slug($uniqueSlug)
             ->data([
                 'title' => 'Science',
@@ -327,7 +336,7 @@ class ContentRouterTest extends TestCase
         $result = $this->router->execute([
             'action' => 'get',
             'type' => 'term',
-            'taxonomy' => 'categories',
+            'taxonomy' => $this->taxonomyHandle,
             'slug' => $uniqueSlug,
         ]);
 
@@ -345,7 +354,7 @@ class ContentRouterTest extends TestCase
         $result = $this->router->execute([
             'action' => 'create',
             'type' => 'term',
-            'taxonomy' => 'categories',
+            'taxonomy' => $this->taxonomyHandle,
             'slug' => $uniqueSlug,
             'data' => [
                 'title' => 'Health',
@@ -359,7 +368,7 @@ class ContentRouterTest extends TestCase
         $this->assertEquals('Health', $data['title']);
 
         // Verify term exists
-        $term = Term::query()->where('taxonomy', 'categories')->where('slug', $uniqueSlug)->first();
+        $term = Term::query()->where('taxonomy', $this->taxonomyHandle)->where('slug', $uniqueSlug)->first();
         $this->assertNotNull($term);
         $this->assertEquals('Health', $term->get('title'));
     }
@@ -369,7 +378,7 @@ class ContentRouterTest extends TestCase
         $uniqueSlug = "sports-{$this->testId}";
 
         $term = Term::make()
-            ->taxonomy('categories')
+            ->taxonomy($this->taxonomyHandle)
             ->slug($uniqueSlug)
             ->data(['title' => 'Sports'])
             ->save();
@@ -377,7 +386,7 @@ class ContentRouterTest extends TestCase
         $result = $this->router->execute([
             'action' => 'update',
             'type' => 'term',
-            'taxonomy' => 'categories',
+            'taxonomy' => $this->taxonomyHandle,
             'slug' => $uniqueSlug,
             'data' => [
                 'title' => 'Sports & Recreation',
@@ -387,7 +396,7 @@ class ContentRouterTest extends TestCase
 
         $this->assertTrue($result['success']);
 
-        $updatedTerm = Term::query()->where('taxonomy', 'categories')->where('slug', $uniqueSlug)->first();
+        $updatedTerm = Term::query()->where('taxonomy', $this->taxonomyHandle)->where('slug', $uniqueSlug)->first();
         $this->assertEquals('Sports & Recreation', $updatedTerm->get('title'));
         $this->assertEquals('Sports and recreational activities', $updatedTerm->get('description'));
     }
@@ -397,32 +406,37 @@ class ContentRouterTest extends TestCase
         $uniqueSlug = "temp-category-{$this->testId}";
 
         Term::make()
-            ->taxonomy('categories')
+            ->taxonomy($this->taxonomyHandle)
             ->slug($uniqueSlug)
             ->data(['title' => 'Temporary Category'])
             ->save();
 
-        $term = Term::query()->where('taxonomy', 'categories')->where('slug', $uniqueSlug)->first();
+        $term = Term::query()->where('taxonomy', $this->taxonomyHandle)->where('slug', $uniqueSlug)->first();
         $this->assertNotNull($term);
 
         $result = $this->router->execute([
             'action' => 'delete',
             'type' => 'term',
-            'taxonomy' => 'categories',
+            'taxonomy' => $this->taxonomyHandle,
             'slug' => $uniqueSlug,
         ]);
 
         $this->assertTrue($result['success']);
 
-        $deletedTerm = Term::query()->where('taxonomy', 'categories')->where('slug', $uniqueSlug)->first();
+        $deletedTerm = Term::query()->where('taxonomy', $this->taxonomyHandle)->where('slug', $uniqueSlug)->first();
         $this->assertNull($deletedTerm);
     }
 
     public function test_list_globals(): void
     {
+        // Ensure the main global set exists with data
+        $globalSet = GlobalSet::find($this->globalHandle);
+        if (!$globalSet) {
+            $this->fail("Global set '{$this->globalHandle}' not found in test setup");
+        }
+
         // Create additional global set with unique handle
         $uniqueHandle = "company-{$this->testId}";
-
         GlobalSet::make($uniqueHandle)
             ->title('Company Info')
             ->save();
@@ -438,29 +452,34 @@ class ContentRouterTest extends TestCase
         $this->assertGreaterThanOrEqual(2, count($data['globals']));
 
         $handles = collect($data['globals'])->pluck('handle')->toArray();
-        $this->assertContains('settings', $handles);
+        $this->assertContains($this->globalHandle, $handles);
         $this->assertContains($uniqueHandle, $handles);
     }
 
     public function test_get_global(): void
     {
         // Set some values for the global set
-        $globalSet = GlobalSet::find('settings');
-        $globalSet->in('default')->data([
+        $globalSet = GlobalSet::find($this->globalHandle);
+        if (!$globalSet) {
+            $this->fail("Global set '{$this->globalHandle}' not found");
+        }
+        $localization = $globalSet->makeLocalization('default');
+        $localization->data([
             'site_name' => 'My Website',
             'contact_email' => 'contact@example.com',
         ]);
+        $globalSet->addLocalization($localization);
         $globalSet->save();
 
         $result = $this->router->execute([
             'action' => 'get',
             'type' => 'global',
-            'handle' => 'settings',
+            'handle' => $this->globalHandle,
         ]);
 
         $this->assertTrue($result['success']);
         $data = $result['data']['global'];
-        $this->assertEquals('settings', $data['handle']);
+        $this->assertEquals($this->globalHandle, $data['handle']);
         $this->assertEquals('Site Settings', $data['title']);
         $this->assertArrayHasKey('values', $data);
         $this->assertEquals('My Website', $data['values']['site_name']);
@@ -469,10 +488,17 @@ class ContentRouterTest extends TestCase
 
     public function test_update_global(): void
     {
+        // Set up initial data
+        $globalSet = GlobalSet::find($this->globalHandle);
+        $localization = $globalSet->makeLocalization('default');
+        $localization->data(['site_name' => 'Original Name']);
+        $globalSet->addLocalization($localization);
+        $globalSet->save();
+
         $result = $this->router->execute([
             'action' => 'update',
             'type' => 'global',
-            'handle' => 'settings',
+            'handle' => $this->globalHandle,
             'site' => 'default',
             'data' => [
                 'site_name' => 'Updated Website Name',
@@ -480,9 +506,13 @@ class ContentRouterTest extends TestCase
             ],
         ]);
 
+        if (!$result['success']) {
+            dump('Update global failed:', $result);
+        }
+
         $this->assertTrue($result['success']);
 
-        $globalSet = GlobalSet::find('settings');
+        $globalSet = GlobalSet::find($this->globalHandle);
         $values = $globalSet->in('default')->data();
         $this->assertEquals('Updated Website Name', $values->get('site_name'));
         $this->assertEquals('Copyright 2024', $values->get('footer_text'));
@@ -539,7 +569,7 @@ class ContentRouterTest extends TestCase
         $result = $this->router->execute([
             'action' => 'get',
             'type' => 'entry',
-            'collection' => 'articles',
+            'collection' => $this->collectionHandle,
             'id' => 'nonexistent',
         ]);
 
@@ -552,7 +582,7 @@ class ContentRouterTest extends TestCase
         $result = $this->router->execute([
             'action' => 'get',
             'type' => 'term',
-            'taxonomy' => 'categories',
+            'taxonomy' => $this->taxonomyHandle,
             'id' => 'nonexistent',
         ]);
 
@@ -588,7 +618,7 @@ class ContentRouterTest extends TestCase
         $result = $this->router->execute([
             'action' => 'create',
             'type' => 'entry',
-            'collection' => 'articles',
+            'collection' => $this->collectionHandle,
             'slug' => 'test',
         ]);
 
@@ -604,7 +634,7 @@ class ContentRouterTest extends TestCase
 
         Entry::make()
             ->id($publishedId)
-            ->collection('articles')
+            ->collection($this->collectionHandle)
             ->slug("published-{$this->testId}")
             ->published(true)
             ->data(['title' => 'Published Entry'])
@@ -612,7 +642,7 @@ class ContentRouterTest extends TestCase
 
         Entry::make()
             ->id($draftId)
-            ->collection('articles')
+            ->collection($this->collectionHandle)
             ->slug("draft-{$this->testId}")
             ->published(false)
             ->data(['title' => 'Draft Entry'])
@@ -621,7 +651,7 @@ class ContentRouterTest extends TestCase
         $result = $this->router->execute([
             'action' => 'list',
             'type' => 'entry',
-            'collection' => 'articles',
+            'collection' => $this->collectionHandle,
             'filter' => ['published' => true],
         ]);
 
@@ -641,14 +671,14 @@ class ContentRouterTest extends TestCase
 
         Entry::make()
             ->id($searchId1)
-            ->collection('articles')
+            ->collection($this->collectionHandle)
             ->slug("laravel-tips-{$this->testId}")
             ->data(['title' => 'Laravel Development Tips'])
             ->save();
 
         Entry::make()
             ->id($searchId2)
-            ->collection('articles')
+            ->collection($this->collectionHandle)
             ->slug("vue-guide-{$this->testId}")
             ->data(['title' => 'Vue.js Complete Guide'])
             ->save();
@@ -656,7 +686,7 @@ class ContentRouterTest extends TestCase
         $result = $this->router->execute([
             'action' => 'list',
             'type' => 'entry',
-            'collection' => 'articles',
+            'collection' => $this->collectionHandle,
             'search' => 'Laravel',
         ]);
 
