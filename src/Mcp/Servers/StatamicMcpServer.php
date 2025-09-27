@@ -8,9 +8,13 @@ use Cboxdk\StatamicMcp\Mcp\Prompts\AgentEducationPrompt;
 use Cboxdk\StatamicMcp\Mcp\Prompts\ToolUsageContractPrompt;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\AssetsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\BlueprintsRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\ContentFacadeRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\ContentRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\EntriesRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\GlobalsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\StructuresRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\SystemRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\TermsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\UsersRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\System\DiscoveryTool;
 use Cboxdk\StatamicMcp\Mcp\Tools\System\SchemaTool;
@@ -28,9 +32,16 @@ class StatamicMcpServer extends Server
      * @var array<int, class-string<\Laravel\Mcp\Server\Tool>>
      */
     public array $tools = [
-        // === Core Router Tools (6) ===
+        // === Specialized Content Router Tools (5) ===
+        // Domain-specific routers for focused content management
+        EntriesRouter::class,        // Collection entry management with publication control
+        TermsRouter::class,          // Taxonomy term management with relationship tracking
+        GlobalsRouter::class,        // Global sets and site-wide configuration
+        ContentFacadeRouter::class,  // High-level content workflows and orchestration
+        ContentRouter::class,        // Legacy content router (deprecated - will be removed)
+
+        // === Core System Router Tools (4) ===
         // Each router consolidates multiple related operations into a single tool
-        ContentRouter::class,        // Entries, terms, globals content management
         StructuresRouter::class,     // Collections, taxonomies, navigations, sites
         AssetsRouter::class,         // Asset containers and asset operations
         UsersRouter::class,          // Users, roles, user groups management
@@ -80,7 +91,7 @@ class StatamicMcpServer extends Server
      */
     public function description(): string
     {
-        return 'Revolutionary MCP server for Statamic development with router-based architecture and agent education system. Features 6 domain routers + 2 specialized tools with self-documenting interfaces, intent-based discovery, and safety-first protocols for comprehensive CMS management.';
+        return 'Revolutionary MCP server for Statamic development with specialized router architecture and agent education system. Features 9 domain-specific routers + 2 specialized tools with self-documenting interfaces, intent-based discovery, and safety-first protocols for comprehensive CMS management.';
     }
 
     /**

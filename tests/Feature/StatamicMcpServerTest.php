@@ -131,8 +131,8 @@ class StatamicMcpServerTest extends TestCase
     {
         $server = $this->getServer();
         $tools = $server->tools;
-        // Updated for router-based architecture: domains + traditional categories
-        $expectedCategories = ['content', 'structures', 'assets', 'users', 'system', 'blueprints', 'discovery', 'schema'];
+        // Updated for router-based architecture: domains + traditional categories + new routers
+        $expectedCategories = ['content', 'entries', 'terms', 'globals', 'content.facade', 'structures', 'assets', 'users', 'system', 'blueprints', 'discovery', 'schema'];
         $foundCategories = [];
 
         foreach ($tools as $toolClass) {
