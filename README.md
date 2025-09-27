@@ -496,7 +496,7 @@ statamic-mcp/
 │       └── PerformanceMonitorTool.php
 ├── tests/                              # Comprehensive test suite  
 ├── docs/                               # Detailed documentation
-└── config/statamic_mcp.php            # Configuration options
+└── config/statamic/mcp.php            # Configuration options
 ```
 
 ## 📚 Documentation
@@ -528,7 +528,7 @@ Publish and customize the configuration:
 php artisan vendor:publish --tag=statamic-mcp-config
 ```
 
-Configure blueprint paths, linting rules, cache settings, and more in `config/statamic_mcp.php`.
+Configure blueprint paths, linting rules, cache settings, and more in `config/statamic/mcp.php`.
 
 ## Development Installation
 

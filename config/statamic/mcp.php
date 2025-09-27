@@ -24,26 +24,50 @@ return [
             'content' => [
                 'web_enabled' => env('STATAMIC_MCP_CONTENT_WEB_ENABLED', false),
                 'audit_logging' => env('STATAMIC_MCP_CONTENT_AUDIT_LOGGING', true),
+                'rate_limit' => [
+                    'max_attempts' => env('STATAMIC_MCP_CONTENT_RATE_LIMIT_MAX', 60),
+                    'decay_minutes' => env('STATAMIC_MCP_CONTENT_RATE_LIMIT_DECAY', 1),
+                ],
             ],
             'structures' => [
                 'web_enabled' => env('STATAMIC_MCP_STRUCTURES_WEB_ENABLED', false),
                 'audit_logging' => env('STATAMIC_MCP_STRUCTURES_AUDIT_LOGGING', true),
+                'rate_limit' => [
+                    'max_attempts' => env('STATAMIC_MCP_STRUCTURES_RATE_LIMIT_MAX', 60),
+                    'decay_minutes' => env('STATAMIC_MCP_STRUCTURES_RATE_LIMIT_DECAY', 1),
+                ],
             ],
             'assets' => [
                 'web_enabled' => env('STATAMIC_MCP_ASSETS_WEB_ENABLED', false),
                 'audit_logging' => env('STATAMIC_MCP_ASSETS_AUDIT_LOGGING', true),
+                'rate_limit' => [
+                    'max_attempts' => env('STATAMIC_MCP_ASSETS_RATE_LIMIT_MAX', 60),
+                    'decay_minutes' => env('STATAMIC_MCP_ASSETS_RATE_LIMIT_DECAY', 1),
+                ],
             ],
             'users' => [
                 'web_enabled' => env('STATAMIC_MCP_USERS_WEB_ENABLED', false),
                 'audit_logging' => env('STATAMIC_MCP_USERS_AUDIT_LOGGING', true),
+                'rate_limit' => [
+                    'max_attempts' => env('STATAMIC_MCP_USERS_RATE_LIMIT_MAX', 60),
+                    'decay_minutes' => env('STATAMIC_MCP_USERS_RATE_LIMIT_DECAY', 1),
+                ],
             ],
             'system' => [
                 'web_enabled' => env('STATAMIC_MCP_SYSTEM_WEB_ENABLED', false),
                 'audit_logging' => env('STATAMIC_MCP_SYSTEM_AUDIT_LOGGING', true),
+                'rate_limit' => [
+                    'max_attempts' => env('STATAMIC_MCP_SYSTEM_RATE_LIMIT_MAX', 60),
+                    'decay_minutes' => env('STATAMIC_MCP_SYSTEM_RATE_LIMIT_DECAY', 1),
+                ],
             ],
             'blueprints' => [
                 'web_enabled' => env('STATAMIC_MCP_BLUEPRINTS_WEB_ENABLED', false),
                 'audit_logging' => env('STATAMIC_MCP_BLUEPRINTS_AUDIT_LOGGING', true),
+                'rate_limit' => [
+                    'max_attempts' => env('STATAMIC_MCP_BLUEPRINTS_RATE_LIMIT_MAX', 60),
+                    'decay_minutes' => env('STATAMIC_MCP_BLUEPRINTS_RATE_LIMIT_DECAY', 1),
+                ],
             ],
         ],
     ],
@@ -57,9 +81,6 @@ return [
     |
     */
     'security' => [
-        'require_mcp_permission' => env('STATAMIC_MCP_REQUIRE_PERMISSION', true),
-        'strict_collection_permissions' => env('STATAMIC_MCP_STRICT_COLLECTIONS', true),
-        'strict_site_permissions' => env('STATAMIC_MCP_STRICT_SITES', true),
         'force_web_mode' => env('STATAMIC_MCP_FORCE_WEB_MODE', false),
     ],
 
@@ -85,13 +106,4 @@ return [
         ],
     ],
 
-    /*
-    |--------------------------------------------------------------------------
-    | Debug Mode
-    |--------------------------------------------------------------------------
-    |
-    | Enable debug mode for verbose logging and error reporting.
-    |
-    */
-    'debug' => env('STATAMIC_MCP_DEBUG', false),
 ];

@@ -20,7 +20,6 @@ class ServiceProvider extends AddonServiceProvider
 
         $this->publishes([
             __DIR__ . '/../config/statamic/mcp.php' => config_path('statamic/mcp.php'),
-            __DIR__ . '/../config/statamic-mcp.php' => config_path('statamic-mcp.php'),
         ], 'statamic-mcp-config');
 
         if ($this->app->runningInConsole()) {
@@ -39,13 +38,9 @@ class ServiceProvider extends AddonServiceProvider
     {
         parent::register();
 
-        // Merge both config files
+        // Merge config file
         $this->mergeConfigFrom(
             __DIR__ . '/../config/statamic/mcp.php', 'statamic.mcp'
-        );
-
-        $this->mergeConfigFrom(
-            __DIR__ . '/../config/statamic-mcp.php', 'statamic-mcp'
         );
     }
 

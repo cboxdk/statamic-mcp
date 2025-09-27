@@ -1188,6 +1188,6 @@ class StrategyTool extends BaseStatamicTool
 ``i`
 ## Configuration
 
-The addon supports configuration via `config/statamic_mcp.php` for:
+The addon supports configuration via `config/statamic/mcp.php` for:
 - Primary templating language (Antlers/Blade preference)
 - Blade policy rules (forbidden patterns, preferred approaches)
