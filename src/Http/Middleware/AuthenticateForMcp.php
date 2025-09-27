@@ -37,7 +37,7 @@ class AuthenticateForMcp
                 $user = auth()->user();
 
                 // If Laravel auth user, try to find corresponding Statamic user
-                if ($user && method_exists($user, 'email')) {
+                if ($user && method_exists($user, 'email') && isset($user->email)) {
                     $statamicUser = User::findByEmail($user->email);
                     if ($statamicUser && $statamicUser->can('access cp')) {
                         $user = $statamicUser;

@@ -593,8 +593,46 @@ class UsersRouter extends BaseRouter
      */
     private function activateUser(array $arguments): array
     {
-        // Placeholder - user activation logic depends on auth setup
-        return ['success' => false, 'errors' => ['User activation not yet implemented']];
+        if (! $this->hasPermission('edit', 'users')) {
+            return $this->createErrorResponse('Permission denied: Cannot activate users')->toArray();
+        }
+
+        try {
+            $id = $arguments['id'] ?? null;
+            $email = $arguments['email'] ?? null;
+
+            if (! $id && ! $email) {
+                return ['success' => false, 'errors' => ['Either ID or email is required']];
+            }
+
+            $user = $id ? User::find($id) : User::findByEmail($email);
+            if (! $user) {
+                return $this->createErrorResponse('User not found: ' . ($id ?? $email))->toArray();
+            }
+
+            // Activate user by ensuring they are not blocked/suspended
+            // In Statamic, users can be activated by removing any 'blocked' status or similar
+            $user->set('status', 'active');
+            $user->save();
+
+            // Clear caches
+            \Statamic\Facades\Stache::clear();
+
+            return [
+                'success' => true,
+                'data' => [
+                    'user' => [
+                        'id' => $user->id(),
+                        'email' => $user->email(),
+                        'name' => $user->get('name'),
+                        'status' => $user->get('status', 'active'),
+                    ],
+                    'activated' => true,
+                ],
+            ];
+        } catch (\Exception $e) {
+            return $this->createErrorResponse("Failed to activate user: {$e->getMessage()}")->toArray();
+        }
     }
 
     /**
@@ -604,8 +642,54 @@ class UsersRouter extends BaseRouter
      */
     private function deactivateUser(array $arguments): array
     {
-        // Placeholder - user deactivation logic depends on auth setup
-        return ['success' => false, 'errors' => ['User deactivation not yet implemented']];
+        if (! $this->hasPermission('edit', 'users')) {
+            return $this->createErrorResponse('Permission denied: Cannot deactivate users')->toArray();
+        }
+
+        try {
+            $id = $arguments['id'] ?? null;
+            $email = $arguments['email'] ?? null;
+            $reason = $arguments['reason'] ?? 'deactivated';
+
+            if (! $id && ! $email) {
+                return ['success' => false, 'errors' => ['Either ID or email is required']];
+            }
+
+            $user = $id ? User::find($id) : User::findByEmail($email);
+            if (! $user) {
+                return $this->createErrorResponse('User not found: ' . ($id ?? $email))->toArray();
+            }
+
+            // Prevent deactivating super users as safety measure
+            if ($user->isSuper()) {
+                return $this->createErrorResponse('Cannot deactivate super users for security reasons')->toArray();
+            }
+
+            // Deactivate user by setting status
+            $user->set('status', 'inactive');
+            $user->set('deactivation_reason', $reason);
+            $user->set('deactivated_at', now()->toISOString());
+            $user->save();
+
+            // Clear caches
+            \Statamic\Facades\Stache::clear();
+
+            return [
+                'success' => true,
+                'data' => [
+                    'user' => [
+                        'id' => $user->id(),
+                        'email' => $user->email(),
+                        'name' => $user->get('name'),
+                        'status' => $user->get('status'),
+                        'deactivation_reason' => $reason,
+                    ],
+                    'deactivated' => true,
+                ],
+            ];
+        } catch (\Exception $e) {
+            return $this->createErrorResponse("Failed to deactivate user: {$e->getMessage()}")->toArray();
+        }
     }
 
     /**

@@ -100,6 +100,9 @@ abstract class BaseStatamicTool extends Tool
         $correlationId = ToolLogger::toolStarted($toolName, $arguments);
 
         try {
+            // Global defensive validation
+            $arguments = $this->validateAndSanitizeArguments($arguments);
+
             $result = $this->executeInternal($arguments);
             $standardized = $this->wrapInStandardFormat($result);
 
@@ -112,20 +115,46 @@ abstract class BaseStatamicTool extends Tool
             }
 
             return $standardized;
+        } catch (\TypeError $e) {
+            $duration = microtime(true) - $startTime;
+            ToolLogger::toolFailed($toolName, $correlationId, $e, $duration);
+
+            $errorMessage = "Type error in {$toolName}: " . $this->sanitizeErrorMessage($e->getMessage());
+            $errorResponse = $this->createSafeErrorResponse($errorMessage, $correlationId);
+
+            return $errorResponse;
+        } catch (\Error $e) {
+            $duration = microtime(true) - $startTime;
+            ToolLogger::toolFailed($toolName, $correlationId, $e, $duration);
+
+            $errorMessage = "Fatal error in {$toolName}: " . $this->sanitizeErrorMessage($e->getMessage());
+            $errorResponse = $this->createSafeErrorResponse($errorMessage, $correlationId);
+
+            return $errorResponse;
+        } catch (\InvalidArgumentException $e) {
+            $duration = microtime(true) - $startTime;
+            ToolLogger::toolFailed($toolName, $correlationId, $e, $duration);
+
+            $errorMessage = "Invalid argument in {$toolName}: " . $this->sanitizeErrorMessage($e->getMessage());
+            $errorResponse = $this->createSafeErrorResponse($errorMessage, $correlationId);
+
+            return $errorResponse;
         } catch (\Exception $e) {
             $duration = microtime(true) - $startTime;
             ToolLogger::toolFailed($toolName, $correlationId, $e, $duration);
 
-            $debugInfo = app()->bound('env') && app('env') === 'local' ? [
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-                'trace' => $e->getTraceAsString(),
-                'correlation_id' => $correlationId,
-            ] : ['correlation_id' => $correlationId];
+            $errorMessage = "Exception in {$toolName}: " . $this->sanitizeErrorMessage($e->getMessage());
+            $errorResponse = $this->createSafeErrorResponse($errorMessage, $correlationId, $e);
 
-            $errorResponse = $this->createErrorResponse($e->getMessage(), $debugInfo);
+            return $errorResponse;
+        } catch (\Throwable $e) {
+            $duration = microtime(true) - $startTime;
+            ToolLogger::toolFailed($toolName, $correlationId, $e, $duration);
 
-            return $errorResponse->toArray();
+            $errorMessage = "Critical error in {$toolName}: Tool execution failed";
+            $errorResponse = $this->createSafeErrorResponse($errorMessage, $correlationId);
+
+            return $errorResponse;
         }
     }
 
@@ -440,5 +469,108 @@ abstract class BaseStatamicTool extends Tool
     protected function createSecurityErrorResponse(ErrorCodes $securityError, ?string $details = null): array
     {
         return ToolResponse::securityError($securityError, $details);
+    }
+
+    /**
+     * Basic argument validation (permissive for Claude compatibility).
+     *
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string, mixed>
+     */
+    protected function validateAndSanitizeArguments(array $arguments): array
+    {
+        // Only perform basic validation - don't modify arguments that Claude sends
+        // Only basic null byte protection - don't validate keys or content to avoid breaking Claude
+        foreach ($arguments as $value) {
+            if (is_string($value) && str_contains($value, "\x00")) {
+                throw new \InvalidArgumentException('Null bytes not allowed in string arguments');
+            }
+        }
+
+        // Return arguments unchanged to preserve Claude's data
+        return $arguments;
+    }
+
+    /**
+     * Recursively sanitize array values with depth protection.
+     *
+     * @param  array<mixed>  $array
+     *
+     * @return array<mixed>
+     */
+    protected function sanitizeArrayRecursively(array $array, int $depth = 0, int $maxDepth = 5): array
+    {
+        if ($depth >= $maxDepth) {
+            return ['_truncated' => 'Array too deep'];
+        }
+
+        $sanitized = [];
+        $itemCount = 0;
+        $maxItems = 1000; // Prevent memory exhaustion
+
+        foreach ($array as $key => $value) {
+            if (++$itemCount > $maxItems) {
+                $sanitized['_truncated'] = 'Array too large';
+                break;
+            }
+
+            $cleanKey = is_string($key) ? preg_replace('/[^a-zA-Z0-9_-]/', '', $key) : $key;
+
+            if (is_string($value)) {
+                $sanitized[$cleanKey] = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', '', $value) ?? '';
+            } elseif (is_array($value)) {
+                $sanitized[$cleanKey] = $this->sanitizeArrayRecursively($value, $depth + 1, $maxDepth);
+            } else {
+                $sanitized[$cleanKey] = $value;
+            }
+        }
+
+        return $sanitized;
+    }
+
+    /**
+     * Sanitize error messages (minimal sanitization for Claude compatibility).
+     */
+    protected function sanitizeErrorMessage(string $message): string
+    {
+        // Only perform minimal sanitization to avoid breaking Claude
+
+        // Remove null bytes if present
+        $message = str_replace("\x00", '', $message);
+
+        // Limit message length to prevent excessive output
+        if (strlen($message) > 1000) {
+            $message = substr($message, 0, 997) . '...';
+        }
+
+        return $message;
+    }
+
+    /**
+     * Create safe error response that prevents information disclosure.
+     *
+     * @return array<string, mixed>
+     */
+    protected function createSafeErrorResponse(string $message, string $correlationId, ?\Throwable $exception = null): array
+    {
+        $response = [
+            'success' => false,
+            'error' => $message,
+            'correlation_id' => $correlationId,
+            'timestamp' => now()->toISOString() ?? date('c'),
+            'tool' => $this->getToolName(),
+        ];
+
+        // Only add debug info in local environment
+        if (app()->bound('env') && app('env') === 'local' && $exception) {
+            $response['debug'] = [
+                'file' => basename($exception->getFile()),
+                'line' => $exception->getLine(),
+                'type' => get_class($exception),
+            ];
+        }
+
+        return $response;
     }
 }

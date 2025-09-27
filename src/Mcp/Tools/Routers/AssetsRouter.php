@@ -374,7 +374,7 @@ class AssetsRouter extends BaseRouter
             $container->save();
 
             // Clear caches
-            $this->clearCaches(['stache']);
+            \Statamic\Facades\Stache::clear();
 
             return [
                 'success' => true,
@@ -428,7 +428,7 @@ class AssetsRouter extends BaseRouter
             $container->save();
 
             // Clear caches
-            $this->clearCaches(['stache']);
+            \Statamic\Facades\Stache::clear();
 
             return [
                 'success' => true,
@@ -473,7 +473,7 @@ class AssetsRouter extends BaseRouter
             $container->delete();
 
             // Clear caches
-            $this->clearCaches(['stache']);
+            \Statamic\Facades\Stache::clear();
 
             return [
                 'success' => true,
@@ -622,8 +622,82 @@ class AssetsRouter extends BaseRouter
             return $this->createErrorResponse('Permission denied: Cannot create assets')->toArray();
         }
 
-        // Asset creation via file upload - placeholder implementation
-        return $this->createErrorResponse('Asset creation via API not yet implemented - use upload action')->toArray();
+        try {
+            $container = $arguments['container'] ?? null;
+            $filename = $arguments['filename'] ?? null;
+            $content = $arguments['content'] ?? null;
+            $data = $arguments['data'] ?? [];
+
+            if (! $container || ! $filename) {
+                return $this->createErrorResponse('Container and filename are required')->toArray();
+            }
+
+            $assetContainer = AssetContainer::find($container);
+            if (! $assetContainer) {
+                return $this->createErrorResponse("Asset container not found: {$container}")->toArray();
+            }
+
+            // Handle content creation
+            if ($content) {
+                // Create from base64 content or raw content
+                $decodedContent = base64_decode($content, true);
+                if ($decodedContent === false) {
+                    // If base64 decode fails, assume raw content
+                    $decodedContent = $content;
+                }
+
+                // Create temporary file
+                $tempPath = tempnam(sys_get_temp_dir(), 'statamic_asset_');
+                file_put_contents($tempPath, $decodedContent);
+
+                // Upload the file
+                $asset = $assetContainer->makeAsset($filename)
+                    ->upload(new \Illuminate\Http\UploadedFile(
+                        $tempPath,
+                        $filename,
+                        mime_content_type($tempPath) ?: 'application/octet-stream',
+                        null,
+                        true
+                    ));
+
+                // Clean up temp file
+                unlink($tempPath);
+            } else {
+                // Create empty asset placeholder
+                $asset = $assetContainer->makeAsset($filename);
+            }
+
+            // Set additional data
+            foreach ($data as $key => $value) {
+                $asset->set($key, $value);
+            }
+
+            $asset->save();
+
+            // Clear caches
+            \Statamic\Facades\Stache::clear();
+
+            return [
+                'success' => true,
+                'data' => [
+                    'asset' => [
+                        'id' => $asset->id(),
+                        'path' => $asset->path(),
+                        'filename' => $asset->filename(),
+                        'basename' => $asset->basename(),
+                        'extension' => $asset->extension(),
+                        'size' => $asset->size(),
+                        'mime_type' => $asset->mimeType(),
+                        'url' => $asset->url(),
+                        'edit_url' => $asset->editUrl(),
+                        'data' => $asset->data()->all(),
+                    ],
+                    'created' => true,
+                ],
+            ];
+        } catch (\Exception $e) {
+            return $this->createErrorResponse("Failed to create asset: {$e->getMessage()}")->toArray();
+        }
     }
 
     /**
@@ -663,7 +737,7 @@ class AssetsRouter extends BaseRouter
             $asset->save();
 
             // Clear caches
-            $this->clearCaches(['stache', 'static']);
+            \Statamic\Facades\Stache::clear();
 
             return [
                 'success' => true,
@@ -708,7 +782,7 @@ class AssetsRouter extends BaseRouter
             $asset->delete();
 
             // Clear caches
-            $this->clearCaches(['stache', 'static']);
+            \Statamic\Facades\Stache::clear();
 
             return [
                 'success' => true,
@@ -754,7 +828,7 @@ class AssetsRouter extends BaseRouter
             $asset->save();
 
             // Clear caches
-            $this->clearCaches(['stache', 'static']);
+            \Statamic\Facades\Stache::clear();
 
             return [
                 'success' => true,
@@ -801,7 +875,7 @@ class AssetsRouter extends BaseRouter
             $newAsset->save();
 
             // Clear caches
-            $this->clearCaches(['stache', 'static']);
+            \Statamic\Facades\Stache::clear();
 
             return [
                 'success' => true,
@@ -833,8 +907,79 @@ class AssetsRouter extends BaseRouter
             return $this->createErrorResponse('Permission denied: Cannot upload assets')->toArray();
         }
 
-        // Asset upload via API - placeholder implementation
-        return $this->createErrorResponse('Asset upload via API not yet implemented')->toArray();
+        try {
+            $container = $arguments['container'] ?? null;
+            $file_path = $arguments['file_path'] ?? null;
+            $filename = $arguments['filename'] ?? null;
+            $data = $arguments['data'] ?? [];
+
+            if (! $container) {
+                return $this->createErrorResponse('Container is required')->toArray();
+            }
+
+            if (! $file_path && ! $filename) {
+                return $this->createErrorResponse('Either file_path or filename is required')->toArray();
+            }
+
+            $assetContainer = AssetContainer::find($container);
+            if (! $assetContainer) {
+                return $this->createErrorResponse("Asset container not found: {$container}")->toArray();
+            }
+
+            if ($file_path) {
+                // Upload from existing file path
+                if (! file_exists($file_path)) {
+                    return $this->createErrorResponse("File not found: {$file_path}")->toArray();
+                }
+
+                $filename = $filename ?? basename($file_path);
+                $mimeType = mime_content_type($file_path) ?: 'application/octet-stream';
+
+                $uploadedFile = new \Illuminate\Http\UploadedFile(
+                    $file_path,
+                    $filename,
+                    $mimeType,
+                    null,
+                    true
+                );
+
+                $asset = $assetContainer->makeAsset($filename)->upload($uploadedFile);
+            } else {
+                // Create asset with just filename (placeholder)
+                $asset = $assetContainer->makeAsset($filename);
+            }
+
+            // Set additional data
+            foreach ($data as $key => $value) {
+                $asset->set($key, $value);
+            }
+
+            $asset->save();
+
+            // Clear caches
+            \Statamic\Facades\Stache::clear();
+
+            return [
+                'success' => true,
+                'data' => [
+                    'asset' => [
+                        'id' => $asset->id(),
+                        'path' => $asset->path(),
+                        'filename' => $asset->filename(),
+                        'basename' => $asset->basename(),
+                        'extension' => $asset->extension(),
+                        'size' => $asset->size(),
+                        'mime_type' => $asset->mimeType(),
+                        'url' => $asset->url(),
+                        'edit_url' => $asset->editUrl(),
+                        'data' => $asset->data()->all(),
+                    ],
+                    'uploaded' => true,
+                ],
+            ];
+        } catch (\Exception $e) {
+            return $this->createErrorResponse("Failed to upload asset: {$e->getMessage()}")->toArray();
+        }
     }
 
     // Helper Methods

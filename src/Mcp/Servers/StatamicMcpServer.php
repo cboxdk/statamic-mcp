@@ -118,13 +118,14 @@ class StatamicMcpServer extends Server
             if (error_reporting() & $severity) {
                 fwrite(STDERR, "Error: {$message} in {$file} on line {$line}\n");
             }
+
             return true;
         });
 
         // Set custom exception handler
         set_exception_handler(function ($exception) {
-            fwrite(STDERR, "Exception: " . $exception->getMessage() . "\n");
-            fwrite(STDERR, "File: " . $exception->getFile() . " Line: " . $exception->getLine() . "\n");
+            fwrite(STDERR, 'Exception: ' . $exception->getMessage() . "\n");
+            fwrite(STDERR, 'File: ' . $exception->getFile() . ' Line: ' . $exception->getLine() . "\n");
             fwrite(STDERR, "Stack trace:\n" . $exception->getTraceAsString() . "\n");
         });
 
@@ -137,7 +138,7 @@ class StatamicMcpServer extends Server
         register_shutdown_function(function () {
             while (ob_get_level() > 0) {
                 $output = ob_get_clean();
-                if (!empty(trim($output)) && !$this->isJsonRpc($output)) {
+                if ($output !== false && ! empty(trim($output)) && ! $this->isJsonRpc($output)) {
                     fwrite(STDERR, "Captured output: $output\n");
                 }
             }
@@ -164,6 +165,7 @@ class StatamicMcpServer extends Server
     private function isJsonRpc(string $output): bool
     {
         $trimmed = trim($output);
+
         return str_starts_with($trimmed, '{"jsonrpc"') || str_starts_with($trimmed, '{"id"');
     }
 
@@ -178,8 +180,13 @@ class StatamicMcpServer extends Server
         }
 
         // Check if we're in HTTP context with web MCP middleware
-        if (request() && request()->hasHeader('Authorization')) {
-            return false; // Web MCP request
+        try {
+            $request = request();
+            if ($request->hasHeader('Authorization')) {
+                return false; // Web MCP request
+            }
+        } catch (\Exception $e) {
+            // Ignore request errors in CLI context
         }
 
         // Check for stdio transport (typically local MCP)

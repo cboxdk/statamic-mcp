@@ -22,10 +22,10 @@ if (! app()->runningUnitTests() && class_exists('Laravel\Mcp\Facades\Mcp')) {
         $output = ob_get_clean();
 
         // Send any non-JSON output to stderr
-        if (!empty(trim($output)) && !str_contains($output, '"jsonrpc"')) {
+        if (! empty(trim($output)) && ! str_contains($output, '"jsonrpc"')) {
             fwrite(STDERR, "MCP Registration output: $output\n");
         }
     } catch (\Exception $e) {
-        fwrite(STDERR, "MCP Registration error: " . $e->getMessage() . "\n");
+        fwrite(STDERR, 'MCP Registration error: ' . $e->getMessage() . "\n");
     }
 }

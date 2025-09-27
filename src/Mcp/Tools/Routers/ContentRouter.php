@@ -78,7 +78,16 @@ class ContentRouter extends BaseRouter
     protected function executeAction(array $arguments): array
     {
         $action = $arguments['action'];
-        $type = $arguments['type'];
+
+        // Skip validation for help/discovery actions that don't need type
+        if (in_array($action, ['help', 'discover', 'examples'])) {
+            return parent::executeInternal($arguments);
+        }
+
+        $type = $arguments['type'] ?? null;
+        if (! $type) {
+            return $this->createErrorResponse('Type is required for this action')->toArray();
+        }
 
         // Check if tool is enabled for current context
         if (! $this->isToolEnabled()) {
@@ -247,8 +256,13 @@ class ContentRouter extends BaseRouter
      *
      * @return array<string, mixed>|null
      */
-    private function validateActionRequirements(string $action, string $type, array $arguments): ?array
+    private function validateActionRequirements(string $action, ?string $type, array $arguments): ?array
     {
+        // Skip validation for help/discovery actions - they should work without specific identifiers
+        if (in_array($action, ['help', 'discover', 'examples'])) {
+            return null;
+        }
+
         // ID required for specific actions (with type-specific messaging)
         // For terms, allow either 'id' or 'slug'
         // For globals, use 'global_set' or 'handle' (handled separately)
@@ -260,7 +274,7 @@ class ContentRouter extends BaseRouter
             } elseif ($type === 'global') {
                 // Global operations use global_set/handle, validated separately below
             } elseif (empty($arguments['id'])) {
-                $typeName = ucfirst($type);
+                $typeName = ucfirst($type ?? 'Unknown');
 
                 return $this->createErrorResponse("{$typeName} ID is required for {$action} action")->toArray();
             }
@@ -271,35 +285,37 @@ class ContentRouter extends BaseRouter
             return $this->createErrorResponse('Data is required for create action')->toArray();
         }
 
-        // Type-specific requirements
-        switch ($type) {
-            case 'entry':
-                if (empty($arguments['collection'])) {
-                    return $this->createErrorResponse('Collection handle is required for entry operations')->toArray();
-                }
-                if (! Collection::find($arguments['collection'])) {
-                    return $this->createErrorResponse("Collection not found: {$arguments['collection']}")->toArray();
-                }
-                break;
+        // Type-specific requirements - skip for help/discovery actions
+        if (! in_array($action, ['help', 'discover', 'examples'])) {
+            switch ($type) {
+                case 'entry':
+                    if (empty($arguments['collection'])) {
+                        return $this->createErrorResponse('Collection handle is required for entry operations')->toArray();
+                    }
+                    if (! Collection::find($arguments['collection'])) {
+                        return $this->createErrorResponse("Collection not found: {$arguments['collection']}")->toArray();
+                    }
+                    break;
 
-            case 'term':
-                if (empty($arguments['taxonomy'])) {
-                    return $this->createErrorResponse('Taxonomy handle is required for term operations')->toArray();
-                }
-                if (! Taxonomy::find($arguments['taxonomy'])) {
-                    return $this->createErrorResponse("Taxonomy not found: {$arguments['taxonomy']}")->toArray();
-                }
-                break;
+                case 'term':
+                    if (empty($arguments['taxonomy'])) {
+                        return $this->createErrorResponse('Taxonomy handle is required for term operations')->toArray();
+                    }
+                    if (! Taxonomy::find($arguments['taxonomy'])) {
+                        return $this->createErrorResponse("Taxonomy not found: {$arguments['taxonomy']}")->toArray();
+                    }
+                    break;
 
-            case 'global':
-                $globalSetHandle = $arguments['global_set'] ?? $arguments['handle'] ?? null;
-                if (in_array($action, ['get', 'update']) && empty($globalSetHandle)) {
-                    return $this->createErrorResponse('Global set handle is required for global operations')->toArray();
-                }
-                if (! empty($globalSetHandle) && ! GlobalSet::find($globalSetHandle)) {
-                    return $this->createErrorResponse("Global set not found: {$globalSetHandle}")->toArray();
-                }
-                break;
+                case 'global':
+                    $globalSetHandle = $arguments['global_set'] ?? $arguments['handle'] ?? null;
+                    if (in_array($action, ['get', 'update']) && empty($globalSetHandle)) {
+                        return $this->createErrorResponse('Global set handle is required for global operations')->toArray();
+                    }
+                    if (! empty($globalSetHandle) && ! GlobalSet::find($globalSetHandle)) {
+                        return $this->createErrorResponse("Global set not found: {$globalSetHandle}")->toArray();
+                    }
+                    break;
+            }
         }
 
         // Site validation
@@ -1368,28 +1384,13 @@ class ContentRouter extends BaseRouter
     protected function executeInternal(array $arguments): array
     {
         $action = $arguments['action'];
-        $type = $arguments['type'];
 
-        // Check if tool is enabled for current context
-        if (! $this->isToolEnabled()) {
-            return $this->createErrorResponse('Permission denied: Content tool is disabled for web access')->toArray();
+        // Handle help/discovery actions through parent's implementation
+        if (in_array($action, ['help', 'discover', 'examples'])) {
+            return parent::executeInternal($arguments);
         }
 
-        // Validate action-specific requirements
-        $validationError = $this->validateActionRequirements($action, $type, $arguments);
-        if ($validationError) {
-            return $validationError;
-        }
-
-        // Apply security checks for web context
-        if ($this->isWebContext()) {
-            $permissionError = $this->checkPermissions($action, $type, $arguments);
-            if ($permissionError) {
-                return $permissionError;
-            }
-        }
-
-        // Execute action with audit logging
-        return $this->executeWithAuditLog($action, $type, $arguments);
+        // For other actions, use our executeAction method
+        return $this->executeAction($arguments);
     }
 }

@@ -17,7 +17,6 @@ use Laravel\Mcp\Server\Prompt;
  */
 class AgentEducationPrompt extends Prompt
 {
-
     public function name(): string
     {
         return 'statamic_agent';

@@ -9,6 +9,7 @@ use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ExecutesWithAudit;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\RouterHelpers;
 use Illuminate\JsonSchema\JsonSchema;
 use Statamic\Facades\Collection;
+use Statamic\Facades\GlobalSet;
 use Statamic\Facades\Nav;
 use Statamic\Facades\Site;
 use Statamic\Facades\Taxonomy;
@@ -115,6 +116,12 @@ class StructuresRouter extends BaseRouter
                 'relationships' => ['collections', 'entries'],
                 'examples' => ['default', 'fr', 'admin'],
             ],
+            'globalset' => [
+                'description' => 'Global sets for site-wide settings and configuration',
+                'properties' => ['handle', 'title', 'blueprint', 'sites'],
+                'relationships' => ['blueprints', 'sites'],
+                'examples' => ['site_settings', 'footer_content', 'seo_defaults'],
+            ],
         ];
     }
 
@@ -123,7 +130,7 @@ class StructuresRouter extends BaseRouter
         return array_merge(parent::defineSchema($schema), [
             'type' => JsonSchema::string()
                 ->description('Structure type to operate on')
-                ->enum(['collection', 'taxonomy', 'navigation', 'site'])
+                ->enum(['collection', 'taxonomy', 'navigation', 'site', 'globalset'])
                 ->required(),
             'handle' => JsonSchema::string()
                 ->description('Structure handle (required for get, update, delete operations)'),
@@ -187,6 +194,7 @@ class StructuresRouter extends BaseRouter
             'taxonomy' => $this->handleTaxonomyAction($action, $arguments),
             'navigation' => $this->handleNavigationAction($action, $arguments),
             'site' => $this->handleSiteAction($action, $arguments),
+            'globalset' => $this->handleGlobalSetAction($action, $arguments),
             default => $this->createErrorResponse("Unknown structure type: {$type}")->toArray(),
         };
     }
@@ -268,6 +276,26 @@ class StructuresRouter extends BaseRouter
             'delete' => $this->deleteSite($arguments),
             'configure' => $this->configureSite($arguments),
             default => $this->createErrorResponse("Unknown site action: {$action}")->toArray(),
+        };
+    }
+
+    /**
+     * Handle globalset operations.
+     *
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string, mixed>
+     */
+    private function handleGlobalSetAction(string $action, array $arguments): array
+    {
+        return match ($action) {
+            'list' => $this->listGlobalSets($arguments),
+            'get' => $this->getGlobalSet($arguments),
+            'create' => $this->createGlobalSet($arguments),
+            'update' => $this->updateGlobalSet($arguments),
+            'delete' => $this->deleteGlobalSet($arguments),
+            'configure' => $this->configureGlobalSet($arguments),
+            default => $this->createErrorResponse("Unknown globalset action: {$action}")->toArray(),
         };
     }
 
@@ -562,8 +590,84 @@ class StructuresRouter extends BaseRouter
      */
     private function configureCollection(array $arguments): array
     {
-        // Placeholder for advanced collection configuration
-        return $this->createErrorResponse('Collection configuration not yet implemented')->toArray();
+        try {
+            $handle = $arguments['handle'];
+            $config = $arguments['config'] ?? [];
+
+            $collection = Collection::find($handle);
+            if (! $collection) {
+                return $this->createErrorResponse("Collection not found: {$handle}")->toArray();
+            }
+
+            // Update collection configuration
+            $currentConfig = $collection->toArray();
+            $updatedConfig = array_merge($currentConfig, $config);
+
+            // Handle specific configuration options
+            if (isset($config['title'])) {
+                $collection->title($config['title']);
+            }
+
+            if (isset($config['sort_dir'])) {
+                $collection->sortDir($config['sort_dir']);
+            }
+
+            if (isset($config['sort_field'])) {
+                $collection->sortField($config['sort_field']);
+            }
+
+            if (isset($config['dated'])) {
+                $collection->dated($config['dated']);
+            }
+
+            if (isset($config['template'])) {
+                $collection->template($config['template']);
+            }
+
+            if (isset($config['layout'])) {
+                $collection->layout($config['layout']);
+            }
+
+            if (isset($config['routes'])) {
+                $collection->routes($config['routes']);
+            }
+
+            if (isset($config['mount'])) {
+                $collection->mount($config['mount']);
+            }
+
+            if (isset($config['structure'])) {
+                $collection->structure($config['structure']);
+            }
+
+            if (isset($config['taxonomies'])) {
+                $collection->taxonomies($config['taxonomies']);
+            }
+
+            if (isset($config['default_status'])) {
+                $collection->defaultStatus($config['default_status']);
+            }
+
+            // Save the collection
+            $collection->save();
+
+            // Clear caches
+            $this->clearCaches(['stache']);
+
+            return [
+                'success' => true,
+                'data' => [
+                    'collection' => [
+                        'handle' => $collection->handle(),
+                        'title' => $collection->title(),
+                        'config' => $collection->toArray(),
+                    ],
+                    'configured' => true,
+                ],
+            ];
+        } catch (\Exception $e) {
+            return $this->createErrorResponse("Failed to configure collection: {$e->getMessage()}")->toArray();
+        }
     }
 
     // Taxonomy Operations
@@ -788,8 +892,52 @@ class StructuresRouter extends BaseRouter
      */
     private function configureTaxonomy(array $arguments): array
     {
-        // Placeholder for advanced taxonomy configuration
-        return $this->createErrorResponse('Taxonomy configuration not yet implemented')->toArray();
+        try {
+            $handle = $arguments['handle'];
+            $config = $arguments['config'] ?? [];
+
+            $taxonomy = Taxonomy::find($handle);
+            if (! $taxonomy) {
+                return $this->createErrorResponse("Taxonomy not found: {$handle}")->toArray();
+            }
+
+            // Handle specific configuration options
+            if (isset($config['title'])) {
+                $taxonomy->title($config['title']);
+            }
+
+            if (isset($config['preview_targets'])) {
+                $taxonomy->previewTargets($config['preview_targets']);
+            }
+
+            if (isset($config['default_status'])) {
+                $taxonomy->defaultStatus($config['default_status']);
+            }
+
+            if (isset($config['collections'])) {
+                $taxonomy->collections($config['collections']);
+            }
+
+            // Save the taxonomy
+            $taxonomy->save();
+
+            // Clear caches
+            $this->clearCaches(['stache']);
+
+            return [
+                'success' => true,
+                'data' => [
+                    'taxonomy' => [
+                        'handle' => $taxonomy->handle(),
+                        'title' => $taxonomy->title(),
+                        'config' => $taxonomy->toArray(),
+                    ],
+                    'configured' => true,
+                ],
+            ];
+        } catch (\Exception $e) {
+            return $this->createErrorResponse("Failed to configure taxonomy: {$e->getMessage()}")->toArray();
+        }
     }
 
     // Navigation Operations
@@ -1017,8 +1165,62 @@ class StructuresRouter extends BaseRouter
      */
     private function configureNavigation(array $arguments): array
     {
-        // Placeholder for advanced navigation configuration
-        return $this->createErrorResponse('Navigation configuration not yet implemented')->toArray();
+        try {
+            $handle = $arguments['handle'];
+            $config = $arguments['config'] ?? [];
+
+            $navigation = Nav::find($handle);
+            if (! $navigation) {
+                return $this->createErrorResponse("Navigation not found: {$handle}")->toArray();
+            }
+
+            // Determine site to use (with fallback to default)
+            $site = $config['site'] ?? Site::default()->handle();
+
+            // Handle specific configuration options
+            if (isset($config['title'])) {
+                $navigation->title($config['title']);
+            }
+
+            if (isset($config['max_depth'])) {
+                $navigation->maxDepth($config['max_depth']);
+            }
+
+            if (isset($config['collections'])) {
+                $navigation->collections($config['collections']);
+            }
+
+            if (isset($config['tree'])) {
+                // Set the navigation tree structure
+                $tree = $navigation->in($site);
+                if (! $tree) {
+                    $tree = $navigation->makeTree($site);
+                }
+                $tree->tree($config['tree']);
+                $tree->save();
+            }
+
+            // Save the navigation
+            $navigation->save();
+
+            // Clear caches
+            $this->clearCaches(['stache']);
+
+            return [
+                'success' => true,
+                'data' => [
+                    'navigation' => [
+                        'handle' => $navigation->handle(),
+                        'title' => $navigation->title(),
+                        'config' => $navigation->toArray(),
+                        'tree' => $navigation->in($site)?->tree() ?? [],
+                    ],
+                    'configured' => true,
+                ],
+            ];
+        } catch (\Exception $e) {
+            return $this->createErrorResponse("Failed to configure navigation: {$e->getMessage()}")->toArray();
+        }
     }
 
     // Site Operations
@@ -1145,6 +1347,257 @@ class StructuresRouter extends BaseRouter
     {
         // Site configuration requires configuration file changes - not supported via API
         return $this->createErrorResponse('Site configuration requires configuration file modification')->toArray();
+    }
+
+    // GlobalSet Operations
+
+    /**
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string, mixed>
+     */
+    private function listGlobalSets(array $arguments): array
+    {
+        try {
+            $includeDetails = $this->getBooleanArgument($arguments, 'include_details', true);
+            $globalSets = GlobalSet::all()->map(function ($globalSet) use ($includeDetails) {
+                $data = [
+                    'handle' => $globalSet->handle(),
+                    'title' => $globalSet->title(),
+                ];
+
+                if ($includeDetails) {
+                    $data = array_merge($data, [
+                        'blueprint' => $globalSet->blueprint()?->handle(),
+                        'sites' => $globalSet->sites()->all(),
+                    ]);
+                }
+
+                return $data;
+            })->all();
+
+            return [
+                'success' => true,
+                'data' => [
+                    'globalsets' => $globalSets,
+                    'total' => count($globalSets),
+                ],
+            ];
+        } catch (\Exception $e) {
+            return $this->createErrorResponse("Failed to list global sets: {$e->getMessage()}")->toArray();
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string, mixed>
+     */
+    private function getGlobalSet(array $arguments): array
+    {
+        try {
+            $handle = $arguments['handle'];
+            $globalSet = GlobalSet::find($handle);
+
+            if (! $globalSet) {
+                return $this->createErrorResponse("Global set not found: {$handle}")->toArray();
+            }
+
+            $data = [
+                'handle' => $globalSet->handle(),
+                'title' => $globalSet->title(),
+                'blueprint' => $globalSet->blueprint()?->handle(),
+                'sites' => $globalSet->sites()->all(),
+            ];
+
+            return [
+                'success' => true,
+                'data' => ['globalset' => $data],
+            ];
+        } catch (\Exception $e) {
+            return $this->createErrorResponse("Failed to get global set: {$e->getMessage()}")->toArray();
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string, mixed>
+     */
+    private function createGlobalSet(array $arguments): array
+    {
+        if (! $this->hasPermission('create', 'globals')) {
+            return $this->createErrorResponse('Permission denied: Cannot create global sets')->toArray();
+        }
+
+        try {
+            $data = $arguments['data'] ?? [];
+            $handle = $data['handle'] ?? null;
+
+            if (! $handle) {
+                return ['success' => false, 'errors' => ['Global set handle is required']];
+            }
+
+            if (GlobalSet::find($handle)) {
+                return ['success' => false, 'errors' => ["Global set '{$handle}' already exists"]];
+            }
+
+            $globalSet = GlobalSet::make($handle);
+
+            if (isset($data['title'])) {
+                $globalSet->title($data['title']);
+            }
+
+            $globalSet->save();
+
+            // Initialize global variables for default site
+            $variables = $globalSet->in(Site::default()->handle());
+            if (! $variables) {
+                $variables = $globalSet->makeLocalization(Site::default()->handle());
+                $variables->save();
+            }
+
+            // Clear caches
+            $this->clearCaches(['stache', 'static']);
+
+            return [
+                'success' => true,
+                'data' => [
+                    'globalset' => [
+                        'handle' => $globalSet->handle(),
+                        'title' => $globalSet->title(),
+                        'created' => true,
+                    ],
+                ],
+            ];
+        } catch (\Exception $e) {
+            return $this->createErrorResponse("Failed to create global set: {$e->getMessage()}")->toArray();
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string, mixed>
+     */
+    private function updateGlobalSet(array $arguments): array
+    {
+        if (! $this->hasPermission('edit', 'globals')) {
+            return $this->createErrorResponse('Permission denied: Cannot update global sets')->toArray();
+        }
+
+        try {
+            $handle = $arguments['handle'];
+            $data = $arguments['data'] ?? [];
+
+            $globalSet = GlobalSet::find($handle);
+            if (! $globalSet) {
+                return $this->createErrorResponse("Global set not found: {$handle}")->toArray();
+            }
+
+            if (isset($data['title'])) {
+                $globalSet->title($data['title']);
+            }
+
+            $globalSet->save();
+
+            // Clear caches
+            $this->clearCaches(['stache', 'static']);
+
+            return [
+                'success' => true,
+                'data' => [
+                    'globalset' => [
+                        'handle' => $globalSet->handle(),
+                        'title' => $globalSet->title(),
+                        'updated' => true,
+                    ],
+                ],
+            ];
+        } catch (\Exception $e) {
+            return $this->createErrorResponse("Failed to update global set: {$e->getMessage()}")->toArray();
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string, mixed>
+     */
+    private function deleteGlobalSet(array $arguments): array
+    {
+        if (! $this->hasPermission('delete', 'globals')) {
+            return $this->createErrorResponse('Permission denied: Cannot delete global sets')->toArray();
+        }
+
+        try {
+            $handle = $arguments['handle'];
+            $globalSet = GlobalSet::find($handle);
+
+            if (! $globalSet) {
+                return $this->createErrorResponse("Global set not found: {$handle}")->toArray();
+            }
+
+            $globalSet->delete();
+
+            // Clear caches
+            $this->clearCaches(['stache', 'static']);
+
+            return [
+                'success' => true,
+                'data' => [
+                    'globalset' => [
+                        'handle' => $handle,
+                        'deleted' => true,
+                    ],
+                ],
+            ];
+        } catch (\Exception $e) {
+            return $this->createErrorResponse("Failed to delete global set: {$e->getMessage()}")->toArray();
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string, mixed>
+     */
+    private function configureGlobalSet(array $arguments): array
+    {
+        try {
+            $handle = $arguments['handle'];
+            $config = $arguments['config'] ?? [];
+
+            $globalSet = GlobalSet::find($handle);
+            if (! $globalSet) {
+                return $this->createErrorResponse("Global set not found: {$handle}")->toArray();
+            }
+
+            // Handle specific configuration options
+            if (isset($config['title'])) {
+                $globalSet->title($config['title']);
+            }
+
+            // Save the global set
+            $globalSet->save();
+
+            // Clear caches
+            $this->clearCaches(['stache']);
+
+            return [
+                'success' => true,
+                'data' => [
+                    'globalset' => [
+                        'handle' => $globalSet->handle(),
+                        'title' => $globalSet->title(),
+                        'config' => $globalSet->toArray(),
+                    ],
+                    'configured' => true,
+                ],
+            ];
+        } catch (\Exception $e) {
+            return $this->createErrorResponse("Failed to configure global set: {$e->getMessage()}")->toArray();
+        }
     }
 
     // Helper Methods - Now provided by RouterHelpers trait
@@ -1275,6 +1728,16 @@ class StructuresRouter extends BaseRouter
             return match ($action) {
                 'list', 'get' => ['view sites'],
                 'create', 'update', 'delete', 'configure' => ['configure sites'],
+                default => ['super'],
+            };
+        }
+
+        if ($type === 'globalset') {
+            return match ($action) {
+                'list', 'get' => ['view globals'],
+                'create' => ['create globals'],
+                'update', 'configure' => ['edit globals'],
+                'delete' => ['delete globals'],
                 default => ['super'],
             };
         }
