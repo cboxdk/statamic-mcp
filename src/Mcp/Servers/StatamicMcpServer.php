@@ -1,172 +1,23 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Cboxdk\StatamicMcp\Mcp\Servers;
 
-use Cboxdk\StatamicMcp\Mcp\Prompts\PageBuilderFieldsetsPrompt;
-use Cboxdk\StatamicMcp\Mcp\Prompts\StatamicBestPracticesPrompt;
-use Cboxdk\StatamicMcp\Mcp\Prompts\StatamicDataHandlingPrompt;
-use Cboxdk\StatamicMcp\Mcp\Prompts\StatamicTroubleshootingPrompt;
-use Cboxdk\StatamicMcp\Mcp\Prompts\StatamicUpgradePrompt;
-use Cboxdk\StatamicMcp\Mcp\Prompts\StatamicWorkflowPrompt;
-// Assets Tools
-use Cboxdk\StatamicMcp\Mcp\Tools\Assets\CopyAssetTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Assets\CreateAssetTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Assets\DeleteAssetTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Assets\GetAssetTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Assets\ListAssetsTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Assets\MoveAssetTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Assets\RenameAssetTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Assets\UpdateAssetTool;
-// Blueprints Tools
-use Cboxdk\StatamicMcp\Mcp\Tools\Blueprints\CheckFieldDependenciesTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Blueprints\CreateBlueprintTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Blueprints\DeleteBlueprintTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Blueprints\DetectFieldConflictsTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Blueprints\GenerateBlueprintTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Blueprints\GetBlueprintTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Blueprints\ListBlueprintsTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Blueprints\ScanBlueprintsTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Blueprints\TypesBlueprintTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Blueprints\UpdateBlueprintTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Blueprints\ValidateBlueprintTool;
-// Collections Tools
-use Cboxdk\StatamicMcp\Mcp\Tools\Collections\CreateCollectionTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Collections\DeleteCollectionTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Collections\GetCollectionTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Collections\ListCollectionsTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Collections\ReorderCollectionsTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Collections\UpdateCollectionTool;
-// Development Tools
-use Cboxdk\StatamicMcp\Mcp\Tools\Development\AddonDiscoveryTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Development\AddonsDevelopmentTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Development\AnalyzeTemplatePerformanceTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Development\AntlersValidateTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Development\BladeHintsTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Development\BladeLintTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Development\ConsoleDevelopmentTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Development\DetectUnusedTemplatesTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Development\ExtractTemplateVariablesTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Development\GenerateTypesTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Development\ListTypeDefinitionsTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Development\SuggestTemplateOptimizationsTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Development\TemplatesDevelopmentTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Development\WidgetsDevelopmentTool;
-// Entries Tools
-use Cboxdk\StatamicMcp\Mcp\Tools\Entries\BatchEntriesOperationTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Entries\CreateEntryTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Entries\CreateOrUpdateEntryTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Entries\DeleteEntryTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Entries\DuplicateEntryTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Entries\EntrySchedulingWorkflowTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Entries\EntryVersioningTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Entries\GetEntryTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Entries\ImportExportEntriesTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Entries\ListEntresTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Entries\ManageEntryRelationshipsTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Entries\PublishEntryTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Entries\SearchEntresTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Entries\UnpublishEntryTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Entries\UpdateEntryTool;
-// Fieldsets Tools
-use Cboxdk\StatamicMcp\Mcp\Tools\Fieldsets\CreateFieldsetTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Fieldsets\DeleteFieldsetTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Fieldsets\GetFieldsetTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Fieldsets\ListFieldsetsTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Fieldsets\ScanFieldsetsTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Fieldsets\UpdateFieldsetTool;
-// Field Types Tools
-use Cboxdk\StatamicMcp\Mcp\Tools\FieldTypes\ListFieldTypesTool;
-// Filters Tools
-use Cboxdk\StatamicMcp\Mcp\Tools\Filters\ListFiltersTool;
-// Forms Tools
-use Cboxdk\StatamicMcp\Mcp\Tools\Forms\CreateFormTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Forms\DeleteFormTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Forms\DeleteSubmissionTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Forms\ExportSubmissionsTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Forms\GetFormTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Forms\GetSubmissionTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Forms\ListFormsTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Forms\ListSubmissionsTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Forms\SubmissionsStatsTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Forms\UpdateFormTool;
-// Globals Tools
-use Cboxdk\StatamicMcp\Mcp\Tools\Globals\CreateGlobalSetTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Globals\DeleteGlobalSetTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Globals\GetGlobalSetTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Globals\GetGlobalTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Globals\GetGlobalValuesTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Globals\ListGlobalSetsTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Globals\ListGlobalsTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Globals\ListGlobalValuesTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Globals\UpdateGlobalTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Globals\UpdateGlobalValuesTool;
-// Groups Tools
-use Cboxdk\StatamicMcp\Mcp\Tools\Groups\GetGroupTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Groups\ListGroupsTool;
-// Modifiers Tools
-use Cboxdk\StatamicMcp\Mcp\Tools\Modifiers\ListModifiersTool;
-// Navigations Tools
-use Cboxdk\StatamicMcp\Mcp\Tools\Navigations\CreateNavigationTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Navigations\DeleteNavigationTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Navigations\GetNavigationTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Navigations\ListNavigationContentTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Navigations\ListNavigationsTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Navigations\UpdateNavigationTool;
-// Permissions Tools
-use Cboxdk\StatamicMcp\Mcp\Tools\Permissions\ListPermissionsTool;
-// Roles Tools
-use Cboxdk\StatamicMcp\Mcp\Tools\Roles\CreateRoleTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Roles\DeleteRoleTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Roles\GetRoleTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Roles\ListRolesTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Roles\UpdateRoleTool;
-// Scopes Tools
-use Cboxdk\StatamicMcp\Mcp\Tools\Scopes\ListScopesTool;
-// Sites Tools
-use Cboxdk\StatamicMcp\Mcp\Tools\Sites\CreateSiteTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Sites\DeleteSiteTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Sites\GetSiteTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Sites\ListSitesTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Sites\SwitchSiteTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Sites\UpdateSiteTool;
-// System Tools
-use Cboxdk\StatamicMcp\Mcp\Tools\System\CacheStatusTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\System\ClearCacheTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\System\DiscoverToolsTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\System\DocsSystemTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\System\GetLicenseStatusTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\System\GetToolSchemaTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\System\InfoSystemTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\System\PerformanceMonitorTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\System\PreferencesManagementTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\System\SearchIndexAnalyzerTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\System\SitesTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\System\StacheManagementTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\System\SystemHealthCheckTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\System\VerifyLicenseTool;
-// Tags Tools
-use Cboxdk\StatamicMcp\Mcp\Tools\Tags\ListTagsTool;
-// Taxonomies Tools
-use Cboxdk\StatamicMcp\Mcp\Tools\Taxonomies\AnalyzeTaxonomyTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Taxonomies\CreateTaxonomyTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Taxonomies\DeleteTaxonomyTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Taxonomies\GetTaxonomyTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Taxonomies\ListTaxonomyTermsTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Taxonomies\ListTaxonomyTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Taxonomies\UpdateTaxonomyTool;
-// Terms Tools
-use Cboxdk\StatamicMcp\Mcp\Tools\Terms\CreateTermTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Terms\DeleteTermTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Terms\GetTermTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Terms\ListTermsTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Terms\UpdateTermTool;
-// Users Tools
-use Cboxdk\StatamicMcp\Mcp\Tools\Users\ActivateUserTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Users\CreateUserTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Users\DeleteUserTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Users\GetUserTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Users\ListUsersTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\Users\UpdateUserTool;
+use Cboxdk\StatamicMcp\Mcp\Prompts\AgentEducationPrompt;
+use Cboxdk\StatamicMcp\Mcp\Prompts\ToolUsageContractPrompt;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\AssetsRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\BlueprintsRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\ContentFacadeRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\ContentRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\EntriesRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\GlobalsRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\StructuresRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\SystemRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\TermsRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\UsersRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\System\DiscoveryTool;
+use Cboxdk\StatamicMcp\Mcp\Tools\System\SchemaTool;
 use Laravel\Mcp\Server;
 
 class StatamicMcpServer extends Server
@@ -178,206 +29,54 @@ class StatamicMcpServer extends Server
     /**
      * The tools that the server exposes.
      *
-     * @var array<class-string>
+     * @var array<int, class-string<\Laravel\Mcp\Server\Tool>>
      */
     public array $tools = [
-        // Assets Tools (8)
-        ListAssetsTool::class,
-        GetAssetTool::class,
-        CreateAssetTool::class,
-        UpdateAssetTool::class,
-        DeleteAssetTool::class,
-        MoveAssetTool::class,
-        CopyAssetTool::class,
-        RenameAssetTool::class,
+        // === Specialized Content Router Tools (5) ===
+        // Domain-specific routers for focused content management
+        EntriesRouter::class,        // Collection entry management with publication control
+        TermsRouter::class,          // Taxonomy term management with relationship tracking
+        GlobalsRouter::class,        // Global sets and site-wide configuration
+        ContentFacadeRouter::class,  // High-level content workflows and orchestration
+        ContentRouter::class,        // Legacy content router (deprecated - will be removed)
 
-        // Blueprints Tools (11)
-        ListBlueprintsTool::class,
-        GetBlueprintTool::class,
-        CreateBlueprintTool::class,
-        UpdateBlueprintTool::class,
-        DeleteBlueprintTool::class,
-        ScanBlueprintsTool::class,
-        TypesBlueprintTool::class,
-        GenerateBlueprintTool::class,
-        ValidateBlueprintTool::class,
-        DetectFieldConflictsTool::class,
-        CheckFieldDependenciesTool::class,
+        // === Core System Router Tools (4) ===
+        // Each router consolidates multiple related operations into a single tool
+        StructuresRouter::class,     // Collections, taxonomies, navigations, sites
+        AssetsRouter::class,         // Asset containers and asset operations
+        UsersRouter::class,          // Users, roles, user groups management
+        SystemRouter::class,         // Cache, health, config, system operations
+        BlueprintsRouter::class,     // Blueprint operations (kept separate for complexity)
 
-        // Collections Tools (6)
-        ListCollectionsTool::class,
-        GetCollectionTool::class,
-        CreateCollectionTool::class,
-        UpdateCollectionTool::class,
-        DeleteCollectionTool::class,
-        ReorderCollectionsTool::class,
-
-        // Development Tools (10)
-        TemplatesDevelopmentTool::class,
-        AddonsDevelopmentTool::class,
-        AddonDiscoveryTool::class,
-        GenerateTypesTool::class,
-        ListTypeDefinitionsTool::class,
-        ConsoleDevelopmentTool::class,
-        WidgetsDevelopmentTool::class,
-        AntlersValidateTool::class,
-        BladeHintsTool::class,
-        BladeLintTool::class,
-
-        // Template Analysis Tools (4)
-        AnalyzeTemplatePerformanceTool::class,
-        DetectUnusedTemplatesTool::class,
-        ExtractTemplateVariablesTool::class,
-        SuggestTemplateOptimizationsTool::class,
-
-        // Entries Tools (15)
-        ListEntresTool::class,
-        SearchEntresTool::class,
-        GetEntryTool::class,
-        CreateEntryTool::class,
-        CreateOrUpdateEntryTool::class,
-        UpdateEntryTool::class,
-        DuplicateEntryTool::class,
-        BatchEntriesOperationTool::class,
-        ImportExportEntriesTool::class,
-        ManageEntryRelationshipsTool::class,
-        EntryVersioningTool::class,
-        EntrySchedulingWorkflowTool::class,
-        DeleteEntryTool::class,
-        PublishEntryTool::class,
-        UnpublishEntryTool::class,
-
-        // Fieldsets Tools (6)
-        ListFieldsetsTool::class,
-        GetFieldsetTool::class,
-        CreateFieldsetTool::class,
-        UpdateFieldsetTool::class,
-        DeleteFieldsetTool::class,
-        ScanFieldsetsTool::class,
-
-        // Field Types Tools (1)
-        ListFieldTypesTool::class,
-
-        // Filters Tools (1)
-        ListFiltersTool::class,
-
-        // Forms Tools (10)
-        ListFormsTool::class,
-        GetFormTool::class,
-        CreateFormTool::class,
-        UpdateFormTool::class,
-        DeleteFormTool::class,
-        ListSubmissionsTool::class,
-        GetSubmissionTool::class,
-        DeleteSubmissionTool::class,
-        ExportSubmissionsTool::class,
-        SubmissionsStatsTool::class,
-
-        // Globals Tools (10)
-        ListGlobalsTool::class,
-        GetGlobalTool::class,
-        UpdateGlobalTool::class,
-        CreateGlobalSetTool::class,
-        DeleteGlobalSetTool::class,
-        GetGlobalSetTool::class,
-        ListGlobalSetsTool::class,
-        GetGlobalValuesTool::class,
-        ListGlobalValuesTool::class,
-        UpdateGlobalValuesTool::class,
-
-        // Groups Tools (2)
-        ListGroupsTool::class,
-        GetGroupTool::class,
-
-        // Modifiers Tools (1)
-        ListModifiersTool::class,
-
-        // Navigations Tools (6)
-        ListNavigationsTool::class,
-        GetNavigationTool::class,
-        CreateNavigationTool::class,
-        UpdateNavigationTool::class,
-        DeleteNavigationTool::class,
-        ListNavigationContentTool::class,
-
-        // Permissions Tools (1)
-        ListPermissionsTool::class,
-
-        // Roles Tools (5)
-        ListRolesTool::class,
-        GetRoleTool::class,
-        CreateRoleTool::class,
-        UpdateRoleTool::class,
-        DeleteRoleTool::class,
-
-        // Scopes Tools (1)
-        ListScopesTool::class,
-
-        // Sites Tools (6)
-        ListSitesTool::class,
-        GetSiteTool::class,
-        CreateSiteTool::class,
-        UpdateSiteTool::class,
-        DeleteSiteTool::class,
-        SwitchSiteTool::class,
-
-        // System Tools (13)
-        InfoSystemTool::class,
-        ClearCacheTool::class,
-        CacheStatusTool::class,
-        DocsSystemTool::class,
-        SystemHealthCheckTool::class,
-        GetLicenseStatusTool::class,
-        VerifyLicenseTool::class,
-        PerformanceMonitorTool::class,
-        PreferencesManagementTool::class,
-        StacheManagementTool::class,
-        SearchIndexAnalyzerTool::class,
-        SitesTool::class,
-        DiscoverToolsTool::class,
-        GetToolSchemaTool::class,
-
-        // Tags Tools (1)
-        ListTagsTool::class,
-
-        // Taxonomies Tools (7)
-        ListTaxonomyTool::class,
-        GetTaxonomyTool::class,
-        CreateTaxonomyTool::class,
-        UpdateTaxonomyTool::class,
-        DeleteTaxonomyTool::class,
-        AnalyzeTaxonomyTool::class,
-        ListTaxonomyTermsTool::class,
-
-        // Terms Tools (5)
-        ListTermsTool::class,
-        GetTermTool::class,
-        CreateTermTool::class,
-        UpdateTermTool::class,
-        DeleteTermTool::class,
-
-        // Users Tools (6)
-        ListUsersTool::class,
-        GetUserTool::class,
-        CreateUserTool::class,
-        UpdateUserTool::class,
-        DeleteUserTool::class,
-        ActivateUserTool::class,
+        // === Agent Education Tools (2) ===
+        // Tools for agent discovery and schema exploration
+        DiscoveryTool::class,        // Intent-based tool discovery and recommendations
+        SchemaTool::class,           // Detailed tool schema inspection and documentation
     ];
 
     /**
      * The prompts that the server exposes.
      *
-     * @var array<class-string>
+     * @var array<int, class-string<\Laravel\Mcp\Server\Prompt>>
      */
-    public array $prompts = [
-        StatamicBestPracticesPrompt::class,
-        PageBuilderFieldsetsPrompt::class,
-        StatamicWorkflowPrompt::class,
-        StatamicTroubleshootingPrompt::class,
-        StatamicDataHandlingPrompt::class,
-        StatamicUpgradePrompt::class,
-    ];
+    public array $prompts = [];
+
+    /**
+     * Initialize the server with context-aware configuration.
+     */
+    public function __construct(\Laravel\Mcp\Server\Contracts\Transport $transport)
+    {
+        parent::__construct($transport);
+
+        // Only expose prompts for local/CLI context, not web
+        if ($this->isLocalContext()) {
+            $this->prompts = [
+                // Agent Education Prompts (CLI only)
+                AgentEducationPrompt::class,
+                ToolUsageContractPrompt::class,
+            ];
+        }
+    }
 
     /**
      * Get the server name.
@@ -392,7 +91,7 @@ class StatamicMcpServer extends Server
      */
     public function description(): string
     {
-        return 'Comprehensive MCP server for Statamic development with 136 tools covering all aspects of CMS management, content operations, template development, and system administration';
+        return 'Revolutionary MCP server for Statamic development with specialized router architecture and agent education system. Features 9 domain-specific routers + 2 specialized tools with self-documenting interfaces, intent-based discovery, and safety-first protocols for comprehensive CMS management.';
     }
 
     /**
@@ -401,5 +100,112 @@ class StatamicMcpServer extends Server
     public function version(): string
     {
         return '0.1.0-alpha';
+    }
+
+    /**
+     * Boot the MCP server with proper error handling.
+     */
+    public function boot(): void
+    {
+        parent::boot();
+
+        // Redirect Laravel error output to stderr to prevent JSON contamination
+        $this->setupErrorHandling();
+    }
+
+    /**
+     * Setup error handling to prevent stdout contamination.
+     */
+    protected function setupErrorHandling(): void
+    {
+        // Capture and redirect Laravel error output to stderr
+        error_reporting(E_ALL);
+        ini_set('display_errors', '0');
+        ini_set('log_errors', '1');
+        ini_set('error_log', 'php://stderr');
+
+        // Set custom error handler to ensure errors go to stderr
+        set_error_handler(function ($severity, $message, $file, $line) {
+            if (error_reporting() & $severity) {
+                fwrite(STDERR, "Error: {$message} in {$file} on line {$line}\n");
+            }
+
+            return true;
+        });
+
+        // Set custom exception handler
+        set_exception_handler(function ($exception) {
+            fwrite(STDERR, 'Exception: ' . $exception->getMessage() . "\n");
+            fwrite(STDERR, 'File: ' . $exception->getFile() . ' Line: ' . $exception->getLine() . "\n");
+            fwrite(STDERR, "Stack trace:\n" . $exception->getTraceAsString() . "\n");
+        });
+
+        // Capture and redirect output buffer to prevent contamination
+        if (ob_get_level() === 0) {
+            ob_start();
+        }
+
+        // Register shutdown function to clean up any remaining output
+        register_shutdown_function(function () {
+            while (ob_get_level() > 0) {
+                $output = ob_get_clean();
+                if ($output !== false && ! empty(trim($output)) && ! $this->isJsonRpc($output)) {
+                    fwrite(STDERR, "Captured output: $output\n");
+                }
+            }
+        });
+
+        // Suppress common PHP startup warnings
+        if (function_exists('opcache_get_status')) {
+            @opcache_get_status(false);
+        }
+
+        // Suppress Laravel deprecation warnings that might write to stdout
+        if (class_exists('Illuminate\Support\Facades\Log')) {
+            try {
+                \Illuminate\Support\Facades\Log::getLogger();
+            } catch (\Exception $e) {
+                // Ignore logging setup errors
+            }
+        }
+    }
+
+    /**
+     * Check if output looks like JSON-RPC.
+     */
+    private function isJsonRpc(string $output): bool
+    {
+        $trimmed = trim($output);
+
+        return str_starts_with($trimmed, '{"jsonrpc"') || str_starts_with($trimmed, '{"id"');
+    }
+
+    /**
+     * Detect if running in local/CLI context vs web context.
+     */
+    private function isLocalContext(): bool
+    {
+        // Check if running via artisan command (local/CLI)
+        if (app()->runningInConsole()) {
+            return true;
+        }
+
+        // Check if we're in HTTP context with web MCP middleware
+        try {
+            $request = request();
+            if ($request->hasHeader('Authorization')) {
+                return false; // Web MCP request
+            }
+        } catch (\Exception $e) {
+            // Ignore request errors in CLI context
+        }
+
+        // Check for stdio transport (typically local MCP)
+        if (php_sapi_name() === 'cli') {
+            return true;
+        }
+
+        // Default to local for safety
+        return true;
     }
 }

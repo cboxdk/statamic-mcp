@@ -8,9 +8,8 @@ use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\SuccessResponse;
 use Cboxdk\StatamicMcp\Mcp\Support\ErrorCodes;
 use Cboxdk\StatamicMcp\Mcp\Support\ToolLogger;
 use Cboxdk\StatamicMcp\Mcp\Support\ToolResponse;
+use Illuminate\JsonSchema\JsonSchema;
 use Laravel\Mcp\Server\Tool;
-use Laravel\Mcp\Server\Tools\ToolInputSchema;
-use Laravel\Mcp\Server\Tools\ToolResult;
 
 abstract class BaseStatamicTool extends Tool
 {
@@ -26,8 +25,10 @@ abstract class BaseStatamicTool extends Tool
 
     /**
      * Define the tool's input schema.
+     *
+     * @return array<string, mixed>
      */
-    abstract protected function defineSchema(ToolInputSchema $schema): ToolInputSchema;
+    abstract protected function defineSchema(JsonSchema $schema): array;
 
     /**
      * Execute the tool logic.
@@ -36,7 +37,7 @@ abstract class BaseStatamicTool extends Tool
      *
      * @return array<string, mixed>
      */
-    abstract protected function execute(array $arguments): array;
+    abstract protected function executeInternal(array $arguments): array;
 
     /**
      * The tool name.
@@ -56,25 +57,53 @@ abstract class BaseStatamicTool extends Tool
 
     /**
      * Define the tool's input schema.
+     *
+     * @return array<string, mixed>
      */
-    final public function schema(ToolInputSchema $schema): ToolInputSchema
+    final public function schema(JsonSchema $schema): array
     {
         return $this->defineSchema($schema);
     }
 
     /**
-     * Handle the tool execution with consistent error handling and MCP compliance.
+     * Handle the tool invocation (required by Laravel MCP v0.2.0).
+     */
+    final public function handle(\Laravel\Mcp\Request $request): \Laravel\Mcp\Response
+    {
+        $arguments = $request->all();
+        $result = $this->execute($arguments);
+
+        // Create appropriate Response based on success/failure
+        if ($result['success'] ?? false) {
+            $jsonData = json_encode($result['data'] ?? $result);
+
+            return \Laravel\Mcp\Response::text($jsonData !== false ? $jsonData : '{}');
+        }
+
+        // Extract error message and create error response
+        $errorMessage = $result['errors'][0] ?? $result['error'] ?? 'Unknown error occurred';
+
+        return \Laravel\Mcp\Response::error($errorMessage);
+    }
+
+    /**
+     * Override execute method to add consistent error handling and MCP compliance.
      *
      * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string, mixed>
      */
-    final public function handle(array $arguments): ToolResult
+    final public function execute(array $arguments): array
     {
         $toolName = $this->getToolName();
         $startTime = microtime(true);
         $correlationId = ToolLogger::toolStarted($toolName, $arguments);
 
         try {
-            $result = $this->execute($arguments);
+            // Global defensive validation
+            $arguments = $this->validateAndSanitizeArguments($arguments);
+
+            $result = $this->executeInternal($arguments);
             $standardized = $this->wrapInStandardFormat($result);
 
             $duration = microtime(true) - $startTime;
@@ -85,21 +114,47 @@ abstract class BaseStatamicTool extends Tool
                 ToolLogger::performanceWarning($toolName, 'Tool execution exceeded 5 seconds', $duration);
             }
 
-            return ToolResult::json($standardized);
+            return $standardized;
+        } catch (\TypeError $e) {
+            $duration = microtime(true) - $startTime;
+            ToolLogger::toolFailed($toolName, $correlationId, $e, $duration);
+
+            $errorMessage = "Type error in {$toolName}: " . $this->sanitizeErrorMessage($e->getMessage());
+            $errorResponse = $this->createSafeErrorResponse($errorMessage, $correlationId);
+
+            return $errorResponse;
+        } catch (\Error $e) {
+            $duration = microtime(true) - $startTime;
+            ToolLogger::toolFailed($toolName, $correlationId, $e, $duration);
+
+            $errorMessage = "Fatal error in {$toolName}: " . $this->sanitizeErrorMessage($e->getMessage());
+            $errorResponse = $this->createSafeErrorResponse($errorMessage, $correlationId);
+
+            return $errorResponse;
+        } catch (\InvalidArgumentException $e) {
+            $duration = microtime(true) - $startTime;
+            ToolLogger::toolFailed($toolName, $correlationId, $e, $duration);
+
+            $errorMessage = "Invalid argument in {$toolName}: " . $this->sanitizeErrorMessage($e->getMessage());
+            $errorResponse = $this->createSafeErrorResponse($errorMessage, $correlationId);
+
+            return $errorResponse;
         } catch (\Exception $e) {
             $duration = microtime(true) - $startTime;
             ToolLogger::toolFailed($toolName, $correlationId, $e, $duration);
 
-            $debugInfo = app()->bound('env') && app('env') === 'local' ? [
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-                'trace' => $e->getTraceAsString(),
-                'correlation_id' => $correlationId,
-            ] : ['correlation_id' => $correlationId];
+            $errorMessage = "Exception in {$toolName}: " . $this->sanitizeErrorMessage($e->getMessage());
+            $errorResponse = $this->createSafeErrorResponse($errorMessage, $correlationId, $e);
 
-            $errorResponse = $this->createErrorResponse($e->getMessage(), $debugInfo);
+            return $errorResponse;
+        } catch (\Throwable $e) {
+            $duration = microtime(true) - $startTime;
+            ToolLogger::toolFailed($toolName, $correlationId, $e, $duration);
 
-            return ToolResult::json($errorResponse->toArray());
+            $errorMessage = "Critical error in {$toolName}: Tool execution failed";
+            $errorResponse = $this->createSafeErrorResponse($errorMessage, $correlationId);
+
+            return $errorResponse;
         }
     }
 
@@ -251,13 +306,14 @@ abstract class BaseStatamicTool extends Tool
 
     /**
      * Add dry-run schema field to tools that support it.
+     *
+     * @return array<string, mixed>
      */
-    protected function addDryRunSchema(ToolInputSchema $schema): ToolInputSchema
+    protected function addDryRunSchema(): array
     {
-        return $schema
-            ->boolean('dry_run')
-            ->description('Preview changes without executing them (default: false)')
-            ->optional();
+        return [
+            'dry_run' => JsonSchema::boolean()->description('Preview changes without executing them (default: false)'),
+        ];
     }
 
     /**
@@ -413,5 +469,108 @@ abstract class BaseStatamicTool extends Tool
     protected function createSecurityErrorResponse(ErrorCodes $securityError, ?string $details = null): array
     {
         return ToolResponse::securityError($securityError, $details);
+    }
+
+    /**
+     * Basic argument validation (permissive for Claude compatibility).
+     *
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string, mixed>
+     */
+    protected function validateAndSanitizeArguments(array $arguments): array
+    {
+        // Only perform basic validation - don't modify arguments that Claude sends
+        // Only basic null byte protection - don't validate keys or content to avoid breaking Claude
+        foreach ($arguments as $value) {
+            if (is_string($value) && str_contains($value, "\x00")) {
+                throw new \InvalidArgumentException('Null bytes not allowed in string arguments');
+            }
+        }
+
+        // Return arguments unchanged to preserve Claude's data
+        return $arguments;
+    }
+
+    /**
+     * Recursively sanitize array values with depth protection.
+     *
+     * @param  array<mixed>  $array
+     *
+     * @return array<mixed>
+     */
+    protected function sanitizeArrayRecursively(array $array, int $depth = 0, int $maxDepth = 5): array
+    {
+        if ($depth >= $maxDepth) {
+            return ['_truncated' => 'Array too deep'];
+        }
+
+        $sanitized = [];
+        $itemCount = 0;
+        $maxItems = 1000; // Prevent memory exhaustion
+
+        foreach ($array as $key => $value) {
+            if (++$itemCount > $maxItems) {
+                $sanitized['_truncated'] = 'Array too large';
+                break;
+            }
+
+            $cleanKey = is_string($key) ? preg_replace('/[^a-zA-Z0-9_-]/', '', $key) : $key;
+
+            if (is_string($value)) {
+                $sanitized[$cleanKey] = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', '', $value) ?? '';
+            } elseif (is_array($value)) {
+                $sanitized[$cleanKey] = $this->sanitizeArrayRecursively($value, $depth + 1, $maxDepth);
+            } else {
+                $sanitized[$cleanKey] = $value;
+            }
+        }
+
+        return $sanitized;
+    }
+
+    /**
+     * Sanitize error messages (minimal sanitization for Claude compatibility).
+     */
+    protected function sanitizeErrorMessage(string $message): string
+    {
+        // Only perform minimal sanitization to avoid breaking Claude
+
+        // Remove null bytes if present
+        $message = str_replace("\x00", '', $message);
+
+        // Limit message length to prevent excessive output
+        if (strlen($message) > 1000) {
+            $message = substr($message, 0, 997) . '...';
+        }
+
+        return $message;
+    }
+
+    /**
+     * Create safe error response that prevents information disclosure.
+     *
+     * @return array<string, mixed>
+     */
+    protected function createSafeErrorResponse(string $message, string $correlationId, ?\Throwable $exception = null): array
+    {
+        $response = [
+            'success' => false,
+            'error' => $message,
+            'correlation_id' => $correlationId,
+            'timestamp' => now()->toISOString() ?? date('c'),
+            'tool' => $this->getToolName(),
+        ];
+
+        // Only add debug info in local environment
+        if (app()->bound('env') && app('env') === 'local' && $exception) {
+            $response['debug'] = [
+                'file' => basename($exception->getFile()),
+                'line' => $exception->getLine(),
+                'type' => get_class($exception),
+            ];
+        }
+
+        return $response;
     }
 }

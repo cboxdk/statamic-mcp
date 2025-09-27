@@ -8,3 +8,4 @@ composer.lock
 .phpunit.cache
 .pest-mutate-cache
 tests/__fixtures__/**
+/backup/

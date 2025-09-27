@@ -1,6 +1,6 @@
 # Statamic MCP Server
 
-A comprehensive MCP (Model Context Protocol) server for Statamic CMS that provides AI assistants with structured access to Statamic's content management capabilities through a clean, organized tool architecture.
+A comprehensive MCP (Model Context Protocol) server for Statamic CMS that provides AI assistants with structured access to Statamic's content management capabilities through a modern router-based architecture.
 
 > [!WARNING]
 > **🚧 Alpha Software - Expect Bugs!**
@@ -60,83 +60,102 @@ With both installed, your AI assistant can:
 
 ## ✨ Features
 
-The MCP server provides 100+ tools organized into logical categories that mirror Statamic's architecture:
+The MCP server provides powerful router tools that organize Statamic's capabilities into logical domains with action-based routing:
 
-### 📋 Blueprint Tools
-**Purpose**: Manage blueprint definitions and schema
+### 📋 Blueprint Management
+**Router**: `statamic.blueprints`
+**Actions**: `list`, `get`, `create`, `update`, `delete`, `scan`, `generate`, `types`, `validate`
 
-- **`statamic.blueprints.list`** - List blueprints with optional details and filtering
-- **`statamic.blueprints.get`** - Get specific blueprint with full field definitions
-- **`statamic.blueprints.create`** - Create new blueprints from field definitions
-- **`statamic.blueprints.update`** - Update existing blueprint fields and configuration
-- **`statamic.blueprints.delete`** - Delete blueprints with safety checks
-- **`statamic.blueprints.scan`** - Blueprint scanning with performance optimization
-- **`statamic.blueprints.generate`** - Generate blueprints from templates and field definitions
-- **`statamic.blueprints.types`** - Blueprint type analysis and TypeScript/PHP type generation
+- **List blueprints** with optional details and namespace filtering
+- **Get specific blueprints** with full field definitions and relationships
+- **Create new blueprints** from field definitions with validation
+- **Update existing blueprints** with field changes and configuration
+- **Delete blueprints** with safety checks and dependency validation
+- **Scan blueprint directories** with performance optimization
+- **Generate blueprints** from templates and AI-assisted field definitions
+- **Analyze blueprint types** for TypeScript/PHP type generation
+- **Validate blueprints** for field conflicts and structural integrity
 
-### 📚 Collection Tools
-**Purpose**: Manage collection structures and configuration
+### 📚 Content Management
+**Router**: `statamic.content`
+**Actions**: `list`, `get`, `create`, `update`, `delete`, `publish`, `unpublish`
+**Types**: `entry`, `term`, `global`
 
-- **`statamic.collections.list`** - List all collections with configuration details
-- **`statamic.collections.get`** - Get specific collection with full configuration
-- **`statamic.collections.create`** - Create new collections with blueprint associations
-- **`statamic.collections.update`** - Update collection settings and structure
-- **`statamic.collections.delete`** - Delete collections with safety checks
+- **Unified content operations** across entries, terms, and global sets
+- **Security-first permissions** with audit logging and validation
+- **Multi-site support** with proper localization handling
+- **Blueprint-based validation** with comprehensive field validation
+- **Slug uniqueness validation** using Statamic's built-in rules
+- **Publishing workflows** with state management and validation
+- **Bulk operations** with safety checks and rollback capabilities
 
-### 📚 Taxonomy Tools
-**Purpose**: Manage taxonomies and their terms
+### 📚 System Management
+**Router**: `statamic.system`
+**Actions**: `info`, `health`, `cache_status`, `cache_clear`, `cache_warm`, `config_get`, `config_set`
 
-- **`statamic.taxonomies.list`** - List all taxonomies with filtering and metadata
-- **`statamic.taxonomies.get`** - Get specific taxonomy with detailed information
-- **`statamic.taxonomies.create`** - Create new taxonomies with configuration
-- **`statamic.taxonomies.update`** - Update taxonomy settings and associations
-- **`statamic.taxonomies.delete`** - Delete taxonomies with safety checks
-- **`statamic.taxonomies.analyze`** - Analyze taxonomy usage and term relationships
-- **`statamic.taxonomies.terms`** - List and manage terms within taxonomies
+- **System information** with version, edition, and multi-site analysis
+- **Health monitoring** with comprehensive diagnostic checks
+- **Cache management** with selective clearing and warming capabilities
+- **Configuration access** with safe get/set operations
+- **Performance analysis** with bottleneck detection and optimization
+- **Storage detection** for file-based, database, or mixed patterns
 
-### 🏗️ Structure Tools
-**Purpose**: Manage structural configurations and scanning
+### 🏗️ Structure Management
+**Router**: `statamic.structures`
+**Purpose**: Manage structural configurations across Statamic
 
-- **`statamic.structures.fieldsets.scan`** - Fieldset analysis and parsing
-- **`statamic.structures.fieldsets`** - Fieldset configuration management
-- **`statamic.structures.navigations`** - Navigation structure management
-- **`statamic.structures.forms`** - Form configuration management
-- **`statamic.structures.globals`** - Global set configuration management
-- **`statamic.structures.assets`** - Asset container configuration
-- **`statamic.structures.groups`** - User group structure management
-- **`statamic.structures.permissions`** - Permission structure analysis
+- **Collection structures** with route patterns and blueprint associations
+- **Navigation trees** with hierarchical organization and URL structures
+- **Form configurations** with field definitions and validation rules
+- **Global set structures** with multi-site value management
+- **Asset containers** with storage driver configuration
+- **User group hierarchies** with permission inheritance
+- **Permission structures** with role-based access control analysis
 
-### 📝 Entry Tools
-**Purpose**: Manage entries across all collections
+### 📝 Entry Management
+**Router**: `statamic.entries`
+**Purpose**: Dedicated entry operations with advanced features
 
-- **`statamic.entries.list`** - List entries with filtering, search, and pagination
-- **`statamic.entries.get`** - Get specific entry with full data and relationships
-- **`statamic.entries.create`** - Create new entries with validation and blueprint compliance
-- **`statamic.entries.update`** - Update existing entries with merge options and validation
-- **`statamic.entries.delete`** - Delete entries with safety checks and relationship validation
-- **`statamic.entries.publish`** - Publish draft entries with validation
-- **`statamic.entries.unpublish`** - Unpublish entries with safety checks
+- **List entries** with filtering, search, pagination, and status filtering
+- **Get entry details** with full data, relationships, and metadata
+- **Create entries** with blueprint validation and slug uniqueness checks
+- **Update entries** with merge strategies and change tracking
+- **Delete entries** with relationship validation and cleanup
+- **Publishing workflows** with draft/published state management
+- **Bulk operations** with collection-wide actions and validation
 
-### 🏷️ Term Tools
-**Purpose**: Manage taxonomy terms across all taxonomies
+### 🏷️ Term Management
+**Router**: `statamic.terms`
+**Purpose**: Dedicated taxonomy term operations
 
-- **`statamic.terms.list`** - List terms with filtering, search, and pagination
-- **`statamic.terms.get`** - Get specific term with full data and related entries
-- **`statamic.terms.create`** - Create new terms with validation and slug conflict checking
-- **`statamic.terms.update`** - Update existing terms with merge options and validation
-- **`statamic.terms.delete`** - Delete terms with safety checks and dependency validation
+- **List terms** with taxonomy filtering, search, and pagination
+- **Get term details** with full data and related entry connections
+- **Create terms** with validation and slug conflict prevention
+- **Update terms** with merge strategies and relationship maintenance
+- **Delete terms** with dependency validation and cleanup
+- **Taxonomy analysis** with term usage and relationship mapping
 
-### 🌐 Global Tools
-**Purpose**: Manage global set values
+### 🌐 Global Management
+**Router**: `statamic.globals`
+**Purpose**: Global set and values management
 
-- **`statamic.globals.list`** - List all global sets with metadata
-- **`statamic.globals.get`** - Get specific global set with full data
-- **`statamic.globals.update`** - Update global set values with validation
+- **List global sets** with structure and value metadata
+- **Get global values** with site-specific data and field filtering
+- **Update global values** with validation and change tracking
+- **Create global sets** with blueprint support and initial values
+- **Delete global sets** with backup options and safety checks
+- **Multi-site support** with localization and value inheritance
 
-### 🧭 Navigation Tools
-**Purpose**: Manage navigation structures
+### 🗂️ Asset Management
+**Router**: `statamic.assets`
+**Purpose**: Asset container and file operations
 
-- **`statamic.navigation.list`** - List navigation trees with full structure
+- **List asset containers** with storage driver information
+- **Create containers** with custom disk configurations
+- **Update containers** with settings and access control
+- **Delete containers** with content cleanup options
+- **File operations** with upload, move, and organization features
+- **Metadata management** with alt text, titles, and custom fields
 
 ### 🌐 Sites Management Tools
 **Purpose**: Multi-site Statamic configuration and management
@@ -176,77 +195,87 @@ The MCP server provides 100+ tools organized into logical categories that mirror
 - **`statamic.content.submissions`** - Form submission management (coming soon)
 
 ### 🏷️ Tag Tools
+**Router**: `statamic.tags` | **Actions**: `list`, `create`, `discover`
 **Purpose**: Manage Statamic tags for both Antlers and Blade
 
-- **`statamic.tags.list`** - Tag discovery, creation, and management for both Antlers and Blade
+- **list** - Tag discovery and management for both Antlers and Blade
+- **create** - Generate new custom tags with proper structure
+- **discover** - Find and analyze existing tags in the codebase
 
 ### 🔧 Modifier Tools
+**Router**: `statamic.modifiers` | **Actions**: `list`, `create`, `examples`
 **Purpose**: Manage template modifiers
 
-- **`statamic.modifiers.list`** - Modifier discovery, creation, and usage examples
+- **list** - Modifier discovery and creation
+- **create** - Generate new custom modifiers
+- **examples** - Get usage examples for existing modifiers
 
 ### 🎛️ Field Type Tools
+**Router**: `statamic.fieldtypes` | **Actions**: `list`, `create`, `configure`
 **Purpose**: Manage custom field types
 
-- **`statamic.fieldtypes.list`** - Field type discovery, creation, and configuration options
+- **list** - Field type discovery and configuration options
+- **create** - Generate new custom field types
+- **configure** - Get configuration options for field types
 
 ### 🔍 Scope Tools
+**Router**: `statamic.scopes` | **Actions**: `list`, `create`, `apply`
 **Purpose**: Manage query scopes
 
-- **`statamic.scopes.list`** - Query scope discovery and creation
+- **list** - Query scope discovery
+- **create** - Generate new query scopes
+- **apply** - Test scope application on collections
 
 ### 🗂️ Filter Tools
+**Router**: `statamic.filters` | **Actions**: `list`, `create`, `test`
 **Purpose**: Manage collection filters
 
-- **`statamic.filters.list`** - Filter discovery and creation
-
-### ✅ Blueprint Validation Tools
-**Purpose**: Blueprint integrity and field validation
-
-- **`statamic.blueprints.validate`** - Validate blueprint structure and field configuration
-- **`statamic.blueprints.dependencies`** - Analyze field dependencies and conditional logic
-- **`statamic.blueprints.conflicts`** - Detect cross-blueprint field conflicts and naming issues
+- **list** - Filter discovery
+- **create** - Generate new collection filters
+- **test** - Test filter logic against sample data
 
 ### ⚙️ Development Tools
-**Purpose**: Enhanced developer experience and tooling
+**Router**: `statamic.development` | **Actions**: `templates`, `antlers-validate`, `blade-lint`, `addons`, `types`
+**Purpose**: Enhanced developer experience with advanced optimization
 
-- **`statamic.development.templates`** - Template hints, validation, and optimization for Antlers/Blade
-- **`statamic.development.addons`** - Addon development, analysis, and scaffolding
-- **`statamic.development.addon.discovery`** - Addon discovery and recommendations
-- **`statamic.development.types`** - TypeScript/PHP type generation from blueprints
-- **`statamic.development.console`** - Artisan command execution and management
-- **`statamic.development.antlers.validate`** - Antlers template validation and syntax checking
-- **`statamic.development.blade.hints`** - Blade template hints and suggestions
-- **`statamic.development.blade.lint`** - Blade template linting and best practices
-- **`statamic.development.widgets`** - Widget development and management
-- **`statamic.development.performance.analyze`** - Comprehensive template performance analysis with N+1 detection
-- **`statamic.development.templates.unused`** - Detect unused templates, partials, and layouts
-- **`statamic.development.templates.variables`** - Extract variables from templates with type analysis
-- **`statamic.development.templates.optimize`** - Suggest specific template optimizations with examples
+- **templates** - Template hints with performance analysis and edge case warnings
+- **antlers-validate** - Advanced Antlers template validation with performance analysis
+- **blade-lint** - Comprehensive Blade linting with policy enforcement
+- **addons** - Addon development, analysis, and scaffolding
+- **types** - TypeScript/PHP type generation from blueprints
+
+**Advanced Features**:
+- **OptimizedTemplateAnalyzer**: Detects N+1 queries, nested loops, excessive partials
+- **Performance Analysis**: Memory issues, recursive partials, XSS vulnerabilities
+- **Edge Case Detection**: Infinite loop risks, unescaped output, caching conflicts
+- **Security Scanning**: XSS detection, input sanitization, security best practices
 
 ### 🔧 System Tools
+**Router**: `statamic.system` | **Actions**: `info`, `cache`, `docs`, `health`
 **Purpose**: System management and operations
 
-- **`statamic.system.info`** - Comprehensive system analysis and health checks
-- **`statamic.system.cache`** - Advanced cache management with selective clearing and warming
-- **`statamic.system.docs`** - Statamic documentation search with AI relevance scoring
-- **`statamic.system.license`** - License management (solo/pro, addon licensing, key configuration)
-- **`statamic.system.preferences`** - Multi-level preferences management (global/role/user)
-- **`statamic.system.stache`** - Advanced Stache cache operations (clear/warm/analyze/optimize)
-- **`statamic.system.search.index`** - Search index performance analysis and optimization
-- **`statamic.system.discover`** - Dynamically discover all available MCP tools with examples
-- **`statamic.system.schema`** - Get detailed schema information for specific tools
-- **`statamic.system.health`** - Comprehensive system health check with security analysis
-- **`statamic.system.monitor`** - Performance analysis with sample operations and bottleneck detection
+- **info** - Comprehensive system analysis and health checks
+- **cache** - Advanced cache management with selective clearing and warming
+- **docs** - Documentation search and discovery
+- **health** - System health checks with performance analysis
 
 ## 🏗️ Architecture & Design
 
-### Clean MCP Tool Architecture
-The addon follows a **single-purpose tool pattern** where each tool performs exactly ONE action:
-- **No action conditionals**: Each tool has a focused responsibility
-- **Predictable schemas**: Clear input/output contracts
-- **Better performance**: Reduced token overhead for AI assistants
-- **Easier testing**: Isolated, testable components
+### Router-Based MCP Tool Architecture
+The addon follows a **router-based architecture** where domain routers handle multiple actions:
+- **Domain-based organization**: Each router manages one Statamic domain (blueprints, collections, etc.)
+- **Action-based routing**: Single router handles multiple related operations (list, get, create, update, delete)
+- **Reduced tool count**: ~10 router tools instead of 140+ individual tools
+- **Better performance**: Fewer tools for AI assistants to choose from
+- **Clearer organization**: Domain boundaries with action-based routing
+- **Easier maintenance**: Single file per domain reduces fragmentation
+
+### Router Pattern Benefits
+- **Scalability**: Easy to add new actions without creating new tools
+- **Maintainability**: All domain operations in one location
+- **Performance**: Reduced overhead and faster tool loading
+- **Clarity**: Clear domain boundaries and action routing
+- **Testing**: Complete domain functionality in single test suite
 
 ### Security & Reliability
 - **Path traversal protection**: All file operations validated against allowed directories
@@ -258,7 +287,8 @@ The addon follows a **single-purpose tool pattern** where each tool performs exa
 - **Local development first**: Optimized for development workflows
 - **Smart caching**: Expensive operations cached with dependency tracking
 - **Comprehensive logging**: Structured logs with correlation IDs for debugging
-- **No unnecessary complexity**: No rate limiting or emergency logging in dev tools
+- **Router-based efficiency**: Domain-focused operations reduce complexity
+- **Action-driven workflows**: Clear action patterns for predictable behavior
 
 ## 🎯 New Features & Performance
 
@@ -288,7 +318,16 @@ See [docs/AI_ASSISTANT_SETUP.md](docs/AI_ASSISTANT_SETUP.md) for more details or
 
 ## 💡 Example Usage with AI
 
-Once configured, you can ask your AI assistant:
+### Router-Based Tool Architecture
+This MCP server uses a **router-based architecture** where each domain (blueprints, collections, entries, etc.) has a single router tool that handles multiple actions. For example:
+- `statamic.blueprints` router handles: `list`, `get`, `create`, `update`, `delete`, `scan`, `generate`, `types`
+- `statamic.entries` router handles: `list`, `get`, `create`, `update`, `delete`, `publish`, `unpublish`
+- `statamic.system` router handles: `info`, `cache`, `docs`, `health`
+
+This design provides better organization and performance compared to having 140+ individual tools.
+
+### Natural Language Usage
+Once configured, you can ask your AI assistant using natural language:
 
 ```
 "What version of Statamic is installed and is it Pro or Solo?"
@@ -496,7 +535,7 @@ statamic-mcp/
 │       └── PerformanceMonitorTool.php
 ├── tests/                              # Comprehensive test suite  
 ├── docs/                               # Detailed documentation
-└── config/statamic_mcp.php            # Configuration options
+└── config/statamic/mcp.php            # Configuration options
 ```
 
 ## 📚 Documentation
@@ -506,10 +545,10 @@ Use the built-in discovery tools to explore available capabilities:
 
 ```bash
 # Discover all available tools with their schemas
-"Use the statamic.system.tools.discover tool to show me all available tools"
+"Use the statamic.system discover action to show me all available router tools"
 
 # Get detailed schema for a specific tool
-"Show me the schema for statamic.entries.create"
+"Show me the schema for the statamic.entries router and its available actions"
 
 # Find tools by domain
 "What blueprint management tools are available?"
@@ -528,7 +567,7 @@ Publish and customize the configuration:
 php artisan vendor:publish --tag=statamic-mcp-config
 ```
 
-Configure blueprint paths, linting rules, cache settings, and more in `config/statamic_mcp.php`.
+Configure blueprint paths, linting rules, cache settings, and more in `config/statamic/mcp.php`.
 
 ## Development Installation
 

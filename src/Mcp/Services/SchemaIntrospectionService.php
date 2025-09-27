@@ -23,21 +23,15 @@ class SchemaIntrospectionService
             $defineSchemaMethod = $reflection->getMethod('defineSchema');
             $defineSchemaMethod->setAccessible(true);
 
-            // Create a mock schema to capture definition
-            $mockSchema = $this->createMockSchema();
-            $defineSchemaMethod->invoke($tool, $mockSchema);
+            // Create a JsonSchema instance and get the schema definition
+            $schema = new \Illuminate\JsonSchema\JsonSchema;
+            $schemaDefinition = $defineSchemaMethod->invoke($tool, $schema);
 
             return [
-                'parameters' => $mockSchema->fields,
-                'parameter_count' => count($mockSchema->fields),
-                'required_parameters' => array_keys(array_filter(
-                    $mockSchema->fields,
-                    fn ($field) => ($field['required'] ?? false)
-                )),
-                'optional_parameters' => array_keys(array_filter(
-                    $mockSchema->fields,
-                    fn ($field) => ! ($field['required'] ?? false)
-                )),
+                'parameters' => $schemaDefinition,
+                'parameter_count' => count($schemaDefinition),
+                'required_parameters' => [], // New API doesn't have explicit required marking
+                'optional_parameters' => array_keys($schemaDefinition),
             ];
         } catch (\Exception $e) {
             return [
@@ -59,86 +53,18 @@ class SchemaIntrospectionService
     }
 }
 
-use Laravel\Mcp\Server\Tools\ToolInputSchema;
+use Illuminate\JsonSchema\JsonSchema;
 
-class MockToolSchema extends ToolInputSchema
+class MockToolSchema
 {
     /** @var array<string, array<string, mixed>> */
     public array $fields = [];
 
-    public function string(string $name): static
+    /**
+     * @param  array<string, mixed>  $schema
+     */
+    public function captureSchema(array $schema): void
     {
-        parent::string($name);
-        $this->fields[$name] = ['type' => 'string'];
-
-        return $this;
-    }
-
-    public function integer(string $name): static
-    {
-        parent::integer($name);
-        $this->fields[$name] = ['type' => 'integer'];
-
-        return $this;
-    }
-
-    public function boolean(string $name): static
-    {
-        parent::boolean($name);
-        $this->fields[$name] = ['type' => 'boolean'];
-
-        return $this;
-    }
-
-    public function number(string $name): static
-    {
-        parent::number($name);
-        $this->fields[$name] = ['type' => 'number'];
-
-        return $this;
-    }
-
-    /** @param  array<string, mixed>  $config */
-    public function raw(string $name, array $config): static
-    {
-        $this->fields[$name] = array_merge(['type' => 'raw'], $config);
-
-        return $this;
-    }
-
-    public function description(string $description): static
-    {
-        parent::description($description);
-
-        if (! empty($this->fields)) {
-            $lastField = array_key_last($this->fields);
-            $this->fields[$lastField]['description'] = $description;
-        }
-
-        return $this;
-    }
-
-    public function required(bool $required = true): static
-    {
-        parent::required($required);
-
-        if (! empty($this->fields)) {
-            $lastField = array_key_last($this->fields);
-            $this->fields[$lastField]['required'] = $required;
-        }
-
-        return $this;
-    }
-
-    public function optional(): static
-    {
-        parent::optional();
-
-        if (! empty($this->fields)) {
-            $lastField = array_key_last($this->fields);
-            $this->fields[$lastField]['required'] = false;
-        }
-
-        return $this;
+        $this->fields = $schema;
     }
 }

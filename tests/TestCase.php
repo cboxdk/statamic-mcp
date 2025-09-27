@@ -11,11 +11,34 @@ abstract class TestCase extends AddonTestCase
     protected string $addonServiceProvider = ServiceProvider::class;
 
     /**
+     * Whether to use test data fixtures.
+     */
+    protected bool $useTestFixtures = false;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        if ($this->useTestFixtures) {
+            TestDataFixtures::setUp();
+        }
+    }
+
+    protected function tearDown(): void
+    {
+        if ($this->useTestFixtures) {
+            TestDataFixtures::tearDown();
+        }
+
+        parent::tearDown();
+    }
+
+    /**
      * Extract data from standardized MCP response format.
      */
     protected function extractMcpData(ToolResult $result): array
     {
-        $resultArray = $result->toArray();
+        $resultArray = $result;
 
         // Handle both old and new formats for backward compatibility
         if (isset($resultArray['content'][0]['text'])) {
@@ -38,7 +61,7 @@ abstract class TestCase extends AddonTestCase
      */
     protected function isMcpSuccess(ToolResult $result): bool
     {
-        $resultArray = $result->toArray();
+        $resultArray = $result;
 
         if (isset($resultArray['content'][0]['text'])) {
             $data = json_decode($resultArray['content'][0]['text'], true);
@@ -60,7 +83,7 @@ abstract class TestCase extends AddonTestCase
      */
     protected function getMcpMetadata(ToolResult $result): ?array
     {
-        $resultArray = $result->toArray();
+        $resultArray = $result;
 
         if (isset($resultArray['content'][0]['text'])) {
             $data = json_decode($resultArray['content'][0]['text'], true);
@@ -78,7 +101,7 @@ abstract class TestCase extends AddonTestCase
      */
     protected function getMcpErrors(ToolResult $result): array
     {
-        $resultArray = $result->toArray();
+        $resultArray = $result;
 
         if (isset($resultArray['content'][0]['text'])) {
             $data = json_decode($resultArray['content'][0]['text'], true);
