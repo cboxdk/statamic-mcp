@@ -14,7 +14,7 @@ describe('Content Router Permissions', function () {
             ->save();
 
         // Enable web mode for permission testing
-        Config::set('statamic.mcp.tools.statamic.content.web_enabled', true);
+        Config::set('statamic-mcp.tools.statamic-content.web_enabled', true);
     });
 
     it('requires authentication in web context', function () {
@@ -38,7 +38,7 @@ describe('Content Router Permissions', function () {
     it('bypasses all permissions in cli context', function () {
         // Ensure CLI context (no X-MCP-Remote header)
         request()->headers->remove('X-MCP-Remote');
-        Config::set('statamic.mcp.security.force_web_mode', false);
+        Config::set('statamic-mcp.security.force_web_mode', false);
 
         // No authenticated user
         auth()->logout();
@@ -57,7 +57,7 @@ describe('Content Router Permissions', function () {
 
     it('respects force web mode configuration', function () {
         // Force web mode even in CLI
-        Config::set('statamic.mcp.security.force_web_mode', true);
+        Config::set('statamic-mcp.security.force_web_mode', true);
 
         // Remove web headers but force web mode
         request()->headers->remove('X-MCP-Remote');
@@ -79,7 +79,7 @@ describe('Content Router Permissions', function () {
 
     it('rejects when web tool is disabled', function () {
         // Disable web tool
-        Config::set('statamic.mcp.tools.statamic.content.web_enabled', false);
+        Config::set('statamic-mcp.tools.statamic-content.web_enabled', false);
 
         // Mock web context
         request()->headers->set('X-MCP-Remote', 'true');

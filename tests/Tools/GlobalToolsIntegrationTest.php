@@ -12,7 +12,7 @@ class GlobalToolsIntegrationTest extends TestCase
         $router = new ContentRouter;
 
         // Test that ContentRouter handles globals
-        $this->assertEquals('statamic.content', $router->name());
+        $this->assertEquals('statamic-content', $router->name());
         $this->assertStringContainsString('content', $router->description());
     }
 
@@ -60,7 +60,7 @@ class GlobalToolsIntegrationTest extends TestCase
         // Check metadata structure (even on error responses)
         $this->assertArrayHasKey('meta', $response);
         $this->assertArrayHasKey('tool', $response['meta']);
-        $this->assertEquals('statamic.content', $response['meta']['tool']);
+        $this->assertEquals('statamic-content', $response['meta']['tool']);
     }
 
     public function test_global_operations_require_valid_type(): void

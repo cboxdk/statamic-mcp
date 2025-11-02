@@ -35,7 +35,7 @@ describe('Refactored Tools', function () {
         });
 
         it('has correct tool details', function () {
-            expect($this->router->name())->toBe('statamic.system');
+            expect($this->router->name())->toBe('statamic-system');
             expect($this->router->description())->toContain('system operations');
         });
 
