@@ -55,8 +55,34 @@ class BlueprintsRouter extends BaseRouter
                 'description' => 'Create new blueprint from field definitions',
                 'purpose' => 'Blueprint generation and schema design',
                 'destructive' => false,
+                'required' => ['handle', 'namespace'],
+                'required_if' => [
+                    'collection_handle' => 'Required when namespace=collections',
+                    'taxonomy_handle' => 'Required when namespace=taxonomies',
+                ],
                 'examples' => [
-                    ['action' => 'create', 'handle' => 'product', 'namespace' => 'collections'],
+                    [
+                        'description' => 'Single blueprint for collection',
+                        'action' => 'create',
+                        'handle' => 'brand',
+                        'collection_handle' => 'brands',
+                        'namespace' => 'collections',
+                        'title' => 'Brand',
+                    ],
+                    [
+                        'description' => 'Multiple blueprints for articles collection',
+                        'action' => 'create',
+                        'handle' => 'long',
+                        'collection_handle' => 'articles',
+                        'namespace' => 'collections',
+                        'title' => 'Long-form Article',
+                    ],
+                ],
+                'naming_guide' => [
+                    'collection_handle' => 'The collection this blueprint belongs to (e.g., "brands", "articles")',
+                    'handle' => 'The blueprint identifier (e.g., "brand", "short", "long")',
+                    'result' => 'Creates collections/{collection_handle}/{handle}.yaml',
+                    'multiple_blueprints' => 'Use different handles for different content types in same collection',
                 ],
             ],
             'update' => [
@@ -156,10 +182,16 @@ class BlueprintsRouter extends BaseRouter
     {
         return array_merge(parent::defineSchema($schema), [
             'handle' => JsonSchema::string()
-                ->description('Blueprint handle (required for get, update, delete, validate)'),
+                ->description('Blueprint handle (required for get, update, delete, validate). For collections, this is the blueprint name (e.g., "article", "product"), NOT the collection handle.'),
             'namespace' => JsonSchema::string()
                 ->description('Blueprint namespace (collections, taxonomies, globals, forms, assets, users)')
                 ->enum(['collections', 'taxonomies', 'globals', 'forms', 'assets', 'users']),
+            'collection_handle' => JsonSchema::string()
+                ->description('Collection handle (required when namespace=collections). Blueprint will be created at collections/{collection_handle}/{handle}.yaml'),
+            'taxonomy_handle' => JsonSchema::string()
+                ->description('Taxonomy handle (required when namespace=taxonomies). Blueprint will be created at taxonomies/{taxonomy_handle}/{handle}.yaml'),
+            'title' => JsonSchema::string()
+                ->description('Blueprint title (optional, defaults to humanized handle)'),
             'fields' => JsonSchema::array()
                 ->description('Field definitions for create/update operations'),
             'include_details' => JsonSchema::boolean()
@@ -316,8 +348,10 @@ class BlueprintsRouter extends BaseRouter
         try {
             $handle = $arguments['handle'];
             $namespace = $arguments['namespace'] ?? null;
+            $collectionHandle = $arguments['collection_handle'] ?? null;
+            $taxonomyHandle = $arguments['taxonomy_handle'] ?? null;
 
-            $blueprint = $this->findBlueprint($handle, $namespace);
+            $blueprint = $this->findBlueprint($handle, $namespace, $collectionHandle, $taxonomyHandle);
 
             if (! $blueprint) {
                 return $this->createErrorResponse("Blueprint not found: {$handle}")->toArray();
@@ -358,6 +392,8 @@ class BlueprintsRouter extends BaseRouter
         try {
             $handle = $arguments['handle'] ?? null;
             $namespace = $arguments['namespace'] ?? 'collections';
+            $collectionHandle = $arguments['collection_handle'] ?? null;
+            $taxonomyHandle = $arguments['taxonomy_handle'] ?? null;
             $fields = $arguments['fields'] ?? [];
             $title = $arguments['title'] ?? Str::title(str_replace('_', ' ', $handle));
 
@@ -365,17 +401,41 @@ class BlueprintsRouter extends BaseRouter
                 return $this->createErrorResponse('Handle is required for blueprint creation')->toArray();
             }
 
-            // Check if blueprint already exists
-            $existing = collect(Blueprint::in($namespace)->all())->firstWhere('handle', $handle);
-            if ($existing) {
-                return $this->createErrorResponse("Blueprint already exists: {$handle} in {$namespace}")->toArray();
+            // Validate namespace-specific requirements
+            if ($namespace === 'collections' && ! $collectionHandle) {
+                return $this->createErrorResponse('collection_handle is required when namespace=collections. Example: collection_handle="brands", handle="brand"')->toArray();
             }
 
-            // For collections, we need to set the correct namespace with collection handle
-            $blueprintNamespace = $namespace;
+            if ($namespace === 'taxonomies' && ! $taxonomyHandle) {
+                return $this->createErrorResponse('taxonomy_handle is required when namespace=taxonomies. Example: taxonomy_handle="categories", handle="category"')->toArray();
+            }
+
+            // Validate collection/taxonomy exists
             if ($namespace === 'collections') {
-                // For collections, namespace should be 'collections.{handle}'
-                $blueprintNamespace = "collections.{$handle}";
+                // collection_handle is guaranteed to exist here due to validation above
+                if (! \Statamic\Facades\Collection::find($collectionHandle)) {
+                    return $this->createErrorResponse("Collection not found: {$collectionHandle}. Create collection first with statamic-structures.")->toArray();
+                }
+            }
+
+            if ($namespace === 'taxonomies') {
+                // taxonomy_handle is guaranteed to exist here due to validation above
+                if (! \Statamic\Facades\Taxonomy::find($taxonomyHandle)) {
+                    return $this->createErrorResponse("Taxonomy not found: {$taxonomyHandle}. Create taxonomy first with statamic-structures.")->toArray();
+                }
+            }
+
+            // Determine the correct namespace
+            $blueprintNamespace = match ($namespace) {
+                'collections' => "collections.{$collectionHandle}",
+                'taxonomies' => "taxonomies.{$taxonomyHandle}",
+                default => $namespace,
+            };
+
+            // Check if blueprint already exists in this namespace
+            $existing = collect(Blueprint::in($blueprintNamespace)->all())->firstWhere('handle', $handle);
+            if ($existing) {
+                return $this->createErrorResponse("Blueprint already exists: {$handle} in {$blueprintNamespace}")->toArray();
             }
 
             // Create the blueprint contents following default.yaml structure
@@ -405,8 +465,16 @@ class BlueprintsRouter extends BaseRouter
                         'title' => $blueprint->title(),
                         'namespace' => $blueprint->namespace(),
                         'path' => $blueprint->path(),
+                        'full_path' => $namespace === 'collections'
+                            ? "collections/{$collectionHandle}/{$handle}.yaml"
+                            : ($namespace === 'taxonomies'
+                                ? "taxonomies/{$taxonomyHandle}/{$handle}.yaml"
+                                : "{$namespace}/{$handle}.yaml"),
                     ],
                     'created' => true,
+                    'guidance' => $namespace === 'collections'
+                        ? "Blueprint created for collection '{$collectionHandle}'. You can now create multiple blueprints (e.g., 'short', 'long', 'featured') for the same collection."
+                        : null,
                 ],
             ];
         } catch (\Exception $e) {
@@ -416,27 +484,44 @@ class BlueprintsRouter extends BaseRouter
 
     /**
      * Find a blueprint by handle and namespace, accounting for collection-specific namespaces and custom addon namespaces.
+     *
+     * @param  string  $handle  Blueprint handle
+     * @param  string|null  $namespace  Blueprint namespace (collections, taxonomies, etc.)
+     * @param  string|null  $collectionHandle  Collection handle for collection blueprints
+     * @param  string|null  $taxonomyHandle  Taxonomy handle for taxonomy blueprints
      */
-    private function findBlueprint(string $handle, ?string $namespace = null): ?\Statamic\Fields\Blueprint
+    private function findBlueprint(string $handle, ?string $namespace = null, ?string $collectionHandle = null, ?string $taxonomyHandle = null): ?\Statamic\Fields\Blueprint
     {
         if ($namespace) {
-            // Try the exact namespace first
-            $blueprint = collect(Blueprint::in($namespace)->all())->firstWhere('handle', $handle);
-
-            if ($blueprint) {
-                return $blueprint;
-            }
-
-            // For collections, try collection-specific namespace: collections.{handle}
-            if ($namespace === 'collections') {
+            // For collections, use collection_handle to build correct namespace
+            if ($namespace === 'collections' && $collectionHandle) {
                 try {
-                    $blueprint = collect(Blueprint::in("collections.{$handle}")->all())->firstWhere('handle', $handle);
+                    $blueprint = collect(Blueprint::in("collections.{$collectionHandle}")->all())->firstWhere('handle', $handle);
                     if ($blueprint) {
                         return $blueprint;
                     }
                 } catch (\Exception $e) {
                     // Ignore if namespace doesn't exist
                 }
+            }
+
+            // For taxonomies, use taxonomy_handle to build correct namespace
+            if ($namespace === 'taxonomies' && $taxonomyHandle) {
+                try {
+                    $blueprint = collect(Blueprint::in("taxonomies.{$taxonomyHandle}")->all())->firstWhere('handle', $handle);
+                    if ($blueprint) {
+                        return $blueprint;
+                    }
+                } catch (\Exception $e) {
+                    // Ignore if namespace doesn't exist
+                }
+            }
+
+            // Try the exact namespace
+            $blueprint = collect(Blueprint::in($namespace)->all())->firstWhere('handle', $handle);
+
+            if ($blueprint) {
+                return $blueprint;
             }
 
             // For any namespace with dots (addon namespaces), try searching for variations
@@ -552,7 +637,10 @@ class BlueprintsRouter extends BaseRouter
             $title = $arguments['title'] ?? null;
 
             // Find the blueprint
-            $blueprint = $this->findBlueprint($handle, $namespace);
+            $collectionHandle = $arguments['collection_handle'] ?? null;
+            $taxonomyHandle = $arguments['taxonomy_handle'] ?? null;
+
+            $blueprint = $this->findBlueprint($handle, $namespace, $collectionHandle, $taxonomyHandle);
 
             if (! $blueprint) {
                 return $this->createErrorResponse("Blueprint not found: {$handle}")->toArray();
@@ -616,7 +704,10 @@ class BlueprintsRouter extends BaseRouter
             }
 
             // Find the blueprint
-            $blueprint = $this->findBlueprint($handle, $namespace);
+            $collectionHandle = $arguments['collection_handle'] ?? null;
+            $taxonomyHandle = $arguments['taxonomy_handle'] ?? null;
+
+            $blueprint = $this->findBlueprint($handle, $namespace, $collectionHandle, $taxonomyHandle);
 
             if (! $blueprint) {
                 return $this->createErrorResponse("Blueprint not found: {$handle}")->toArray();
@@ -892,7 +983,10 @@ class BlueprintsRouter extends BaseRouter
             $handle = $arguments['handle'];
             $namespace = $arguments['namespace'] ?? null;
 
-            $blueprint = $this->findBlueprint($handle, $namespace);
+            $collectionHandle = $arguments['collection_handle'] ?? null;
+            $taxonomyHandle = $arguments['taxonomy_handle'] ?? null;
+
+            $blueprint = $this->findBlueprint($handle, $namespace, $collectionHandle, $taxonomyHandle);
 
             if (! $blueprint) {
                 return $this->createErrorResponse("Blueprint not found: {$handle}")->toArray();
@@ -991,6 +1085,23 @@ class BlueprintsRouter extends BaseRouter
             'content_structure' => 'Blueprints define the schema for all content types',
             'field_relationships' => 'Understanding field dependencies and validation rules',
             'namespace_context' => 'Different namespaces serve different content purposes',
+            'naming_conventions' => [
+                'collections' => [
+                    'pattern' => 'collections/{collection_handle}/{blueprint_handle}.yaml',
+                    'example' => 'collections/brands/brand.yaml (collection="brands", blueprint="brand")',
+                    'multiple_blueprints' => 'collections/articles/short.yaml, collections/articles/long.yaml, collections/articles/breaking.yaml',
+                    'key_point' => 'collection_handle and blueprint handle are SEPARATE - collection="brands" can have blueprint="brand", "product", etc.',
+                ],
+                'taxonomies' => [
+                    'pattern' => 'taxonomies/{taxonomy_handle}/{blueprint_handle}.yaml',
+                    'example' => 'taxonomies/categories/category.yaml (taxonomy="categories", blueprint="category")',
+                    'key_point' => 'taxonomy_handle and blueprint handle are SEPARATE',
+                ],
+                'globals' => [
+                    'pattern' => 'globals/{blueprint_handle}.yaml',
+                    'example' => 'globals/settings.yaml (no parent handle needed)',
+                ],
+            ],
         ];
     }
 
@@ -1017,15 +1128,70 @@ class BlueprintsRouter extends BaseRouter
                 'pattern' => 'list blueprints → get specific blueprint → analyze fields',
                 'example' => ['action' => 'list', 'namespace' => 'collections'],
             ],
-            'schema_design' => [
-                'description' => 'Design new content schema',
-                'pattern' => 'create blueprint → validate structure → generate types → test',
-                'example' => ['action' => 'create', 'handle' => 'product', 'namespace' => 'collections'],
+            'single_blueprint_for_collection' => [
+                'description' => 'Create default blueprint for a collection (common pattern)',
+                'pattern' => 'create blueprint with collection_handle → validate → add fields',
+                'example' => [
+                    'action' => 'create',
+                    'handle' => 'brand',  // Blueprint handle (singular)
+                    'collection_handle' => 'brands',  // Collection handle (plural)
+                    'namespace' => 'collections',
+                    'title' => 'Brand',
+                    'fields' => [
+                        ['handle' => 'title', 'field' => ['type' => 'text', 'required' => true]],
+                        ['handle' => 'description', 'field' => ['type' => 'textarea']],
+                    ],
+                ],
+                'result' => 'Creates collections/brands/brand.yaml',
+            ],
+            'multiple_blueprints_per_collection' => [
+                'description' => 'Create multiple content types for same collection (articles: short, long, breaking)',
+                'pattern' => 'create collection → create blueprint 1 → create blueprint 2 → create blueprint 3',
+                'examples' => [
+                    [
+                        'action' => 'create',
+                        'handle' => 'short',  // First blueprint
+                        'collection_handle' => 'articles',
+                        'title' => 'Short Article',
+                        'fields' => [['handle' => 'title', 'field' => ['type' => 'text']], ['handle' => 'summary', 'field' => ['type' => 'textarea', 'max' => 200]]],
+                    ],
+                    [
+                        'action' => 'create',
+                        'handle' => 'long',  // Second blueprint
+                        'collection_handle' => 'articles',
+                        'title' => 'Long-form Article',
+                        'fields' => [['handle' => 'title', 'field' => ['type' => 'text']], ['handle' => 'content', 'field' => ['type' => 'markdown']]],
+                    ],
+                    [
+                        'action' => 'create',
+                        'handle' => 'breaking',  // Third blueprint
+                        'collection_handle' => 'articles',
+                        'title' => 'Breaking News',
+                        'fields' => [['handle' => 'headline', 'field' => ['type' => 'text']], ['handle' => 'priority', 'field' => ['type' => 'select', 'options' => ['urgent', 'high', 'normal']]]],
+                    ],
+                ],
+                'result' => 'Creates collections/articles/short.yaml, collections/articles/long.yaml, collections/articles/breaking.yaml',
+            ],
+            'taxonomy_blueprint' => [
+                'description' => 'Create blueprint for taxonomy terms',
+                'pattern' => 'create taxonomy → create term blueprint',
+                'example' => [
+                    'action' => 'create',
+                    'handle' => 'category',  // Blueprint handle (singular)
+                    'taxonomy_handle' => 'categories',  // Taxonomy handle (plural)
+                    'namespace' => 'taxonomies',
+                    'title' => 'Category',
+                    'fields' => [
+                        ['handle' => 'title', 'field' => ['type' => 'text']],
+                        ['handle' => 'description', 'field' => ['type' => 'textarea']],
+                    ],
+                ],
+                'result' => 'Creates taxonomies/categories/category.yaml',
             ],
             'blueprint_maintenance' => [
                 'description' => 'Maintain and evolve blueprint schemas',
                 'pattern' => 'scan usage → update fields → validate changes → regenerate types',
-                'example' => ['action' => 'update', 'handle' => 'blog', 'dry_run' => true],
+                'example' => ['action' => 'update', 'handle' => 'brand', 'collection_handle' => 'brands', 'dry_run' => true],
             ],
         ];
     }
