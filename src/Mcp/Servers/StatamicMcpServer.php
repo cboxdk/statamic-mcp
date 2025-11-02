@@ -149,8 +149,12 @@ class StatamicMcpServer extends Server
         register_shutdown_function(function () {
             while (ob_get_level() > 0) {
                 $output = ob_get_clean();
-                if ($output !== false && ! empty(trim($output)) && ! $this->isJsonRpc($output)) {
-                    fwrite(STDERR, "Captured output: $output\n");
+                if ($output !== false && ! empty(trim($output))) {
+                    $trimmed = trim($output);
+                    $isJsonRpc = str_starts_with($trimmed, '{"jsonrpc"') || str_starts_with($trimmed, '{"id"');
+                    if (! $isJsonRpc) {
+                        fwrite(STDERR, "Captured output: $output\n");
+                    }
                 }
             }
         });
@@ -168,16 +172,6 @@ class StatamicMcpServer extends Server
                 // Ignore logging setup errors
             }
         }
-    }
-
-    /**
-     * Check if output looks like JSON-RPC.
-     */
-    private function isJsonRpc(string $output): bool
-    {
-        $trimmed = trim($output);
-
-        return str_starts_with($trimmed, '{"jsonrpc"') || str_starts_with($trimmed, '{"id"');
     }
 
     /**

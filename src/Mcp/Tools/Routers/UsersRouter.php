@@ -19,7 +19,7 @@ class UsersRouter extends BaseRouter
 
     protected function getToolName(): string
     {
-        return 'statamic.users';
+        return 'statamic-users';
     }
 
     protected function getToolDescription(): string

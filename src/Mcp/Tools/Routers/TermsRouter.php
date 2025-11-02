@@ -177,9 +177,9 @@ class TermsRouter extends BaseRouter
     {
         return [
             'taxonomy_setup_workflow' => [
-                'step1' => 'Use statamic.taxonomies to create taxonomy structure',
+                'step1' => 'Use statamic-taxonomies to create taxonomy structure',
                 'step2' => 'Use create to add initial terms',
-                'step3' => 'Use statamic.entries to assign terms to content',
+                'step3' => 'Use statamic-entries to assign terms to content',
                 'step4' => 'Use list to review term usage and organization',
             ],
             'content_classification_workflow' => [
@@ -232,7 +232,7 @@ class TermsRouter extends BaseRouter
             return true; // CLI always enabled
         }
 
-        return config('statamic.mcp.tools.statamic.terms.web_enabled', false);
+        return config('statamic-mcp.tools.statamic.terms.web_enabled', false);
     }
 
     /**
@@ -342,7 +342,7 @@ class TermsRouter extends BaseRouter
         $user = auth()->user();
 
         // Log the operation start if audit logging is enabled
-        if (config('statamic.mcp.tools.statamic.terms.audit_logging', true)) {
+        if (config('statamic-mcp.tools.statamic.terms.audit_logging', true)) {
             \Log::info('MCP Terms Operation Started', [
                 'action' => $action,
                 'taxonomy' => $arguments['taxonomy'],
@@ -358,7 +358,7 @@ class TermsRouter extends BaseRouter
             $result = $this->performAction($action, $arguments);
 
             // Log successful operation
-            if (config('statamic.mcp.tools.statamic.terms.audit_logging', true)) {
+            if (config('statamic-mcp.tools.statamic.terms.audit_logging', true)) {
                 $duration = microtime(true) - $startTime;
                 \Log::info('MCP Terms Operation Completed', [
                     'action' => $action,
@@ -375,7 +375,7 @@ class TermsRouter extends BaseRouter
 
         } catch (\Exception $e) {
             // Log failed operation
-            if (config('statamic.mcp.tools.statamic.terms.audit_logging', true)) {
+            if (config('statamic-mcp.tools.statamic.terms.audit_logging', true)) {
                 $duration = microtime(true) - $startTime;
                 \Log::error('MCP Terms Operation Failed', [
                     'action' => $action,

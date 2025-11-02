@@ -18,7 +18,7 @@ class BlueprintsRouter extends BaseRouter
 
     protected function getToolName(): string
     {
-        return 'statamic.blueprints';
+        return 'statamic-blueprints';
     }
 
     protected function getToolDescription(): string

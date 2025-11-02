@@ -21,7 +21,7 @@ class StructuresRouter extends BaseRouter
 
     protected function getToolName(): string
     {
-        return 'statamic.structures';
+        return 'statamic-structures';
     }
 
     protected function getToolDescription(): string

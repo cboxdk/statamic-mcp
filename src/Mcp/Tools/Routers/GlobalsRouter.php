@@ -157,7 +157,7 @@ class GlobalsRouter extends BaseRouter
     {
         return [
             'site_configuration_workflow' => [
-                'step1' => 'Use statamic.globals.sets to create global set structure',
+                'step1' => 'Use statamic-globals.sets to create global set structure',
                 'step2' => 'Use update to set initial configuration values',
                 'step3' => 'Use get to verify configuration across sites',
                 'step4' => 'Use templates to display global configuration',
@@ -212,7 +212,7 @@ class GlobalsRouter extends BaseRouter
             return true; // CLI always enabled
         }
 
-        return config('statamic.mcp.tools.statamic.globals.web_enabled', false);
+        return config('statamic-mcp.tools.statamic-globals.web_enabled', false);
     }
 
     /**
@@ -322,7 +322,7 @@ class GlobalsRouter extends BaseRouter
         $user = auth()->user();
 
         // Log the operation start if audit logging is enabled
-        if (config('statamic.mcp.tools.statamic.globals.audit_logging', true)) {
+        if (config('statamic-mcp.tools.statamic-globals.audit_logging', true)) {
             \Log::info('MCP Globals Operation Started', [
                 'action' => $action,
                 'global_set' => $arguments['global_set'] ?? $arguments['handle'] ?? null,
@@ -338,7 +338,7 @@ class GlobalsRouter extends BaseRouter
             $result = $this->performAction($action, $arguments);
 
             // Log successful operation
-            if (config('statamic.mcp.tools.statamic.globals.audit_logging', true)) {
+            if (config('statamic-mcp.tools.statamic-globals.audit_logging', true)) {
                 $duration = microtime(true) - $startTime;
                 \Log::info('MCP Globals Operation Completed', [
                     'action' => $action,
@@ -355,7 +355,7 @@ class GlobalsRouter extends BaseRouter
 
         } catch (\Exception $e) {
             // Log failed operation
-            if (config('statamic.mcp.tools.statamic.globals.audit_logging', true)) {
+            if (config('statamic-mcp.tools.statamic-globals.audit_logging', true)) {
                 $duration = microtime(true) - $startTime;
                 \Log::error('MCP Globals Operation Failed', [
                     'action' => $action,

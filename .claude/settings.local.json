@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(composer stan:*)",
+      "Bash(composer test:*)",
+      "Bash(./vendor/bin/pest:*)",
+      "Bash(composer pint:*)",
+      "Bash(./vendor/bin/phpstan analyse:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nfix: resolve PHPStan Level 8 analysis errors\n\nAddress all PHPStan Level 8 compliance issues in ContentFacadeRouter:\n\n- Fix return type annotations for methods that only return null\n- Remove dead catch blocks that are never triggered\n- Improve validation logic to avoid always-true comparisons\n- Apply code formatting standards via Laravel Pint\n\nChanges maintain 100% test coverage with all 142 tests passing.\nQuality improvements ensure production-ready code quality.\nEOF\n)\")",
+      "mcp__serena__find_symbol",
+      "mcp__serena__initial_instructions",
+      "mcp__serena__get_current_config",
+      "mcp__serena__check_onboarding_performed",
+      "mcp__serena__activate_project",
+      "mcp__serena__list_dir",
+      "mcp__serena__get_symbols_overview",
+      "mcp__serena__find_file"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

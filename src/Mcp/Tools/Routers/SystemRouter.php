@@ -19,7 +19,7 @@ class SystemRouter extends BaseRouter
 
     protected function getToolName(): string
     {
-        return 'statamic.system';
+        return 'statamic-system';
     }
 
     protected function getToolDescription(): string
@@ -115,7 +115,7 @@ class SystemRouter extends BaseRouter
                 'description' => 'System configuration and settings',
                 'properties' => ['key', 'value', 'environment', 'source'],
                 'relationships' => ['system'],
-                'examples' => ['app.name', 'statamic.license_key'],
+                'examples' => ['app.name', 'statamic-license_key'],
             ],
             'health' => [
                 'description' => 'System health checks and diagnostics',
@@ -519,9 +519,9 @@ class SystemRouter extends BaseRouter
 
             // Security: Only allow setting runtime config for specific keys
             $allowedKeys = [
-                'statamic.mcp.tools',
-                'statamic.mcp.security.force_web_mode',
-                'statamic.mcp.tools.statamic.system.audit_logging',
+                'statamic-mcp.tools',
+                'statamic-mcp.security.force_web_mode',
+                'statamic-mcp.tools.statamic-system.audit_logging',
             ];
 
             $allowed = collect($allowedKeys)->some(function ($allowedKey) use ($configKey) {
@@ -575,8 +575,8 @@ class SystemRouter extends BaseRouter
             ],
             'static' => [
                 'type' => 'static',
-                'status' => config('statamic.static_caching.strategy') ? 'active' : 'disabled',
-                'strategy' => config('statamic.static_caching.strategy'),
+                'status' => config('statamic-static_caching.strategy') ? 'active' : 'disabled',
+                'strategy' => config('statamic-static_caching.strategy'),
             ],
             'views' => [
                 'type' => 'views',
