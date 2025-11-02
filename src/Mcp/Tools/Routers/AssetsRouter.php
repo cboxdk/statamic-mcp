@@ -18,7 +18,7 @@ class AssetsRouter extends BaseRouter
 
     protected function getToolName(): string
     {
-        return 'statamic.assets';
+        return 'statamic-assets';
     }
 
     protected function getToolDescription(): string

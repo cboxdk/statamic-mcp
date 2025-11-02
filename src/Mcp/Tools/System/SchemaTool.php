@@ -22,7 +22,7 @@ class SchemaTool extends BaseStatamicTool
 {
     protected function getToolName(): string
     {
-        return 'statamic.system.schema';
+        return 'statamic-system-schema';
     }
 
     protected function getToolDescription(): string
@@ -34,7 +34,7 @@ class SchemaTool extends BaseStatamicTool
     {
         return [
             'tool_name' => JsonSchema::string()
-                ->description('Specific tool to inspect (e.g., "statamic.content", "statamic.blueprints")'),
+                ->description('Specific tool to inspect (e.g., "statamic-content", "statamic-blueprints")'),
             'inspection_type' => JsonSchema::string()
                 ->description('Type of schema inspection to perform')
                 ->enum(['overview', 'parameters', 'examples', 'validation', 'patterns', 'interactive'])
@@ -134,8 +134,8 @@ class SchemaTool extends BaseStatamicTool
     {
         // Comprehensive tool definitions with schema information
         $tools = [
-            'statamic.content' => [
-                'name' => 'statamic.content',
+            'statamic-content' => [
+                'name' => 'statamic-content',
                 'description' => 'Manage Statamic content: entries, terms, and global values',
                 'type' => 'router',
                 'domain' => 'content',
@@ -221,8 +221,8 @@ class SchemaTool extends BaseStatamicTool
                 'safety_features' => ['dry_run', 'confirmation', 'validation'],
                 'help_system' => true,
             ],
-            'statamic.blueprints' => [
-                'name' => 'statamic.blueprints',
+            'statamic-blueprints' => [
+                'name' => 'statamic-blueprints',
                 'description' => 'Manage Statamic blueprints and field schemas',
                 'type' => 'router',
                 'domain' => 'structure',
@@ -282,8 +282,8 @@ class SchemaTool extends BaseStatamicTool
                 'safety_features' => ['validation', 'read_only'],
                 'help_system' => true,
             ],
-            'statamic.structures' => [
-                'name' => 'statamic.structures',
+            'statamic-structures' => [
+                'name' => 'statamic-structures',
                 'description' => 'Manage Statamic structures: collections, taxonomies, navigations, sites',
                 'type' => 'router',
                 'domain' => 'structure',
@@ -310,32 +310,32 @@ class SchemaTool extends BaseStatamicTool
                 'safety_features' => ['dry_run', 'confirmation', 'cache_clearing'],
                 'help_system' => true,
             ],
-            'statamic.assets' => [
-                'name' => 'statamic.assets',
+            'statamic-assets' => [
+                'name' => 'statamic-assets',
                 'description' => 'Manage Statamic assets: containers and files',
                 'type' => 'router',
                 'domain' => 'assets',
                 'safety_features' => ['permission_checking', 'dry_run', 'confirmation'],
                 'help_system' => true,
             ],
-            'statamic.users' => [
-                'name' => 'statamic.users',
+            'statamic-users' => [
+                'name' => 'statamic-users',
                 'description' => 'Manage Statamic users, roles, and groups',
                 'type' => 'router',
                 'domain' => 'users',
                 'safety_features' => ['permission_checking', 'super_user_protection', 'confirmation'],
                 'help_system' => true,
             ],
-            'statamic.system' => [
-                'name' => 'statamic.system',
+            'statamic-system' => [
+                'name' => 'statamic-system',
                 'description' => 'System operations: health, cache, information',
                 'type' => 'router',
                 'domain' => 'system',
                 'safety_features' => ['health_checking', 'performance_monitoring'],
                 'help_system' => true,
             ],
-            'statamic.development' => [
-                'name' => 'statamic.development',
+            'statamic-development' => [
+                'name' => 'statamic-development',
                 'description' => 'Development tools: templates, validation, analysis',
                 'type' => 'specialized',
                 'domain' => 'development',
@@ -355,15 +355,15 @@ class SchemaTool extends BaseStatamicTool
     protected function getAllToolsInformation(): array
     {
         $toolNames = [
-            'statamic.content',
-            'statamic.blueprints',
-            'statamic.structures',
-            'statamic.assets',
-            'statamic.users',
-            'statamic.system',
-            'statamic.development',
-            'statamic.system.discover',
-            'statamic.system.schema',
+            'statamic-content',
+            'statamic-blueprints',
+            'statamic-structures',
+            'statamic-assets',
+            'statamic-users',
+            'statamic-system',
+            'statamic-development',
+            'statamic-system.discover',
+            'statamic-system-schema',
         ];
 
         $tools = [];

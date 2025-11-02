@@ -174,7 +174,7 @@ class EntriesRouter extends BaseRouter
         return [
             'content_creation_workflow' => [
                 'step1' => 'Use list to understand existing entry patterns',
-                'step2' => 'Use statamic.blueprints to understand collection schema',
+                'step2' => 'Use statamic-blueprints to understand collection schema',
                 'step3' => 'Use create with blueprint-compliant data',
                 'step4' => 'Use publish to make content live',
             ],
@@ -228,7 +228,7 @@ class EntriesRouter extends BaseRouter
             return true; // CLI always enabled
         }
 
-        return config('statamic.mcp.tools.statamic.entries.web_enabled', false);
+        return config('statamic-mcp.tools.statamic-entries.web_enabled', false);
     }
 
     /**
@@ -340,7 +340,7 @@ class EntriesRouter extends BaseRouter
         $user = auth()->user();
 
         // Log the operation start if audit logging is enabled
-        if (config('statamic.mcp.tools.statamic.entries.audit_logging', true)) {
+        if (config('statamic-mcp.tools.statamic-entries.audit_logging', true)) {
             \Log::info('MCP Entries Operation Started', [
                 'action' => $action,
                 'collection' => $arguments['collection'],
@@ -356,7 +356,7 @@ class EntriesRouter extends BaseRouter
             $result = $this->performAction($action, $arguments);
 
             // Log successful operation
-            if (config('statamic.mcp.tools.statamic.entries.audit_logging', true)) {
+            if (config('statamic-mcp.tools.statamic-entries.audit_logging', true)) {
                 $duration = microtime(true) - $startTime;
                 \Log::info('MCP Entries Operation Completed', [
                     'action' => $action,
@@ -373,7 +373,7 @@ class EntriesRouter extends BaseRouter
 
         } catch (\Exception $e) {
             // Log failed operation
-            if (config('statamic.mcp.tools.statamic.entries.audit_logging', true)) {
+            if (config('statamic-mcp.tools.statamic-entries.audit_logging', true)) {
                 $duration = microtime(true) - $startTime;
                 \Log::error('MCP Entries Operation Failed', [
                     'action' => $action,

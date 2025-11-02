@@ -7,5 +7,25 @@ composer.lock
 # Testing
 .phpunit.cache
 .pest-mutate-cache
-tests/__fixtures__/**
+# Test fixtures are generated dynamically, not committed
+tests/__fixtures__/*
+!tests/__fixtures__/.gitkeep
+!tests/__fixtures__/content/
+tests/__fixtures__/content/*
+!tests/__fixtures__/content/.gitkeep
+!tests/__fixtures__/content/collections/
+!tests/__fixtures__/content/taxonomies/
+!tests/__fixtures__/content/globals/
+!tests/__fixtures__/content/assets/
+tests/__fixtures__/content/collections/*
+!tests/__fixtures__/content/collections/.gitkeep
+tests/__fixtures__/content/taxonomies/*
+!tests/__fixtures__/content/taxonomies/.gitkeep
+!tests/__fixtures__/content/taxonomies/categories/
+tests/__fixtures__/content/taxonomies/categories/*
+!tests/__fixtures__/content/taxonomies/categories/.gitkeep
+tests/__fixtures__/content/globals/*
+!tests/__fixtures__/content/globals/.gitkeep
+tests/__fixtures__/content/assets/*
+!tests/__fixtures__/content/assets/.gitkeep
 /backup/

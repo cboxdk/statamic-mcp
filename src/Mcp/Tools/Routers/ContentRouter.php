@@ -186,7 +186,7 @@ class ContentRouter extends BaseRouter
         return [
             'content_creation_workflow' => [
                 'step1' => 'Use list action to understand existing content patterns',
-                'step2' => 'Use statamic.blueprints to understand required fields',
+                'step2' => 'Use statamic-blueprints to understand required fields',
                 'step3' => 'Use create action with proper data structure',
                 'step4' => 'Use publish action to make content live',
             ],
@@ -199,7 +199,7 @@ class ContentRouter extends BaseRouter
             'content_audit_workflow' => [
                 'step1' => 'Use list to inventory all content',
                 'step2' => 'Use get to examine content details',
-                'step3' => 'Use statamic.blueprints to validate schemas',
+                'step3' => 'Use statamic-blueprints to validate schemas',
                 'step4' => 'Use update for corrections and improvements',
             ],
         ];
@@ -240,7 +240,7 @@ class ContentRouter extends BaseRouter
             return true; // CLI always enabled
         }
 
-        return config('statamic.mcp.tools.statamic.content.web_enabled', false);
+        return config('statamic-mcp.tools.statamic-content.web_enabled', false);
     }
 
     /**
@@ -414,7 +414,7 @@ class ContentRouter extends BaseRouter
         $user = auth()->user();
 
         // Log the operation start if audit logging is enabled
-        if (config('statamic.mcp.tools.statamic.content.audit_logging', true)) {
+        if (config('statamic-mcp.tools.statamic-content.audit_logging', true)) {
             \Log::info('MCP Content Operation Started', [
                 'action' => $action,
                 'type' => $type,
@@ -430,7 +430,7 @@ class ContentRouter extends BaseRouter
             $result = $this->performAction($action, $type, $arguments);
 
             // Log successful operation
-            if (config('statamic.mcp.tools.statamic.content.audit_logging', true)) {
+            if (config('statamic-mcp.tools.statamic-content.audit_logging', true)) {
                 $duration = microtime(true) - $startTime;
                 \Log::info('MCP Content Operation Completed', [
                     'action' => $action,
@@ -447,7 +447,7 @@ class ContentRouter extends BaseRouter
 
         } catch (\Exception $e) {
             // Log failed operation
-            if (config('statamic.mcp.tools.statamic.content.audit_logging', true)) {
+            if (config('statamic-mcp.tools.statamic-content.audit_logging', true)) {
                 $duration = microtime(true) - $startTime;
                 \Log::error('MCP Content Operation Failed', [
                     'action' => $action,

@@ -101,12 +101,12 @@ class StatamicMcpServerTest extends TestCase
             expect($toolDescription)
                 ->not()->toBeEmpty("Tool {$toolClass} has empty description");
 
-            // Test that tool name follows expected pattern (router-based or traditional)
-            $isRouterPattern = preg_match('/^statamic\.[\w-]+$/', $toolName);
-            $isTraditionalPattern = preg_match('/^statamic\.[\w-]+\.[\w-]+(?:\.[\w-]+)?$/', $toolName);
+            // Test that tool name follows expected pattern (hyphen-based routing)
+            // Pattern: statamic-domain or statamic-domain-action
+            $isValidPattern = preg_match('/^statamic-[\w-]+$/', $toolName) === 1;
 
-            expect($isRouterPattern || $isTraditionalPattern)
-                ->toBeTrue("Tool {$toolClass} name '{$toolName}' does not follow expected pattern 'statamic.domain' (router) or 'statamic.category.name' (traditional)");
+            expect($isValidPattern)
+                ->toBeTrue("Tool {$toolClass} name '{$toolName}' does not follow expected pattern 'statamic-domain' or 'statamic-domain-action'");
         }
     }
 
@@ -131,26 +131,23 @@ class StatamicMcpServerTest extends TestCase
     {
         $server = $this->getServer();
         $tools = $server->tools;
-        // Updated for router-based architecture: domains + traditional categories + new routers
-        $expectedCategories = ['content', 'entries', 'terms', 'globals', 'content.facade', 'structures', 'assets', 'users', 'system', 'blueprints', 'discovery', 'schema'];
+        // Updated for hyphen-based naming: statamic-domain or statamic-domain-action
+        $expectedCategories = ['content', 'entries', 'terms', 'globals', 'content-facade', 'structures', 'assets', 'users', 'system', 'system-discover', 'system-schema', 'blueprints'];
         $foundCategories = [];
 
         foreach ($tools as $toolClass) {
             $tool = app($toolClass);
             $toolName = $tool->name();
 
-            // Extract category from tool name
-            $parts = explode('.', $toolName);
-
-            // Support both router pattern (2 parts) and traditional pattern (3-4 parts)
-            if (count($parts) >= 2) {
-                $category = $parts[1];
+            // Extract category from tool name (everything after 'statamic-')
+            if (str_starts_with($toolName, 'statamic-')) {
+                $category = substr($toolName, strlen('statamic-'));
                 $foundCategories[] = $category;
 
                 expect($category)
                     ->toBeIn($expectedCategories, "Unknown tool category '{$category}' in tool '{$toolName}'. Available categories: " . implode(', ', $expectedCategories));
             } else {
-                $this->fail("Tool name '{$toolName}' should have at least 2 parts separated by dots");
+                $this->fail("Tool name '{$toolName}' should start with 'statamic-'");
             }
         }
 

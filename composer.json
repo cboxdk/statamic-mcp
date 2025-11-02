@@ -16,7 +16,7 @@
     },
     "require": {
         "statamic/cms": "^5.0",
-        "laravel/mcp": "^0.2.0",
+        "laravel/mcp": "^0.3.2",
         "symfony/yaml": "^7.3"
     },
     "require-dev": {

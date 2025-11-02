@@ -18,7 +18,7 @@ trait RouterHelpers
     {
         return app()->runningInConsole() &&
                ! request()->hasHeader('X-MCP-Remote') &&
-               ! config('statamic.mcp.security.force_web_mode', false);
+               ! config('statamic-mcp.security.force_web_mode', false);
     }
 
     /**

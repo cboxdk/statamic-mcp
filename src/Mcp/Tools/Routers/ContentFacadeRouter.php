@@ -24,7 +24,7 @@ class ContentFacadeRouter extends BaseRouter
 
     protected function getDomain(): string
     {
-        return 'content.facade';
+        return 'content-facade';
     }
 
     protected function defineSchema(JsonSchema $schema): array
@@ -234,7 +234,7 @@ class ContentFacadeRouter extends BaseRouter
             return true; // CLI always enabled
         }
 
-        return config('statamic.mcp.tools.statamic.content.facade.web_enabled', false);
+        return config('statamic-mcp.tools.statamic-content.facade.web_enabled', false);
     }
 
     /**
@@ -478,7 +478,7 @@ class ContentFacadeRouter extends BaseRouter
         $user = auth()->user();
 
         // Log the operation start if audit logging is enabled
-        if (config('statamic.mcp.tools.statamic.content.facade.audit_logging', true)) {
+        if (config('statamic-mcp.tools.statamic-content.facade.audit_logging', true)) {
             \Log::info('MCP Content Facade Workflow Started', [
                 'workflow' => $workflow,
                 'user' => $user->email ?? ($user ? $user->getAttribute('email') : null),
@@ -493,7 +493,7 @@ class ContentFacadeRouter extends BaseRouter
             $result = $this->performWorkflow($workflow, $arguments);
 
             // Log successful operation
-            if (config('statamic.mcp.tools.statamic.content.facade.audit_logging', true)) {
+            if (config('statamic-mcp.tools.statamic-content.facade.audit_logging', true)) {
                 $duration = microtime(true) - $startTime;
                 \Log::info('MCP Content Facade Workflow Completed', [
                     'workflow' => $workflow,
@@ -509,7 +509,7 @@ class ContentFacadeRouter extends BaseRouter
 
         } catch (\Exception $e) {
             // Log failed operation
-            if (config('statamic.mcp.tools.statamic.content.facade.audit_logging', true)) {
+            if (config('statamic-mcp.tools.statamic-content.facade.audit_logging', true)) {
                 $duration = microtime(true) - $startTime;
                 \Log::error('MCP Content Facade Workflow Failed', [
                     'workflow' => $workflow,

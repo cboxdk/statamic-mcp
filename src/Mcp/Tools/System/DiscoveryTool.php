@@ -32,7 +32,7 @@ class DiscoveryTool extends BaseStatamicTool
 {
     protected function getToolName(): string
     {
-        return 'statamic.system.discover';
+        return 'statamic-system-discover';
     }
 
     protected function getToolDescription(): string
@@ -395,7 +395,7 @@ class DiscoveryTool extends BaseStatamicTool
                     }
 
                     $toolInformation[$domain] = [
-                        'tool_name' => "statamic.{$domain}",
+                        'tool_name' => "statamic-{$domain}",
                         'class_name' => $className,
                         'actions' => $actions,
                         'types' => $types,
@@ -430,43 +430,43 @@ class DiscoveryTool extends BaseStatamicTool
         // Tool mapping based on domains
         $toolMap = [
             'content' => [
-                'primary' => 'statamic.content',
+                'primary' => 'statamic-content',
                 'description' => 'Manage entries, terms, and global values',
                 'key_actions' => ['list', 'get', 'create', 'update', 'delete', 'publish'],
                 'best_for' => 'Content creation and management workflows',
             ],
             'blueprints' => [
-                'primary' => 'statamic.blueprints',
+                'primary' => 'statamic-blueprints',
                 'description' => 'Manage blueprint definitions and field schemas',
                 'key_actions' => ['list', 'get', 'scan', 'types', 'validate'],
                 'best_for' => 'Structure definition and field management',
             ],
             'structures' => [
-                'primary' => 'statamic.structures',
+                'primary' => 'statamic-structures',
                 'description' => 'Manage collections, taxonomies, navigations, and sites',
                 'key_actions' => ['list', 'get', 'create', 'update', 'delete'],
                 'best_for' => 'Structural configuration and setup',
             ],
             'assets' => [
-                'primary' => 'statamic.assets',
+                'primary' => 'statamic-assets',
                 'description' => 'Manage asset containers and files',
                 'key_actions' => ['list', 'get', 'upload', 'move', 'copy', 'rename', 'delete'],
                 'best_for' => 'File and media management',
             ],
             'users' => [
-                'primary' => 'statamic.users',
+                'primary' => 'statamic-users',
                 'description' => 'Manage users, roles, and groups',
                 'key_actions' => ['list', 'get', 'create', 'update', 'delete', 'assign_role'],
                 'best_for' => 'User and permission management',
             ],
             'system' => [
-                'primary' => 'statamic.system',
+                'primary' => 'statamic-system',
                 'description' => 'System operations, health checks, and cache management',
                 'key_actions' => ['info', 'health', 'cache', 'clear_cache'],
                 'best_for' => 'System maintenance and monitoring',
             ],
             'development' => [
-                'primary' => 'statamic.development',
+                'primary' => 'statamic-development',
                 'description' => 'Development tools and template analysis',
                 'key_actions' => ['templates', 'antlers_validate', 'blade_lint'],
                 'best_for' => 'Development workflow and code quality',
@@ -491,12 +491,12 @@ class DiscoveryTool extends BaseStatamicTool
         // Add discovery and schema tools
         $recommendations['utility'] = [
             [
-                'primary' => 'statamic.system.discover',
+                'primary' => 'statamic-system-discover',
                 'description' => 'Tool discovery and exploration (current tool)',
                 'best_for' => 'Understanding available capabilities',
             ],
             [
-                'primary' => 'statamic.system.schema',
+                'primary' => 'statamic-system.schema',
                 'description' => 'Tool schema inspection and documentation',
                 'best_for' => 'Understanding tool parameters and usage',
             ],
@@ -530,12 +530,12 @@ class DiscoveryTool extends BaseStatamicTool
         $workflows = [
             'content_management' => [
                 'setup_phase' => [
-                    'step1' => 'Use statamic.blueprints to explore available field schemas',
-                    'step2' => 'Use statamic.structures to understand collections and taxonomies',
-                    'step3' => 'Use statamic.content to explore existing content patterns',
+                    'step1' => 'Use statamic-blueprints to explore available field schemas',
+                    'step2' => 'Use statamic-structures to understand collections and taxonomies',
+                    'step3' => 'Use statamic-content to explore existing content patterns',
                 ],
                 'execution_phase' => [
-                    'step1' => 'Create or modify content with statamic.content',
+                    'step1' => 'Create or modify content with statamic-content',
                     'step2' => 'Validate content against blueprints',
                     'step3' => 'Publish and manage content lifecycle',
                 ],
@@ -547,14 +547,14 @@ class DiscoveryTool extends BaseStatamicTool
             ],
             'structure_setup' => [
                 'planning_phase' => [
-                    'step1' => 'Analyze existing blueprints with statamic.blueprints list/scan',
+                    'step1' => 'Analyze existing blueprints with statamic-blueprints list/scan',
                     'step2' => 'Review field types and relationships',
                     'step3' => 'Plan new field structures and dependencies',
                 ],
                 'implementation_phase' => [
-                    'step1' => 'Create collections with statamic.structures',
-                    'step2' => 'Define blueprints with statamic.blueprints',
-                    'step3' => 'Test with sample content using statamic.content',
+                    'step1' => 'Create collections with statamic-structures',
+                    'step2' => 'Define blueprints with statamic-blueprints',
+                    'step3' => 'Test with sample content using statamic-content',
                 ],
                 'validation_phase' => [
                     'step1' => 'Validate blueprint schemas',
@@ -564,12 +564,12 @@ class DiscoveryTool extends BaseStatamicTool
             ],
             'system_maintenance' => [
                 'assessment_phase' => [
-                    'step1' => 'Check system health with statamic.system info/health',
+                    'step1' => 'Check system health with statamic-system info/health',
                     'step2' => 'Analyze cache status and performance',
                     'step3' => 'Review system configuration and dependencies',
                 ],
                 'maintenance_phase' => [
-                    'step1' => 'Clear appropriate caches with statamic.system',
+                    'step1' => 'Clear appropriate caches with statamic-system',
                     'step2' => 'Monitor system resources and performance',
                     'step3' => 'Perform routine maintenance tasks',
                 ],
@@ -619,37 +619,37 @@ class DiscoveryTool extends BaseStatamicTool
         return [
             'tool_categories' => [
                 'content_management' => [
-                    'tools' => ['statamic.content'],
+                    'tools' => ['statamic-content'],
                     'capabilities' => ['CRUD operations', 'Publishing workflow', 'Relationship management'],
                     'read_only' => false,
                 ],
                 'structure_management' => [
-                    'tools' => ['statamic.blueprints', 'statamic.structures'],
+                    'tools' => ['statamic-blueprints', 'statamic-structures'],
                     'capabilities' => ['Schema definition', 'Collection management', 'Field type analysis'],
                     'read_only' => false,
                 ],
                 'asset_management' => [
-                    'tools' => ['statamic.assets'],
+                    'tools' => ['statamic-assets'],
                     'capabilities' => ['File operations', 'Container management', 'Upload handling'],
                     'read_only' => false,
                 ],
                 'user_management' => [
-                    'tools' => ['statamic.users'],
+                    'tools' => ['statamic-users'],
                     'capabilities' => ['User CRUD', 'Role management', 'Permission assignment'],
                     'read_only' => false,
                 ],
                 'system_operations' => [
-                    'tools' => ['statamic.system'],
+                    'tools' => ['statamic-system'],
                     'capabilities' => ['Health monitoring', 'Cache management', 'System information'],
                     'read_only' => true,
                 ],
                 'development_tools' => [
-                    'tools' => ['statamic.development'],
+                    'tools' => ['statamic-development'],
                     'capabilities' => ['Template analysis', 'Code validation', 'Type generation'],
                     'read_only' => true,
                 ],
                 'discovery_tools' => [
-                    'tools' => ['statamic.system.discover', 'statamic.system.schema'],
+                    'tools' => ['statamic-system-discover', 'statamic-system.schema'],
                     'capabilities' => ['Tool exploration', 'Schema inspection', 'Usage guidance'],
                     'read_only' => true,
                 ],
@@ -815,20 +815,20 @@ class DiscoveryTool extends BaseStatamicTool
     {
         $progressions = [
             'beginner' => [
-                'statamic.system.discover',
-                'statamic.blueprints (list, get)',
-                'statamic.content (list, get)',
-                'statamic.structures (list, get)',
-                'statamic.content (create, update)',
-                'statamic.system (info, health)',
+                'statamic-system-discover',
+                'statamic-blueprints (list, get)',
+                'statamic-content (list, get)',
+                'statamic-structures (list, get)',
+                'statamic-content (create, update)',
+                'statamic-system (info, health)',
             ],
             'intermediate' => [
-                'statamic.system.discover',
-                'statamic.blueprints (all actions)',
-                'statamic.content (all actions)',
-                'statamic.structures (all actions)',
-                'statamic.development (templates, validation)',
-                'statamic.system (cache management)',
+                'statamic-system-discover',
+                'statamic-blueprints (all actions)',
+                'statamic-content (all actions)',
+                'statamic-structures (all actions)',
+                'statamic-development (templates, validation)',
+                'statamic-system (cache management)',
             ],
             'advanced' => [
                 'All tools with full capabilities',
@@ -1093,7 +1093,7 @@ class DiscoveryTool extends BaseStatamicTool
             case 'content':
                 $context['collections_available'] = count($systemState['collections']);
                 $context['suggestions'] = count($systemState['collections']) > 0
-                    ? 'Start by exploring existing collections with statamic.content list'
+                    ? 'Start by exploring existing collections with statamic-content list'
                     : 'No collections found - consider setting up content structure first';
                 break;
 
@@ -1101,15 +1101,15 @@ class DiscoveryTool extends BaseStatamicTool
                 $context['users_count'] = $systemState['users_count'];
                 $context['roles_available'] = count($systemState['roles']);
                 $context['suggestions'] = $systemState['users_count'] > 0
-                    ? 'Review existing users and roles with statamic.users list'
+                    ? 'Review existing users and roles with statamic-users list'
                     : 'No users found - start with user creation workflow';
                 break;
 
             case 'assets':
                 $context['containers_available'] = count($systemState['asset_containers']);
                 $context['suggestions'] = count($systemState['asset_containers']) > 0
-                    ? 'Explore existing asset containers with statamic.assets list'
-                    : 'Set up asset containers first with statamic.assets';
+                    ? 'Explore existing asset containers with statamic-assets list'
+                    : 'Set up asset containers first with statamic-assets';
                 break;
 
             default:
@@ -1146,7 +1146,7 @@ class DiscoveryTool extends BaseStatamicTool
             default => [
                 'level' => 'very_low',
                 'guidance' => 'Intent unclear - use discovery and exploration tools',
-                'next_steps' => 'Start with statamic.system.discover and help actions',
+                'next_steps' => 'Start with statamic-system.discover and help actions',
             ]
         };
     }

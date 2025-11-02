@@ -150,6 +150,6 @@ describe('Content Router', function () {
         expect($meta)->toHaveKey('timestamp');
         expect($meta)->toHaveKey('statamic_version');
         expect($meta)->toHaveKey('laravel_version');
-        expect($meta['tool'])->toBe('statamic.content');
+        expect($meta['tool'])->toBe('statamic-content');
     });
 });

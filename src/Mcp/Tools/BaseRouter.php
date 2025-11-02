@@ -50,7 +50,7 @@ abstract class BaseRouter extends BaseStatamicTool
 
     protected function getToolName(): string
     {
-        return "statamic.{$this->getDomain()}";
+        return "statamic-{$this->getDomain()}";
     }
 
     protected function getToolDescription(): string
