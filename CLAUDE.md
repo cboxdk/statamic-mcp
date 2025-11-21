@@ -4,13 +4,53 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Statamic addon that functions as an MCP (Model Context Protocol) server, built on top of Laravel's MCP server. The addon extends Statamic CMS v5 and requires `laravel/mcp` as a runtime dependency.
+This is a Statamic addon that functions as an MCP (Model Context Protocol) server, built on top of Laravel's MCP server. The addon extends Statamic CMS v5.65+ / v6.0+ with dual version support and requires `laravel/mcp` as a runtime dependency.
 
 ## Key Dependencies
 
-- **Statamic CMS**: ^5.0 (required)
-- **Laravel MCP**: ^0.2.0 (required - must be in `require` section, not `require-dev`)
-- **Orchestra Testbench**: ^9.0 (dev dependency for testing)
+- **PHP**: ^8.3 (required for Pest v4 and v6 compatibility)
+- **Statamic CMS**: ^5.65|^6.0 (dual version support)
+- **Laravel**: ^11.0|^12.0 (via Statamic)
+- **Laravel MCP**: ^0.3.2 (required - must be in `require` section, not `require-dev`)
+- **Orchestra Testbench**: ^9.0|^10.0|^11.0 (dev dependency for testing)
+- **Pest**: ^4.1 (stable release with PHP 8.3 requirement)
+- **Symfony YAML**: ^7.3 (for YAML processing)
+
+## Version Compatibility & Detection
+
+This addon supports both Statamic v5.65+ and v6.0+ through automatic version detection:
+
+### StatamicVersion Helper
+
+Use the `StatamicVersion` helper class for version-aware code:
+
+```php
+use Cboxdk\StatamicMcp\Support\StatamicVersion;
+
+// Version detection
+if (StatamicVersion::isV6OrLater()) {
+    // V6-specific code
+} else if (StatamicVersion::supportsV6OptIns()) {
+    // V5.65+ with v6 opt-in features
+}
+
+// Feature detection
+if (StatamicVersion::hasV6AssetPermissions()) {
+    // Use v6 asset permission model
+}
+
+// Get version info for tool responses
+$versionInfo = StatamicVersion::info();
+// Returns: ['statamic_version' => '5.69.0', 'is_v6' => 'false', ...]
+```
+
+### Version-Specific Considerations
+
+**Asset Operations**: The AssetRouter automatically detects and handles both v5 and v6 permission models. No code changes needed.
+
+**Tool Responses**: All tools automatically include version information in their metadata using `StatamicVersion::info()`.
+
+**Testing**: CI/CD runs tests against both Statamic v5.65+ and v6.0+ (when released) on PHP 8.3.
 
 ## Web MCP Endpoint
 
