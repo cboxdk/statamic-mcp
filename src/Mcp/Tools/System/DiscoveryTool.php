@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\System;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseStatamicTool;
+use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 use ReflectionClass;
@@ -40,7 +41,7 @@ class DiscoveryTool extends BaseStatamicTool
         return 'Discover and explore Statamic MCP tools with intent-based recommendations and context-aware guidance.';
     }
 
-    protected function defineSchema(JsonSchema $schema): array
+    protected function defineSchema(JsonSchemaContract $schema): array
     {
         return [
             'intent' => JsonSchema::string()
