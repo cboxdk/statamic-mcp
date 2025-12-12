@@ -8,6 +8,7 @@ use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\HasCommonSchemas;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\RouterHelpers;
+use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\Support\Facades\Validator;
 use Statamic\Facades\Collection;
@@ -32,7 +33,7 @@ class ContentRouter extends BaseRouter
         return 'content';
     }
 
-    protected function defineSchema(JsonSchema $schema): array
+    protected function defineSchema(JsonSchemaContract $schema): array
     {
         return array_merge(parent::defineSchema($schema), [
             'type' => JsonSchema::string()

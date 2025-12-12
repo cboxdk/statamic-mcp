@@ -8,6 +8,7 @@ use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\SuccessResponse;
 use Cboxdk\StatamicMcp\Mcp\Support\ErrorCodes;
 use Cboxdk\StatamicMcp\Mcp\Support\ToolLogger;
 use Cboxdk\StatamicMcp\Mcp\Support\ToolResponse;
+use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Laravel\Mcp\Server\Tool;
 
@@ -28,7 +29,7 @@ abstract class BaseStatamicTool extends Tool
      *
      * @return array<string, mixed>
      */
-    abstract protected function defineSchema(JsonSchema $schema): array;
+    abstract protected function defineSchema(JsonSchemaContract $schema): array;
 
     /**
      * Execute the tool logic.
@@ -60,7 +61,7 @@ abstract class BaseStatamicTool extends Tool
      *
      * @return array<string, mixed>
      */
-    final public function schema(JsonSchema $schema): array
+    final public function schema(JsonSchemaContract $schema): array
     {
         return $this->defineSchema($schema);
     }

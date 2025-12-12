@@ -2,7 +2,7 @@
 
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseStatamicTool;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\SystemRouter;
-use Illuminate\JsonSchema\JsonSchema;
+use Illuminate\JsonSchema\JsonSchemaTypeFactory;
 
 describe('Refactored Tools', function () {
 
@@ -40,7 +40,7 @@ describe('Refactored Tools', function () {
         });
 
         it('defines schema correctly', function () {
-            $schema = new JsonSchema;
+            $schema = new JsonSchemaTypeFactory;
             $definedSchema = $this->router->schema($schema);
 
             expect($definedSchema)->toBeArray();

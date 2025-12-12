@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools;
 
+use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 
 /**
@@ -62,7 +63,7 @@ abstract class BaseRouter extends BaseStatamicTool
         return "Manage Statamic {$domain}: {$actionList}. Use action='help' for detailed guidance.";
     }
 
-    protected function defineSchema(JsonSchema $schema): array
+    protected function defineSchema(JsonSchemaContract $schema): array
     {
         $actions = array_keys($this->getActions());
         $actions[] = 'help';

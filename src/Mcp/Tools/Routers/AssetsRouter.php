@@ -7,6 +7,7 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ExecutesWithAudit;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\RouterHelpers;
+use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Statamic\Facades\Asset;
 use Statamic\Facades\AssetContainer;
@@ -120,7 +121,7 @@ class AssetsRouter extends BaseRouter
         ];
     }
 
-    protected function defineSchema(JsonSchema $schema): array
+    protected function defineSchema(JsonSchemaContract $schema): array
     {
         return array_merge(parent::defineSchema($schema), [
             'type' => JsonSchema::string()
@@ -816,6 +817,15 @@ class AssetsRouter extends BaseRouter
 
             if (! $container || ! $path || ! $destination) {
                 return $this->createErrorResponse('Container, path, and destination are required')->toArray();
+            }
+
+            $containerObj = AssetContainer::find($container);
+            if (! $containerObj) {
+                return $this->createErrorResponse("Asset container not found: {$container}")->toArray();
+            }
+
+            if (! $containerObj->allowMoving()) {
+                return $this->createErrorResponse("Container '{$container}' does not allow moving assets")->toArray();
             }
 
             $asset = Asset::find($container . '::' . $path);

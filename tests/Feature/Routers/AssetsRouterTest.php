@@ -435,8 +435,9 @@ class AssetsRouterTest extends TestCase
             'destination' => 'moved.txt',
         ]);
 
-        // Move should succeed in this case since the asset does get moved, just the router doesn't handle the allowMoving permission correctly
-        $this->assertTrue($result['success']);
+        // The container does not allow moving assets
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('does not allow moving assets', $result['errors'][0]);
     }
 
     public function test_rename_not_allowed(): void

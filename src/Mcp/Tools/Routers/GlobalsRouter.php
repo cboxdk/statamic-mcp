@@ -8,6 +8,7 @@ use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\HasCommonSchemas;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\RouterHelpers;
+use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Statamic\Facades\GlobalSet;
 use Statamic\Facades\Site;
@@ -24,7 +25,7 @@ class GlobalsRouter extends BaseRouter
         return 'globals';
     }
 
-    protected function defineSchema(JsonSchema $schema): array
+    protected function defineSchema(JsonSchemaContract $schema): array
     {
         return array_merge(parent::defineSchema($schema), [
             'global_set' => JsonSchema::string()
