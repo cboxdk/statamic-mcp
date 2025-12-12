@@ -193,6 +193,7 @@ class BlueprintsRouter extends BaseRouter
             'title' => JsonSchema::string()
                 ->description('Blueprint title (optional, defaults to humanized handle)'),
             'fields' => JsonSchema::array()
+                ->items(JsonSchema::object())
                 ->description('Field definitions for create/update operations'),
             'include_details' => JsonSchema::boolean()
                 ->description('Include detailed field information (default: false)'),

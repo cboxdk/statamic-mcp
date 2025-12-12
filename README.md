@@ -23,9 +23,9 @@ A comprehensive MCP (Model Context Protocol) server for Statamic CMS that provid
 
 ## 📋 Requirements
 
-- PHP 8.2+
-- Laravel 11+
-- Statamic 5.0+
+- PHP 8.3+
+- Laravel 11+ / 12+
+- Statamic 5.65+ / 6.0+ (dual version support)
 
 ## 🚀 Installation
 
@@ -672,6 +672,86 @@ This project maintains the highest code quality standards:
 3. Test: `./vendor/bin/pest`
 4. Ensure quality checks pass: `composer quality`
 5. Submit pull request
+
+## 🔄 Version Compatibility
+
+### Statamic v5.65+ / v6.0+ Support
+
+This MCP server supports **dual version compatibility** with both Statamic v5.65+ and v6.0+:
+
+- **PHP 8.3+**: Required for both versions
+- **Laravel 11/12**: Full compatibility with both Laravel versions
+- **Statamic 5.65+**: All features supported with v6 opt-in capabilities
+- **Statamic 6.0+**: Ready for v6 when officially released
+
+### Version Detection
+
+The addon automatically detects your Statamic version and adjusts behavior accordingly:
+
+```php
+use Cboxdk\StatamicMcp\Support\StatamicVersion;
+
+// Check version
+StatamicVersion::current();        // "5.69.0"
+StatamicVersion::isV6OrLater();    // false
+StatamicVersion::majorVersion();   // 5
+
+// Check v6 features
+StatamicVersion::supportsV6OptIns();      // true (v5.65+)
+StatamicVersion::hasV6AssetPermissions(); // false (until enabled)
+```
+
+### V6 Preparation Features
+
+For Statamic v5.65+, you can enable v6 opt-in features in your installation:
+
+```php
+// config/statamic/assets.php
+'v6_permissions' => true,  // Enable v6 asset permissions model
+```
+
+The MCP server will automatically detect and adapt to these settings using the `StatamicVersion` helper.
+
+### Asset Management V6 Compatibility
+
+The `statamic.assets` router provides full compatibility with both v5 and v6 permission models:
+
+- **V5 Mode**: Traditional asset folder permissions
+- **V6 Mode**: New permission model (when enabled)
+- **Auto-detection**: Seamlessly handles both models
+- **Unified API**: Same tool interface for both versions
+
+### Testing Matrix
+
+Our CI/CD pipeline tests against multiple version combinations:
+
+| PHP    | Statamic | Laravel | Status |
+|--------|----------|---------|--------|
+| 8.3    | 5.65+    | 11      | ✅ Tested |
+| 8.3    | 5.65+    | 12      | ✅ Tested |
+| 8.3    | 6.0+     | 11/12   | 🚧 Ready when v6 releases |
+
+### Upgrade Path
+
+**From Statamic v5 → v5.65+:**
+```bash
+composer require "statamic/cms:^5.65"
+# All MCP tools continue working seamlessly
+```
+
+**From Statamic v5.65+ → v6 (when released):**
+```bash
+composer require "statamic/cms:^6.0"
+# MCP server automatically detects v6 and adjusts
+```
+
+### Breaking Changes
+
+**None expected**: The MCP server maintains backward compatibility through version detection and adaptive behavior. All tools work identically across v5.65+ and v6.0+.
+
+### Migration Guide
+
+For detailed migration information when v6 is released, see [docs/STATAMIC_V6_MIGRATION.md](docs/STATAMIC_V6_MIGRATION.md).
 
 ## 📄 License
 

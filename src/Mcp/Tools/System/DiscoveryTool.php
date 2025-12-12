@@ -57,6 +57,7 @@ class DiscoveryTool extends BaseStatamicTool
                 ->enum(['quick_overview', 'detailed_analysis', 'workflow_guidance', 'capability_mapping'])
                 ->default('quick_overview'),
             'filter_by' => JsonSchema::array()
+                ->items(JsonSchema::string())
                 ->description('Filter tools by capabilities (read_only, destructive, batch_operations, etc.)'),
         ];
     }

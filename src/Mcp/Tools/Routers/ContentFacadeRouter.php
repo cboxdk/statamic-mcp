@@ -51,6 +51,7 @@ class ContentFacadeRouter extends BaseRouter
                 ->description('Workflow-specific configuration'),
 
             'data' => JsonSchema::array()
+                ->items(JsonSchema::object())
                 ->description('Data for bulk operations and imports'),
 
             'filters' => JsonSchema::object()

@@ -664,8 +664,10 @@ class ContentRouter extends BaseRouter
 
                 if ($slugValidator->fails()) {
                     $errors = $slugValidator->errors()->get('slug');
+                    /** @var array<string> $flatErrors */
+                    $flatErrors = array_map(fn ($error) => is_string($error) ? $error : implode(', ', (array) $error), $errors);
 
-                    return $this->createErrorResponse('Slug validation failed: ' . implode(', ', $errors))->toArray();
+                    return $this->createErrorResponse('Slug validation failed: ' . implode(', ', $flatErrors))->toArray();
                 }
 
                 $entry->slug($requestedSlug);
@@ -1052,8 +1054,10 @@ class ContentRouter extends BaseRouter
 
                 if ($slugValidator->fails()) {
                     $errors = $slugValidator->errors()->get('slug');
+                    /** @var array<string> $flatErrors */
+                    $flatErrors = array_map(fn ($error) => is_string($error) ? $error : implode(', ', (array) $error), $errors);
 
-                    return $this->createErrorResponse('Slug validation failed: ' . implode(', ', $errors))->toArray();
+                    return $this->createErrorResponse('Slug validation failed: ' . implode(', ', $flatErrors))->toArray();
                 }
 
                 $term->slug($requestedSlug);

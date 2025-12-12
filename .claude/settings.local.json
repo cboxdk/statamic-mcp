@@ -16,7 +16,8 @@
       "mcp__serena__list_dir",
       "mcp__serena__get_symbols_overview",
       "mcp__serena__find_file",
-      "mcp__sequential-thinking__sequentialthinking"
+      "mcp__sequential-thinking__sequentialthinking",
+      "mcp__serena__search_for_pattern"
     ],
     "deny": [],
     "ask": []
