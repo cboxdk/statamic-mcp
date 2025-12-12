@@ -16,7 +16,13 @@ class StatamicVersion
      */
     public static function isV6OrLater(): bool
     {
-        return version_compare(self::current(), '6.0.0', '>=');
+        $version = self::current();
+
+        // Check major version number to handle alpha/beta releases properly
+        // (e.g., "6.0.0-alpha.18" is considered v6)
+        $majorVersion = (int) explode('.', $version)[0];
+
+        return $majorVersion >= 6;
     }
 
     /**
@@ -44,7 +50,41 @@ class StatamicVersion
      */
     public static function current(): string
     {
-        return Statamic::version();
+        // Statamic::version() can return null in test environments
+        $version = Statamic::version();
+
+        if ($version !== null) {
+            return $version;
+        }
+
+        // Fallback: try to get version from installed packages
+        return self::getVersionFromComposer();
+    }
+
+    /**
+     * Get version from composer installed packages.
+     */
+    private static function getVersionFromComposer(): string
+    {
+        // Try to read from composer's installed.json
+        $installedPath = base_path('vendor/composer/installed.json');
+
+        if (file_exists($installedPath)) {
+            $installed = json_decode((string) file_get_contents($installedPath), true);
+            $packages = $installed['packages'] ?? $installed;
+
+            foreach ($packages as $package) {
+                if (($package['name'] ?? '') === 'statamic/cms') {
+                    $version = $package['version'] ?? '5.0.0';
+
+                    // Remove 'v' prefix if present
+                    return ltrim($version, 'v');
+                }
+            }
+        }
+
+        // Ultimate fallback - assume v6 if nothing found (safer for forward compatibility)
+        return '6.0.0';
     }
 
     /**

@@ -7,8 +7,11 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ExecutesWithAudit;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\RouterHelpers;
+use Cboxdk\StatamicMcp\Support\StatamicVersion;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
+use Statamic\Contracts\Assets\Asset as AssetContract;
+use Statamic\Contracts\Assets\AssetContainer as AssetContainerContract;
 use Statamic\Facades\Asset;
 use Statamic\Facades\AssetContainer;
 
@@ -254,17 +257,18 @@ class AssetsRouter extends BaseRouter
                 ];
 
                 if ($includeDetails) {
+                    $permissions = $this->getContainerPermissions($container);
                     $data = array_merge($data, [
                         'blueprint' => $container->blueprint()?->handle(),
                         'url' => $container->url(),
                         'path' => $container->path(),
-                        'allow_uploads' => $container->allowUploads(),
-                        'allow_downloading' => $container->allowDownloading(),
-                        'allow_renaming' => $container->allowRenaming(),
-                        'allow_moving' => $container->allowMoving(),
-                        'create_folders' => $container->createFolders(),
-                        'search_index' => $container->searchIndex(),
-                        'asset_count' => $container->assets()->count(),
+                        'allow_uploads' => $permissions['allow_uploads'],
+                        'allow_downloading' => $permissions['allow_downloading'],
+                        'allow_renaming' => $permissions['allow_renaming'],
+                        'allow_moving' => $permissions['allow_moving'],
+                        'create_folders' => $permissions['create_folders'],
+                        'search_index' => $this->getContainerSearchIndex($container),
+                        'asset_count' => $this->getContainerAssetCount($container),
                     ]);
                 }
 
@@ -298,6 +302,7 @@ class AssetsRouter extends BaseRouter
                 return $this->createErrorResponse("Asset container not found: {$handle}")->toArray();
             }
 
+            $permissions = $this->getContainerPermissions($container);
             $data = [
                 'handle' => $container->handle(),
                 'title' => $container->title(),
@@ -305,14 +310,14 @@ class AssetsRouter extends BaseRouter
                 'blueprint' => $container->blueprint()?->handle(),
                 'url' => $container->url(),
                 'path' => $container->path(),
-                'allow_uploads' => $container->allowUploads(),
-                'allow_downloading' => $container->allowDownloading(),
-                'allow_renaming' => $container->allowRenaming(),
-                'allow_moving' => $container->allowMoving(),
-                'create_folders' => $container->createFolders(),
-                'search_index' => $container->searchIndex(),
-                'asset_count' => $container->assets()->count(),
-                'folder_count' => $container->folders()->count(),
+                'allow_uploads' => $permissions['allow_uploads'],
+                'allow_downloading' => $permissions['allow_downloading'],
+                'allow_renaming' => $permissions['allow_renaming'],
+                'allow_moving' => $permissions['allow_moving'],
+                'create_folders' => $permissions['create_folders'],
+                'search_index' => $this->getContainerSearchIndex($container),
+                'asset_count' => $this->getContainerAssetCount($container),
+                'folder_count' => $this->getContainerFolderCount($container),
             ];
 
             return [
@@ -356,21 +361,9 @@ class AssetsRouter extends BaseRouter
             if (isset($data['disk'])) {
                 $container->disk($data['disk']);
             }
-            if (isset($data['allow_uploads'])) {
-                $container->allowUploads($data['allow_uploads']);
-            }
-            if (isset($data['allow_downloading'])) {
-                $container->allowDownloading($data['allow_downloading']);
-            }
-            if (isset($data['allow_renaming'])) {
-                $container->allowRenaming($data['allow_renaming']);
-            }
-            if (isset($data['allow_moving'])) {
-                $container->allowMoving($data['allow_moving']);
-            }
-            if (isset($data['create_folders'])) {
-                $container->createFolders($data['create_folders']);
-            }
+
+            // Set permissions using version-aware helper
+            $this->setContainerPermissions($container, $data);
 
             $container->save();
 
@@ -412,19 +405,16 @@ class AssetsRouter extends BaseRouter
                 return $this->createErrorResponse("Asset container not found: {$handle}")->toArray();
             }
 
-            // Update configuration
-            foreach ($data as $key => $value) {
-                match ($key) {
-                    'title' => $container->title($value),
-                    'disk' => $container->disk($value),
-                    'allow_uploads' => $container->allowUploads($value),
-                    'allow_downloading' => $container->allowDownloading($value),
-                    'allow_renaming' => $container->allowRenaming($value),
-                    'allow_moving' => $container->allowMoving($value),
-                    'create_folders' => $container->createFolders($value),
-                    default => null, // Ignore unknown fields
-                };
+            // Update basic configuration
+            if (isset($data['title'])) {
+                $container->title($data['title']);
             }
+            if (isset($data['disk'])) {
+                $container->disk($data['disk']);
+            }
+
+            // Update permissions using version-aware helper
+            $this->setContainerPermissions($container, $data);
 
             $container->save();
 
@@ -540,8 +530,8 @@ class AssetsRouter extends BaseRouter
                         'is_audio' => $asset->isAudio(),
                         'width' => $asset->width(),
                         'height' => $asset->height(),
-                        'alt' => $asset->alt(),
-                        'title' => $asset->title(),
+                        'alt' => $this->getAssetAlt($asset),
+                        'title' => $this->getAssetTitle($asset),
                     ]);
                 }
 
@@ -598,8 +588,8 @@ class AssetsRouter extends BaseRouter
                 'is_audio' => $asset->isAudio(),
                 'width' => $asset->width(),
                 'height' => $asset->height(),
-                'alt' => $asset->alt(),
-                'title' => $asset->title(),
+                'alt' => $this->getAssetAlt($asset),
+                'title' => $this->getAssetTitle($asset),
                 'data' => $asset->data()->all(),
             ];
 
@@ -824,7 +814,8 @@ class AssetsRouter extends BaseRouter
                 return $this->createErrorResponse("Asset container not found: {$container}")->toArray();
             }
 
-            if (! $containerObj->allowMoving()) {
+            // Use version-aware permission check
+            if (! $this->containerAllows($containerObj, 'move')) {
                 return $this->createErrorResponse("Container '{$container}' does not allow moving assets")->toArray();
             }
 
@@ -1106,5 +1097,149 @@ class AssetsRouter extends BaseRouter
         }
 
         return ['super'];
+    }
+
+    // Version-Aware Helper Methods for Statamic 5/6 Compatibility
+
+    /**
+     * Get container permission settings with version awareness.
+     * In Statamic 6, permission methods were removed from AssetContainer.
+     *
+     * @return array<string, bool|null>
+     */
+    private function getContainerPermissions(AssetContainerContract $container): array
+    {
+        // In Statamic 6, these methods no longer exist on AssetContainer
+        if (StatamicVersion::isV6OrLater()) {
+            return [
+                'allow_uploads' => true, // Defaults in v6
+                'allow_downloading' => true,
+                'allow_renaming' => true,
+                'allow_moving' => true,
+                'create_folders' => true,
+            ];
+        }
+
+        // Statamic 5 - use the actual methods
+        return [
+            'allow_uploads' => $container->allowUploads(),
+            'allow_downloading' => $container->allowDownloading(),
+            'allow_renaming' => $container->allowRenaming(),
+            'allow_moving' => $container->allowMoving(),
+            'create_folders' => $container->createFolders(),
+        ];
+    }
+
+    /**
+     * Set container permissions with version awareness.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function setContainerPermissions(AssetContainerContract $container, array $data): void
+    {
+        // In Statamic 6, these methods no longer exist - skip silently
+        if (StatamicVersion::isV6OrLater()) {
+            return;
+        }
+
+        // Statamic 5 - apply permission settings
+        if (isset($data['allow_uploads'])) {
+            $container->allowUploads($data['allow_uploads']);
+        }
+        if (isset($data['allow_downloading'])) {
+            $container->allowDownloading($data['allow_downloading']);
+        }
+        if (isset($data['allow_renaming'])) {
+            $container->allowRenaming($data['allow_renaming']);
+        }
+        if (isset($data['allow_moving'])) {
+            $container->allowMoving($data['allow_moving']);
+        }
+        if (isset($data['create_folders'])) {
+            $container->createFolders($data['create_folders']);
+        }
+    }
+
+    /**
+     * Check if container allows a specific operation with version awareness.
+     */
+    private function containerAllows(AssetContainerContract $container, string $operation): bool
+    {
+        // In Statamic 6, all operations are allowed by default (permission is user-based)
+        if (StatamicVersion::isV6OrLater()) {
+            return true;
+        }
+
+        // Statamic 5 - check container settings
+        return match ($operation) {
+            'upload' => $container->allowUploads(),
+            'download' => $container->allowDownloading(),
+            'rename' => $container->allowRenaming(),
+            'move' => $container->allowMoving(),
+            'create_folders' => $container->createFolders(),
+            default => true,
+        };
+    }
+
+    /**
+     * Get container search index with version awareness.
+     */
+    private function getContainerSearchIndex(AssetContainerContract $container): ?string
+    {
+        try {
+            return $container->searchIndex();
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * Get container asset count with version awareness.
+     */
+    private function getContainerAssetCount(AssetContainerContract $container): int
+    {
+        try {
+            return $container->assets()->count();
+        } catch (\Throwable) {
+            return 0;
+        }
+    }
+
+    /**
+     * Get container folder count with version awareness.
+     */
+    private function getContainerFolderCount(AssetContainerContract $container): int
+    {
+        try {
+            return $container->folders()->count();
+        } catch (\Throwable) {
+            return 0;
+        }
+    }
+
+    /**
+     * Get asset alt text with version awareness.
+     */
+    private function getAssetAlt(AssetContract $asset): ?string
+    {
+        try {
+            // Try to get alt, handling different v5/v6 implementations
+            return $asset->get('alt');
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * Get asset title with version awareness.
+     */
+    private function getAssetTitle(AssetContract $asset): ?string
+    {
+        try {
+            // The title() method exists on the contract
+            return $asset->title();
+        } catch (\Throwable) {
+            return null;
+        }
     }
 }

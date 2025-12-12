@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Tests\Feature\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\ContentRouter;
+use Cboxdk\StatamicMcp\Support\StatamicVersion;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Illuminate\Support\Facades\Storage;
 use Statamic\Facades\Collection;
@@ -12,6 +13,7 @@ use Statamic\Facades\Entry;
 use Statamic\Facades\GlobalSet;
 use Statamic\Facades\Taxonomy;
 use Statamic\Facades\Term;
+use Statamic\Globals\GlobalSet as GlobalSetModel;
 
 class ContentRouterTest extends TestCase
 {
@@ -63,6 +65,31 @@ class ContentRouterTest extends TestCase
         // Ensure Stache is updated with new fixtures
         \Statamic\Facades\Stache::store('globals')->clear();
         \Statamic\Facades\Stache::refresh();
+    }
+
+    /**
+     * Helper to set global values in a version-aware manner.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function setGlobalValues(GlobalSetModel $globalSet, string $site, array $data): void
+    {
+        // In v6, addLocalization() doesn't exist - we need to use a different approach
+        if (StatamicVersion::isV6OrLater()) {
+            // In v6, use inSelectedSite() or similar approach
+            $localization = $globalSet->in($site);
+            if ($localization === null) {
+                $localization = $globalSet->makeLocalization($site);
+            }
+            $localization->data($data);
+            $localization->save();
+        } else {
+            // v5 approach
+            $localization = $globalSet->makeLocalization($site);
+            $localization->data($data);
+            $globalSet->addLocalization($localization);
+            $globalSet->save();
+        }
     }
 
     public function test_list_entries(): void
@@ -446,13 +473,11 @@ class ContentRouterTest extends TestCase
         if (! $globalSet) {
             $this->fail("Global set '{$this->globalHandle}' not found");
         }
-        $localization = $globalSet->makeLocalization('default');
-        $localization->data([
+
+        $this->setGlobalValues($globalSet, 'default', [
             'site_name' => 'My Website',
             'contact_email' => 'contact@example.com',
         ]);
-        $globalSet->addLocalization($localization);
-        $globalSet->save();
 
         $result = $this->router->execute([
             'action' => 'get',
@@ -473,10 +498,7 @@ class ContentRouterTest extends TestCase
     {
         // Set up initial data
         $globalSet = GlobalSet::find($this->globalHandle);
-        $localization = $globalSet->makeLocalization('default');
-        $localization->data(['site_name' => 'Original Name']);
-        $globalSet->addLocalization($localization);
-        $globalSet->save();
+        $this->setGlobalValues($globalSet, 'default', ['site_name' => 'Original Name']);
 
         $result = $this->router->execute([
             'action' => 'update',
