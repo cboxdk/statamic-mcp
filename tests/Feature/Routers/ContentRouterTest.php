@@ -33,7 +33,8 @@ class ContentRouterTest extends TestCase
         $this->router = new ContentRouter;
 
         // Generate unique test ID for this test run to avoid parallel test conflicts
-        $this->testId = time() . '-' . getmypid() . '-' . rand(1000, 9999);
+        // Use uniqid with more_entropy for microsecond precision + random suffix
+        $this->testId = uniqid('', true) . '-' . bin2hex(random_bytes(4));
 
         // Set up test storage with proper disk configuration
         config(['filesystems.disks.assets' => [
