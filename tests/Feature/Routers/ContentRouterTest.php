@@ -33,8 +33,8 @@ class ContentRouterTest extends TestCase
         $this->router = new ContentRouter;
 
         // Generate unique test ID for this test run to avoid parallel test conflicts
-        // Use uniqid with more_entropy for microsecond precision + random suffix
-        $this->testId = uniqid('', true) . '-' . bin2hex(random_bytes(4));
+        // Use hex-only ID to avoid dots that Statamic strips from slugs
+        $this->testId = bin2hex(random_bytes(8));
 
         // Set up test storage with proper disk configuration
         config(['filesystems.disks.assets' => [
@@ -65,6 +65,18 @@ class ContentRouterTest extends TestCase
 
         // Ensure Stache is updated with new fixtures
         \Statamic\Facades\Stache::store('globals')->clear();
+        \Statamic\Facades\Stache::store('terms')->clear();
+        \Statamic\Facades\Stache::store('taxonomies')->clear();
+        \Statamic\Facades\Stache::refresh();
+    }
+
+    /**
+     * Helper to refresh the Stache after term operations.
+     */
+    private function refreshTermsStache(): void
+    {
+        \Statamic\Facades\Stache::store('taxonomies')->clear();
+        \Statamic\Facades\Stache::store('terms')->clear();
         \Statamic\Facades\Stache::refresh();
     }
 
@@ -330,11 +342,17 @@ class ContentRouterTest extends TestCase
             ->data(['title' => 'Technology'])
             ->save();
 
+        // Refresh after first term
+        $this->refreshTermsStache();
+
         Term::make()
             ->taxonomy($this->taxonomyHandle)
             ->slug($businessSlug)
             ->data(['title' => 'Business'])
             ->save();
+
+        // Refresh after second term
+        $this->refreshTermsStache();
 
         $result = $this->router->execute([
             'action' => 'list',
@@ -364,6 +382,9 @@ class ContentRouterTest extends TestCase
                 'description' => 'Science related articles',
             ])
             ->save();
+
+        // Refresh Stache after creating the term
+        $this->refreshTermsStache();
 
         $result = $this->router->execute([
             'action' => 'get',
@@ -399,7 +420,8 @@ class ContentRouterTest extends TestCase
         $this->assertEquals($uniqueSlug, $data['slug']);
         $this->assertEquals('Health', $data['title']);
 
-        // Verify term exists
+        // Refresh Stache and verify term exists
+        $this->refreshTermsStache();
         $term = Term::query()->where('taxonomy', $this->taxonomyHandle)->where('slug', $uniqueSlug)->first();
         $this->assertNotNull($term);
         $this->assertEquals('Health', $term->get('title'));
@@ -409,11 +431,14 @@ class ContentRouterTest extends TestCase
     {
         $uniqueSlug = "sports-{$this->testId}";
 
-        $term = Term::make()
+        Term::make()
             ->taxonomy($this->taxonomyHandle)
             ->slug($uniqueSlug)
             ->data(['title' => 'Sports'])
             ->save();
+
+        // Refresh Stache after creating the term
+        $this->refreshTermsStache();
 
         $result = $this->router->execute([
             'action' => 'update',
@@ -428,6 +453,8 @@ class ContentRouterTest extends TestCase
 
         $this->assertTrue($result['success']);
 
+        // Refresh Stache and verify the update
+        $this->refreshTermsStache();
         $updatedTerm = Term::query()->where('taxonomy', $this->taxonomyHandle)->where('slug', $uniqueSlug)->first();
         $this->assertEquals('Sports & Recreation', $updatedTerm->get('title'));
         $this->assertEquals('Sports and recreational activities', $updatedTerm->get('description'));
@@ -443,6 +470,9 @@ class ContentRouterTest extends TestCase
             ->data(['title' => 'Temporary Category'])
             ->save();
 
+        // Refresh Stache after creating the term
+        $this->refreshTermsStache();
+
         $term = Term::query()->where('taxonomy', $this->taxonomyHandle)->where('slug', $uniqueSlug)->first();
         $this->assertNotNull($term);
 
@@ -455,6 +485,8 @@ class ContentRouterTest extends TestCase
 
         $this->assertTrue($result['success']);
 
+        // Refresh Stache and verify the term is deleted
+        $this->refreshTermsStache();
         $deletedTerm = Term::query()->where('taxonomy', $this->taxonomyHandle)->where('slug', $uniqueSlug)->first();
         $this->assertNull($deletedTerm);
     }
