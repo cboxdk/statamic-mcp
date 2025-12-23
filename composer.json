@@ -17,7 +17,7 @@
     "require": {
         "php": "^8.3",
         "statamic/cms": "^5.65|^6.0",
-        "laravel/mcp": "^v0.4.2",
+        "laravel/mcp": "^0.4.1 || ^0.5",
         "symfony/yaml": "^7.3"
     },
     "require-dev": {
