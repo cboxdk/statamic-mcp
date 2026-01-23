@@ -63,10 +63,16 @@ class ContentRouterTest extends TestCase
             ->title('Site Settings');
         $globalSet->save();
 
-        // Create a localization for the default site (required for v5)
+        // Create a localization for the default site (version-aware)
         $localization = $globalSet->makeLocalization('default');
-        $globalSet->addLocalization($localization);
-        $localization->save();
+        if (StatamicVersion::isV6OrLater()) {
+            // v6: save localization directly
+            $localization->save();
+        } else {
+            // v5: add localization to global set first, then save
+            $globalSet->addLocalization($localization);
+            $localization->save();
+        }
 
         // Ensure Stache is updated with new fixtures
         \Statamic\Facades\Stache::store('globals')->clear();
