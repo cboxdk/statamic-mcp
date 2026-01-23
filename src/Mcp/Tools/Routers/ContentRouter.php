@@ -8,6 +8,7 @@ use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\HasCommonSchemas;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\RouterHelpers;
+use Cboxdk\StatamicMcp\Support\StatamicVersion;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\Support\Facades\Validator;
@@ -1364,11 +1365,21 @@ class ContentRouter extends BaseRouter
 
             $variables = $globalSet->in($site);
 
+            // Create localization if it doesn't exist (version-aware)
             if (! $variables) {
-                return $this->createErrorResponse("Global set not available in site: {$site}")->toArray();
+                $variables = $globalSet->makeLocalization($site);
+                if (! StatamicVersion::isV6OrLater()) {
+                    // v5: add localization to global set
+                    $globalSet->addLocalization($variables);
+                }
             }
 
             $variables->merge($data)->save();
+
+            // Also save the global set to ensure localization is persisted
+            if (! StatamicVersion::isV6OrLater()) {
+                $globalSet->save();
+            }
 
             // Clear relevant caches
             $this->clearStatamicCaches(['stache', 'static']);
