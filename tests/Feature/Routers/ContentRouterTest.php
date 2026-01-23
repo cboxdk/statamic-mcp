@@ -59,9 +59,14 @@ class ContentRouterTest extends TestCase
 
         // Create test global set with unique handle
         $this->globalHandle = "settings-{$this->testId}";
-        GlobalSet::make($this->globalHandle)
-            ->title('Site Settings')
-            ->save();
+        $globalSet = GlobalSet::make($this->globalHandle)
+            ->title('Site Settings');
+        $globalSet->save();
+
+        // Create a localization for the default site (required for v5)
+        $localization = $globalSet->makeLocalization('default');
+        $globalSet->addLocalization($localization);
+        $localization->save();
 
         // Ensure Stache is updated with new fixtures
         \Statamic\Facades\Stache::store('globals')->clear();
@@ -97,12 +102,20 @@ class ContentRouterTest extends TestCase
             $localization->data($data);
             $localization->save();
         } else {
-            // v5 approach
-            $localization = $globalSet->makeLocalization($site);
+            // v5 approach - check if localization already exists
+            $localization = $globalSet->in($site);
+            if ($localization === null) {
+                $localization = $globalSet->makeLocalization($site);
+                $globalSet->addLocalization($localization);
+            }
             $localization->data($data);
-            $globalSet->addLocalization($localization);
-            $globalSet->save();
+            // Save the localization directly (this persists to file)
+            $localization->save();
         }
+
+        // Refresh the Stache to ensure changes are picked up
+        \Statamic\Facades\Stache::store('globals')->clear();
+        \Statamic\Facades\Stache::refresh();
     }
 
     public function test_list_entries(): void
