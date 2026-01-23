@@ -49,9 +49,9 @@ jobs:
 
       - name: Install Statamic ${{ matrix.statamic }}
         run: |
-          if [ "${{ matrix.stability }}" = "alpha" ]; then
+          if [ "${{ matrix.stability }}" = "alpha" ] || [ "${{ matrix.stability }}" = "beta" ]; then
             composer require "statamic/cms:^${{ matrix.statamic }}" --no-update --no-interaction
-            composer config minimum-stability alpha
+            composer config minimum-stability dev
             composer config prefer-stable true
           else
             composer require "statamic/cms:^${{ matrix.statamic }}" --no-update --no-interaction
