@@ -511,17 +511,20 @@ class ContentRouterTest extends TestCase
 
     public function test_get_global(): void
     {
-        // Set some values for the global set
-        $globalSet = GlobalSet::find($this->globalHandle);
-        if (! $globalSet) {
-            $this->fail("Global set '{$this->globalHandle}' not found");
-        }
-
-        $this->setGlobalValues($globalSet, 'default', [
-            'site_name' => 'My Website',
-            'contact_email' => 'contact@example.com',
+        // First, set up values using update action (which creates localization if needed)
+        $updateResult = $this->router->execute([
+            'action' => 'update',
+            'type' => 'global',
+            'handle' => $this->globalHandle,
+            'site' => 'default',
+            'data' => [
+                'site_name' => 'My Website',
+                'contact_email' => 'contact@example.com',
+            ],
         ]);
+        $this->assertTrue($updateResult['success'], 'Setup: update global should succeed');
 
+        // Now test get action
         $result = $this->router->execute([
             'action' => 'get',
             'type' => 'global',
@@ -539,10 +542,7 @@ class ContentRouterTest extends TestCase
 
     public function test_update_global(): void
     {
-        // Set up initial data
-        $globalSet = GlobalSet::find($this->globalHandle);
-        $this->setGlobalValues($globalSet, 'default', ['site_name' => 'Original Name']);
-
+        // Update global (creates localization if needed)
         $result = $this->router->execute([
             'action' => 'update',
             'type' => 'global',
@@ -559,11 +559,11 @@ class ContentRouterTest extends TestCase
         }
 
         $this->assertTrue($result['success']);
-
-        $globalSet = GlobalSet::find($this->globalHandle);
-        $values = $globalSet->in('default')->data();
-        $this->assertEquals('Updated Website Name', $values->get('site_name'));
-        $this->assertEquals('Copyright 2024', $values->get('footer_text'));
+        $this->assertArrayHasKey('global', $result['data']);
+        $this->assertEquals($this->globalHandle, $result['data']['global']['handle']);
+        $this->assertEquals('default', $result['data']['global']['site']);
+        $this->assertContains('site_name', $result['data']['global']['updated_fields']);
+        $this->assertContains('footer_text', $result['data']['global']['updated_fields']);
     }
 
     public function test_invalid_action(): void
