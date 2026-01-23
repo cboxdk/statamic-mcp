@@ -69,9 +69,10 @@ class ContentRouterTest extends TestCase
             // v6: save localization directly
             $localization->save();
         } else {
-            // v5: add localization to global set first, then save
+            // v5: add localization to global set, then save the global set
+            // (saving globalSet persists its localizations)
             $globalSet->addLocalization($localization);
-            $localization->save();
+            $globalSet->save();
         }
 
         // Ensure Stache is updated with new fixtures
