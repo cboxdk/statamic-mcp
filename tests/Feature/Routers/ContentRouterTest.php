@@ -109,15 +109,15 @@ class ContentRouterTest extends TestCase
             $localization->data($data);
             $localization->save();
         } else {
-            // v5 approach - check if localization already exists
+            // v5 approach - get or create localization, always save via GlobalSet
             $localization = $globalSet->in($site);
             if ($localization === null) {
                 $localization = $globalSet->makeLocalization($site);
-                $globalSet->addLocalization($localization);
             }
             $localization->data($data);
-            // Save the localization directly (this persists to file)
-            $localization->save();
+            // Always add and save via GlobalSet to ensure proper persistence
+            $globalSet->addLocalization($localization);
+            $globalSet->save();
         }
 
         // Refresh the Stache to ensure changes are picked up
