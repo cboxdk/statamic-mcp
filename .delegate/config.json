@@ -1,0 +1,18 @@
+{
+    "project_id": 11,
+    "name": "Statamic MCP",
+    "delegate_url": "https://delegate.test",
+    "base_prompt": null,
+    "updated_at": "2026-01-23T10:27:57+00:00",
+    "git": {
+        "workflow": "github_flow",
+        "enabled": true,
+        "auto_commit": true,
+        "auto_push": true,
+        "auto_create_pr": false,
+        "commit_convention": "conventional",
+        "branch_template": "{prefix}/{task_id}-{slug}",
+        "branch_prefix": "delegate",
+        "base_branch": null
+    }
+}
