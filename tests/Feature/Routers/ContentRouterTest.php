@@ -58,22 +58,12 @@ class ContentRouterTest extends TestCase
             ->save();
 
         // Create test global set with unique handle
+        // Note: Localization is created when setGlobalValues is called
+        // This ensures proper persistence across different Statamic versions
         $this->globalHandle = "settings-{$this->testId}";
-        $globalSet = GlobalSet::make($this->globalHandle)
-            ->title('Site Settings');
-        $globalSet->save();
-
-        // Create a localization for the default site (version-aware)
-        $localization = $globalSet->makeLocalization('default');
-        if (StatamicVersion::isV6OrLater()) {
-            // v6: save localization directly
-            $localization->save();
-        } else {
-            // v5: add localization to global set, then save the global set
-            // (saving globalSet persists its localizations)
-            $globalSet->addLocalization($localization);
-            $globalSet->save();
-        }
+        GlobalSet::make($this->globalHandle)
+            ->title('Site Settings')
+            ->save();
 
         // Ensure Stache is updated with new fixtures
         \Statamic\Facades\Stache::store('globals')->clear();
