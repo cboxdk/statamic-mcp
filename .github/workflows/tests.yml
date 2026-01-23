@@ -16,11 +16,11 @@ jobs:
         statamic: ['5.65']
         experimental: [false]
         include:
-          # Include Statamic v6 alpha for early compatibility testing (allowed to fail)
+          # Include Statamic v6 beta for compatibility testing
           - php: 8.3
-            statamic: '6.0.0-alpha'
-            stability: 'alpha'
-            experimental: true
+            statamic: '6.0.0-beta.4'
+            stability: 'beta'
+            experimental: false
 
     name: PHP ${{ matrix.php }} - Statamic ${{ matrix.statamic }}
     continue-on-error: ${{ matrix.experimental }}

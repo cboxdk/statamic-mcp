@@ -66,6 +66,8 @@ class ContentRouterTest extends TestCase
             ->save();
 
         // Ensure Stache is updated with new fixtures
+        \Statamic\Facades\Stache::store('collections')->clear();
+        \Statamic\Facades\Stache::store('entries')->clear();
         \Statamic\Facades\Stache::store('globals')->clear();
         \Statamic\Facades\Stache::store('terms')->clear();
         \Statamic\Facades\Stache::store('taxonomies')->clear();
