@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Prompts;
 
+use Laravel\Mcp\Request;
+use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Prompt;
 
 /**
@@ -30,9 +32,9 @@ class ToolUsageContractPrompt extends Prompt
     /**
      * Handle the prompt request (required by Laravel MCP v0.2.0).
      */
-    public function handle(\Laravel\Mcp\Request $request): \Laravel\Mcp\Response
+    public function handle(Request $request): Response
     {
-        return \Laravel\Mcp\Response::text($this->prompt());
+        return Response::text($this->prompt());
     }
 
     public function prompt(): string
@@ -235,7 +237,7 @@ The server commits to:
 ## Emergency Contacts
 
 ### System Issues
-- Check `statamic.system` health and status tools
+- Check `statamic-system` health and status tools
 - Review audit logs for recent operation impact
 - Use discovery tools to find alternative approaches
 

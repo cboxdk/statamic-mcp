@@ -36,7 +36,7 @@ class PromptsTest extends TestCase
         foreach ($prompts as $promptClass) {
             $prompt = app($promptClass);
 
-            expect($prompt)->toBeInstanceOf(\Laravel\Mcp\Server\Prompt::class);
+            expect($prompt)->toBeInstanceOf(Prompt::class);
             expect(method_exists($prompt, 'prompt'))->toBeTrue();
             expect(method_exists($prompt, 'arguments'))->toBeTrue();
         }

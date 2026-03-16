@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Cboxdk\StatamicMcp\Mcp\DataTransferObjects;
 
 final class ErrorResponse extends BaseResponse

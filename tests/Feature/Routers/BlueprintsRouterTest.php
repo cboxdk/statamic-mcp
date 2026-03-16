@@ -8,6 +8,7 @@ use Cboxdk\StatamicMcp\Mcp\Tools\Routers\BlueprintsRouter;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Statamic\Facades\Blueprint;
 use Statamic\Facades\Collection;
+use Statamic\Facades\Taxonomy;
 use Statamic\Fields\Blueprint as BlueprintObject;
 
 class BlueprintsRouterTest extends TestCase
@@ -43,8 +44,8 @@ class BlueprintsRouterTest extends TestCase
             ->with('users')
             ->andReturn(collect([]));
 
-        // Mock Collection facade to return empty collection list
-        Collection::shouldReceive('all')
+        // Mock Collection facade to return empty collection handles
+        Collection::shouldReceive('handles')
             ->andReturn(collect([]));
 
         $result = $this->router->execute([
@@ -80,7 +81,7 @@ class BlueprintsRouterTest extends TestCase
             ->andReturn(collect([]));
 
         // Mock Collection facade to return empty collection list
-        Collection::shouldReceive('all')
+        Collection::shouldReceive('handles')
             ->andReturn(collect([]));
 
         $result = $this->router->execute([
@@ -134,9 +135,9 @@ class BlueprintsRouterTest extends TestCase
             'handle' => 'detailed_blog',
         ]);
 
-        // Mock setup isn't properly configured, so expect failure
-        $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Failed to get blueprint:', $result['errors'][0]);
+        $this->assertTrue($result['success']);
+        $data = $result['data']['blueprint'];
+        $this->assertEquals('detailed_blog', $data['handle']);
     }
 
     public function test_get_blueprint_by_namespace(): void
@@ -179,7 +180,7 @@ class BlueprintsRouterTest extends TestCase
             ->andReturn(collect([]));
 
         // Mock Collection facade to return empty collection list
-        Collection::shouldReceive('all')
+        Collection::shouldReceive('handles')
             ->andReturn(collect([]));
 
         $result = $this->router->execute([
@@ -235,9 +236,8 @@ class BlueprintsRouterTest extends TestCase
             'handle' => 'validation_test',
         ]);
 
-        // Mock setup isn't properly configured, so expect failure
-        $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Failed to validate blueprint:', $result['errors'][0]);
+        $this->assertTrue($result['success']);
+        $this->assertArrayHasKey('validation', $result['data']);
     }
 
     public function test_create_blueprint_fails_validation(): void
@@ -374,6 +374,211 @@ class BlueprintsRouterTest extends TestCase
         $this->assertFalse($result['success']);
         $this->assertNotEmpty($result['errors']);
         $this->assertStringContainsString('Blueprint not found: nonexistent_validation', $result['errors'][0]);
+    }
+
+    public function test_create_blueprint_requires_handle(): void
+    {
+        $result = $this->router->execute([
+            'action' => 'create',
+            'namespace' => 'globals',
+            'title' => 'Missing Handle',
+        ]);
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('Handle is required for blueprint creation', $result['errors'][0]);
+    }
+
+    public function test_create_blueprint_requires_collection_handle_for_collections(): void
+    {
+        $result = $this->router->execute([
+            'action' => 'create',
+            'handle' => 'test_blog',
+            'namespace' => 'collections',
+            'title' => 'Test Blog',
+        ]);
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('collection_handle is required when namespace=collections', $result['errors'][0]);
+    }
+
+    public function test_create_blueprint_requires_taxonomy_handle_for_taxonomies(): void
+    {
+        $result = $this->router->execute([
+            'action' => 'create',
+            'handle' => 'test_tag',
+            'namespace' => 'taxonomies',
+            'title' => 'Test Tag',
+        ]);
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('taxonomy_handle is required when namespace=taxonomies', $result['errors'][0]);
+    }
+
+    public function test_create_blueprint_validates_collection_exists(): void
+    {
+        Collection::shouldReceive('find')
+            ->with('nonexistent_collection')
+            ->andReturn(null);
+
+        $result = $this->router->execute([
+            'action' => 'create',
+            'handle' => 'test_blog',
+            'namespace' => 'collections',
+            'collection_handle' => 'nonexistent_collection',
+            'title' => 'Test Blog',
+        ]);
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('Collection not found: nonexistent_collection', $result['errors'][0]);
+    }
+
+    public function test_create_blueprint_validates_taxonomy_exists(): void
+    {
+        Taxonomy::shouldReceive('find')
+            ->with('nonexistent_taxonomy')
+            ->andReturn(null);
+
+        $result = $this->router->execute([
+            'action' => 'create',
+            'handle' => 'test_tag',
+            'namespace' => 'taxonomies',
+            'taxonomy_handle' => 'nonexistent_taxonomy',
+            'title' => 'Test Tag',
+        ]);
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('Taxonomy not found: nonexistent_taxonomy', $result['errors'][0]);
+    }
+
+    public function test_delete_blueprint_requires_explicit_confirmation(): void
+    {
+        $result = $this->router->execute([
+            'action' => 'delete',
+            'handle' => 'some_blueprint',
+            'confirm' => false,
+        ]);
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('Deletion requires explicit confirmation', $result['errors'][0]);
+    }
+
+    public function test_generate_blueprint_requires_fields(): void
+    {
+        $result = $this->router->execute([
+            'action' => 'generate',
+            'handle' => 'test_generated',
+        ]);
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('Fields are required for blueprint generation', $result['errors'][0]);
+    }
+
+    public function test_generate_blueprint_requires_valid_field_definitions(): void
+    {
+        Blueprint::shouldReceive('in')
+            ->with('collections')
+            ->andReturn(collect([]));
+
+        $result = $this->router->execute([
+            'action' => 'generate',
+            'handle' => 'test_generated',
+            'fields' => [
+                ['invalid' => 'no handle or type'],
+            ],
+        ]);
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('No valid field definitions found', $result['errors'][0]);
+    }
+
+    public function test_validate_fields_rejects_flat_field_format(): void
+    {
+        // Use reflection to test the private validateFields method
+        $method = new \ReflectionMethod(BlueprintsRouter::class, 'validateFields');
+        $method->setAccessible(true);
+
+        $result = $method->invoke($this->router, [
+            ['handle' => 'title', 'type' => 'text'],
+        ]);
+
+        // Should return an error because "field" key is missing
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('missing the "field" key', $result['errors'][0]);
+        $this->assertStringContainsString('Move it inside a "field" object', $result['errors'][0]);
+    }
+
+    public function test_validate_fields_rejects_unknown_fieldtype(): void
+    {
+        $method = new \ReflectionMethod(BlueprintsRouter::class, 'validateFields');
+        $method->setAccessible(true);
+
+        $result = $method->invoke($this->router, [
+            ['handle' => 'title', 'field' => ['type' => 'nonexistent_type']],
+        ]);
+
+        // Should return an error listing available types
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('Unknown field type "nonexistent_type"', $result['errors'][0]);
+        $this->assertStringContainsString('Available types:', $result['errors'][0]);
+    }
+
+    public function test_validate_fields_accepts_valid_fields(): void
+    {
+        $method = new \ReflectionMethod(BlueprintsRouter::class, 'validateFields');
+        $method->setAccessible(true);
+
+        $result = $method->invoke($this->router, [
+            ['handle' => 'title', 'field' => ['type' => 'text', 'display' => 'Title']],
+            ['handle' => 'content', 'field' => ['type' => 'textarea', 'display' => 'Content']],
+        ]);
+
+        // Should return validated fields
+        $this->assertArrayHasKey('validated', $result);
+        $this->assertCount(2, $result['validated']);
+        $this->assertEquals('title', $result['validated'][0]['handle']);
+        $this->assertEquals('text', $result['validated'][0]['field']['type']);
+    }
+
+    public function test_validate_fields_rejects_duplicate_handles(): void
+    {
+        $method = new \ReflectionMethod(BlueprintsRouter::class, 'validateFields');
+        $method->setAccessible(true);
+
+        $result = $method->invoke($this->router, [
+            ['handle' => 'title', 'field' => ['type' => 'text']],
+            ['handle' => 'title', 'field' => ['type' => 'textarea']],
+        ]);
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('Duplicate field handle', $result['errors'][0]);
+    }
+
+    public function test_validate_fields_suggests_near_miss_params(): void
+    {
+        $method = new \ReflectionMethod(BlueprintsRouter::class, 'validateFields');
+        $method->setAccessible(true);
+
+        $result = $method->invoke($this->router, [
+            ['handle' => 'categories', 'field' => ['type' => 'terms', 'taxonomy' => 'categories']],
+        ]);
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('Did you mean "taxonomies"', $result['errors'][0]);
+    }
+
+    public function test_validate_fields_strips_template_expressions(): void
+    {
+        $method = new \ReflectionMethod(BlueprintsRouter::class, 'validateFields');
+        $method->setAccessible(true);
+
+        $result = $method->invoke($this->router, [
+            ['handle' => 'title', 'field' => ['type' => 'text', 'default' => '{{ malicious }}', 'placeholder' => 'Normal text']],
+        ]);
+
+        $this->assertArrayHasKey('validated', $result);
+        $field = $result['validated'][0]['field'];
+        $this->assertStringNotContainsString('{{', $field['default'] ?? '');
+        $this->assertEquals('Normal text', $field['placeholder']);
     }
 
     /**

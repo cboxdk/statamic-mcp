@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Cboxdk\StatamicMcp\Mcp\DataTransferObjects;
 
 use JsonSerializable;
@@ -23,13 +25,21 @@ abstract class BaseResponse implements JsonSerializable
      */
     public function jsonSerialize(): array
     {
-        return [
+        $response = [
             'success' => $this->success,
             'data' => $this->data,
             'meta' => $this->meta->jsonSerialize(),
-            'errors' => $this->errors,
-            'warnings' => $this->warnings,
         ];
+
+        if (! empty($this->errors)) {
+            $response['errors'] = $this->errors;
+        }
+
+        if (! empty($this->warnings)) {
+            $response['warnings'] = $this->warnings;
+        }
+
+        return $response;
     }
 
     /**

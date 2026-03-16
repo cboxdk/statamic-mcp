@@ -6,20 +6,25 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
-use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\HasCommonSchemas;
-use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\RouterHelpers;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
+use Laravel\Mcp\Server\Attributes\Description;
+use Laravel\Mcp\Server\Attributes\Name;
 use Statamic\Facades\Collection;
 use Statamic\Facades\Entry;
 use Statamic\Facades\Site;
+use Statamic\Fields\Validator as FieldsValidator;
+use Statamic\Rules\UniqueEntryValue;
+use Statamic\Sites\Sites;
 use Statamic\Support\Str;
 
+#[Name('statamic-entries')]
+#[Description('Manage Statamic collection entries. Use statamic-blueprints get first to understand field structure before create/update. Actions: list, get, create, update, delete, publish, unpublish.')]
 class EntriesRouter extends BaseRouter
 {
     use ClearsCaches;
-    use HasCommonSchemas;
-    use RouterHelpers;
 
     protected function getDomain(): string
     {
@@ -29,30 +34,48 @@ class EntriesRouter extends BaseRouter
     protected function defineSchema(JsonSchemaContract $schema): array
     {
         return array_merge(parent::defineSchema($schema), [
+            'action' => JsonSchema::string()
+                ->description(
+                    'Action to perform. Required params per action: '
+                    . 'list (collection; optional: limit, offset, filters, include_unpublished), '
+                    . 'get (collection, id), '
+                    . 'create (collection, data — use statamic-blueprints get to see field structure first), '
+                    . 'update (collection, id, data), '
+                    . 'delete (collection, id), '
+                    . 'publish (collection, id), '
+                    . 'unpublish (collection, id)'
+                )
+                ->enum(['list', 'get', 'create', 'update', 'delete', 'publish', 'unpublish'])
+                ->required(),
+
             'collection' => JsonSchema::string()
-                ->description('Collection handle (required for all entry operations)')
+                ->description('Collection handle in snake_case. Required for all actions. Example: "blog", "products"')
                 ->required(),
 
             'id' => JsonSchema::string()
-                ->description('Entry ID (required for get, update, delete, publish, unpublish)'),
+                ->description('Entry UUID. Required for get, update, delete, publish, unpublish actions'),
 
             'site' => JsonSchema::string()
-                ->description('Site handle (optional, defaults to default site)'),
+                ->description('Site handle for multi-site setups. Defaults to the default site. Example: "default", "en"'),
 
             'data' => JsonSchema::object()
-                ->description('Entry data for create/update operations'),
+                ->description(
+                    'Entry field values. Structure must match the collection blueprint including nested types '
+                    . '(bard, replicator, grid). Use statamic-blueprints action "get" with the collection\'s '
+                    . 'blueprint handle to see required fields, types, and nesting before sending data.'
+                ),
 
             'filters' => JsonSchema::object()
-                ->description('Filtering options for list operations'),
+                ->description('Filter conditions as key-value pairs. Keys are field handles from the blueprint. Example: {"status": "published"}'),
 
             'include_unpublished' => JsonSchema::boolean()
-                ->description('Include unpublished entries in list operations (default: false)'),
+                ->description('Include draft/unpublished entries in list results. Default: false'),
 
             'limit' => JsonSchema::integer()
-                ->description('Maximum number of items to return (default: 50, max: 1000)'),
+                ->description('Maximum results to return (default: 100, max: 500)'),
 
             'offset' => JsonSchema::integer()
-                ->description('Number of items to skip (default: 0)'),
+                ->description('Number of results to skip for pagination. Use with limit for paging'),
         ]);
     }
 
@@ -65,24 +88,20 @@ class EntriesRouter extends BaseRouter
      */
     protected function executeAction(array $arguments): array
     {
-        $action = $arguments['action'];
-
-        // Skip validation for help/discovery actions that don't need collection
-        if (in_array($action, ['help', 'discover', 'examples'])) {
-            return parent::executeInternal($arguments);
-        }
+        $action = is_string($arguments['action'] ?? null) ? $arguments['action'] : '';
 
         // Collection is required for all entry operations
         if (empty($arguments['collection'])) {
             return $this->createErrorResponse('Collection handle is required for entry operations')->toArray();
         }
 
-        if (! Collection::find($arguments['collection'])) {
-            return $this->createErrorResponse("Collection not found: {$arguments['collection']}")->toArray();
+        $collectionHandle = is_string($arguments['collection']) ? $arguments['collection'] : '';
+        if (! Collection::find($collectionHandle)) {
+            return $this->createErrorResponse("Collection not found: {$collectionHandle}")->toArray();
         }
 
         // Check if tool is enabled for current context
-        if (! $this->isToolEnabled()) {
+        if ($this->isWebContext() && ! $this->isWebToolEnabled()) {
             return $this->createErrorResponse('Permission denied: Entries tool is disabled for web access')->toArray();
         }
 
@@ -94,150 +113,23 @@ class EntriesRouter extends BaseRouter
 
         // Apply security checks for web context
         if ($this->isWebContext()) {
-            $permissionError = $this->checkPermissions($action, $arguments);
+            $permissionError = $this->checkWebPermissions($action, $arguments);
             if ($permissionError) {
                 return $permissionError;
             }
         }
 
-        // Execute action with audit logging
-        return $this->executeWithAuditLog($action, $arguments);
-    }
-
-    // Agent Education Methods Implementation
-
-    protected function getFeatures(): array
-    {
-        return [
-            'collection_based_management' => 'Comprehensive entry management within collections',
-            'multi_site_localization' => 'Full localization support across multiple sites',
-            'publication_control' => 'Publish/unpublish capabilities with status tracking',
-            'blueprint_validation' => 'Automatic validation against collection blueprints',
-            'filtering_and_search' => 'Advanced filtering and pagination for large datasets',
-            'cache_management' => 'Intelligent cache clearing after operations',
-            'audit_logging' => 'Complete operation logging for security and compliance',
-        ];
-    }
-
-    protected function getPrimaryUse(): string
-    {
-        return 'Comprehensive management of Statamic collection entries with full CRUD operations, publication control, and multi-site support.';
-    }
-
-    protected function getDecisionTree(): array
-    {
-        return [
-            'operation_selection' => [
-                'list' => 'Browse and discover entries within a collection',
-                'get' => 'Retrieve full entry details for specific entry',
-                'create' => 'Add new entries following collection blueprint',
-                'update' => 'Modify existing entry data with validation',
-                'delete' => 'Remove entries with safety checks',
-                'publish' => 'Make entries publicly available',
-                'unpublish' => 'Hide entries from public view',
-            ],
-            'collection_context' => [
-                'required' => 'Collection handle must be provided for all operations',
-                'validation' => 'Collection existence is verified before operations',
-                'blueprint' => 'Entry data must conform to collection blueprint',
-            ],
-            'security_considerations' => [
-                'cli_context' => 'Full access with minimal restrictions',
-                'web_context' => 'Permission-based access with audit logging',
-                'collection_permissions' => 'Granular permissions per collection',
-            ],
-        ];
-    }
-
-    protected function getContextAwareness(): array
-    {
-        return [
-            'collection_context' => [
-                'blueprint_compliance' => 'All operations validate against collection blueprints',
-                'route_binding' => 'Entry URLs generated based on collection routing',
-                'template_integration' => 'Entries work with collection-specific templates',
-            ],
-            'multi_site_context' => [
-                'localization_support' => 'Full multi-site and localization capabilities',
-                'site_specific_content' => 'Entries can have different content per site',
-                'default_site_fallback' => 'Automatic fallback to default site when needed',
-            ],
-            'publication_context' => [
-                'draft_support' => 'Entries can exist as drafts before publication',
-                'publication_control' => 'Granular control over entry visibility',
-                'status_tracking' => 'Track publication status across operations',
-            ],
-        ];
-    }
-
-    protected function getWorkflowIntegration(): array
-    {
-        return [
-            'content_creation_workflow' => [
-                'step1' => 'Use list to understand existing entry patterns',
-                'step2' => 'Use statamic-blueprints to understand collection schema',
-                'step3' => 'Use create with blueprint-compliant data',
-                'step4' => 'Use publish to make content live',
-            ],
-            'content_management_workflow' => [
-                'step1' => 'Use list with filters to find entries to modify',
-                'step2' => 'Use get to retrieve current entry state',
-                'step3' => 'Use update with merged data modifications',
-                'step4' => 'Use publish/unpublish for visibility control',
-            ],
-            'content_audit_workflow' => [
-                'step1' => 'Use list to inventory collection entries',
-                'step2' => 'Use get to examine entry details',
-                'step3' => 'Validate against collection blueprint',
-                'step4' => 'Use update for corrections and improvements',
-            ],
-        ];
-    }
-
-    protected function getCommonPatterns(): array
-    {
-        return [
-            'entry_discovery' => [
-                'description' => 'Finding and exploring entries in collection',
-                'pattern' => 'list → filter → get → analyze',
-                'example' => ['action' => 'list', 'collection' => 'articles', 'limit' => 20],
-            ],
-            'entry_creation' => [
-                'description' => 'Creating new entries following blueprint',
-                'pattern' => 'blueprint analysis → data preparation → create → publish',
-                'example' => ['action' => 'create', 'collection' => 'articles', 'data' => ['title' => 'New Article', 'content' => 'Article content']],
-            ],
-            'entry_modification' => [
-                'description' => 'Updating existing entries safely',
-                'pattern' => 'get current state → prepare changes → update → validate',
-                'example' => ['action' => 'update', 'id' => 'article-123', 'data' => ['title' => 'Updated Title']],
-            ],
-            'publication_management' => [
-                'description' => 'Managing entry publication lifecycle',
-                'pattern' => 'create draft → review → publish → manage → unpublish',
-                'example' => ['action' => 'publish', 'id' => 'article-123'],
-            ],
-        ];
-    }
-
-    /**
-     * Check if tool is enabled for current context.
-     */
-    private function isToolEnabled(): bool
-    {
-        if ($this->isCliContext()) {
-            return true; // CLI always enabled
-        }
-
-        return config('statamic-mcp.tools.statamic-entries.web_enabled', false);
-    }
-
-    /**
-     * Determine if we're in web context.
-     */
-    private function isWebContext(): bool
-    {
-        return ! $this->isCliContext();
+        // Execute action
+        return match ($action) {
+            'list' => $this->listEntries($arguments),
+            'get' => $this->getEntry($arguments),
+            'create' => $this->createEntry($arguments),
+            'update' => $this->updateEntry($arguments),
+            'delete' => $this->deleteEntry($arguments),
+            'publish' => $this->publishEntry($arguments),
+            'unpublish' => $this->unpublishEntry($arguments),
+            default => $this->createErrorResponse("Action {$action} not supported for entries")->toArray(),
+        };
     }
 
     /**
@@ -263,8 +155,11 @@ class EntriesRouter extends BaseRouter
 
         // Site validation
         if (! empty($arguments['site'])) {
-            if (! Site::all()->map->handle()->contains($arguments['site'])) {
-                return $this->createErrorResponse("Invalid site handle: {$arguments['site']}")->toArray();
+            $siteHandle = is_string($arguments['site']) ? $arguments['site'] : '';
+            /** @var Sites $sites */
+            $sites = Site::all();
+            if (! $sites->map->handle()->contains($siteHandle)) {
+                return $this->createErrorResponse("Invalid site handle: {$siteHandle}")->toArray();
             }
         }
 
@@ -272,167 +167,21 @@ class EntriesRouter extends BaseRouter
     }
 
     /**
-     * Check permissions for web context.
-     *
-     * @param  array<string, mixed>  $arguments
-     *
-     * @return array<string, mixed>|null
-     */
-    private function checkPermissions(string $action, array $arguments): ?array
-    {
-        $user = auth()->user();
-
-        if (! $user) {
-            return $this->createErrorResponse('Permission denied: Authentication required')->toArray();
-        }
-
-        // Check MCP server access permission
-        if (! method_exists($user, 'hasPermission') || ! $user->hasPermission('access_mcp_tools')) {
-            return $this->createErrorResponse('Permission denied: MCP server access required')->toArray();
-        }
-
-        // Get required permissions for this action
-        $requiredPermissions = $this->getRequiredPermissions($action, $arguments);
-
-        // Check each required permission
-        foreach ($requiredPermissions as $permission) {
-            // @phpstan-ignore-next-line Method exists check is for defensive programming
-            if (! method_exists($user, 'hasPermission') || ! $user->hasPermission($permission)) {
-                return $this->createErrorResponse("Permission denied: Cannot {$action} entries")->toArray();
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Get required permissions for action.
-     *
      * @param  array<string, mixed>  $arguments
      *
      * @return array<string>
      */
-    private function getRequiredPermissions(string $action, array $arguments): array
+    protected function getRequiredPermissions(string $action, array $arguments): array
     {
-        $collection = $arguments['collection'];
+        $collection = is_string($arguments['collection'] ?? '') ? ($arguments['collection'] ?? '') : '';
 
         return match ($action) {
-            'list' => ["view {$collection} entries"],
-            'get' => ["view {$collection} entries"],
+            'list', 'get' => ["view {$collection} entries"],
             'create' => ["create {$collection} entries"],
             'update' => ["edit {$collection} entries"],
             'delete' => ["delete {$collection} entries"],
-            'publish' => ["publish {$collection} entries"],
-            'unpublish' => ["publish {$collection} entries"],
-            default => ['super'], // Fallback to super admin
-        };
-    }
-
-    /**
-     * Execute action with audit logging.
-     *
-     * @param  array<string, mixed>  $arguments
-     *
-     * @return array<string, mixed>
-     */
-    private function executeWithAuditLog(string $action, array $arguments): array
-    {
-        $startTime = microtime(true);
-        $user = auth()->user();
-
-        // Log the operation start if audit logging is enabled
-        if (config('statamic-mcp.tools.statamic-entries.audit_logging', true)) {
-            \Log::info('MCP Entries Operation Started', [
-                'action' => $action,
-                'collection' => $arguments['collection'],
-                'user' => $user->email ?? ($user ? $user->getAttribute('email') : null),
-                'context' => $this->isWebContext() ? 'web' : 'cli',
-                'arguments' => $this->sanitizeArgumentsForLogging($arguments),
-                'timestamp' => now()->toISOString(),
-            ]);
-        }
-
-        try {
-            // Execute the actual action
-            $result = $this->performAction($action, $arguments);
-
-            // Log successful operation
-            if (config('statamic-mcp.tools.statamic-entries.audit_logging', true)) {
-                $duration = microtime(true) - $startTime;
-                \Log::info('MCP Entries Operation Completed', [
-                    'action' => $action,
-                    'collection' => $arguments['collection'],
-                    'user' => $user->email ?? ($user ? $user->getAttribute('email') : null),
-                    'context' => $this->isWebContext() ? 'web' : 'cli',
-                    'duration' => $duration,
-                    'success' => true,
-                    'timestamp' => now()->toISOString(),
-                ]);
-            }
-
-            return $result;
-
-        } catch (\Exception $e) {
-            // Log failed operation
-            if (config('statamic-mcp.tools.statamic-entries.audit_logging', true)) {
-                $duration = microtime(true) - $startTime;
-                \Log::error('MCP Entries Operation Failed', [
-                    'action' => $action,
-                    'collection' => $arguments['collection'],
-                    'user' => $user->email ?? ($user ? $user->getAttribute('email') : null),
-                    'context' => $this->isWebContext() ? 'web' : 'cli',
-                    'duration' => $duration,
-                    'error' => $e->getMessage(),
-                    'timestamp' => now()->toISOString(),
-                ]);
-            }
-
-            return $this->createErrorResponse("Operation failed: {$e->getMessage()}")->toArray();
-        }
-    }
-
-    /**
-     * Sanitize arguments for logging (remove sensitive data).
-     *
-     * @param  array<string, mixed>  $arguments
-     *
-     * @return array<string, mixed>
-     */
-    private function sanitizeArgumentsForLogging(array $arguments): array
-    {
-        $sanitized = $arguments;
-
-        // Remove or mask sensitive fields
-        if (isset($sanitized['data']) && is_array($sanitized['data'])) {
-            // Remove password fields
-            foreach ($sanitized['data'] as $key => $value) {
-                if (Str::contains(strtolower($key), ['password', 'secret', 'token', 'key'])) {
-                    $sanitized['data'][$key] = '[REDACTED]';
-                }
-            }
-        }
-
-        return $sanitized;
-    }
-
-    /**
-     * Perform the actual action.
-     *
-     * @param  array<string, mixed>  $arguments
-     *
-     * @return array<string, mixed>
-     */
-    private function performAction(string $action, array $arguments): array
-    {
-        return match ($action) {
-            'list' => $this->listEntries($arguments),
-            'get' => $this->getEntry($arguments),
-            'create' => $this->createEntry($arguments),
-            'update' => $this->updateEntry($arguments),
-            'delete' => $this->deleteEntry($arguments),
-            'publish' => $this->publishEntry($arguments),
-            'unpublish' => $this->unpublishEntry($arguments),
-            default => $this->createErrorResponse("Action {$action} not supported for entries")->toArray(),
+            'publish', 'unpublish' => ["publish {$collection} entries"],
+            default => [],
         };
     }
 
@@ -445,8 +194,10 @@ class EntriesRouter extends BaseRouter
      */
     private function listEntries(array $arguments): array
     {
-        $collection = $arguments['collection'];
-        $site = $arguments['site'] ?? Site::default()->handle();
+        $collection = is_string($arguments['collection']) ? $arguments['collection'] : '';
+        /** @var \Statamic\Sites\Site $defaultSite */
+        $defaultSite = Site::default();
+        $site = is_string($arguments['site'] ?? null) ? $arguments['site'] : $defaultSite->handle();
         $includeUnpublished = $this->getBooleanArgument($arguments, 'include_unpublished', false);
         $limit = $this->getIntegerArgument($arguments, 'limit', 50, 1, 1000);
         $offset = $this->getIntegerArgument($arguments, 'offset', 0, 0);
@@ -460,9 +211,12 @@ class EntriesRouter extends BaseRouter
                 $query->where('published', true);
             }
 
-            // Apply filters if provided
-            if (! empty($arguments['filters'])) {
+            // Apply filters if provided (only allow string field names)
+            if (! empty($arguments['filters']) && is_array($arguments['filters'])) {
                 foreach ($arguments['filters'] as $field => $value) {
+                    if (! is_string($field) || $field === '') {
+                        continue;
+                    }
                     $query->where($field, $value);
                 }
             }
@@ -479,7 +233,6 @@ class EntriesRouter extends BaseRouter
                     'date' => $entry->date()?->toISOString(),
                     'last_modified' => $entry->lastModified()?->toISOString(),
                     'url' => $entry->url(),
-                    'edit_url' => $entry->editUrl(),
                 ];
             })->all();
 
@@ -509,8 +262,10 @@ class EntriesRouter extends BaseRouter
      */
     private function getEntry(array $arguments): array
     {
-        $id = $arguments['id'];
-        $site = $arguments['site'] ?? Site::default()->handle();
+        $id = is_string($arguments['id']) ? $arguments['id'] : '';
+        /** @var \Statamic\Sites\Site $defaultSite */
+        $defaultSite = Site::default();
+        $site = is_string($arguments['site'] ?? null) ? $arguments['site'] : $defaultSite->handle();
 
         try {
             $entry = Entry::find($id);
@@ -528,7 +283,7 @@ class EntriesRouter extends BaseRouter
             }
 
             return [
-                'entry' => array_merge([
+                'entry' => [
                     'id' => $entry->id(),
                     'collection' => $entry->collectionHandle(),
                     'site' => $entry->site()->handle(),
@@ -537,9 +292,8 @@ class EntriesRouter extends BaseRouter
                     'date' => $entry->date()?->toISOString(),
                     'last_modified' => $entry->lastModified()?->toISOString(),
                     'url' => $entry->url(),
-                    'edit_url' => $entry->editUrl(),
                     'data' => $entry->data()->all(),
-                ], $entry->data()->all()),
+                ],
             ];
 
         } catch (\Exception $e) {
@@ -556,19 +310,88 @@ class EntriesRouter extends BaseRouter
      */
     private function createEntry(array $arguments): array
     {
-        $collection = Collection::find($arguments['collection']);
-        $site = $arguments['site'] ?? Site::default()->handle();
-        $data = $arguments['data'] ?? [];
+        $collectionHandle = is_string($arguments['collection']) ? $arguments['collection'] : '';
+        /** @var \Statamic\Contracts\Entries\Collection $collection */
+        $collection = Collection::find($collectionHandle);
+        /** @var \Statamic\Sites\Site $defaultSiteObj */
+        $defaultSiteObj = Site::default();
+        $siteDefault = $defaultSiteObj->handle();
+        $siteRaw = $arguments['site'] ?? $siteDefault;
+        $site = is_string($siteRaw) ? $siteRaw : $siteDefault;
+        /** @var array<string, mixed> $data */
+        $data = is_array($arguments['data'] ?? []) ? ($arguments['data'] ?? []) : [];
 
         try {
             $entry = Entry::make()
                 ->collection($collection)
-                ->locale($site)
-                ->data($data);
+                ->locale($site);
 
-            // Generate slug if not provided
-            if (! $entry->slug() && isset($data['title'])) {
-                $entry->slug(Str::slug($data['title']));
+            // Set slug from arguments or generate from title
+            if (! empty($arguments['slug'])) {
+                $requestedSlug = $arguments['slug'];
+                $requestedSlug = is_string($requestedSlug) ? $requestedSlug : '';
+
+                // Use Statamic's built-in validation for unique slugs
+                $slugValidator = Validator::make(['slug' => $requestedSlug], [
+                    'slug' => [
+                        'required',
+                        'string',
+                        new UniqueEntryValue($collection->handle(), null, $site),
+                    ],
+                ]);
+
+                if ($slugValidator->fails()) {
+                    $errors = $slugValidator->errors()->get('slug');
+                    /** @var array<string> $flatErrors */
+                    $flatErrors = array_map(fn ($error) => is_string($error) ? $error : implode(', ', (array) $error), $errors);
+
+                    return $this->createErrorResponse('Slug validation failed: ' . implode(', ', $flatErrors))->toArray();
+                }
+
+                $entry->slug($requestedSlug);
+            } elseif (! $entry->slug() && isset($data['title'])) {
+                $titleValue = $data['title'];
+                $entry->slug(Str::slug(is_string($titleValue) ? $titleValue : ''));
+            }
+
+            // Get blueprint and validate field data
+            $blueprint = $entry->blueprint();
+
+            if (! $blueprint) {
+                return $this->createErrorResponse('Cannot create entry: Blueprint not found for this collection. A blueprint is required for data validation.')->toArray();
+            }
+
+            if (! empty($data)) {
+                // Add slug to data for validation if it's set
+                $dataWithSlug = $data;
+                if ($entry->slug()) {
+                    $dataWithSlug['slug'] = $entry->slug();
+                }
+
+                // Use Statamic's Fields Validator for blueprint-based validation
+                $fieldsValidator = (new FieldsValidator)
+                    ->fields($blueprint->fields()->addValues($dataWithSlug))
+                    ->withContext([
+                        'entry' => $entry,
+                        'collection' => $collection,
+                        'site' => $site,
+                    ]);
+
+                try {
+                    $validatedData = $fieldsValidator->validate();
+                    // Remove slug from validated data since it's handled separately
+                    unset($validatedData['slug']);
+                    $entry->data($validatedData);
+                } catch (ValidationException $e) {
+                    $errors = [];
+                    foreach ($e->errors() as $field => $fieldErrors) {
+                        $errors[] = "{$field}: " . implode(', ', $fieldErrors);
+                    }
+
+                    return $this->createErrorResponse('Field validation failed: ' . implode('; ', $errors))->toArray();
+                }
+            } else {
+                $entry->data($data);
             }
 
             $entry->save();
@@ -584,7 +407,6 @@ class EntriesRouter extends BaseRouter
                     'site' => $entry->site()->handle(),
                     'published' => $entry->published(),
                     'url' => $entry->url(),
-                    'edit_url' => $entry->editUrl(),
                     'title' => $entry->get('title'),
                     'data' => $entry->data()->all(),
                 ],
@@ -605,9 +427,11 @@ class EntriesRouter extends BaseRouter
      */
     private function updateEntry(array $arguments): array
     {
-        $id = $arguments['id'];
-        $site = $arguments['site'] ?? Site::default()->handle();
-        $data = $arguments['data'] ?? [];
+        $id = is_string($arguments['id']) ? $arguments['id'] : '';
+        /** @var \Statamic\Sites\Site $defaultSite */
+        $defaultSite = Site::default();
+        $site = is_string($arguments['site'] ?? null) ? $arguments['site'] : $defaultSite->handle();
+        $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
 
         try {
             $entry = Entry::find($id);
@@ -626,6 +450,40 @@ class EntriesRouter extends BaseRouter
                 }
             }
 
+            // Validate data against blueprint before saving
+            $blueprint = $entry->blueprint();
+
+            if (! $blueprint) {
+                return $this->createErrorResponse('Cannot update entry: Blueprint not found. A blueprint is required for data validation.')->toArray();
+            }
+
+            if (! empty($data)) {
+                // Merge new data with existing for full blueprint validation
+                // Include slug since blueprint validates it as required
+                /** @var array<string, mixed> $mergedData */
+                $mergedData = array_merge($entry->data()->all(), $data);
+                $mergedData['slug'] = $entry->slug();
+
+                $fieldsValidator = (new FieldsValidator)
+                    ->fields($blueprint->fields()->addValues($mergedData))
+                    ->withContext([
+                        'entry' => $entry,
+                        'collection' => $entry->collection(),
+                        'site' => $site,
+                    ]);
+
+                try {
+                    $fieldsValidator->validate();
+                } catch (ValidationException $e) {
+                    $errors = [];
+                    foreach ($e->errors() as $field => $fieldErrors) {
+                        $errors[] = "{$field}: " . implode(', ', $fieldErrors);
+                    }
+
+                    return $this->createErrorResponse('Field validation failed: ' . implode('; ', $errors))->toArray();
+                }
+            }
+
             $entry->merge($data)->save();
 
             // Clear relevant caches
@@ -640,7 +498,6 @@ class EntriesRouter extends BaseRouter
                     'published' => $entry->published(),
                     'last_modified' => $entry->lastModified()?->toISOString(),
                     'url' => $entry->url(),
-                    'edit_url' => $entry->editUrl(),
                 ],
                 'updated' => true,
             ];
@@ -659,7 +516,7 @@ class EntriesRouter extends BaseRouter
      */
     private function deleteEntry(array $arguments): array
     {
-        $id = $arguments['id'];
+        $id = is_string($arguments['id']) ? $arguments['id'] : '';
 
         try {
             $entry = Entry::find($id);
@@ -699,7 +556,7 @@ class EntriesRouter extends BaseRouter
      */
     private function publishEntry(array $arguments): array
     {
-        $id = $arguments['id'];
+        $id = is_string($arguments['id']) ? $arguments['id'] : '';
 
         try {
             $entry = Entry::find($id);
@@ -737,7 +594,7 @@ class EntriesRouter extends BaseRouter
      */
     private function unpublishEntry(array $arguments): array
     {
-        $id = $arguments['id'];
+        $id = is_string($arguments['id']) ? $arguments['id'] : '';
 
         try {
             $entry = Entry::find($id);
@@ -768,109 +625,20 @@ class EntriesRouter extends BaseRouter
     protected function getActions(): array
     {
         return [
-            'list' => [
-                'description' => 'List entries with filtering and pagination',
-                'purpose' => 'Entry discovery and browsing',
-                'required' => ['collection'],
-                'optional' => ['filters', 'limit', 'offset', 'include_unpublished', 'site'],
-                'destructive' => false,
-                'examples' => [
-                    ['action' => 'list', 'collection' => 'articles'],
-                    ['action' => 'list', 'collection' => 'articles', 'limit' => 20, 'include_unpublished' => true],
-                ],
-            ],
-            'get' => [
-                'description' => 'Get specific entry with full data',
-                'purpose' => 'Entry detail retrieval',
-                'required' => ['collection', 'id'],
-                'optional' => ['site'],
-                'destructive' => false,
-                'examples' => [
-                    ['action' => 'get', 'collection' => 'articles', 'id' => 'article-123'],
-                ],
-            ],
-            'create' => [
-                'description' => 'Create new entry',
-                'purpose' => 'Entry creation following blueprint schema',
-                'required' => ['collection', 'data'],
-                'optional' => ['site'],
-                'destructive' => false,
-                'examples' => [
-                    ['action' => 'create', 'collection' => 'articles', 'data' => ['title' => 'New Article', 'content' => 'Article content']],
-                ],
-            ],
-            'update' => [
-                'description' => 'Update existing entry',
-                'purpose' => 'Entry modification with validation',
-                'required' => ['collection', 'id', 'data'],
-                'optional' => ['site'],
-                'destructive' => true,
-                'examples' => [
-                    ['action' => 'update', 'collection' => 'articles', 'id' => 'article-123', 'data' => ['title' => 'Updated Title']],
-                ],
-            ],
-            'delete' => [
-                'description' => 'Delete entry',
-                'purpose' => 'Entry removal with safety checks',
-                'required' => ['collection', 'id'],
-                'optional' => [],
-                'destructive' => true,
-                'examples' => [
-                    ['action' => 'delete', 'collection' => 'articles', 'id' => 'article-123'],
-                ],
-            ],
-            'publish' => [
-                'description' => 'Publish entry',
-                'purpose' => 'Make entry publicly available',
-                'required' => ['collection', 'id'],
-                'optional' => [],
-                'destructive' => true,
-                'examples' => [
-                    ['action' => 'publish', 'collection' => 'articles', 'id' => 'article-123'],
-                ],
-            ],
-            'unpublish' => [
-                'description' => 'Unpublish entry',
-                'purpose' => 'Hide entry from public view',
-                'required' => ['collection', 'id'],
-                'optional' => [],
-                'destructive' => true,
-                'examples' => [
-                    ['action' => 'unpublish', 'collection' => 'articles', 'id' => 'article-123'],
-                ],
-            ],
+            'list' => 'List entries with filtering and pagination',
+            'get' => 'Get specific entry with full data',
+            'create' => 'Create new entry',
+            'update' => 'Update existing entry',
+            'delete' => 'Delete entry',
+            'publish' => 'Publish entry',
+            'unpublish' => 'Unpublish entry',
         ];
     }
 
     protected function getTypes(): array
     {
         return [
-            'entry' => [
-                'description' => 'Collection-based content items',
-                'properties' => ['collection', 'site', 'published', 'date', 'slug'],
-                'relationships' => ['belongs to collection', 'can have terms', 'can reference globals'],
-                'examples' => ['articles', 'products', 'pages', 'blog posts'],
-            ],
+            'entry' => 'Collection-based content items',
         ];
-    }
-
-    /**
-     * Bridge method for existing router implementation.
-     *
-     * @param  array<string, mixed>  $arguments
-     *
-     * @return array<string, mixed>
-     */
-    protected function executeInternal(array $arguments): array
-    {
-        $action = $arguments['action'];
-
-        // Handle help/discovery actions through parent's implementation
-        if (in_array($action, ['help', 'discover', 'examples'])) {
-            return parent::executeInternal($arguments);
-        }
-
-        // For other actions, use our executeAction method
-        return $this->executeAction($arguments);
     }
 }

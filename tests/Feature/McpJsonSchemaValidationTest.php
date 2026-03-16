@@ -32,9 +32,24 @@ class McpJsonSchemaValidationTest extends TestCase
         $this->server = app(StatamicMcpServer::class);
     }
 
+    /**
+     * Access the protected $tools property via reflection.
+     *
+     * @return array<int, class-string>
+     */
+    private function getServerTools(): array
+    {
+        $reflection = new ReflectionProperty($this->server, 'tools');
+
+        /** @var array<int, class-string> $tools */
+        $tools = $reflection->getValue($this->server);
+
+        return $tools;
+    }
+
     public function test_all_tools_have_valid_json_schema(): void
     {
-        $tools = $this->server->tools;
+        $tools = $this->getServerTools();
 
         expect($tools)->toBeArray();
         expect(count($tools))->toBeGreaterThan(0);
@@ -63,7 +78,7 @@ class McpJsonSchemaValidationTest extends TestCase
 
     public function test_array_type_parameters_have_items_property(): void
     {
-        $tools = $this->server->tools;
+        $tools = $this->getServerTools();
         $violations = [];
 
         foreach ($tools as $toolClass) {
@@ -106,7 +121,7 @@ class McpJsonSchemaValidationTest extends TestCase
 
     public function test_object_type_parameters_are_properly_defined(): void
     {
-        $tools = $this->server->tools;
+        $tools = $this->getServerTools();
 
         foreach ($tools as $toolClass) {
             $tool = app($toolClass);
@@ -137,7 +152,7 @@ class McpJsonSchemaValidationTest extends TestCase
 
     public function test_enum_parameters_have_valid_values(): void
     {
-        $tools = $this->server->tools;
+        $tools = $this->getServerTools();
 
         foreach ($tools as $toolClass) {
             $tool = app($toolClass);
@@ -171,7 +186,7 @@ class McpJsonSchemaValidationTest extends TestCase
 
     public function test_required_parameters_exist_in_properties(): void
     {
-        $tools = $this->server->tools;
+        $tools = $this->getServerTools();
 
         foreach ($tools as $toolClass) {
             $tool = app($toolClass);
@@ -202,7 +217,7 @@ class McpJsonSchemaValidationTest extends TestCase
 
     public function test_tool_names_follow_mcp_naming_convention(): void
     {
-        $tools = $this->server->tools;
+        $tools = $this->getServerTools();
 
         foreach ($tools as $toolClass) {
             $tool = app($toolClass);
@@ -218,7 +233,7 @@ class McpJsonSchemaValidationTest extends TestCase
 
     public function test_schema_types_are_valid_json_schema_types(): void
     {
-        $tools = $this->server->tools;
+        $tools = $this->getServerTools();
         $validTypes = ['string', 'number', 'integer', 'boolean', 'array', 'object', 'null'];
 
         foreach ($tools as $toolClass) {
@@ -243,7 +258,7 @@ class McpJsonSchemaValidationTest extends TestCase
 
     public function test_descriptions_are_present_and_non_empty(): void
     {
-        $tools = $this->server->tools;
+        $tools = $this->getServerTools();
 
         foreach ($tools as $toolClass) {
             $tool = app($toolClass);

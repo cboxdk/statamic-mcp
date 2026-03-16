@@ -1,0 +1,75 @@
+name: Browser Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  playwright:
+    runs-on: ubuntu-latest
+    name: Playwright E2E
+
+    steps:
+      - name: Checkout addon
+        uses: actions/checkout@v4
+        with:
+          path: addon
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, intl
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Create fresh Statamic site
+        run: |
+          composer create-project statamic/statamic site --no-interaction --prefer-dist
+          cd site
+          echo "APP_KEY=$(php artisan key:generate --show)" >> .env
+          echo "STATAMIC_MCP_WEB_ENABLED=true" >> .env
+          echo "STATAMIC_MCP_OAUTH_ENABLED=true" >> .env
+
+      - name: Install addon from local path
+        working-directory: site
+        run: |
+          composer config repositories.statamic-mcp '{"type": "path", "url": "../addon", "options": {"symlink": false}}'
+          composer require cboxdk/statamic-mcp:@dev --no-interaction
+
+      - name: Create test user
+        working-directory: site
+        run: |
+          php artisan statamic:make:user --email=test@example.com --password=password --super
+
+      - name: Build addon frontend
+        working-directory: addon
+        run: |
+          npm install
+          npx vite build
+          cp -r resources/dist/build/* ../site/public/vendor/statamic-mcp/build/ 2>/dev/null || true
+
+      - name: Install Playwright
+        working-directory: addon
+        run: |
+          npx playwright install chromium
+
+      - name: Start server
+        working-directory: site
+        run: |
+          php artisan serve --port=8787 &
+          sleep 3
+          curl -s -o /dev/null -w "%{http_code}" http://localhost:8787 || true
+
+      - name: Run Playwright tests
+        working-directory: addon
+        run: npx playwright test tests/Browser/
+        env:
+          APP_URL: http://localhost:8787
+          TEST_EMAIL: test@example.com
+          TEST_PASSWORD: password

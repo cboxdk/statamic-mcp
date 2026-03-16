@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Prompts;
 
+use Laravel\Mcp\Request;
+use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Prompt;
 
 /**
@@ -30,9 +32,9 @@ class AgentEducationPrompt extends Prompt
     /**
      * Handle the prompt request (required by Laravel MCP v0.2.0).
      */
-    public function handle(\Laravel\Mcp\Request $request): \Laravel\Mcp\Response
+    public function handle(Request $request): Response
     {
-        return \Laravel\Mcp\Response::text($this->prompt());
+        return Response::text($this->prompt());
     }
 
     public function prompt(): string
@@ -46,9 +48,9 @@ You are working with a sophisticated MCP (Model Context Protocol) server for Sta
 
 ### 1. Discovery-First Approach
 - **ALWAYS start with discovery** before attempting operations
-- Use `statamic.system.discover` to understand capabilities and get intent-based tool recommendations
-- Use `statamic.system.schema` to understand tool parameters and usage patterns
-- Each router tool supports `action='help'` for detailed guidance
+- Use `statamic-discovery` to understand capabilities and get intent-based tool recommendations
+- Use `statamic-schema` to understand tool parameters and usage patterns
+- Use `statamic-discovery` and `statamic-schema` for detailed tool guidance
 
 ### 2. Safety-First Protocols
 - **NEVER execute destructive operations without safety protocols**
@@ -65,21 +67,23 @@ You are working with a sophisticated MCP (Model Context Protocol) server for Sta
 ### 4. Intent-Based Tool Selection
 - Use discovery tools to match your intent to appropriate capabilities
 - Don't guess - explore the available tools and their capabilities
-- Each tool provides comprehensive help and examples
+- Use `statamic-discovery` and `statamic-schema` for comprehensive guidance
 
 ## Available Tool Categories
 
 ### Router Tools (Primary Interface)
-- `statamic.content` - Unified content management (entries, terms, globals)
-- `statamic.blueprints` - Blueprint and schema management
-- `statamic.structures` - Collections, taxonomies, navigations, sites
-- `statamic.assets` - Asset containers and file operations
-- `statamic.users` - User, role, and group management
-- `statamic.system` - System operations, health, cache management
+- `statamic-entries` - Entry management (list, create, update, delete, publish)
+- `statamic-terms` - Taxonomy term management
+- `statamic-globals` - Global set management
+- `statamic-blueprints` - Blueprint and schema management
+- `statamic-structures` - Collections, taxonomies, navigations, sites
+- `statamic-assets` - Asset containers and file operations
+- `statamic-users` - User, role, and group management
+- `statamic-system` - System operations, health, cache management
 
 ### Agent Education Tools
-- `statamic.system.discover` - Intent-based tool discovery and recommendations
-- `statamic.system.schema` - Detailed tool schema inspection and documentation
+- `statamic-discovery` - Intent-based tool discovery and recommendations
+- `statamic-schema` - Detailed tool schema inspection and documentation
 
 ### Development Tools
 - Template analysis, validation, and optimization tools
@@ -89,7 +93,7 @@ You are working with a sophisticated MCP (Model Context Protocol) server for Sta
 
 ### Step 1: Understand Your Intent
 ```
-Use: statamic.system.discover
+Use: statamic-discovery
 Parameters: {
   "intent": "what you want to accomplish",
   "context": "content|development|system|analysis|workflow|maintenance",
@@ -99,7 +103,7 @@ Parameters: {
 
 ### Step 2: Explore Tool Capabilities
 ```
-Use: statamic.system.schema
+Use: statamic-schema
 Parameters: {
   "tool_name": "specific tool to inspect",
   "inspection_type": "overview|parameters|examples|validation|patterns"
@@ -108,10 +112,10 @@ Parameters: {
 
 ### Step 3: Get Detailed Help
 ```
-Use: any router tool
+Use: statamic-discovery
 Parameters: {
-  "action": "help",
-  "help_topic": "actions|types|examples|safety|patterns|context"
+  "intent": "describe what you need help with",
+  "context": "content|development|system"
 }
 ```
 
@@ -161,21 +165,21 @@ Parameters: {
 ## Common Patterns
 
 ### Content Discovery Pattern
-1. `statamic.content` with `action=list` to explore existing content
-2. `statamic.content` with `action=get` to examine specific items
-3. `statamic.blueprints` to understand schema requirements
+1. `statamic-entries` with `action=list` to explore existing entries
+2. `statamic-entries` with `action=get` to examine specific entries
+3. `statamic-blueprints` to understand schema requirements
 4. Plan operations based on discovered patterns
 
 ### Content Creation Pattern
-1. `statamic.blueprints` to understand required fields
-2. `statamic.structures` to understand collections/taxonomies
-3. `statamic.content` with `action=create` and proper data structure
-4. `statamic.content` with `action=publish` if needed
+1. `statamic-blueprints` to understand required fields
+2. `statamic-structures` to understand collections/taxonomies
+3. `statamic-entries` with `action=create` and proper data structure
+4. `statamic-entries` with `action=publish` if needed
 
 ### System Maintenance Pattern
-1. `statamic.system` with `action=health` to check system status
-2. `statamic.system` with `action=info` for system information
-3. `statamic.system` with `action=cache` for cache management
+1. `statamic-system` with `action=health` to check system status
+2. `statamic-system` with `action=info` for system information
+3. `statamic-system` with `action=cache` for cache management
 4. Monitor performance and errors
 
 ## Error Handling
@@ -237,7 +241,7 @@ Parameters: {
 ## Emergency Procedures
 
 ### If Operations Fail
-1. Check system health with `statamic.system`
+1. Check system health with `statamic-system`
 2. Review error messages and safety guidance
 3. Use discovery tools to understand alternative approaches
 4. Escalate to human operator if needed

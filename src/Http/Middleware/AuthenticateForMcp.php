@@ -4,67 +4,122 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Http\Middleware;
 
+use Cboxdk\StatamicMcp\Auth\TokenService;
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Str;
 use Statamic\Facades\User;
 use Symfony\Component\HttpFoundation\Response;
 
 class AuthenticateForMcp
 {
+    public function __construct(
+        protected TokenService $tokenService,
+    ) {}
+
     /**
      * Handle an incoming request.
      *
-     * @param  \Closure(\Illuminate\Http\Request): (\Symfony\Component\HttpFoundation\Response)  $next
+     * @param  Closure(Request): (Response)  $next
      */
     public function handle(Request $request, Closure $next): Response
     {
-        $user = null;
+        // Generate correlation ID for request tracing across middleware → tools → audit logs
+        $correlationId = $request->header('X-Correlation-ID') ?? Str::uuid()->toString();
+        $request->attributes->set('mcp_correlation_id', $correlationId);
 
-        // Try Bearer token first (preferred for Claude Code)
-        if ($token = $this->getBearerToken($request)) {
-            $user = $this->authenticateWithToken($token);
-        }
+        /** @var int $rateLimitMax */
+        $rateLimitMax = config('statamic.mcp.security.rate_limit_max', 60);
+        /** @var int $rateLimitDecay */
+        $rateLimitDecay = config('statamic.mcp.security.rate_limit_decay', 60);
 
-        // Try Basic Auth as fallback
-        if (! $user && $credentials = $this->getBasicAuthCredentials($request)) {
-            $user = $this->authenticateWithCredentials($credentials['email'], $credentials['password']);
-        }
-
-        // Fallback to session authentication (for browser access)
-        if (! $user) {
-            try {
-                // Try to get current user from session/auth guard
-                $user = auth()->user();
-
-                // If Laravel auth user, try to find corresponding Statamic user
-                if ($user && method_exists($user, 'email') && isset($user->email)) {
-                    $statamicUser = User::findByEmail($user->email);
-                    if ($statamicUser && $statamicUser->can('access cp')) {
-                        $user = $statamicUser;
-                    } else {
-                        $user = null;
-                    }
-                }
-            } catch (\Exception $e) {
-                // Session authentication might not be available
-                $user = null;
-            }
-        }
-
-        if (! $user) {
+        // Check if IP is locked out from failed auth attempts (atomic via RateLimiter)
+        $ip = $request->ip() ?? 'unknown';
+        $rateLimitKey = "mcp_auth:{$ip}";
+        if (RateLimiter::tooManyAttempts($rateLimitKey, 5)) {
             return response()->json([
-                'error' => 'Authentication required',
-                'message' => 'Please provide credentials via Basic Auth or log in to Statamic CP',
-                'hint' => 'Use Basic Auth with your Statamic email/password',
-            ], 401, [
-                'WWW-Authenticate' => 'Basic realm="Statamic MCP"',
+                'error' => 'Too many authentication attempts',
+                'message' => 'Please wait before trying again',
+            ], 429, [
+                'Retry-After' => (string) RateLimiter::availableIn($rateLimitKey),
             ]);
         }
 
-        // Store authenticated user in request for downstream middleware
-        $request->attributes->set('statamic_user', $user);
+        // Try Bearer token first (scoped MCP API tokens)
+        $plainToken = $request->bearerToken();
+        if ($plainToken) {
+            $mcpToken = $this->tokenService->validateToken($plainToken);
 
-        return $next($request);
+            if ($mcpToken) {
+                $statamicUser = User::find($mcpToken->userId);
+
+                if ($statamicUser) {
+                    // Per-token rate limiting
+                    $tokenRateKey = "mcp_token:{$mcpToken->id}";
+                    if (RateLimiter::tooManyAttempts($tokenRateKey, $rateLimitMax)) {
+                        return response()->json([
+                            'error' => 'Rate limit exceeded for this token',
+                            'message' => 'Too many requests. Please slow down.',
+                        ], 429, [
+                            'Retry-After' => (string) RateLimiter::availableIn($tokenRateKey),
+                        ]);
+                    }
+                    RateLimiter::hit($tokenRateKey, $rateLimitDecay);
+
+                    $request->attributes->set('statamic_user', $statamicUser);
+                    $request->attributes->set('mcp_token', $mcpToken);
+                    Auth::setUser($statamicUser);
+
+                    return $next($request);
+                }
+            }
+
+            // Bearer token was provided but invalid — rate limit
+            RateLimiter::hit($rateLimitKey, 60);
+        }
+
+        // Try Basic Auth as fallback
+        $credentials = $this->getBasicAuthCredentials($request);
+        if ($credentials) {
+            $user = $this->authenticateWithCredentials($credentials['email'], $credentials['password']);
+
+            if ($user) {
+                // Per-user rate limiting for Basic Auth
+                $userRateKey = "mcp_user:{$user->id()}";
+                if (RateLimiter::tooManyAttempts($userRateKey, $rateLimitMax)) {
+                    return response()->json([
+                        'error' => 'Rate limit exceeded for this user',
+                        'message' => 'Too many requests. Please slow down.',
+                    ], 429, [
+                        'Retry-After' => (string) RateLimiter::availableIn($userRateKey),
+                    ]);
+                }
+                RateLimiter::hit($userRateKey, $rateLimitDecay);
+
+                $request->attributes->set('statamic_user', $user);
+                Auth::setUser($user);
+
+                return $next($request);
+            }
+
+            // Basic Auth credentials were provided but invalid — rate limit
+            RateLimiter::hit($rateLimitKey, 60);
+        }
+
+        $wwwAuth = 'Bearer realm="Statamic MCP"';
+        if (config('statamic.mcp.oauth.enabled', true)) {
+            $wwwAuth = 'Bearer resource_metadata="' . url('/.well-known/oauth-protected-resource') . '"';
+        }
+
+        return response()->json([
+            'error' => 'Authentication required',
+            'message' => 'Provide a Bearer token or Basic Auth credentials',
+            'hint' => 'Create an API token in the Statamic MCP dashboard',
+        ], 401, [
+            'WWW-Authenticate' => $wwwAuth,
+        ]);
     }
 
     /**
@@ -80,10 +135,14 @@ class AuthenticateForMcp
             return null;
         }
 
-        $encoded = substr($header, 6);
-        $decoded = base64_decode($encoded);
+        $decoded = base64_decode(substr($header, 6), true);
 
-        if (! $decoded || ! str_contains($decoded, ':')) {
+        if ($decoded === false || ! str_contains($decoded, ':')) {
+            return null;
+        }
+
+        // Reject credentials containing null bytes
+        if (str_contains($decoded, "\x00")) {
             return null;
         }
 
@@ -93,67 +152,31 @@ class AuthenticateForMcp
     }
 
     /**
-     * Get Bearer token from request.
-     */
-    private function getBearerToken(Request $request): ?string
-    {
-        $header = $request->header('Authorization');
-
-        if (! $header || ! str_starts_with($header, 'Bearer ')) {
-            return null;
-        }
-
-        return substr($header, 7);
-    }
-
-    /**
-     * Authenticate user with Bearer token using Statamic's auth system.
-     */
-    private function authenticateWithToken(string $token): ?\Statamic\Contracts\Auth\User
-    {
-        try {
-            // For simplicity, we'll use the token as email:password encoded with base64
-            // Token format: base64(email:password)
-            $decoded = base64_decode($token);
-
-            if (! $decoded || ! str_contains($decoded, ':')) {
-                return null;
-            }
-
-            [$email, $password] = explode(':', $decoded, 2);
-
-            return $this->authenticateWithCredentials($email, $password);
-        } catch (\Exception $e) {
-            return null;
-        }
-    }
-
-    /**
      * Authenticate user with email and password using Statamic's auth system.
      */
     private function authenticateWithCredentials(string $email, string $password): ?\Statamic\Contracts\Auth\User
     {
+        // Dummy hash used to ensure constant-time response when user doesn't exist,
+        // preventing account enumeration via timing analysis.
+        $dummyHash = '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi';
+
         try {
-            // Find user by email
             $user = User::findByEmail($email);
 
-            if (! $user) {
-                return null;
-            }
+            $userPassword = $user?->password() ?? $dummyHash;
 
-            // Check if user can access CP
-            if (! $user->can('access cp')) {
-                return null;
-            }
+            // Always run password_verify to prevent timing-based user enumeration
+            $passwordValid = password_verify($password, $userPassword);
 
-            // Verify password using PHP's password_verify (more reliable with Statamic)
-            $userPassword = $user->password();
-            if (! $userPassword || ! password_verify($password, $userPassword)) {
+            if (! $user || ! $passwordValid || ! $user->hasPermission('access cp')) {
                 return null;
             }
 
             return $user;
         } catch (\Exception $e) {
+            // Constant-time path on exception
+            password_verify($password, $dummyHash);
+
             return null;
         }
     }

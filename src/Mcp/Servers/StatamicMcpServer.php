@@ -9,7 +9,6 @@ use Cboxdk\StatamicMcp\Mcp\Prompts\ToolUsageContractPrompt;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\AssetsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\BlueprintsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\ContentFacadeRouter;
-use Cboxdk\StatamicMcp\Mcp\Tools\Routers\ContentRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\EntriesRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\GlobalsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\StructuresRouter;
@@ -18,10 +17,35 @@ use Cboxdk\StatamicMcp\Mcp\Tools\Routers\TermsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\UsersRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\System\DiscoveryTool;
 use Cboxdk\StatamicMcp\Mcp\Tools\System\SchemaTool;
+use Illuminate\Support\Facades\Log;
 use Laravel\Mcp\Server;
+use Laravel\Mcp\Server\Prompt;
+use Laravel\Mcp\Server\Tool;
 
 class StatamicMcpServer extends Server
 {
+    protected string $name = 'Statamic MCP Server';
+
+    protected string $version = '2.0.0';
+
+    protected string $instructions = <<<'MARKDOWN'
+        You are connected to a Statamic CMS site via MCP. Use these tools to manage content, blueprints, assets, users, and system settings.
+
+        Available tools:
+        - statamic-entries: List, read, create, update, delete, publish/unpublish entries
+        - statamic-terms: Manage taxonomy terms
+        - statamic-globals: Manage global sets and their values
+        - statamic-blueprints: Inspect and manage content blueprints/schemas
+        - statamic-structures: Manage collections, taxonomies, navigations, sites
+        - statamic-assets: Manage asset containers and files
+        - statamic-users: Manage users, roles, and groups
+        - statamic-system: System info, health checks, cache management
+        - statamic-discovery: Find the right tool for your intent
+        - statamic-schema: Inspect tool parameters and usage
+
+        When the user asks about their website content, pages, blog posts, or CMS data, use these tools to fetch real data. Start with statamic-discovery if unsure which tool to use.
+    MARKDOWN;
+
     public int $defaultPaginationLength = 200;
 
     public int $maxPaginationLength = 200;
@@ -29,78 +53,36 @@ class StatamicMcpServer extends Server
     /**
      * The tools that the server exposes.
      *
-     * @var array<int, class-string<\Laravel\Mcp\Server\Tool>>
+     * @var array<int, class-string<Tool>>
      */
-    public array $tools = [
-        // === Specialized Content Router Tools (5) ===
-        // Domain-specific routers for focused content management
-        EntriesRouter::class,        // Collection entry management with publication control
-        TermsRouter::class,          // Taxonomy term management with relationship tracking
-        GlobalsRouter::class,        // Global sets and site-wide configuration
-        ContentFacadeRouter::class,  // High-level content workflows and orchestration
-        ContentRouter::class,        // Legacy content router (deprecated - will be removed)
+    protected array $tools = [
+        // === Specialized Content Router Tools (4) ===
+        EntriesRouter::class,
+        TermsRouter::class,
+        GlobalsRouter::class,
+        ContentFacadeRouter::class,
 
-        // === Core System Router Tools (4) ===
-        // Each router consolidates multiple related operations into a single tool
-        StructuresRouter::class,     // Collections, taxonomies, navigations, sites
-        AssetsRouter::class,         // Asset containers and asset operations
-        UsersRouter::class,          // Users, roles, user groups management
-        SystemRouter::class,         // Cache, health, config, system operations
-        BlueprintsRouter::class,     // Blueprint operations (kept separate for complexity)
+        // === Core System Router Tools (5) ===
+        StructuresRouter::class,
+        AssetsRouter::class,
+        UsersRouter::class,
+        SystemRouter::class,
+        BlueprintsRouter::class,
 
         // === Agent Education Tools (2) ===
-        // Tools for agent discovery and schema exploration
-        DiscoveryTool::class,        // Intent-based tool discovery and recommendations
-        SchemaTool::class,           // Detailed tool schema inspection and documentation
+        DiscoveryTool::class,
+        SchemaTool::class,
     ];
 
     /**
      * The prompts that the server exposes.
      *
-     * @var array<int, class-string<\Laravel\Mcp\Server\Prompt>>
+     * @var array<int, class-string<Prompt>>
      */
-    public array $prompts = [];
-
-    /**
-     * Initialize the server with context-aware configuration.
-     */
-    public function __construct(\Laravel\Mcp\Server\Contracts\Transport $transport)
-    {
-        parent::__construct($transport);
-
-        // Only expose prompts for local/CLI context, not web
-        if ($this->isLocalContext()) {
-            $this->prompts = [
-                // Agent Education Prompts (CLI only)
-                AgentEducationPrompt::class,
-                ToolUsageContractPrompt::class,
-            ];
-        }
-    }
-
-    /**
-     * Get the server name.
-     */
-    public function name(): string
-    {
-        return 'Statamic MCP Server';
-    }
-
-    /**
-     * Get the server description.
-     */
-    public function description(): string
-    {
-        return 'Revolutionary MCP server for Statamic development with specialized router architecture and agent education system. Features 9 domain-specific routers + 2 specialized tools with self-documenting interfaces, intent-based discovery, and safety-first protocols for comprehensive CMS management.';
-    }
-
-    /**
-     * Get the server version.
-     */
-    public function version(): string
-    {
-        return '0.1.0-alpha';
-    }
+    protected array $prompts = [
+        AgentEducationPrompt::class,
+        ToolUsageContractPrompt::class,
+    ];
 
     /**
      * Boot the MCP server with proper error handling.
@@ -167,39 +149,10 @@ class StatamicMcpServer extends Server
         // Suppress Laravel deprecation warnings that might write to stdout
         if (class_exists('Illuminate\Support\Facades\Log')) {
             try {
-                \Illuminate\Support\Facades\Log::getLogger();
+                Log::getLogger();
             } catch (\Exception $e) {
                 // Ignore logging setup errors
             }
         }
-    }
-
-    /**
-     * Detect if running in local/CLI context vs web context.
-     */
-    private function isLocalContext(): bool
-    {
-        // Check if running via artisan command (local/CLI)
-        if (app()->runningInConsole()) {
-            return true;
-        }
-
-        // Check if we're in HTTP context with web MCP middleware
-        try {
-            $request = request();
-            if ($request->hasHeader('Authorization')) {
-                return false; // Web MCP request
-            }
-        } catch (\Exception $e) {
-            // Ignore request errors in CLI context
-        }
-
-        // Check for stdio transport (typically local MCP)
-        if (php_sapi_name() === 'cli') {
-            return true;
-        }
-
-        // Default to local for safety
-        return true;
     }
 }

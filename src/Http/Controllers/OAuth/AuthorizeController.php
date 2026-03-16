@@ -1,0 +1,303 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Cboxdk\StatamicMcp\Http\Controllers\OAuth;
+
+use Cboxdk\StatamicMcp\Auth\TokenScope;
+use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
+use Illuminate\Contracts\View\View;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Routing\Controller;
+use Statamic\Facades\User;
+
+class AuthorizeController extends Controller
+{
+    public function __construct(
+        private readonly OAuthDriver $oauthDriver,
+    ) {}
+
+    /**
+     * GET /mcp/oauth/authorize
+     *
+     * Display the OAuth consent screen for the user to approve/deny.
+     */
+    public function show(Request $request): View|RedirectResponse
+    {
+        // Check authentication — redirect to Statamic CP login if not logged in
+        $user = User::current();
+        if (! $user) {
+            // Set Laravel's intended URL — Statamic's LoginController calls
+            // redirect()->intended() after successful login, which will send
+            // the user back to this OAuth authorize URL with all params intact
+            redirect()->setIntendedUrl($request->fullUrl());
+
+            /** @var string $cpRoute */
+            $cpRoute = config('statamic.cp.route', 'cp');
+
+            return redirect($cpRoute . '/auth/login');
+        }
+
+        /** @var string $responseType */
+        $responseType = $request->query('response_type', '');
+
+        if ($responseType !== 'code') {
+            return $this->redirectWithError(
+                $request,
+                'unsupported_response_type',
+                'Only response_type=code is supported.',
+            );
+        }
+
+        /** @var string $clientId */
+        $clientId = $request->query('client_id', '');
+        $client = $this->oauthDriver->findClient($clientId);
+
+        if ($client === null) {
+            /** @phpstan-ignore return.type (abort returns never but PHPStan doesn't know) */
+            return abort(400, 'Unknown client_id.');
+        }
+
+        /** @var string $codeChallenge */
+        $codeChallenge = $request->query('code_challenge', '');
+
+        if ($codeChallenge === '') {
+            return $this->redirectWithError(
+                $request,
+                'invalid_request',
+                'The code_challenge parameter is required.',
+            );
+        }
+
+        /** @var string $codeChallengeMethod */
+        $codeChallengeMethod = $request->query('code_challenge_method', '');
+
+        if ($codeChallengeMethod !== 'S256') {
+            return $this->redirectWithError(
+                $request,
+                'invalid_request',
+                'Only code_challenge_method=S256 is supported.',
+            );
+        }
+
+        /** @var string $redirectUri */
+        $redirectUri = $request->query('redirect_uri', '');
+
+        if ($redirectUri === '' || ! in_array($redirectUri, $client->redirectUris, true)) {
+            /** @phpstan-ignore return.type (abort returns never but PHPStan doesn't know) */
+            return abort(400, 'Invalid redirect_uri.');
+        }
+
+        /** @var string $scope */
+        $scope = $request->query('scope', '');
+        $validScopeValues = array_map(
+            fn (TokenScope $s): string => $s->value,
+            TokenScope::cases(),
+        );
+
+        /** @var array<int, array{value: string, label: string}> $requestedScopes */
+        $requestedScopes = [];
+
+        if ($scope !== '') {
+            $scopeParts = explode(' ', $scope);
+
+            foreach ($scopeParts as $scopeValue) {
+                if (! in_array($scopeValue, $validScopeValues, true)) {
+                    return $this->redirectWithError(
+                        $request,
+                        'invalid_scope',
+                        "Unknown scope: {$scopeValue}",
+                        $redirectUri,
+                    );
+                }
+
+                $tokenScope = TokenScope::from($scopeValue);
+                $requestedScopes[] = [
+                    'value' => $tokenScope->value,
+                    'label' => $tokenScope->label(),
+                ];
+            }
+        }
+
+        // If no scopes requested, default to all scopes
+        if ($requestedScopes === []) {
+            foreach (TokenScope::cases() as $tokenScope) {
+                $requestedScopes[] = [
+                    'value' => $tokenScope->value,
+                    'label' => $tokenScope->label(),
+                ];
+            }
+        }
+
+        // Resource parameter (RFC 8707) — validate if present using request URL, not config
+        // This ensures proxies/tunnels (ngrok, cloudflare) work correctly
+        /** @var string $resource */
+        $resource = $request->query('resource', '');
+
+        if ($resource !== '') {
+            /** @var string $mcpPath */
+            $mcpPath = config('statamic.mcp.web.path', '/mcp/statamic');
+            $scheme = $request->getScheme();
+            $host = $request->getHost();
+            $expectedResource = $scheme . '://' . $host . $mcpPath;
+
+            // Also accept config-based URL as fallback
+            /** @var string $appUrl */
+            $appUrl = config('app.url', 'http://localhost');
+            $configResource = rtrim($appUrl, '/') . $mcpPath;
+
+            if ($resource !== $expectedResource && $resource !== $configResource) {
+                return $this->redirectWithError(
+                    $request,
+                    'invalid_request',
+                    'Invalid resource parameter.',
+                    $redirectUri,
+                );
+            }
+        }
+
+        /** @var string $state */
+        $state = $request->query('state', '');
+
+        /** @var array<int, string> $defaultScopes */
+        $defaultScopes = config('statamic.mcp.oauth.default_scopes', ['*']);
+
+        /** @var view-string $viewName */
+        $viewName = 'statamic-mcp::oauth.consent';
+
+        return view($viewName, [
+            'client' => $client,
+            'scopes' => $requestedScopes,
+            'defaultScopes' => $defaultScopes,
+            'oauthParams' => [
+                'client_id' => $clientId,
+                'redirect_uri' => $redirectUri,
+                'state' => $state,
+                'code_challenge' => $codeChallenge,
+                'code_challenge_method' => 'S256',
+                'scope' => $scope,
+            ],
+        ]);
+    }
+
+    /**
+     * POST /mcp/oauth/authorize
+     *
+     * Process the user's approval or denial of the OAuth authorization request.
+     */
+    public function approve(Request $request): RedirectResponse
+    {
+        /** @var string $clientId */
+        $clientId = $request->input('client_id', '');
+
+        /** @var string $redirectUri */
+        $redirectUri = $request->input('redirect_uri', '');
+
+        /** @var string $state */
+        $state = $request->input('state', '');
+
+        /** @var string $decision */
+        $decision = $request->input('decision', '');
+
+        // Validate client and redirect_uri BEFORE checking deny/approve
+        // to prevent open redirect via the deny path
+        $client = $this->oauthDriver->findClient($clientId);
+
+        if ($client === null) {
+            /** @phpstan-ignore return.type (abort returns never but PHPStan doesn't know) */
+            return abort(400, 'Unknown client_id.');
+        }
+
+        if (! in_array($redirectUri, $client->redirectUris, true)) {
+            /** @phpstan-ignore return.type (abort returns never but PHPStan doesn't know) */
+            return abort(400, 'Invalid redirect_uri.');
+        }
+
+        if ($decision !== 'approve') {
+            return redirect($redirectUri . '?' . http_build_query(array_filter([
+                'error' => 'access_denied',
+                'state' => $state,
+            ])));
+        }
+
+        $user = User::current();
+
+        if ($user === null) {
+            return redirect($redirectUri . '?' . http_build_query(array_filter([
+                'error' => 'access_denied',
+                'error_description' => 'No authenticated user.',
+                'state' => $state,
+            ])));
+        }
+
+        /** @var string $userId */
+        $userId = $user->id();
+
+        // Get originally requested scopes from the hidden form field (set by show())
+        /** @var string $originalScope */
+        $originalScope = is_string($request->input('scope', '')) ? $request->input('scope', '') : '';
+        $allowedScopes = array_filter(explode(' ', $originalScope));
+
+        // Get user-selected scopes from checkboxes
+        /** @var mixed $rawScopes */
+        $rawScopes = $request->input('scopes', []);
+        $selectedScopes = is_array($rawScopes) ? array_values(array_filter($rawScopes, 'is_string')) : [];
+
+        // Only allow scopes that were in the original request (prevent scope escalation)
+        /** @var array<int, string> $scopes */
+        $scopes = array_values(array_intersect($selectedScopes, $allowedScopes));
+        if (empty($scopes)) {
+            $scopes = $allowedScopes !== [] ? $allowedScopes : []; // Default to all originally requested
+        }
+
+        /** @var string $codeChallenge */
+        $codeChallenge = $request->input('code_challenge', '');
+
+        /** @var string $codeChallengeMethod */
+        $codeChallengeMethod = $request->input('code_challenge_method', 'S256');
+
+        $code = $this->oauthDriver->createAuthCode(
+            $clientId,
+            $userId,
+            $scopes,
+            $codeChallenge,
+            $codeChallengeMethod,
+            $redirectUri,
+        );
+
+        return redirect($redirectUri . '?' . http_build_query(array_filter([
+            'code' => $code,
+            'state' => $state,
+        ])));
+    }
+
+    /**
+     * Build a redirect response with an OAuth error.
+     */
+    private function redirectWithError(
+        Request $request,
+        string $error,
+        string $description,
+        ?string $redirectUri = null,
+    ): RedirectResponse {
+        $uri = $redirectUri;
+
+        if ($uri === null || $uri === '') {
+            /** @var string $fallback */
+            $fallback = $request->query('redirect_uri', '');
+            $uri = $fallback;
+        }
+
+        // If we still have no redirect URI, redirect back
+        if ($uri === '') {
+            return redirect()->back()->withErrors(['error' => $error, 'error_description' => $description]);
+        }
+
+        return redirect($uri . '?' . http_build_query(array_filter([
+            'error' => $error,
+            'error_description' => $description,
+            'state' => $request->query('state', ''),
+        ])));
+    }
+}

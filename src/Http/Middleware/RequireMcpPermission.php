@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Http\Middleware;
 
+use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Closure;
 use Illuminate\Http\Request;
+use Statamic\Contracts\Auth\User;
 use Symfony\Component\HttpFoundation\Response;
 
 class RequireMcpPermission
@@ -13,28 +15,34 @@ class RequireMcpPermission
     /**
      * Handle an incoming request.
      *
-     * @param  \Closure(\Illuminate\Http\Request): (\Symfony\Component\HttpFoundation\Response)  $next
+     * Checks that the authenticated user/token has appropriate MCP permissions.
+     *
+     * @param  Closure(Request): (Response)  $next
      */
     public function handle(Request $request, Closure $next): Response
     {
-        // Skip permission check if not required
-        if (! config('statamic.mcp.web.permissions.required', true)) {
-            return $next($request);
-        }
-
-        // Get authenticated user from previous middleware
         $user = $request->attributes->get('statamic_user');
 
-        // Check if user is authenticated
         if (! $user) {
             abort(401, 'Authentication required for MCP access');
         }
 
-        // Check if user has required permission
-        $requiredPermission = config('statamic.mcp.web.permissions.permission', 'access mcp');
+        // If authenticated via MCP token, scopes are checked at the tool level
+        // Just verify the token is still valid
+        /** @var McpTokenData|null $mcpToken */
+        $mcpToken = $request->attributes->get('mcp_token');
 
-        if (! $user->can($requiredPermission)) {
-            abort(403, "Permission '{$requiredPermission}' required for MCP access");
+        if ($mcpToken && $mcpToken->expiresAt !== null && now()->greaterThan($mcpToken->expiresAt)) {
+            abort(401, 'MCP token has expired');
+        }
+
+        // For Basic Auth users (no token), require CP access
+        if (! $mcpToken) {
+            /** @var User|null $statamicUser */
+            $statamicUser = $user;
+            if (! $statamicUser || ! $statamicUser->hasPermission('access cp')) {
+                abort(403, 'CP access required for MCP operations');
+            }
         }
 
         return $next($request);

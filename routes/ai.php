@@ -1,6 +1,7 @@
 <?php
 
 use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
+use Laravel\Mcp\Facades\Mcp;
 
 /*
 |--------------------------------------------------------------------------
@@ -18,14 +19,14 @@ if (! app()->runningUnitTests() && class_exists('Laravel\Mcp\Facades\Mcp')) {
     try {
         // Capture any output during registration
         ob_start();
-        \Laravel\Mcp\Facades\Mcp::local('statamic', StatamicMcpServer::class);
+        Mcp::local('statamic', StatamicMcpServer::class);
         $output = ob_get_clean();
 
         // Send any non-JSON output to stderr
         if (! empty(trim($output)) && ! str_contains($output, '"jsonrpc"')) {
             fwrite(STDERR, "MCP Registration output: $output\n");
         }
-    } catch (\Exception $e) {
+    } catch (Exception $e) {
         fwrite(STDERR, 'MCP Registration error: ' . $e->getMessage() . "\n");
     }
 }
