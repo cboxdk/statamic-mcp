@@ -622,7 +622,7 @@ class EntriesRouter extends BaseRouter
         }
     }
 
-    protected function getActions(): array
+    public function getActions(): array
     {
         return [
             'list' => 'List entries with filtering and pagination',
@@ -635,7 +635,7 @@ class EntriesRouter extends BaseRouter
         ];
     }
 
-    protected function getTypes(): array
+    public function getTypes(): array
     {
         return [
             'entry' => 'Collection-based content items',

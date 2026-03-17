@@ -68,7 +68,7 @@ class OAuthTokenController extends Controller
         try {
             $authCode = $this->oauthDriver->exchangeCode($code, $codeVerifier, $clientId, $redirectUri);
         } catch (OAuthException $e) {
-            return response()->json($e->toOAuthResponse(), $e->getCode() ?: 400);
+            return response()->json($e->toOAuthResponse(), $e->httpStatus);
         }
 
         $client = $this->oauthDriver->findClient($clientId);
@@ -79,6 +79,9 @@ class OAuthTokenController extends Controller
         $expiresAt = Carbon::now()->addSeconds($tokenTtl);
 
         $scopes = TokenScope::resolveMany($authCode->scopes);
+
+        // Revoke previous access tokens for this client+user to prevent accumulation
+        $this->tokenService->revokeOAuthTokens($authCode->userId, $clientId);
 
         $result = $this->tokenService->createToken(
             $authCode->userId,
@@ -126,7 +129,7 @@ class OAuthTokenController extends Controller
         try {
             $authCode = $this->oauthDriver->exchangeRefreshToken($refreshToken, $clientId);
         } catch (OAuthException $e) {
-            return response()->json($e->toOAuthResponse(), $e->getCode() ?: 400);
+            return response()->json($e->toOAuthResponse(), $e->httpStatus);
         }
 
         $client = $this->oauthDriver->findClient($clientId);
@@ -137,6 +140,9 @@ class OAuthTokenController extends Controller
         $expiresAt = Carbon::now()->addSeconds($tokenTtl);
 
         $scopes = TokenScope::resolveMany($authCode->scopes);
+
+        // Revoke previous access tokens for this client+user to prevent accumulation
+        $this->tokenService->revokeOAuthTokens($authCode->userId, $clientId);
 
         $result = $this->tokenService->createToken(
             $authCode->userId,

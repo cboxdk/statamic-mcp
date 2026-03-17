@@ -6,12 +6,15 @@ namespace Cboxdk\StatamicMcp\OAuth\Exceptions;
 
 class OAuthException extends \RuntimeException
 {
+    public readonly int $httpStatus;
+
     public function __construct(
         public readonly string $errorCode,
         string $description,
         int $httpStatus = 400,
     ) {
-        parent::__construct($description, $httpStatus);
+        $this->httpStatus = $httpStatus;
+        parent::__construct($description);
     }
 
     /** @return array{error: string, error_description: string} */

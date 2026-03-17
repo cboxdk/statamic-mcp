@@ -587,7 +587,7 @@ class TermsRouter extends BaseRouter
         }
     }
 
-    protected function getActions(): array
+    public function getActions(): array
     {
         return [
             'list' => 'List terms with filtering and pagination',
@@ -598,7 +598,7 @@ class TermsRouter extends BaseRouter
         ];
     }
 
-    protected function getTypes(): array
+    public function getTypes(): array
     {
         return [
             'term' => 'Taxonomy classification items',

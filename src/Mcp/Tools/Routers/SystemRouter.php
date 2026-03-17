@@ -31,7 +31,7 @@ class SystemRouter extends BaseRouter
         return 'system';
     }
 
-    protected function getActions(): array
+    public function getActions(): array
     {
         return [
             'info' => 'Get comprehensive system information and status',
@@ -44,7 +44,7 @@ class SystemRouter extends BaseRouter
         ];
     }
 
-    protected function getTypes(): array
+    public function getTypes(): array
     {
         return [
             'system' => 'Overall system information and status',

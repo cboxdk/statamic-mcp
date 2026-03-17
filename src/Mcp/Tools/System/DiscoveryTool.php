@@ -13,7 +13,6 @@ use Illuminate\JsonSchema\JsonSchema;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
-use ReflectionClass;
 use Statamic\Facades\AssetContainer;
 use Statamic\Facades\Collection;
 use Statamic\Facades\GlobalSet;
@@ -216,24 +215,16 @@ class DiscoveryTool extends BaseStatamicTool
                     continue;
                 }
 
+                /** @var object $instance */
                 $instance = app()->make($className);
-                $reflection = new ReflectionClass($className);
 
-                $actions = [];
-                if ($reflection->hasMethod('getActions')) {
-                    $method = $reflection->getMethod('getActions');
-                    $method->setAccessible(true);
-                    $result = $method->invoke($instance);
-                    $actions = is_array($result) ? array_keys($result) : [];
-                }
+                /** @var array<string, string> $actionsResult */
+                $actionsResult = method_exists($instance, 'getActions') ? $instance->getActions() : [];
+                $actions = array_keys($actionsResult);
 
-                $types = [];
-                if ($reflection->hasMethod('getTypes')) {
-                    $method = $reflection->getMethod('getTypes');
-                    $method->setAccessible(true);
-                    $result = $method->invoke($instance);
-                    $types = is_array($result) ? array_keys($result) : [];
-                }
+                /** @var array<string, string> $typesResult */
+                $typesResult = method_exists($instance, 'getTypes') ? $instance->getTypes() : [];
+                $types = array_keys($typesResult);
 
                 $summary["statamic-{$domain}"] = [
                     'actions' => $actions,

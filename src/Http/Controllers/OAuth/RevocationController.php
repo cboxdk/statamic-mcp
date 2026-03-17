@@ -37,8 +37,8 @@ class RevocationController extends Controller
             ], 400);
         }
 
-        // Try to revoke as an access token first
-        $mcpToken = $this->tokenService->validateToken($token);
+        // Try to revoke as an access token first (without marking as "used")
+        $mcpToken = $this->tokenService->findByPlainText($token);
 
         if ($mcpToken !== null) {
             $this->tokenService->revokeToken($mcpToken->id);

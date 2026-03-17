@@ -29,7 +29,7 @@ class BlueprintsRouter extends BaseRouter
         return 'blueprints';
     }
 
-    protected function getActions(): array
+    public function getActions(): array
     {
         return [
             'list' => 'List blueprints in specific namespaces with optional details',
@@ -44,7 +44,7 @@ class BlueprintsRouter extends BaseRouter
         ];
     }
 
-    protected function getTypes(): array
+    public function getTypes(): array
     {
         return [
             'collections' => 'Blueprints for collection entries and content structure',

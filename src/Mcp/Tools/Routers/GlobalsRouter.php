@@ -145,13 +145,6 @@ class GlobalsRouter extends BaseRouter
     }
 
     /**
-     * Check permissions for web context.
-     *
-     * @param  array<string, mixed>  $arguments
-     *
-     * @return array<string, mixed>|null
-     */
-    /**
      * @param  array<string, mixed>  $arguments
      *
      * @return array<string>
@@ -354,7 +347,7 @@ class GlobalsRouter extends BaseRouter
         }
     }
 
-    protected function getActions(): array
+    public function getActions(): array
     {
         return [
             'list' => 'List global sets with values and pagination',
@@ -363,7 +356,7 @@ class GlobalsRouter extends BaseRouter
         ];
     }
 
-    protected function getTypes(): array
+    public function getTypes(): array
     {
         return [
             'GlobalSet' => 'Global set configuration object',

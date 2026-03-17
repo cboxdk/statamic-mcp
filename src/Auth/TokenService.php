@@ -168,6 +168,46 @@ class TokenService
     }
 
     /**
+     * Find a token by its plain-text value without marking it as used.
+     * Used by the revocation endpoint to look up tokens without polluting last_used_at.
+     */
+    public function findByPlainText(string $token): ?McpTokenData
+    {
+        $hashedToken = hash('sha256', $token);
+        $tokenData = $this->tokenStore->findByHash($hashedToken);
+
+        if ($tokenData === null) {
+            return null;
+        }
+
+        if (! hash_equals($tokenData->tokenHash, $hashedToken)) {
+            return null;
+        }
+
+        return $tokenData;
+    }
+
+    /**
+     * Revoke all tokens for a specific OAuth client and user.
+     * Used during token refresh to prevent accumulation of old access tokens.
+     */
+    public function revokeOAuthTokens(string $userId, string $oauthClientId): int
+    {
+        $tokens = $this->tokenStore->listForUser($userId);
+        $revoked = 0;
+
+        foreach ($tokens as $token) {
+            if ($token->oauthClientId === $oauthClientId) {
+                $this->tokenStore->delete($token->id);
+                McpTokenDeleted::dispatch($token->name);
+                $revoked++;
+            }
+        }
+
+        return $revoked;
+    }
+
+    /**
      * Revoke a specific token by its ID.
      */
     public function revokeToken(string $tokenId): bool

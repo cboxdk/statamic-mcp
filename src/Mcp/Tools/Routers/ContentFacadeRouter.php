@@ -30,7 +30,7 @@ class ContentFacadeRouter extends BaseRouter
         return 'content-facade';
     }
 
-    protected function getActions(): array
+    public function getActions(): array
     {
         return [
             'content_audit' => 'Scan all content for issues across collections, taxonomies, and globals',
@@ -38,7 +38,7 @@ class ContentFacadeRouter extends BaseRouter
         ];
     }
 
-    protected function getTypes(): array
+    public function getTypes(): array
     {
         return [
             'ContentAudit' => 'Result of content audit workflow',

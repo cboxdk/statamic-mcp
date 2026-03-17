@@ -32,7 +32,7 @@ class StructuresRouter extends BaseRouter
         return 'structures';
     }
 
-    protected function getActions(): array
+    public function getActions(): array
     {
         return [
             'list' => 'List structures by type with configuration details',
@@ -44,7 +44,7 @@ class StructuresRouter extends BaseRouter
         ];
     }
 
-    protected function getTypes(): array
+    public function getTypes(): array
     {
         return [
             'collection' => 'Content collections that organize entries',

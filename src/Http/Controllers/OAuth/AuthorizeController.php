@@ -44,6 +44,28 @@ class AuthorizeController extends Controller
             return redirect($cpRoute . '/auth/login');
         }
 
+        // Validate client and redirect_uri FIRST — before any redirect-based error
+        // responses. This prevents open redirect attacks where an attacker crafts a
+        // URL with redirect_uri=https://evil.com and triggers a validation error that
+        // redirects to the unvalidated URI.
+        /** @var string $clientId */
+        $clientId = $request->query('client_id', '');
+        $client = $this->oauthDriver->findClient($clientId);
+
+        if ($client === null) {
+            /** @phpstan-ignore return.type (abort returns never but PHPStan doesn't know) */
+            return abort(400, 'Unknown client_id.');
+        }
+
+        /** @var string $redirectUri */
+        $redirectUri = $request->query('redirect_uri', '');
+
+        if ($redirectUri === '' || ! in_array($redirectUri, $client->redirectUris, true)) {
+            /** @phpstan-ignore return.type (abort returns never but PHPStan doesn't know) */
+            return abort(400, 'Invalid redirect_uri.');
+        }
+
+        // Now safe to use redirect-based errors — redirect_uri is validated
         /** @var string $responseType */
         $responseType = $request->query('response_type', '');
 
@@ -52,16 +74,8 @@ class AuthorizeController extends Controller
                 $request,
                 'unsupported_response_type',
                 'Only response_type=code is supported.',
+                $redirectUri,
             );
-        }
-
-        /** @var string $clientId */
-        $clientId = $request->query('client_id', '');
-        $client = $this->oauthDriver->findClient($clientId);
-
-        if ($client === null) {
-            /** @phpstan-ignore return.type (abort returns never but PHPStan doesn't know) */
-            return abort(400, 'Unknown client_id.');
         }
 
         /** @var string $codeChallenge */
@@ -72,6 +86,7 @@ class AuthorizeController extends Controller
                 $request,
                 'invalid_request',
                 'The code_challenge parameter is required.',
+                $redirectUri,
             );
         }
 
@@ -83,15 +98,8 @@ class AuthorizeController extends Controller
                 $request,
                 'invalid_request',
                 'Only code_challenge_method=S256 is supported.',
+                $redirectUri,
             );
-        }
-
-        /** @var string $redirectUri */
-        $redirectUri = $request->query('redirect_uri', '');
-
-        if ($redirectUri === '' || ! in_array($redirectUri, $client->redirectUris, true)) {
-            /** @phpstan-ignore return.type (abort returns never but PHPStan doesn't know) */
-            return abort(400, 'Invalid redirect_uri.');
         }
 
         /** @var string $scope */
@@ -253,7 +261,7 @@ class AuthorizeController extends Controller
         /** @var array<int, string> $scopes */
         $scopes = array_values(array_intersect($selectedScopes, $allowedScopes));
         if (empty($scopes)) {
-            $scopes = $allowedScopes !== [] ? $allowedScopes : []; // Default to all originally requested
+            $scopes = $allowedScopes; // Default to all originally requested
         }
 
         /** @var string $codeChallenge */

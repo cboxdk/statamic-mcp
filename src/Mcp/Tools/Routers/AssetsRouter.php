@@ -26,7 +26,7 @@ class AssetsRouter extends BaseRouter
         return 'assets';
     }
 
-    protected function getActions(): array
+    public function getActions(): array
     {
         return [
             'list' => 'List assets or containers with filtering options',
@@ -40,7 +40,7 @@ class AssetsRouter extends BaseRouter
         ];
     }
 
-    protected function getTypes(): array
+    public function getTypes(): array
     {
         return [
             'container' => 'Asset containers that organize and store assets',

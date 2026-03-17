@@ -28,7 +28,7 @@ class UsersRouter extends BaseRouter
         return 'users';
     }
 
-    protected function getActions(): array
+    public function getActions(): array
     {
         return [
             'list' => 'List users, roles, or groups with filtering',
@@ -44,7 +44,7 @@ class UsersRouter extends BaseRouter
         ];
     }
 
-    protected function getTypes(): array
+    public function getTypes(): array
     {
         return [
             'user' => 'Statamic user accounts with authentication and authorization',
