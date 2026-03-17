@@ -12,15 +12,14 @@ use Cboxdk\StatamicMcp\Mcp\Tools\Routers\GlobalsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\TermsRouter;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
 use Statamic\Facades\Collection;
 
-beforeEach(function () {
-    $migration = include __DIR__ . '/../../../database/migrations/tokens/create_mcp_tokens_table.php';
-    $migration->up();
+uses(RefreshDatabase::class);
 
-    $oauthMeta = include __DIR__ . '/../../../database/migrations/tokens/add_oauth_metadata_to_mcp_tokens_table.php';
-    $oauthMeta->up();
+beforeEach(function () {
+    $this->loadMigrationsFrom(__DIR__ . '/../../../database/migrations/tokens');
 
     // Enable web MCP endpoint for permission testing
     Config::set('statamic.mcp.web.enabled', true);

@@ -13,11 +13,13 @@ use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Cboxdk\StatamicMcp\Tests\Concerns\CreatesTestContent;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
 
 class ScopeEnforcementTest extends TestCase
 {
     use CreatesTestContent;
+    use RefreshDatabase;
 
     private string $collectionHandle;
 
@@ -25,12 +27,7 @@ class ScopeEnforcementTest extends TestCase
     {
         parent::setUp();
 
-        // Run token migration
-        $migration = include __DIR__ . '/../../database/migrations/tokens/create_mcp_tokens_table.php';
-        $migration->up();
-
-        $oauthMeta = include __DIR__ . '/../../database/migrations/tokens/add_oauth_metadata_to_mcp_tokens_table.php';
-        $oauthMeta->up();
+        $this->loadMigrationsFrom(__DIR__ . '/../../database/migrations/tokens');
 
         // Enable web context
         Config::set('statamic.mcp.web.enabled', true);

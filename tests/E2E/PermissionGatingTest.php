@@ -12,12 +12,14 @@ use Cboxdk\StatamicMcp\Mcp\Tools\Routers\EntriesRouter;
 use Cboxdk\StatamicMcp\Storage\Tokens\DatabaseTokenStore;
 use Cboxdk\StatamicMcp\Tests\Concerns\CreatesAuthenticatedUser;
 use Cboxdk\StatamicMcp\Tests\TestCase;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
 use Statamic\Facades\Collection;
 
 class PermissionGatingTest extends TestCase
 {
     use CreatesAuthenticatedUser;
+    use RefreshDatabase;
 
     public function test_regular_user_denied_admin_page(): void
     {
@@ -61,15 +63,7 @@ class PermissionGatingTest extends TestCase
 
     public function test_expired_token_is_rejected_by_token_service(): void
     {
-        // Run token migrations
-        $create = include __DIR__ . '/../../database/migrations/tokens/create_mcp_tokens_table.php';
-        $create->up();
-
-        $addIndex = include __DIR__ . '/../../database/migrations/tokens/add_unique_token_index_to_mcp_tokens_table.php';
-        $addIndex->up();
-
-        $oauthMeta = include __DIR__ . '/../../database/migrations/tokens/add_oauth_metadata_to_mcp_tokens_table.php';
-        $oauthMeta->up();
+        $this->loadMigrationsFrom(__DIR__ . '/../../database/migrations/tokens');
 
         $this->app->singleton(TokenStore::class, DatabaseTokenStore::class);
 

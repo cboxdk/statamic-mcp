@@ -10,9 +10,12 @@ use Cboxdk\StatamicMcp\Storage\Audit\FileAuditStore;
 use Cboxdk\StatamicMcp\Storage\Tokens\DatabaseTokenStore;
 use Cboxdk\StatamicMcp\Storage\Tokens\FileTokenStore;
 use Cboxdk\StatamicMcp\Tests\TestCase;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 
 class MigrationRoundtripTest extends TestCase
 {
+    use RefreshDatabase;
+
     private string $tempDir;
 
     private string $tempAuditPath;
@@ -26,19 +29,8 @@ class MigrationRoundtripTest extends TestCase
 
         $this->tempAuditPath = sys_get_temp_dir() . '/statamic-mcp-roundtrip-audit-' . uniqid() . '.log';
 
-        // Run token migrations in correct order
-        $create = include __DIR__ . '/../../database/migrations/tokens/create_mcp_tokens_table.php';
-        $create->up();
-
-        $addIndex = include __DIR__ . '/../../database/migrations/tokens/add_unique_token_index_to_mcp_tokens_table.php';
-        $addIndex->up();
-
-        $oauthMeta = include __DIR__ . '/../../database/migrations/tokens/add_oauth_metadata_to_mcp_tokens_table.php';
-        $oauthMeta->up();
-
-        // Run audit migrations
-        $audit = include __DIR__ . '/../../database/migrations/audit/create_mcp_audit_logs_table.php';
-        $audit->up();
+        $this->loadMigrationsFrom(__DIR__ . '/../../database/migrations/tokens');
+        $this->loadMigrationsFrom(__DIR__ . '/../../database/migrations/audit');
     }
 
     protected function tearDown(): void

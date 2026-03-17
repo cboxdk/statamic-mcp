@@ -8,6 +8,7 @@ use Cboxdk\StatamicMcp\Http\Middleware\AuthenticateForMcp;
 use Cboxdk\StatamicMcp\Http\Middleware\RequireMcpPermission;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Illuminate\Contracts\Auth\Access\Authorizable;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -17,12 +18,10 @@ use Statamic\Facades\User;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
-beforeEach(function () {
-    $migration = include __DIR__ . '/../../../database/migrations/tokens/create_mcp_tokens_table.php';
-    $migration->up();
+uses(RefreshDatabase::class);
 
-    $oauthMeta = include __DIR__ . '/../../../database/migrations/tokens/add_oauth_metadata_to_mcp_tokens_table.php';
-    $oauthMeta->up();
+beforeEach(function () {
+    $this->loadMigrationsFrom(__DIR__ . '/../../../database/migrations/tokens');
 
     $this->tokenService = app(TokenService::class);
     $this->passThrough = fn (Request $request): Response => response()->json(['ok' => true]);

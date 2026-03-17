@@ -45,7 +45,14 @@ jobs:
       - name: Create test user
         working-directory: site
         run: |
-          php artisan statamic:make:user --email=test@example.com --password=password --super
+          mkdir -p users
+          HASH=$(php -r "echo password_hash('password', PASSWORD_BCRYPT);")
+          cat > users/test@example.com.yaml <<YAML
+          name: Test User
+          super: true
+          password_hash: "$HASH"
+          YAML
+          php artisan statamic:stache:clear
 
       - name: Build addon frontend
         working-directory: addon

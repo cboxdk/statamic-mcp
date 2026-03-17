@@ -8,24 +8,18 @@ use Cboxdk\StatamicMcp\Contracts\TokenStore;
 use Cboxdk\StatamicMcp\Storage\Tokens\DatabaseTokenStore;
 use Cboxdk\StatamicMcp\Tests\Concerns\CreatesAuthenticatedUser;
 use Cboxdk\StatamicMcp\Tests\TestCase;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 
 class TokenLifecycleTest extends TestCase
 {
     use CreatesAuthenticatedUser;
+    use RefreshDatabase;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        // Run token migrations for database-backed token operations
-        $create = include __DIR__ . '/../../database/migrations/tokens/create_mcp_tokens_table.php';
-        $create->up();
-
-        $addIndex = include __DIR__ . '/../../database/migrations/tokens/add_unique_token_index_to_mcp_tokens_table.php';
-        $addIndex->up();
-
-        $oauthMeta = include __DIR__ . '/../../database/migrations/tokens/add_oauth_metadata_to_mcp_tokens_table.php';
-        $oauthMeta->up();
+        $this->loadMigrationsFrom(__DIR__ . '/../../database/migrations/tokens');
 
         $this->app->singleton(TokenStore::class, DatabaseTokenStore::class);
     }

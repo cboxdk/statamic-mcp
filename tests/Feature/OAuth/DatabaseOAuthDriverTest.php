@@ -11,10 +11,12 @@ use Cboxdk\StatamicMcp\OAuth\Models\OAuthClientModel;
 use Cboxdk\StatamicMcp\OAuth\Models\OAuthCodeModel;
 use Cboxdk\StatamicMcp\Tests\Concerns\OAuthDriverContractTests;
 use Cboxdk\StatamicMcp\Tests\TestCase;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 
 class DatabaseOAuthDriverTest extends TestCase
 {
     use OAuthDriverContractTests;
+    use RefreshDatabase;
 
     protected function setUp(): void
     {
