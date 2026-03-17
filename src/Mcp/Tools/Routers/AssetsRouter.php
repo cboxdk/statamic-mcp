@@ -31,12 +31,12 @@ class AssetsRouter extends BaseRouter
         return [
             'list' => 'List assets or containers with filtering options',
             'get' => 'Get specific asset or container details',
-            'create' => 'Create new asset containers or upload assets',
+            'create' => 'Create new asset containers or create assets from inline content (base64 or raw text)',
             'update' => 'Update asset metadata or container configuration',
             'delete' => 'Delete assets or containers',
             'move' => 'Move assets to different locations',
             'copy' => 'Copy assets to different locations',
-            'upload' => 'Upload new assets to containers',
+            'upload' => 'Upload a file to a container. Accepts base64-encoded content (for remote clients like ChatGPT) or a local file_path (for CLI clients)',
         ];
     }
 
@@ -61,7 +61,7 @@ class AssetsRouter extends BaseRouter
                     . 'delete (resource_type; container + path for assets, handle for containers), '
                     . 'move (resource_type=asset, container, path, destination), '
                     . 'copy (resource_type=asset, container, path, destination), '
-                    . 'upload (resource_type=asset, container, file_path OR content+encoding+filename)'
+                    . 'upload (resource_type=asset, container, content+encoding+filename for remote clients OR file_path for local CLI clients)'
                 )
                 ->enum(['list', 'get', 'create', 'update', 'delete', 'move', 'copy', 'upload'])
                 ->required(),
@@ -82,11 +82,11 @@ class AssetsRouter extends BaseRouter
             'filename' => JsonSchema::string()
                 ->description('Target filename for create/upload operations. Example: "logo.png", "document.pdf"'),
             'content' => JsonSchema::string()
-                ->description('File content for create/upload. Use with encoding=base64 for binary files. For remote MCP clients that cannot access the filesystem.'),
+                ->description('File content as a string. For binary files (images, PDFs): set encoding=base64 and pass the base64-encoded file data. For text files (CSV, JSON, HTML): use encoding=raw (default). Required for create action and for upload action when file_path is not available.'),
             'file_path' => JsonSchema::string()
-                ->description('Local file path for upload action (CLI clients only). Must be within storage/app directory.'),
+                ->description('Absolute path to a local file for upload action. Only works for CLI-based MCP clients with filesystem access. Must be within the storage/app directory. Not available for remote/web MCP clients — use content+encoding instead.'),
             'encoding' => JsonSchema::string()
-                ->description('Content encoding: base64 for binary files, raw for text files (default: raw)')
+                ->description('How the content parameter is encoded. Use "base64" for binary files like images and PDFs. Use "raw" for plain text files. Default: raw.')
                 ->enum(['base64', 'raw']),
             'include_details' => JsonSchema::boolean()
                 ->description('Include extended metadata (size, mime type, dimensions for images) in response'),
