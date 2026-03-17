@@ -25,16 +25,21 @@ class AuthorizeController extends Controller
      */
     public function show(Request $request): View|RedirectResponse
     {
-        // Check authentication — redirect to Statamic CP login if not logged in
+        // Check authentication — redirect to Statamic CP login if not logged in.
+        // This route uses statamic.cp middleware (session, CSRF, guard) but NOT
+        // statamic.cp.authenticated, so we handle auth here.
+        //
+        // We set url.intended so that after login, Statamic's authenticated() method
+        // calls redirect()->intended() which redirects straight to this authorize URL.
+        // This is reliable regardless of HTTP Referer headers — the server-side redirect
+        // goes to our consent page (a Blade view, not Inertia), and Inertia automatically
+        // does a full page visit when it encounters a non-Inertia response.
         $user = User::current();
         if (! $user) {
-            // Set Laravel's intended URL — Statamic's LoginController calls
-            // redirect()->intended() after successful login, which will send
-            // the user back to this OAuth authorize URL with all params intact
-            redirect()->setIntendedUrl($request->fullUrl());
-
             /** @var string $cpRoute */
             $cpRoute = config('statamic.cp.route', 'cp');
+
+            redirect()->setIntendedUrl($request->fullUrl());
 
             return redirect($cpRoute . '/auth/login');
         }

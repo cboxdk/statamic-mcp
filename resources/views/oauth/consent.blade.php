@@ -33,7 +33,7 @@
         <h1>Authorize {{ $client->clientName }}</h1>
         <p class="subtitle">This application wants access to your MCP server.</p>
 
-        <form method="POST" action="{{ route('mcp.oauth.approve') }}">
+        <form method="POST" action="{{ route('statamic.cp.statamic-mcp.oauth.approve') }}">
             @csrf
             <input type="hidden" name="client_id" value="{{ $oauthParams['client_id'] }}">
             <input type="hidden" name="redirect_uri" value="{{ $oauthParams['redirect_uri'] }}">

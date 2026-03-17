@@ -44,14 +44,25 @@ class AuthorizeEndpointTest extends TestCase
         ], $overrides);
     }
 
+    /**
+     * Get the authorize endpoint URL (under CP prefix).
+     */
+    private function authorizeUrl(string $query = ''): string
+    {
+        /** @var string $cpRoute */
+        $cpRoute = config('statamic.cp.route', 'cp');
+
+        $url = '/' . trim($cpRoute, '/') . '/mcp/oauth/authorize';
+
+        return $query !== '' ? $url . '?' . $query : $url;
+    }
+
     public function test_get_authorize_without_auth_is_rejected(): void
     {
-        $response = $this->get('/mcp/oauth/authorize?' . http_build_query($this->validParams()));
+        $response = $this->get($this->authorizeUrl(http_build_query($this->validParams())));
 
-        // In a real Statamic app this redirects to login; in the test environment
-        // the 'login' named route may not exist, resulting in a 500. Either way,
-        // the unauthenticated user must NOT see a 200 consent page.
-        $this->assertNotEquals(200, $response->getStatusCode());
+        // Unauthenticated user should be redirected to login, not see a 200 consent page.
+        $response->assertRedirect();
     }
 
     public function test_get_authorize_with_valid_params_shows_consent_page(): void
@@ -61,7 +72,7 @@ class AuthorizeEndpointTest extends TestCase
         $user->save();
 
         $response = $this->actingAs($user, 'web')
-            ->get('/mcp/oauth/authorize?' . http_build_query($this->validParams()));
+            ->get($this->authorizeUrl(http_build_query($this->validParams())));
 
         $response->assertOk();
     }
@@ -75,7 +86,7 @@ class AuthorizeEndpointTest extends TestCase
         $params = $this->validParams(['client_id' => 'nonexistent_client']);
 
         $response = $this->actingAs($user, 'web')
-            ->get('/mcp/oauth/authorize?' . http_build_query($params));
+            ->get($this->authorizeUrl(http_build_query($params)));
 
         $response->assertStatus(400);
     }
@@ -90,7 +101,7 @@ class AuthorizeEndpointTest extends TestCase
         unset($params['code_challenge']);
 
         $response = $this->actingAs($user, 'web')
-            ->get('/mcp/oauth/authorize?' . http_build_query($params));
+            ->get($this->authorizeUrl(http_build_query($params)));
 
         $response->assertRedirect();
         $location = $response->headers->get('Location', '');
@@ -106,7 +117,7 @@ class AuthorizeEndpointTest extends TestCase
         $params = $this->validParams(['code_challenge_method' => 'plain']);
 
         $response = $this->actingAs($user, 'web')
-            ->get('/mcp/oauth/authorize?' . http_build_query($params));
+            ->get($this->authorizeUrl(http_build_query($params)));
 
         $response->assertRedirect();
         $location = $response->headers->get('Location', '');
@@ -122,7 +133,7 @@ class AuthorizeEndpointTest extends TestCase
         $params = $this->validParams(['response_type' => 'token']);
 
         $response = $this->actingAs($user, 'web')
-            ->get('/mcp/oauth/authorize?' . http_build_query($params));
+            ->get($this->authorizeUrl(http_build_query($params)));
 
         $response->assertRedirect();
         $location = $response->headers->get('Location', '');
@@ -138,7 +149,7 @@ class AuthorizeEndpointTest extends TestCase
         $params = $this->validParams(['scope' => 'content:read invalid:scope']);
 
         $response = $this->actingAs($user, 'web')
-            ->get('/mcp/oauth/authorize?' . http_build_query($params));
+            ->get($this->authorizeUrl(http_build_query($params)));
 
         $response->assertRedirect();
         $location = $response->headers->get('Location', '');
@@ -152,7 +163,7 @@ class AuthorizeEndpointTest extends TestCase
         $user->save();
 
         $response = $this->actingAs($user, 'web')
-            ->post('/mcp/oauth/authorize', [
+            ->post($this->authorizeUrl(), [
                 'client_id' => $this->testClient->clientId,
                 'redirect_uri' => $this->validRedirectUri,
                 'state' => 'test-state-456',
@@ -176,7 +187,7 @@ class AuthorizeEndpointTest extends TestCase
         $user->save();
 
         $response = $this->actingAs($user, 'web')
-            ->post('/mcp/oauth/authorize', [
+            ->post($this->authorizeUrl(), [
                 'client_id' => $this->testClient->clientId,
                 'redirect_uri' => $this->validRedirectUri,
                 'state' => 'test-state-789',

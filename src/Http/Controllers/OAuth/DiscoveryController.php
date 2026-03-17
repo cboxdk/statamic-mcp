@@ -51,7 +51,7 @@ class DiscoveryController extends Controller
 
         return response()->json([
             'issuer' => $baseUrl,
-            'authorization_endpoint' => $baseUrl . '/mcp/oauth/authorize',
+            'authorization_endpoint' => $baseUrl . '/' . trim((string) config('statamic.cp.route', 'cp'), '/') . '/mcp/oauth/authorize',
             'token_endpoint' => $baseUrl . '/mcp/oauth/token',
             'registration_endpoint' => $baseUrl . '/mcp/oauth/register',
             'scopes_supported' => $scopes,

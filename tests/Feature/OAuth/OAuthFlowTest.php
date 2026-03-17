@@ -70,14 +70,18 @@ class OAuthFlowTest extends TestCase
             'state' => 'test123',
         ]);
 
+        /** @var string $cpRoute */
+        $cpRoute = config('statamic.cp.route', 'cp');
+        $authorizeUrl = '/' . trim($cpRoute, '/') . '/mcp/oauth/authorize';
+
         $consentResponse = $this->actingAs($user, 'web')
-            ->get('/mcp/oauth/authorize?' . $authorizeParams);
+            ->get($authorizeUrl . '?' . $authorizeParams);
 
         $consentResponse->assertOk();
 
         // ── Step 7: POST Authorize (Approve) ──
         $approveResponse = $this->actingAs($user, 'web')
-            ->post('/mcp/oauth/authorize', [
+            ->post($authorizeUrl, [
                 'decision' => 'approve',
                 'client_id' => $clientId,
                 'redirect_uri' => $redirectUri,

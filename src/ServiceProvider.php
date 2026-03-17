@@ -11,6 +11,7 @@ use Cboxdk\StatamicMcp\Console\PruneAuditCommand;
 use Cboxdk\StatamicMcp\Console\PruneExpiredTokensCommand;
 use Cboxdk\StatamicMcp\Console\PruneOAuthCommand;
 use Cboxdk\StatamicMcp\Contracts\AuditStore;
+use Cboxdk\StatamicMcp\Http\Controllers\OAuth\AuthorizeController;
 use Cboxdk\StatamicMcp\Http\Middleware\AuthenticateForMcp;
 use Cboxdk\StatamicMcp\Http\Middleware\EnsureSecureTransport;
 use Cboxdk\StatamicMcp\Http\Middleware\HandleMcpCors;
@@ -71,6 +72,7 @@ class ServiceProvider extends AddonServiceProvider
 
         // Register OAuth routes (independent of MCP availability)
         $this->registerOAuthRoutes();
+        $this->registerOAuthAuthorizeRoutes();
 
         $this->publishes([
             __DIR__ . '/../config/statamic/mcp.php' => config_path('statamic/mcp.php'),
@@ -258,6 +260,42 @@ class ServiceProvider extends AddonServiceProvider
         }
 
         $this->loadRoutesFrom(__DIR__ . '/../routes/oauth.php');
+    }
+
+    /**
+     * Register OAuth authorize routes under the CP prefix.
+     *
+     * These use `statamic.cp` middleware (session, CSRF, auth guard) but NOT
+     * `statamic.cp.authenticated`, so the controller can store the intended URL
+     * in the session before redirecting unauthenticated users to login.
+     *
+     * This is necessary because Statamic's auth middleware throws an exception
+     * that bypasses StartSession::storeCurrentUrl(), losing the session fallback
+     * for url()->previous(). By handling auth in the controller and returning a
+     * normal redirect response, StartSession stores the authorize URL reliably.
+     */
+    protected function registerOAuthAuthorizeRoutes(): void
+    {
+        if (! config('statamic.mcp.oauth.enabled', true)) {
+            return;
+        }
+
+        /** @var string $cpRoute */
+        $cpRoute = config('statamic.cp.route', 'cp');
+
+        Route::prefix(trim($cpRoute, '/') . '/mcp')
+            ->middleware('statamic.cp')
+            ->name('statamic.cp.statamic-mcp.')
+            ->group(function (): void {
+                // GET: Controller handles auth check itself (no statamic.cp.authenticated)
+                Route::get('/oauth/authorize', [AuthorizeController::class, 'show'])
+                    ->name('oauth.authorize');
+
+                // POST: Requires authenticated user (consent form submission)
+                Route::post('/oauth/authorize', [AuthorizeController::class, 'approve'])
+                    ->middleware('statamic.cp.authenticated')
+                    ->name('oauth.approve');
+            });
     }
 
     /**

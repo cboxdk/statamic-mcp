@@ -1,6 +1,5 @@
 <?php
 
-use Cboxdk\StatamicMcp\Http\Controllers\OAuth\AuthorizeController;
 use Cboxdk\StatamicMcp\Http\Controllers\OAuth\DiscoveryController;
 use Cboxdk\StatamicMcp\Http\Controllers\OAuth\OAuthTokenController;
 use Cboxdk\StatamicMcp\Http\Controllers\OAuth\RegistrationController;
@@ -30,10 +29,6 @@ Route::post('/mcp/oauth/token', [OAuthTokenController::class, 'store'])->middlew
 // Token Revocation (RFC 7009)
 Route::post('/mcp/oauth/revoke', [RevocationController::class, 'revoke'])->middleware('throttle:20,1');
 
-// Authorization Endpoint (requires authenticated user session)
-// Uses 'web' middleware for session + CSRF. Auth check is handled in the controller
-// to redirect to Statamic's CP login (not Laravel's default 'login' route).
-Route::middleware(['web'])->group(function () {
-    Route::get('/mcp/oauth/authorize', [AuthorizeController::class, 'show'])->name('mcp.oauth.authorize');
-    Route::post('/mcp/oauth/authorize', [AuthorizeController::class, 'approve'])->name('mcp.oauth.approve');
-});
+// Authorization endpoints are registered in ServiceProvider::registerOAuthAuthorizeRoutes()
+// under CP prefix with statamic.cp middleware (but without statamic.cp.authenticated)
+// so the controller can store the intended URL before redirecting to login.
