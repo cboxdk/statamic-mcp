@@ -252,6 +252,10 @@ class AuthorizeController extends Controller
         $originalScope = is_string($request->input('scope', '')) ? $request->input('scope', '') : '';
         $allowedScopes = array_filter(explode(' ', $originalScope));
 
+        if ($allowedScopes === []) {
+            $allowedScopes = array_map(fn (TokenScope $s): string => $s->value, TokenScope::cases());
+        }
+
         // Get user-selected scopes from checkboxes
         /** @var mixed $rawScopes */
         $rawScopes = $request->input('scopes', []);

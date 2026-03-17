@@ -64,7 +64,7 @@ class RegistrationController extends Controller
         try {
             $client = $this->driver->registerClient(trim($clientName), $redirectUris);
         } catch (OAuthException $e) {
-            return response()->json($e->toOAuthResponse(), $e->getCode() ?: 400);
+            return response()->json($e->toOAuthResponse(), $e->httpStatus);
         }
 
         return response()->json([

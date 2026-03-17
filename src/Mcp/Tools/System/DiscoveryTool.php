@@ -70,7 +70,6 @@ class DiscoveryTool extends BaseStatamicTool
         }
 
         return [
-            'success' => true,
             'discovery' => [
                 'recommended_tools' => $this->matchTools($intent),
                 'system_state' => $this->getSystemState(),

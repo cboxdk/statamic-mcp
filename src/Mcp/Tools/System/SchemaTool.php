@@ -117,9 +117,9 @@ class SchemaTool extends BaseStatamicTool
             ],
             'statamic-content-facade' => [
                 'domain' => 'workflow',
-                'actions' => ['execute'],
-                'key_params' => ['workflow (setup_collection|bulk_import|content_audit|cross_reference|duplicate_content)', 'collection', 'data'],
-                'write' => true,
+                'actions' => ['content_audit', 'cross_reference'],
+                'key_params' => ['filters'],
+                'write' => false,
             ],
             'statamic-system-discover' => [
                 'domain' => 'education',

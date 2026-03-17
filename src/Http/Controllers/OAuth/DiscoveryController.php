@@ -54,6 +54,7 @@ class DiscoveryController extends Controller
             'authorization_endpoint' => $baseUrl . '/' . trim((string) config('statamic.cp.route', 'cp'), '/') . '/mcp/oauth/authorize',
             'token_endpoint' => $baseUrl . '/mcp/oauth/token',
             'registration_endpoint' => $baseUrl . '/mcp/oauth/register',
+            'revocation_endpoint' => $baseUrl . '/mcp/oauth/revoke',
             'scopes_supported' => $scopes,
             'response_types_supported' => ['code'],
             'grant_types_supported' => ['authorization_code', 'refresh_token'],

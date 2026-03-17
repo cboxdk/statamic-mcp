@@ -789,8 +789,7 @@ Web MCP endpoints use scoped API tokens for fine-grained access control:
 - `globals:read` / `globals:write` - Global set operations
 - `blueprints:read` / `blueprints:write` - Blueprint management
 - `system:read` / `system:write` - System operations
-- `navigation:read` / `navigation:write` - Navigation management
-- `forms:read` - Form data access
+- `structures:read` / `structures:write` - Navigation management
 - `*` - Wildcard (all permissions)
 
 ## Usage Patterns
