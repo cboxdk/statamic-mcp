@@ -31,9 +31,9 @@ class AuthenticateForMcp
         $request->attributes->set('mcp_correlation_id', $correlationId);
 
         /** @var int $rateLimitMax */
-        $rateLimitMax = config('statamic.mcp.security.rate_limit_max', 60);
+        $rateLimitMax = config('statamic.mcp.rate_limit.max_attempts', 60);
         /** @var int $rateLimitDecay */
-        $rateLimitDecay = config('statamic.mcp.security.rate_limit_decay', 60);
+        $rateLimitDecay = config('statamic.mcp.rate_limit.decay_minutes', 1);
 
         // Check if IP is locked out from failed auth attempts (atomic via RateLimiter)
         $ip = $request->ip() ?? 'unknown';

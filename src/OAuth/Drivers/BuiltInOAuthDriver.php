@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\OAuth\Drivers;
 
 use Carbon\Carbon;
+use Cboxdk\StatamicMcp\OAuth\Concerns\ValidatesRedirectUris;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
 use Cboxdk\StatamicMcp\OAuth\Exceptions\OAuthException;
 use Cboxdk\StatamicMcp\OAuth\OAuthAuthCode;
@@ -20,6 +21,8 @@ use Symfony\Component\Yaml\Yaml;
  */
 class BuiltInOAuthDriver implements OAuthDriver
 {
+    use ValidatesRedirectUris;
+
     private readonly string $clientsDir;
 
     private readonly string $codesDir;
@@ -102,7 +105,7 @@ class BuiltInOAuthDriver implements OAuthDriver
         ];
 
         $filePath = $this->clientsDir . '/' . $clientId . '.yaml';
-        file_put_contents($filePath, Yaml::dump($data, 2, 4, Yaml::DUMP_NULL_AS_TILDE));
+        file_put_contents($filePath, Yaml::dump($data, 2, 4, Yaml::DUMP_NULL_AS_TILDE), LOCK_EX);
 
         return $this->toClient($data);
     }
@@ -168,7 +171,7 @@ class BuiltInOAuthDriver implements OAuthDriver
         ];
 
         $filePath = $this->codesDir . '/' . $this->sanitizeFilename($codeHash) . '.json';
-        file_put_contents($filePath, (string) json_encode($data, JSON_PRETTY_PRINT));
+        file_put_contents($filePath, (string) json_encode($data, JSON_PRETTY_PRINT), LOCK_EX);
 
         return $code;
     }
@@ -293,7 +296,7 @@ class BuiltInOAuthDriver implements OAuthDriver
         ];
 
         $filePath = $this->refreshDir . '/' . $this->sanitizeFilename($tokenHash) . '.json';
-        file_put_contents($filePath, (string) json_encode($data, JSON_PRETTY_PRINT));
+        file_put_contents($filePath, (string) json_encode($data, JSON_PRETTY_PRINT), LOCK_EX);
 
         return $token;
     }
@@ -511,34 +514,5 @@ class BuiltInOAuthDriver implements OAuthDriver
             redirectUris: $redirectUris,
             createdAt: $createdAt,
         );
-    }
-
-    private function validateRedirectUri(string $uri): bool
-    {
-        $parsed = parse_url($uri);
-
-        if ($parsed === false || ! isset($parsed['scheme'], $parsed['host'])) {
-            return false;
-        }
-
-        // No fragments allowed
-        if (isset($parsed['fragment'])) {
-            return false;
-        }
-
-        $scheme = $parsed['scheme'];
-        $host = $parsed['host'];
-
-        // HTTPS is always allowed
-        if ($scheme === 'https') {
-            return true;
-        }
-
-        // HTTP is only allowed for localhost and 127.0.0.1
-        if ($scheme === 'http' && ($host === 'localhost' || $host === '127.0.0.1')) {
-            return true;
-        }
-
-        return false;
     }
 }

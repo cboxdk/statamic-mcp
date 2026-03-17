@@ -6,6 +6,7 @@ namespace Cboxdk\StatamicMcp\Http\Controllers\CP;
 
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
+use Cboxdk\StatamicMcp\Http\Controllers\CP\Concerns\ResolvesUserId;
 use Cboxdk\StatamicMcp\Services\ClientConfigGenerator;
 use Cboxdk\StatamicMcp\Services\StatsService;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
@@ -17,6 +18,8 @@ use Statamic\Http\Controllers\CP\CpController;
 
 class DashboardController extends CpController
 {
+    use ResolvesUserId;
+
     private StatsService $statsService;
 
     private TokenService $tokenService;
@@ -146,19 +149,6 @@ class DashboardController extends CpController
         }
 
         return $data;
-    }
-
-    /**
-     * Resolve the current authenticated user's ID.
-     */
-    private function resolveUserId(): string
-    {
-        $user = User::current();
-
-        /** @var string $userId */
-        $userId = $user ? $user->id() : '';
-
-        return $userId;
     }
 
     /**

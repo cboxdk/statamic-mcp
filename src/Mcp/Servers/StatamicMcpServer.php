@@ -106,40 +106,44 @@ class StatamicMcpServer extends Server
         ini_set('log_errors', '1');
         ini_set('error_log', 'php://stderr');
 
-        // Set custom error handler to ensure errors go to stderr
-        set_error_handler(function ($severity, $message, $file, $line) {
-            if (error_reporting() & $severity) {
-                fwrite(STDERR, "Error: {$message} in {$file} on line {$line}\n");
+        // Only override global error/exception handlers in CLI/stdio context
+        // to avoid hijacking Laravel's web error handling pipeline.
+        if (app()->runningInConsole()) {
+            // Set custom error handler to ensure errors go to stderr
+            set_error_handler(function ($severity, $message, $file, $line) {
+                if (error_reporting() & $severity) {
+                    fwrite(STDERR, "Error: {$message} in {$file} on line {$line}\n");
+                }
+
+                return true;
+            });
+
+            // Set custom exception handler
+            set_exception_handler(function ($exception) {
+                fwrite(STDERR, 'Exception: ' . $exception->getMessage() . "\n");
+                fwrite(STDERR, 'File: ' . $exception->getFile() . ' Line: ' . $exception->getLine() . "\n");
+                fwrite(STDERR, "Stack trace:\n" . $exception->getTraceAsString() . "\n");
+            });
+
+            // Capture and redirect output buffer to prevent contamination
+            if (ob_get_level() === 0) {
+                ob_start();
             }
 
-            return true;
-        });
-
-        // Set custom exception handler
-        set_exception_handler(function ($exception) {
-            fwrite(STDERR, 'Exception: ' . $exception->getMessage() . "\n");
-            fwrite(STDERR, 'File: ' . $exception->getFile() . ' Line: ' . $exception->getLine() . "\n");
-            fwrite(STDERR, "Stack trace:\n" . $exception->getTraceAsString() . "\n");
-        });
-
-        // Capture and redirect output buffer to prevent contamination
-        if (ob_get_level() === 0) {
-            ob_start();
-        }
-
-        // Register shutdown function to clean up any remaining output
-        register_shutdown_function(function () {
-            while (ob_get_level() > 0) {
-                $output = ob_get_clean();
-                if ($output !== false && ! empty(trim($output))) {
-                    $trimmed = trim($output);
-                    $isJsonRpc = str_starts_with($trimmed, '{"jsonrpc"') || str_starts_with($trimmed, '{"id"');
-                    if (! $isJsonRpc) {
-                        fwrite(STDERR, "Captured output: $output\n");
+            // Register shutdown function to clean up any remaining output
+            register_shutdown_function(function () {
+                while (ob_get_level() > 0) {
+                    $output = ob_get_clean();
+                    if ($output !== false && ! empty(trim($output))) {
+                        $trimmed = trim($output);
+                        $isJsonRpc = str_starts_with($trimmed, '{"jsonrpc"') || str_starts_with($trimmed, '{"id"');
+                        if (! $isJsonRpc) {
+                            fwrite(STDERR, "Captured output: $output\n");
+                        }
                     }
                 }
-            }
-        });
+            });
+        }
 
         // Suppress common PHP startup warnings
         if (function_exists('opcache_get_status')) {

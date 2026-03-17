@@ -68,6 +68,9 @@ return [
     'storage' => [
         'tokens_path' => storage_path('statamic-mcp/tokens'),
         'audit_path' => storage_path('statamic-mcp/audit.log'),
+        'oauth_clients_path' => storage_path('statamic-mcp/oauth/clients'),
+        'oauth_codes_path' => storage_path('statamic-mcp/oauth/codes'),
+        'oauth_refresh_path' => storage_path('statamic-mcp/oauth/refresh'),
     ],
 
     /*

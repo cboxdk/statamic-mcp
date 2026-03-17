@@ -4,16 +4,18 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Http\Controllers\CP;
 
+use Carbon\Carbon;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
+use Cboxdk\StatamicMcp\Http\Controllers\CP\Concerns\ResolvesUserId;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Carbon;
-use Statamic\Facades\User;
 use Statamic\Http\Controllers\CP\CpController;
 
 class TokenController extends CpController
 {
+    use ResolvesUserId;
+
     private TokenService $tokenService;
 
     public function __construct(Request $request, TokenService $tokenService)
@@ -46,7 +48,7 @@ class TokenController extends CpController
             ]),
         ]);
 
-        $scopes = $this->resolveScopes($validated['scopes']);
+        $scopes = TokenScope::resolveMany($validated['scopes']);
 
         if ($scopes === []) {
             return response()->json([
@@ -121,7 +123,7 @@ class TokenController extends CpController
         $scopes = null;
 
         if (isset($validated['scopes'])) {
-            $scopes = $this->resolveScopes($validated['scopes']);
+            $scopes = TokenScope::resolveMany($validated['scopes']);
 
             if ($scopes === []) {
                 return response()->json([
@@ -237,40 +239,5 @@ class TokenController extends CpController
         return response()->json([
             'message' => 'Token revoked successfully.',
         ]);
-    }
-
-    /**
-     * Resolve the current authenticated user's ID.
-     */
-    private function resolveUserId(): string
-    {
-        $user = User::current();
-
-        /** @var string $userId */
-        $userId = $user ? $user->id() : '';
-
-        return $userId;
-    }
-
-    /**
-     * Resolve scope strings into TokenScope enum instances.
-     *
-     * @param  array<int, string>  $scopeStrings
-     *
-     * @return array<int, TokenScope>
-     */
-    private function resolveScopes(array $scopeStrings): array
-    {
-        $scopes = [];
-
-        foreach ($scopeStrings as $scopeString) {
-            $scope = TokenScope::tryFrom($scopeString);
-
-            if ($scope !== null) {
-                $scopes[] = $scope;
-            }
-        }
-
-        return $scopes;
     }
 }

@@ -40,8 +40,7 @@ class ContentFacadeRouterTest extends TestCase
     public function test_content_audit_empty(): void
     {
         $result = $this->router->execute([
-            'action' => 'execute',
-            'workflow' => 'content_audit',
+            'action' => 'content_audit',
         ]);
 
         $this->assertTrue($result['success']);
@@ -64,8 +63,7 @@ class ContentFacadeRouterTest extends TestCase
             ->save();
 
         $result = $this->router->execute([
-            'action' => 'execute',
-            'workflow' => 'content_audit',
+            'action' => 'content_audit',
         ]);
 
         $this->assertTrue($result['success']);
@@ -75,8 +73,7 @@ class ContentFacadeRouterTest extends TestCase
     public function test_cross_reference_empty(): void
     {
         $result = $this->router->execute([
-            'action' => 'execute',
-            'workflow' => 'cross_reference',
+            'action' => 'cross_reference',
         ]);
 
         $this->assertTrue($result['success']);
@@ -87,24 +84,13 @@ class ContentFacadeRouterTest extends TestCase
         $this->assertArrayHasKey('relationships', $data);
     }
 
-    public function test_invalid_workflow(): void
+    public function test_invalid_action(): void
     {
         $result = $this->router->execute([
-            'action' => 'execute',
-            'workflow' => 'nonexistent',
+            'action' => 'nonexistent',
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('not supported', $result['errors'][0]);
-    }
-
-    public function test_missing_workflow(): void
-    {
-        $result = $this->router->execute([
-            'action' => 'execute',
-        ]);
-
-        $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Workflow is required', $result['errors'][0]);
+        $this->assertStringContainsString('Unknown action', $result['errors'][0]);
     }
 }

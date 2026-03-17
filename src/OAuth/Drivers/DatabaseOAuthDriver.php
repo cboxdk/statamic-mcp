@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\OAuth\Drivers;
 
 use Carbon\Carbon;
+use Cboxdk\StatamicMcp\OAuth\Concerns\ValidatesRedirectUris;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
 use Cboxdk\StatamicMcp\OAuth\Exceptions\OAuthException;
 use Cboxdk\StatamicMcp\OAuth\Models\OAuthClientModel;
@@ -22,6 +23,8 @@ use Cboxdk\StatamicMcp\OAuth\OAuthClient;
  */
 class DatabaseOAuthDriver implements OAuthDriver
 {
+    use ValidatesRedirectUris;
+
     /** @param array<int, string> $redirectUris */
     public function registerClient(string $clientName, array $redirectUris): OAuthClient
     {
@@ -275,34 +278,5 @@ class DatabaseOAuthDriver implements OAuthDriver
             redirectUris: $model->redirect_uris,
             createdAt: $model->created_at !== null ? Carbon::instance($model->created_at) : Carbon::now(),
         );
-    }
-
-    private function validateRedirectUri(string $uri): bool
-    {
-        $parsed = parse_url($uri);
-
-        if ($parsed === false || ! isset($parsed['scheme'], $parsed['host'])) {
-            return false;
-        }
-
-        // No fragments allowed
-        if (isset($parsed['fragment'])) {
-            return false;
-        }
-
-        $scheme = $parsed['scheme'];
-        $host = $parsed['host'];
-
-        // HTTPS is always allowed
-        if ($scheme === 'https') {
-            return true;
-        }
-
-        // HTTP is only allowed for localhost and 127.0.0.1
-        if ($scheme === 'http' && ($host === 'localhost' || $host === '127.0.0.1')) {
-            return true;
-        }
-
-        return false;
     }
 }

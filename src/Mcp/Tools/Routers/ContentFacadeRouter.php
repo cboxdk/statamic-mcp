@@ -33,7 +33,8 @@ class ContentFacadeRouter extends BaseRouter
     protected function getActions(): array
     {
         return [
-            'execute' => 'Execute content workflow',
+            'content_audit' => 'Scan all content for issues across collections, taxonomies, and globals',
+            'cross_reference' => 'Analyze relationships and dependencies between content types',
         ];
     }
 
@@ -48,14 +49,6 @@ class ContentFacadeRouter extends BaseRouter
     protected function defineSchema(JsonSchemaContract $schema): array
     {
         return array_merge(parent::defineSchema($schema), [
-            'workflow' => JsonSchema::string()
-                ->description(
-                    'Workflow to execute. "content_audit" scans all content for issues across collections/taxonomies/globals. '
-                    . '"cross_reference" analyzes relationships and dependencies between content types.'
-                )
-                ->enum(['content_audit', 'cross_reference'])
-                ->required(),
-
             'filters' => JsonSchema::object()
                 ->description('Optional filter conditions to narrow the workflow scope'),
         ]);
@@ -70,18 +63,7 @@ class ContentFacadeRouter extends BaseRouter
      */
     protected function executeAction(array $arguments): array
     {
-        $action = $arguments['action'];
-
-        // For facade router, action should always be 'execute' with workflow parameter
-        if ($action !== 'execute') {
-            return $this->createErrorResponse('Content facade only supports execute action with workflow parameter')->toArray();
-        }
-
-        $workflowRaw = $arguments['workflow'] ?? null;
-        if (! is_string($workflowRaw) || empty($workflowRaw)) {
-            return $this->createErrorResponse('Workflow is required for content facade operations')->toArray();
-        }
-        $workflow = $workflowRaw;
+        $action = is_string($arguments['action'] ?? null) ? $arguments['action'] : '';
 
         // Check if tool is enabled for current context
         if ($this->isWebContext() && ! $this->isWebToolEnabled()) {
@@ -90,17 +72,16 @@ class ContentFacadeRouter extends BaseRouter
 
         // Apply security checks for web context
         if ($this->isWebContext()) {
-            $permissionError = $this->checkWebPermissions($workflow, $arguments);
+            $permissionError = $this->checkWebPermissions($action, $arguments);
             if ($permissionError) {
                 return $permissionError;
             }
         }
 
-        // Execute workflow
-        return match ($workflow) {
+        return match ($action) {
             'content_audit' => $this->executeContentAudit($arguments),
             'cross_reference' => $this->executeCrossReference($arguments),
-            default => $this->createErrorResponse("Workflow {$workflow} not supported")->toArray(),
+            default => $this->createErrorResponse("Unknown action: {$action}")->toArray(),
         };
     }
 

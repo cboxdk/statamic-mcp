@@ -87,4 +87,28 @@ enum TokenScope: string
     {
         return self::cases();
     }
+
+    /**
+     * Resolve an array of scope strings into TokenScope enum instances.
+     *
+     * Invalid scope strings are silently skipped.
+     *
+     * @param  array<int, string>  $scopeStrings
+     *
+     * @return array<int, self>
+     */
+    public static function resolveMany(array $scopeStrings): array
+    {
+        $scopes = [];
+
+        foreach ($scopeStrings as $scopeString) {
+            $scope = self::tryFrom($scopeString);
+
+            if ($scope !== null) {
+                $scopes[] = $scope;
+            }
+        }
+
+        return $scopes;
+    }
 }

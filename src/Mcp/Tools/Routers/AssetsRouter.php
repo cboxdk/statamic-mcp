@@ -551,6 +551,11 @@ class AssetsRouter extends BaseRouter
                 return $this->createErrorResponse('Container and filename are required')->toArray();
             }
 
+            // Prevent path traversal in filename
+            if ($filename !== basename($filename)) {
+                return $this->createErrorResponse('Filename must not contain path separators or traversal sequences')->toArray();
+            }
+
             $assetContainer = AssetContainer::find($container);
             if (! $assetContainer) {
                 return $this->createErrorResponse("Asset container not found: {$container}")->toArray();
@@ -891,6 +896,12 @@ class AssetsRouter extends BaseRouter
                 }
 
                 $filename = $filename ?? basename($file_path);
+
+                // Prevent path traversal in filename
+                if ($filename !== basename($filename)) {
+                    return $this->createErrorResponse('Filename must not contain path separators or traversal sequences')->toArray();
+                }
+
                 $mimeType = mime_content_type($file_path) ?: 'application/octet-stream';
 
                 $uploadedFile = new UploadedFile(

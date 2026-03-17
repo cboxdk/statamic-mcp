@@ -33,6 +33,13 @@ class RegistrationController extends Controller
             ], 400);
         }
 
+        if (mb_strlen(trim($clientName)) > 255) {
+            return response()->json([
+                'error' => 'invalid_client_metadata',
+                'error_description' => 'The client_name must not exceed 255 characters.',
+            ], 400);
+        }
+
         /** @var mixed $redirectUris */
         $redirectUris = $request->input('redirect_uris');
 

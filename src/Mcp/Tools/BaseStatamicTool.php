@@ -320,7 +320,7 @@ abstract class BaseStatamicTool extends Tool
      */
     private function createResponseMeta(): ResponseMeta
     {
-        $exposeVersions = (bool) config('statamic.mcp.security.expose_versions', true);
+        $exposeVersions = (bool) config('statamic.mcp.security.expose_versions', false);
 
         if ($exposeVersions) {
             $versions = self::getCachedVersions();

@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Auth;
 
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Carbon;
 use Statamic\Contracts\Auth\User as StatamicUser;
 use Statamic\Facades\User;
 

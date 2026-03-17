@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Storage\Audit;
 
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Carbon;
 
 /**
  * @property int $id

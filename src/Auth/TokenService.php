@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Auth;
 
+use Carbon\Carbon;
 use Cboxdk\StatamicMcp\Contracts\TokenStore;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 
@@ -46,7 +46,7 @@ class TokenService
             $name,
             $hash,
             $scopeStrings,
-            $expiresAt !== null ? \Carbon\Carbon::parse($expiresAt) : null,
+            $expiresAt !== null ? Carbon::parse($expiresAt) : null,
             $oauthClientId,
             $oauthClientName,
         );
@@ -70,7 +70,10 @@ class TokenService
             return null;
         }
 
-        // Defense-in-depth: constant-time comparison to mitigate timing attacks
+        // Defense-in-depth: verify the stored hash matches. Timing attacks are
+        // already mitigated by hashing the token before lookup (the DB query uses
+        // the hash, not the plain-text token). This comparison guards against
+        // data corruption or store implementation quirks.
         if (! hash_equals($tokenData->tokenHash, $hashedToken)) {
             return null;
         }
@@ -88,7 +91,7 @@ class TokenService
             name: $tokenData->name,
             tokenHash: $tokenData->tokenHash,
             scopes: $tokenData->scopes,
-            lastUsedAt: \Carbon\Carbon::instance(now()),
+            lastUsedAt: Carbon::instance(now()),
             expiresAt: $tokenData->expiresAt,
             createdAt: $tokenData->createdAt,
             updatedAt: $tokenData->updatedAt,
@@ -116,7 +119,7 @@ class TokenService
         }
 
         if ($expiresAt !== null) {
-            $data['expiresAt'] = \Carbon\Carbon::parse($expiresAt);
+            $data['expiresAt'] = Carbon::parse($expiresAt);
         } elseif ($clearExpiry) {
             $data['expiresAt'] = null;
         }

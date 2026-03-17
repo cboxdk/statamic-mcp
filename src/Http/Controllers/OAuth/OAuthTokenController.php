@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Http\Controllers\OAuth;
 
+use Carbon\Carbon;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
@@ -11,7 +12,6 @@ use Cboxdk\StatamicMcp\OAuth\Exceptions\OAuthException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
-use Illuminate\Support\Carbon;
 
 class OAuthTokenController extends Controller
 {
@@ -78,7 +78,7 @@ class OAuthTokenController extends Controller
         $tokenTtl = config('statamic.mcp.oauth.token_ttl', 86400);
         $expiresAt = Carbon::now()->addSeconds($tokenTtl);
 
-        $scopes = $this->resolveScopes($authCode->scopes);
+        $scopes = TokenScope::resolveMany($authCode->scopes);
 
         $result = $this->tokenService->createToken(
             $authCode->userId,
@@ -136,7 +136,7 @@ class OAuthTokenController extends Controller
         $tokenTtl = config('statamic.mcp.oauth.token_ttl', 86400);
         $expiresAt = Carbon::now()->addSeconds($tokenTtl);
 
-        $scopes = $this->resolveScopes($authCode->scopes);
+        $scopes = TokenScope::resolveMany($authCode->scopes);
 
         $result = $this->tokenService->createToken(
             $authCode->userId,
@@ -160,27 +160,5 @@ class OAuthTokenController extends Controller
             'refresh_token' => $newRefreshToken,
             'scope' => implode(' ', $authCode->scopes),
         ]);
-    }
-
-    /**
-     * Resolve string scope values to TokenScope enum instances.
-     *
-     * @param  array<int, string>  $scopeStrings
-     *
-     * @return array<int, TokenScope>
-     */
-    private function resolveScopes(array $scopeStrings): array
-    {
-        $scopes = [];
-
-        foreach ($scopeStrings as $scopeString) {
-            $scope = TokenScope::tryFrom($scopeString);
-
-            if ($scope !== null) {
-                $scopes[] = $scope;
-            }
-        }
-
-        return $scopes;
     }
 }

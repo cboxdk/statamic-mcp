@@ -136,30 +136,6 @@ class ToolLogger
     }
 
     /**
-     * @deprecated Use logToolCall() instead. Kept as no-op for backward compatibility.
-     *
-     * @param  array<string, mixed>  $metadata
-     */
-    public static function toolSuccess(string $toolName, string $correlationId, ?float $duration = null, array $metadata = []): void {}
-
-    /**
-     * @deprecated Use logToolCall() instead. Kept as no-op for backward compatibility.
-     *
-     * @param  array<string, mixed>  $metadata
-     */
-    public static function toolFailed(string $toolName, string $correlationId, \Throwable $exception, ?float $duration = null, array $metadata = []): void {}
-
-    /**
-     * @deprecated Use logToolCall() instead. Kept as no-op for backward compatibility.
-     */
-    public static function auditOperation(string $toolName, string $action, string $context): void {}
-
-    /**
-     * @deprecated Use logToolCall() instead. Kept as no-op for backward compatibility.
-     */
-    public static function auditOperationFailed(string $toolName, string $action, string $error): void {}
-
-    /**
      * Log performance warning.
      *
      * @param  array<string, mixed>  $metadata

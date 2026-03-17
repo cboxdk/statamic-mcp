@@ -34,7 +34,12 @@ class StatsService
     }
 
     /**
-     * Get the total number of registered MCP tools.
+     * Get the number of enabled domain routers from configuration.
+     *
+     * Note: This counts tools enabled in config('statamic.mcp.tools'), which
+     * tracks domain routers (e.g., entries, blueprints). It does not reflect
+     * the actual tools registered on the MCP server (which also includes
+     * system tools like discovery and schema).
      */
     private function getToolCount(): int
     {
