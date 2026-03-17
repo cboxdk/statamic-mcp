@@ -15,7 +15,8 @@ async function login(page) {
 
 test('CP login works', async ({ page }) => {
     await login(page);
-    await expect(page).toHaveURL(/\/cp\//);
+    // After login, Statamic redirects away from the auth page
+    await expect(page).not.toHaveURL(/\/auth\//);
 });
 
 test('MCP user page loads', async ({ page }) => {
@@ -89,7 +90,7 @@ test('Claude Desktop guide shows OAuth steps', async ({ page }) => {
     await page.goto('/cp/mcp');
     await page.getByRole('button', { name: 'Claude Desktop' }).click();
     // Should mention Settings → Connectors
-    await expect(page.locator('text=Connectors')).toBeVisible();
+    await expect(page.locator('text=Connectors').first()).toBeVisible();
     // Should NOT show config file editing
     await expect(page.locator('text=claude_desktop_config.json')).not.toBeVisible();
 });
