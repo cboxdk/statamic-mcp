@@ -75,11 +75,11 @@ class ServiceProvider extends AddonServiceProvider
 
             // Register web MCP endpoint if enabled
             $this->registerWebMcp();
-        }
 
-        // Register OAuth routes (independent of MCP availability)
-        $this->registerOAuthRoutes();
-        $this->registerOAuthAuthorizeRoutes();
+            // Register OAuth routes (part of MCP stack)
+            $this->registerOAuthRoutes();
+            $this->registerOAuthAuthorizeRoutes();
+        }
 
         $this->publishes([
             __DIR__ . '/../config/statamic/mcp.php' => config_path('statamic/mcp.php'),
@@ -92,21 +92,9 @@ class ServiceProvider extends AddonServiceProvider
         ], 'statamic-mcp-migrations');
 
         // Conditionally load migrations based on configured storage drivers
-        $tokensDriver = config('statamic.mcp.stores.tokens');
-        if (is_string($tokensDriver) && is_a($tokensDriver, DatabaseTokenStore::class, true)) {
-            $this->loadMigrationsFrom(__DIR__ . '/../database/migrations/tokens');
-        }
-
-        $auditDriver = config('statamic.mcp.stores.audit');
-        if (is_string($auditDriver) && is_a($auditDriver, DatabaseAuditStore::class, true)) {
-            $this->loadMigrationsFrom(__DIR__ . '/../database/migrations/audit');
-        }
-
-        // Conditionally load OAuth migrations when database driver is configured
-        $oauthDriver = config('statamic.mcp.oauth.driver');
-        if (is_string($oauthDriver) && is_a($oauthDriver, DatabaseOAuthDriver::class, true)) {
-            $this->loadMigrationsFrom(__DIR__ . '/../database/migrations/oauth');
-        }
+        $this->loadMigrationsIfDatabaseDriver('statamic.mcp.stores.tokens', DatabaseTokenStore::class, 'tokens');
+        $this->loadMigrationsIfDatabaseDriver('statamic.mcp.stores.audit', DatabaseAuditStore::class, 'audit');
+        $this->loadMigrationsIfDatabaseDriver('statamic.mcp.oauth.driver', DatabaseOAuthDriver::class, 'oauth');
 
         if ($this->app->runningInConsole()) {
             $this->commands([
@@ -326,5 +314,18 @@ class ServiceProvider extends AddonServiceProvider
                 'throttle:mcp',
                 RequireMcpPermission::class,
             ]);
+    }
+
+    /**
+     * Load migrations if the configured driver uses database storage.
+     *
+     * @param  class-string  $databaseClass
+     */
+    private function loadMigrationsIfDatabaseDriver(string $configKey, string $databaseClass, string $migrationPath): void
+    {
+        $driver = config($configKey);
+        if (is_string($driver) && is_a($driver, $databaseClass, true)) {
+            $this->loadMigrationsFrom(__DIR__ . '/../database/migrations/' . $migrationPath);
+        }
     }
 }

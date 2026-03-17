@@ -145,8 +145,9 @@ trait HandlesCollections
                 return $this->createErrorResponse('Collection handle is required')->toArray();
             }
 
-            if (Collection::find($handle)) {
-                return $this->createErrorResponse("Collection '{$handle}' already exists")->toArray();
+            $existsError = $this->checkHandleNotExists(Collection::find($handle), 'Collection', $handle);
+            if ($existsError !== null) {
+                return $existsError;
             }
 
             $collection = Collection::make($handle);

@@ -126,6 +126,11 @@ class McpTokenGuard implements Guard
 
         $token = substr($header, 7);
 
-        return $token !== '' ? $token : null;
+        // Reject excessively long tokens to prevent DoS via hash computation
+        if ($token === '' || strlen($token) > 256) {
+            return null;
+        }
+
+        return $token;
     }
 }

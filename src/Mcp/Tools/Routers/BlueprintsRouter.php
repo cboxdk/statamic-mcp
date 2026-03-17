@@ -327,8 +327,9 @@ class BlueprintsRouter extends BaseRouter
             try {
                 // Check if blueprint already exists in this namespace (inside lock)
                 $existing = collect(Blueprint::in($blueprintNamespace)->all())->firstWhere('handle', $safeHandle);
-                if ($existing) {
-                    return $this->createErrorResponse("Blueprint already exists: {$safeHandle} in {$blueprintNamespace}")->toArray();
+                $existsError = $this->checkHandleNotExists($existing, "Blueprint in {$blueprintNamespace}", $safeHandle);
+                if ($existsError !== null) {
+                    return $existsError;
                 }
 
                 // Create the blueprint contents following default.yaml structure
@@ -768,8 +769,9 @@ class BlueprintsRouter extends BaseRouter
 
             // Check if blueprint already exists
             $existing = collect(Blueprint::in($namespace)->all())->firstWhere('handle', $safeHandle);
-            if ($existing) {
-                return $this->createErrorResponse("Blueprint already exists: {$safeHandle} in {$namespace}")->toArray();
+            $existsError = $this->checkHandleNotExists($existing, "Blueprint in {$namespace}", $safeHandle);
+            if ($existsError !== null) {
+                return $existsError;
             }
 
             // Build field definitions from user-provided input

@@ -9,7 +9,7 @@ use Cboxdk\StatamicMcp\Auth\McpToken;
 use Cboxdk\StatamicMcp\Contracts\TokenStore;
 use Illuminate\Support\Collection;
 
-class DatabaseTokenStore implements TokenStore
+class DatabaseTokenStore extends BaseTokenStore implements TokenStore
 {
     /**
      * @param  array<int, string>  $scopes
@@ -152,21 +152,16 @@ class DatabaseTokenStore implements TokenStore
         /** @var array<int, string> $scopes */
         $scopes = $model->scopes;
 
-        $createdAt = $model->created_at;
-        $updatedAt = $model->updated_at;
-        $lastUsedAt = $model->last_used_at;
-        $expiresAt = $model->expires_at;
-
         return new McpTokenData(
             id: $model->id,
             userId: $model->user_id,
             name: $model->name,
             tokenHash: $model->token,
             scopes: $scopes,
-            lastUsedAt: $lastUsedAt !== null ? Carbon::parse($lastUsedAt) : null,
-            expiresAt: $expiresAt !== null ? Carbon::parse($expiresAt) : null,
-            createdAt: $createdAt !== null ? Carbon::parse($createdAt) : Carbon::now(),
-            updatedAt: $updatedAt !== null ? Carbon::parse($updatedAt) : null,
+            lastUsedAt: $this->parseCarbon($model->last_used_at),
+            expiresAt: $this->parseCarbon($model->expires_at),
+            createdAt: $this->parseCarbon($model->created_at) ?? Carbon::now(),
+            updatedAt: $this->parseCarbon($model->updated_at),
             oauthClientId: $model->oauth_client_id,
             oauthClientName: $model->oauth_client_name,
         );

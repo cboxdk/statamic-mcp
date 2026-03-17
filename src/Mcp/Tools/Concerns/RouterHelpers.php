@@ -180,6 +180,20 @@ trait RouterHelpers
     }
 
     /**
+     * Check if a resource handle already exists and return error if so.
+     *
+     * @return array<string, mixed>|null Error response if exists, null if available
+     */
+    protected function checkHandleNotExists(mixed $existing, string $resourceType, string $handle): ?array
+    {
+        if ($existing !== null) {
+            return $this->createErrorResponse("{$resourceType} '{$handle}' already exists")->toArray();
+        }
+
+        return null;
+    }
+
+    /**
      * Common parameter name corrections for LLM mistakes.
      *
      * @var array<string, string>

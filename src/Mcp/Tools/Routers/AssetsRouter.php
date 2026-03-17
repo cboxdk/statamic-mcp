@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesContainers;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\Http\UploadedFile;
 use Illuminate\JsonSchema\JsonSchema;
@@ -21,6 +22,8 @@ use Statamic\Facades\Stache;
 #[Description('Manage Statamic assets and asset containers. Set resource_type to "container" or "asset", then choose an action. Actions: list, get, create, update, delete, move, copy, upload.')]
 class AssetsRouter extends BaseRouter
 {
+    use HandlesContainers;
+
     protected function getDomain(): string
     {
         return 'assets';
@@ -290,8 +293,9 @@ class AssetsRouter extends BaseRouter
                 return $this->createErrorResponse('Container handle is required')->toArray();
             }
 
-            if (AssetContainer::find($handle)) {
-                return $this->createErrorResponse("Container '{$handle}' already exists")->toArray();
+            $existsError = $this->checkHandleNotExists(AssetContainer::find($handle), 'Container', $handle);
+            if ($existsError !== null) {
+                return $existsError;
             }
 
             $container = AssetContainer::make($handle);

@@ -376,6 +376,9 @@ class BuiltInOAuthDriver implements OAuthDriver
         } finally {
             flock($handle, LOCK_UN);
             fclose($handle);
+
+            // Delete the used refresh token file (single-use rotation)
+            @unlink($filePath);
         }
     }
 

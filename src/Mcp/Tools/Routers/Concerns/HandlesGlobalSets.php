@@ -114,8 +114,9 @@ trait HandlesGlobalSets
                 return $this->createErrorResponse('Global set handle is required')->toArray();
             }
 
-            if (GlobalSet::find($handle)) {
-                return $this->createErrorResponse("Global set '{$handle}' already exists")->toArray();
+            $existsError = $this->checkHandleNotExists(GlobalSet::find($handle), 'Global set', $handle);
+            if ($existsError !== null) {
+                return $existsError;
             }
 
             $globalSet = GlobalSet::make($handle);

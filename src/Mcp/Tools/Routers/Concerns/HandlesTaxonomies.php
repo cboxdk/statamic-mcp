@@ -128,8 +128,9 @@ trait HandlesTaxonomies
                 return $this->createErrorResponse('Taxonomy handle is required')->toArray();
             }
 
-            if (Taxonomy::find($handle)) {
-                return $this->createErrorResponse("Taxonomy '{$handle}' already exists")->toArray();
+            $existsError = $this->checkHandleNotExists(Taxonomy::find($handle), 'Taxonomy', $handle);
+            if ($existsError !== null) {
+                return $existsError;
             }
 
             $taxonomy = Taxonomy::make($handle);

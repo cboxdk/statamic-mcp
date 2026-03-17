@@ -30,12 +30,8 @@ class AuthenticateForMcp
         $correlationId = $request->header('X-Correlation-ID') ?? Str::uuid()->toString();
         $request->attributes->set('mcp_correlation_id', $correlationId);
 
-        /** @var int $rateLimitMax */
-        $rateLimitMax = config('statamic.mcp.rate_limit.max_attempts', 60);
-        /** @var int $rateLimitDecay */
-        $rateLimitDecay = config('statamic.mcp.rate_limit.decay_minutes', 1);
-
-        // Check if IP is locked out from failed auth attempts (atomic via RateLimiter)
+        // IP-level rate limiting for brute-force auth protection
+        // Per-request throttling is handled by the separate throttle:mcp middleware
         $ip = $request->ip() ?? 'unknown';
         $rateLimitKey = "mcp_auth:{$ip}";
         if (RateLimiter::tooManyAttempts($rateLimitKey, 5)) {
@@ -56,18 +52,6 @@ class AuthenticateForMcp
                 $statamicUser = User::find($mcpToken->userId);
 
                 if ($statamicUser) {
-                    // Per-token rate limiting
-                    $tokenRateKey = "mcp_token:{$mcpToken->id}";
-                    if (RateLimiter::tooManyAttempts($tokenRateKey, $rateLimitMax)) {
-                        return response()->json([
-                            'error' => 'Rate limit exceeded for this token',
-                            'message' => 'Too many requests. Please slow down.',
-                        ], 429, [
-                            'Retry-After' => (string) RateLimiter::availableIn($tokenRateKey),
-                        ]);
-                    }
-                    RateLimiter::hit($tokenRateKey, $rateLimitDecay * 60);
-
                     $request->attributes->set('statamic_user', $statamicUser);
                     $request->attributes->set('mcp_token', $mcpToken);
                     Auth::setUser($statamicUser);
@@ -86,18 +70,6 @@ class AuthenticateForMcp
             $user = $this->authenticateWithCredentials($credentials['email'], $credentials['password']);
 
             if ($user) {
-                // Per-user rate limiting for Basic Auth
-                $userRateKey = "mcp_user:{$user->id()}";
-                if (RateLimiter::tooManyAttempts($userRateKey, $rateLimitMax)) {
-                    return response()->json([
-                        'error' => 'Rate limit exceeded for this user',
-                        'message' => 'Too many requests. Please slow down.',
-                    ], 429, [
-                        'Retry-After' => (string) RateLimiter::availableIn($userRateKey),
-                    ]);
-                }
-                RateLimiter::hit($userRateKey, $rateLimitDecay * 60);
-
                 $request->attributes->set('statamic_user', $user);
                 Auth::setUser($user);
 

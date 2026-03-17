@@ -199,6 +199,10 @@ abstract class BaseStatamicTool extends Tool
     /**
      * Wrap result in standardized format if needed.
      *
+     * Contract: If executeInternal() returns an array with 'success' and 'meta' keys,
+     * it's assumed to be already wrapped (e.g., from createSuccessResponse()->toArray()).
+     * Otherwise, the raw array is wrapped automatically in a SuccessResponse envelope.
+     *
      * Also validates response size to prevent LLM token overflow.
      *
      * @param  array<string, mixed>  $result
@@ -236,6 +240,18 @@ abstract class BaseStatamicTool extends Tool
     }
 
     /**
+     * Get string argument with default value.
+     *
+     * @param  array<string, mixed>  $arguments
+     */
+    protected function getStringArgument(array $arguments, string $key, string $default = ''): string
+    {
+        $value = $arguments[$key] ?? $default;
+
+        return is_string($value) ? $value : $default;
+    }
+
+    /**
      * Get integer argument with validation.
      *
      * @param  array<string, mixed>  $arguments
@@ -257,31 +273,21 @@ abstract class BaseStatamicTool extends Tool
     }
 
     /** @var array{statamic: string, laravel: string}|null */
-    private static ?array $versionCache = null;
+    private ?array $versionCache = null;
 
     /**
      * @return array{statamic: string, laravel: string}
      */
-    private static function getCachedVersions(): array
+    private function getCachedVersions(): array
     {
-        if (self::$versionCache === null) {
-            self::$versionCache = [
+        if ($this->versionCache === null) {
+            $this->versionCache = [
                 'statamic' => Statamic::version() ?? 'unknown',
                 'laravel' => app()->version(),
             ];
         }
 
-        return self::$versionCache;
-    }
-
-    /**
-     * Clear version cache (for testing only).
-     *
-     * @internal For testing only
-     */
-    public static function clearVersionCache(): void
-    {
-        self::$versionCache = null;
+        return $this->versionCache;
     }
 
     /**
@@ -323,7 +329,7 @@ abstract class BaseStatamicTool extends Tool
         $exposeVersions = (bool) config('statamic.mcp.security.expose_versions', false);
 
         if ($exposeVersions) {
-            $versions = self::getCachedVersions();
+            $versions = $this->getCachedVersions();
 
             return new ResponseMeta(
                 tool: $this->name(),
@@ -344,7 +350,7 @@ abstract class BaseStatamicTool extends Tool
      */
     protected function getStatamicVersion(): string
     {
-        return self::getCachedVersions()['statamic'];
+        return $this->getCachedVersions()['statamic'];
     }
 
     /**

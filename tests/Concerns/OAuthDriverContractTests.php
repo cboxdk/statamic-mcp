@@ -374,9 +374,9 @@ trait OAuthDriverContractTests
         // First exchange succeeds
         $driver->exchangeRefreshToken($token, $client->clientId);
 
-        // Second exchange fails
+        // Second exchange fails (token file deleted after single use)
         $this->expectException(OAuthException::class);
-        $this->expectExceptionMessage('Refresh token has already been used');
+        $this->expectExceptionMessage('Refresh token not found');
 
         $driver->exchangeRefreshToken($token, $client->clientId);
     }

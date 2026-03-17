@@ -23,7 +23,7 @@ use Symfony\Component\Yaml\Yaml;
  * rebuilds may interleave. If you are running on NFS, prefer the
  * DatabaseTokenStore instead.
  */
-class FileTokenStore implements TokenStore
+class FileTokenStore extends BaseTokenStore implements TokenStore
 {
     private readonly string $storagePath;
 
@@ -74,7 +74,7 @@ class FileTokenStore implements TokenStore
         $this->writeYamlFile($id, $data);
         $this->updateIndex($tokenHash, $id);
 
-        return $this->toData($data);
+        return $this->arrayToTokenData($data);
     }
 
     public function findByHash(string $tokenHash): ?McpTokenData
@@ -108,7 +108,7 @@ class FileTokenStore implements TokenStore
         /** @var array<string, mixed> $data */
         $data = Yaml::parseFile($filePath);
 
-        return $this->toData($data);
+        return $this->arrayToTokenData($data);
     }
 
     /**
@@ -158,7 +158,7 @@ class FileTokenStore implements TokenStore
             $this->updateIndex($newHash, $id);
         }
 
-        return $this->toData($existing);
+        return $this->arrayToTokenData($existing);
     }
 
     public function delete(string $id): bool
@@ -241,7 +241,7 @@ class FileTokenStore implements TokenStore
         $this->writeYamlFile($token->id, $data);
         $this->updateIndex($token->tokenHash, $token->id);
 
-        return $this->toData($data);
+        return $this->arrayToTokenData($data);
     }
 
     public function pruneExpired(): int
@@ -293,9 +293,6 @@ class FileTokenStore implements TokenStore
         $this->writeYamlFile($id, $data);
     }
 
-    /**
-     * @param  array<string, mixed>  $data
-     */
     /**
      * Write a token's YAML file with an exclusive file lock to prevent
      * torn writes when multiple requests touch the same token concurrently.
@@ -520,38 +517,6 @@ class FileTokenStore implements TokenStore
     private function scanAllAsData(): Collection
     {
         return collect($this->scanAllTokens())
-            ->map(fn (array $data): McpTokenData => $this->toData($data));
-    }
-
-    /**
-     * @param  array<string, mixed>  $data
-     */
-    private function toData(array $data): McpTokenData
-    {
-        /** @var array<int, string> $scopes */
-        $scopes = is_array($data['scopes'] ?? null) ? $data['scopes'] : [];
-
-        return new McpTokenData(
-            id: is_string($data['id'] ?? null) ? $data['id'] : '',
-            userId: is_string($data['user_id'] ?? null) ? $data['user_id'] : '',
-            name: is_string($data['name'] ?? null) ? $data['name'] : '',
-            tokenHash: is_string($data['token_hash'] ?? null) ? $data['token_hash'] : '',
-            scopes: $scopes,
-            lastUsedAt: $this->parseCarbon($data['last_used_at'] ?? null),
-            expiresAt: $this->parseCarbon($data['expires_at'] ?? null),
-            createdAt: $this->parseCarbon($data['created_at'] ?? null) ?? Carbon::now(),
-            updatedAt: $this->parseCarbon($data['updated_at'] ?? null),
-            oauthClientId: is_string($data['oauth_client_id'] ?? null) ? $data['oauth_client_id'] : null,
-            oauthClientName: is_string($data['oauth_client_name'] ?? null) ? $data['oauth_client_name'] : null,
-        );
-    }
-
-    private function parseCarbon(mixed $value): ?Carbon
-    {
-        if ($value === null || ! is_string($value)) {
-            return null;
-        }
-
-        return Carbon::parse($value);
+            ->map(fn (array $data): McpTokenData => $this->arrayToTokenData($data));
     }
 }

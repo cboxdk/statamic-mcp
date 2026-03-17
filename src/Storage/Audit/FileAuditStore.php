@@ -17,6 +17,8 @@ class FileAuditStore implements AuditStore
 {
     private const MAX_FILE_SIZE = 52428800; // 50MB
 
+    private const MAX_BACKUP_FILES = 5;
+
     private string $path;
 
     public function __construct(?string $path = null)
@@ -41,6 +43,7 @@ class FileAuditStore implements AuditStore
             mkdir($dir, 0755, true);
         }
 
+        $this->rotateIfNeeded();
         file_put_contents($this->path, json_encode($entry) . "\n", FILE_APPEND | LOCK_EX);
     }
 
@@ -206,5 +209,56 @@ class FileAuditStore implements AuditStore
         }
 
         return $lines;
+    }
+
+    /**
+     * Rotate the log file if it exceeds the maximum size.
+     */
+    private function rotateIfNeeded(): void
+    {
+        if (! file_exists($this->path)) {
+            return;
+        }
+
+        clearstatcache(true, $this->path);
+        $size = @filesize($this->path);
+
+        if ($size === false || $size < self::MAX_FILE_SIZE) {
+            return;
+        }
+
+        $date = date('Y-m-d');
+        $rotatedPath = $this->path . '.' . $date . '.bak';
+
+        // Handle multiple rotations on the same day
+        $suffix = 0;
+        while (file_exists($rotatedPath)) {
+            $suffix++;
+            $rotatedPath = $this->path . '.' . $date . '.bak.' . $suffix;
+        }
+
+        @rename($this->path, $rotatedPath);
+        $this->pruneBackups();
+    }
+
+    /**
+     * Remove old backup files beyond the retention limit.
+     */
+    private function pruneBackups(): void
+    {
+        $pattern = $this->path . '.*.bak*';
+        $backups = glob($pattern);
+
+        if ($backups === false || count($backups) <= self::MAX_BACKUP_FILES) {
+            return;
+        }
+
+        // Sort by modification time, newest first
+        usort($backups, fn (string $a, string $b): int => (int) filemtime($b) - (int) filemtime($a));
+
+        // Delete everything beyond the retention limit
+        foreach (array_slice($backups, self::MAX_BACKUP_FILES) as $oldBackup) {
+            @unlink($oldBackup);
+        }
     }
 }

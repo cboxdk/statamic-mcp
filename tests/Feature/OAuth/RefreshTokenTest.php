@@ -126,9 +126,9 @@ class RefreshTokenTest extends TestCase
         // First exchange succeeds
         $this->driver->exchangeRefreshToken($refreshToken, $client->clientId);
 
-        // Second exchange fails (rotation)
+        // Second exchange fails (token file deleted after single use)
         $this->expectException(OAuthException::class);
-        $this->expectExceptionMessage('Refresh token has already been used');
+        $this->expectExceptionMessage('Refresh token not found');
 
         $this->driver->exchangeRefreshToken($refreshToken, $client->clientId);
     }
@@ -202,7 +202,7 @@ class RefreshTokenTest extends TestCase
 
         $client = $this->driver->registerClient('Test App', ['https://example.com/callback']);
 
-        // Create a refresh token and use it
+        // Create a refresh token and use it (file is deleted after exchange)
         $usedToken = $this->driver->createRefreshToken('user-1', $client->clientId, ['content:read']);
         $this->driver->exchangeRefreshToken($usedToken, $client->clientId);
 
@@ -214,14 +214,15 @@ class RefreshTokenTest extends TestCase
         // Create a valid refresh token that should survive pruning
         $this->driver->createRefreshToken('user-3', $client->clientId, ['content:read']);
 
+        // Used token file is already deleted (single-use rotation), so only 2 remain
         $refreshFiles = glob($this->refreshDir . '/*.json');
         $this->assertNotFalse($refreshFiles);
-        $this->assertCount(3, $refreshFiles);
+        $this->assertCount(2, $refreshFiles);
 
         $pruned = $this->driver->prune();
 
-        // Should have pruned the used + expired tokens
-        expect($pruned)->toBeGreaterThanOrEqual(2);
+        // Should have pruned the expired token
+        expect($pruned)->toBeGreaterThanOrEqual(1);
 
         $remainingFiles = glob($this->refreshDir . '/*.json');
         $this->assertNotFalse($remainingFiles);

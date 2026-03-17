@@ -222,19 +222,24 @@ class DatabaseOAuthDriver implements OAuthDriver
             throw new OAuthException('invalid_client', 'Client ID mismatch');
         }
 
-        // Fetch the consumed record for scopes/userId
+        // Fetch the consumed record for scopes/userId, then delete (single-use rotation)
         $model = OAuthRefreshTokenModel::where('token_hash', $tokenHash)->first();
 
         if (! $model instanceof OAuthRefreshTokenModel) {
             throw new OAuthException('invalid_grant', 'Refresh token not found');
         }
 
-        return new OAuthAuthCode(
+        $authCode = new OAuthAuthCode(
             clientId: $model->client_id,
             userId: $model->user_id,
             scopes: $model->scopes,
             redirectUri: '',
         );
+
+        // Delete the used refresh token
+        $model->delete();
+
+        return $authCode;
     }
 
     public function revokeRefreshToken(string $refreshToken): bool

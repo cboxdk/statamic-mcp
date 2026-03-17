@@ -125,8 +125,9 @@ trait HandlesGroups
                 return $this->createErrorResponse('Group handle is required')->toArray();
             }
 
-            if (UserGroup::find($handle)) {
-                return $this->createErrorResponse("Group '{$handle}' already exists")->toArray();
+            $existsError = $this->checkHandleNotExists(UserGroup::find($handle), 'Group', $handle);
+            if ($existsError !== null) {
+                return $existsError;
             }
 
             $group = UserGroup::make()->handle($handle);

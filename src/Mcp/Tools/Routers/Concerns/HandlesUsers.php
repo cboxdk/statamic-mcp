@@ -276,8 +276,9 @@ trait HandlesUsers
                 return $this->createErrorResponse("Invalid email format: {$email}")->toArray();
             }
 
-            if (User::findByEmail($email)) {
-                return $this->createErrorResponse("User with email '{$email}' already exists")->toArray();
+            $existsError = $this->checkHandleNotExists(User::findByEmail($email), 'User with email', $email);
+            if ($existsError !== null) {
+                return $existsError;
             }
 
             /** @var \Statamic\Contracts\Auth\User $user */

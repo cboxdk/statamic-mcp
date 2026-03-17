@@ -127,8 +127,9 @@ trait HandlesRoles
                 return $this->createErrorResponse('Role handle is required')->toArray();
             }
 
-            if (Role::find($handle)) {
-                return $this->createErrorResponse("Role '{$handle}' already exists")->toArray();
+            $existsError = $this->checkHandleNotExists(Role::find($handle), 'Role', $handle);
+            if ($existsError !== null) {
+                return $existsError;
             }
 
             $role = Role::make($handle);

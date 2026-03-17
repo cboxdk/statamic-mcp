@@ -122,8 +122,9 @@ trait HandlesNavigations
                 return $this->createErrorResponse('Navigation handle is required')->toArray();
             }
 
-            if (Nav::find($handle)) {
-                return $this->createErrorResponse("Navigation '{$handle}' already exists")->toArray();
+            $existsError = $this->checkHandleNotExists(Nav::find($handle), 'Navigation', $handle);
+            if ($existsError !== null) {
+                return $existsError;
             }
 
             $navigation = Nav::make($handle);

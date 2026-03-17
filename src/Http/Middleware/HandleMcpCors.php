@@ -29,17 +29,34 @@ class HandleMcpCors
 
         // No CORS config = no CORS headers (desktop clients don't need them)
         if (empty($allowedOrigins)) {
-            return $next($request);
+            $response = $next($request);
+
+            return $this->addSecurityHeaders($response);
         }
 
         // Handle preflight OPTIONS request
         if ($request->isMethod('OPTIONS')) {
-            return $this->buildPreflightResponse($request, $allowedOrigins);
+            return $this->addSecurityHeaders(
+                $this->buildPreflightResponse($request, $allowedOrigins)
+            );
         }
 
         $response = $next($request);
 
-        return $this->addCorsHeaders($response, $request, $allowedOrigins);
+        return $this->addSecurityHeaders(
+            $this->addCorsHeaders($response, $request, $allowedOrigins)
+        );
+    }
+
+    /**
+     * Add security headers to prevent clickjacking and MIME sniffing.
+     */
+    private function addSecurityHeaders(Response $response): Response
+    {
+        $response->headers->set('X-Frame-Options', 'DENY');
+        $response->headers->set('X-Content-Type-Options', 'nosniff');
+
+        return $response;
     }
 
     /**
@@ -90,7 +107,9 @@ class HandleMcpCors
     {
         if (in_array('*', $allowedOrigins, true)) {
             if (app()->environment('production')) {
-                Log::warning('MCP CORS wildcard (*) is configured in production. This allows any website to make requests to the MCP endpoint.');
+                Log::error('MCP CORS wildcard (*) rejected in production. Configure specific origins instead.');
+
+                return false;
             }
 
             return true;

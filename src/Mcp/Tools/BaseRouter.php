@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools;
 
+use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\BuildsPaginatedResponse;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\RouterHelpers;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
@@ -13,6 +14,7 @@ use Illuminate\JsonSchema\JsonSchema;
  */
 abstract class BaseRouter extends BaseStatamicTool
 {
+    use BuildsPaginatedResponse;
     use RouterHelpers;
 
     /**

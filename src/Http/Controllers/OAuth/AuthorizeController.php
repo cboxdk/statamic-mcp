@@ -133,13 +133,19 @@ class AuthorizeController extends Controller
             }
         }
 
-        // If no scopes requested, default to all scopes
+        // If no scopes requested, default to configured default scopes (not all)
         if ($requestedScopes === []) {
-            foreach (TokenScope::cases() as $tokenScope) {
-                $requestedScopes[] = [
-                    'value' => $tokenScope->value,
-                    'label' => $tokenScope->label(),
-                ];
+            /** @var array<int, string> $defaultScopeValues */
+            $defaultScopeValues = config('statamic.mcp.oauth.default_scopes', ['content:read']);
+
+            foreach ($defaultScopeValues as $scopeValue) {
+                $tokenScope = TokenScope::tryFrom($scopeValue);
+                if ($tokenScope !== null) {
+                    $requestedScopes[] = [
+                        'value' => $tokenScope->value,
+                        'label' => $tokenScope->label(),
+                    ];
+                }
             }
         }
 
@@ -253,7 +259,9 @@ class AuthorizeController extends Controller
         $allowedScopes = array_filter(explode(' ', $originalScope));
 
         if ($allowedScopes === []) {
-            $allowedScopes = array_map(fn (TokenScope $s): string => $s->value, TokenScope::cases());
+            /** @var array<int, string> $defaultScopeValues */
+            $defaultScopeValues = config('statamic.mcp.oauth.default_scopes', ['content:read']);
+            $allowedScopes = $defaultScopeValues;
         }
 
         // Get user-selected scopes from checkboxes
