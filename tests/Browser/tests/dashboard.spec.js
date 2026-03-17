@@ -5,13 +5,12 @@ const password = process.env.TEST_PASSWORD || 'password';
 
 async function login(page) {
     await page.goto('/cp/auth/login');
-    // Statamic v6 login form — find email and password inputs
-    const emailInput = page.locator('input').first();
-    const passwordInput = page.locator('input[type="password"]');
-    await emailInput.fill(email);
-    await passwordInput.fill(password);
+    await page.locator('input[name="email"]').fill(email);
+    await page.locator('input[name="password"]').fill(password);
     await page.getByRole('button', { name: /continue|sign in|log in/i }).click();
-    await page.waitForURL('**/cp/**', { timeout: 10000 });
+    // Statamic's Vue login does window.location.href after success — wait for full navigation
+    await page.waitForURL((url) => !url.pathname.includes('/auth/'), { timeout: 15000 });
+    await page.waitForLoadState('networkidle');
 }
 
 test('CP login works', async ({ page }) => {
