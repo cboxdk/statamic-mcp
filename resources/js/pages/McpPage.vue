@@ -275,29 +275,29 @@
 
                     <div class="mt-3 flex flex-col gap-4">
                         <template v-for="(groupScopes, groupName) in groupedScopes" :key="groupName">
-                            <div class="rounded-lg border border-gray-200 bg-gray-50 dark:border-dark-400 dark:bg-dark-600">
+                            <div class="rounded-lg border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-900">
                                 <div class="flex items-center justify-between px-4 py-2.5">
-                                    <span class="text-sm font-semibold text-gray-700 dark:text-dark-100">
+                                    <span class="text-sm font-semibold text-gray-700 dark:text-gray-200">
                                         {{ groupName === 'access' ? 'Access Level' : groupName.charAt(0).toUpperCase() + groupName.slice(1).replace('-', ' ') }}
                                     </span>
                                     <button
-                                        class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 dark:text-dark-200 dark:hover:text-dark-100"
+                                        class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
                                         @click="toggleGroup(groupName)"
                                     >
                                         <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
                                         {{ isGroupFullyChecked(groupName) ? 'Uncheck All' : 'Check All' }}
                                     </button>
                                 </div>
-                                <div class="rounded-b-lg border-t border-gray-200 bg-white dark:border-dark-400 dark:bg-dark-700">
+                                <div class="rounded-b-lg border-t border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-850">
                                     <label
                                         v-for="scope in groupScopes"
                                         :key="scope.value"
-                                        class="flex cursor-pointer items-start gap-3 border-b border-gray-100 px-4 py-3 transition last:border-b-0 hover:bg-gray-50 dark:border-dark-500 dark:hover:bg-dark-650"
+                                        class="flex cursor-pointer items-start gap-3 border-b border-gray-100 px-4 py-3 transition last:border-b-0 hover:bg-gray-50 dark:border-gray-700/50 dark:hover:bg-gray-800"
                                     >
-                                        <input v-model="form.scopes" type="checkbox" :value="scope.value" class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-dark-300" />
+                                        <input v-model="form.scopes" type="checkbox" :value="scope.value" class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800" />
                                         <div>
-                                            <div class="text-sm font-medium text-gray-900 dark:text-dark-100">{{ scope.label }}</div>
-                                            <div v-if="scope.description" class="text-xs text-gray-500 dark:text-dark-200">{{ scope.description }}</div>
+                                            <div class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ scope.label }}</div>
+                                            <div v-if="scope.description" class="text-xs text-gray-500 dark:text-gray-400">{{ scope.description }}</div>
                                         </div>
                                     </label>
                                 </div>
