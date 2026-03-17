@@ -24,6 +24,9 @@ class TokenLifecycleTest extends TestCase
         $addIndex = include __DIR__ . '/../../database/migrations/tokens/add_unique_token_index_to_mcp_tokens_table.php';
         $addIndex->up();
 
+        $oauthMeta = include __DIR__ . '/../../database/migrations/tokens/add_oauth_metadata_to_mcp_tokens_table.php';
+        $oauthMeta->up();
+
         $this->app->singleton(TokenStore::class, DatabaseTokenStore::class);
     }
 

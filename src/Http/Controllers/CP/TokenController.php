@@ -185,6 +185,12 @@ class TokenController extends CpController
             ], 404);
         }
 
+        if ($token->oauthClientId !== null || str_contains($token->name, '(OAuth)')) {
+            return response()->json([
+                'message' => 'OAuth tokens cannot be regenerated. The integration would lose access. Revoke the token and re-authorize instead.',
+            ], 403);
+        }
+
         $result = $this->tokenService->regenerateToken($tokenId);
 
         if ($result === null) {

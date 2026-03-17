@@ -51,6 +51,8 @@ class FileTokenStore implements TokenStore
         string $tokenHash,
         array $scopes,
         ?Carbon $expiresAt,
+        ?string $oauthClientId = null,
+        ?string $oauthClientName = null,
     ): McpTokenData {
         $id = (string) Str::uuid();
         $now = Carbon::now();
@@ -61,6 +63,8 @@ class FileTokenStore implements TokenStore
             'name' => $name,
             'token_hash' => $tokenHash,
             'scopes' => $scopes,
+            'oauth_client_id' => $oauthClientId,
+            'oauth_client_name' => $oauthClientName,
             'last_used_at' => null,
             'expires_at' => $expiresAt?->toIso8601String(),
             'created_at' => $now->toIso8601String(),
@@ -226,6 +230,8 @@ class FileTokenStore implements TokenStore
             'name' => $token->name,
             'token_hash' => $token->tokenHash,
             'scopes' => $token->scopes,
+            'oauth_client_id' => $token->oauthClientId,
+            'oauth_client_name' => $token->oauthClientName,
             'last_used_at' => $token->lastUsedAt?->toIso8601String(),
             'expires_at' => $token->expiresAt?->toIso8601String(),
             'created_at' => $token->createdAt->toIso8601String(),
@@ -535,6 +541,8 @@ class FileTokenStore implements TokenStore
             expiresAt: $this->parseCarbon($data['expires_at'] ?? null),
             createdAt: $this->parseCarbon($data['created_at'] ?? null) ?? Carbon::now(),
             updatedAt: $this->parseCarbon($data['updated_at'] ?? null),
+            oauthClientId: is_string($data['oauth_client_id'] ?? null) ? $data['oauth_client_id'] : null,
+            oauthClientName: is_string($data['oauth_client_name'] ?? null) ? $data['oauth_client_name'] : null,
         );
     }
 

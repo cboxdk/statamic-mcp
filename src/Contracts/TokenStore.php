@@ -18,7 +18,9 @@ interface TokenStore
         string $name,
         string $tokenHash,
         array $scopes,
-        ?Carbon $expiresAt
+        ?Carbon $expiresAt,
+        ?string $oauthClientId = null,
+        ?string $oauthClientName = null,
     ): McpTokenData;
 
     public function findByHash(string $tokenHash): ?McpTokenData;

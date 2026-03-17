@@ -27,5 +27,7 @@ class McpTokenData
         public readonly ?Carbon $expiresAt,
         public readonly Carbon $createdAt,
         public readonly ?Carbon $updatedAt = null,
+        public readonly ?string $oauthClientId = null,
+        public readonly ?string $oauthClientName = null,
     ) {}
 }

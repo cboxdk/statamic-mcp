@@ -221,6 +221,7 @@
                                         <td>
                                             <div class="flex items-center gap-2">
                                                 <span class="font-medium">{{ token.name }}</span>
+                                                <ui-badge v-if="token.is_oauth" :text="'OAuth' + (token.oauth_client_name ? ' · ' + token.oauth_client_name : '')" color="green" size="sm" />
                                                 <ui-badge v-if="token.is_expired" text="Expired" color="red" />
                                             </div>
                                         </td>
@@ -242,7 +243,7 @@
                                         <td>
                                             <div class="flex items-center justify-end gap-1">
                                                 <ui-button text="Edit" size="sm" variant="ghost" icon="pencil" @click="openEdit(token)" />
-                                                <ui-button text="Regenerate" size="sm" variant="ghost" icon="sync" @click="regenerateToken(token)" />
+                                                <ui-button v-if="!token.is_oauth" text="Regenerate" size="sm" variant="ghost" icon="sync" @click="regenerateToken(token)" />
                                                 <ui-button text="Delete" size="sm" variant="ghost" icon="trash" class="text-red-600 hover:text-red-700 dark:text-red-400" @click="confirmDelete(token)" />
                                             </div>
                                         </td>

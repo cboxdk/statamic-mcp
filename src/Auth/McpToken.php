@@ -17,6 +17,8 @@ use Statamic\Facades\User;
  * @property string $name
  * @property string $token
  * @property array<int, string> $scopes
+ * @property string|null $oauth_client_id
+ * @property string|null $oauth_client_name
  * @property Carbon|null $last_used_at
  * @property Carbon|null $expires_at
  * @property Carbon|null $created_at
@@ -45,6 +47,8 @@ class McpToken extends Model
         'name',
         'token',
         'scopes',
+        'oauth_client_id',
+        'oauth_client_name',
         'last_used_at',
         'expires_at',
     ];

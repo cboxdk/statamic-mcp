@@ -23,7 +23,7 @@ class TokenService
      *
      * @return array{token: string, model: McpTokenData}
      */
-    public function createToken(string $userId, string $name, array $scopes, ?Carbon $expiresAt = null): array
+    public function createToken(string $userId, string $name, array $scopes, ?Carbon $expiresAt = null, ?string $oauthClientId = null, ?string $oauthClientName = null): array
     {
         // Enforce max token lifetime if configured
         /** @var int|null $maxDays */
@@ -47,6 +47,8 @@ class TokenService
             $hash,
             $scopeStrings,
             $expiresAt !== null ? \Carbon\Carbon::parse($expiresAt) : null,
+            $oauthClientId,
+            $oauthClientName,
         );
 
         return [
@@ -90,6 +92,8 @@ class TokenService
             expiresAt: $tokenData->expiresAt,
             createdAt: $tokenData->createdAt,
             updatedAt: $tokenData->updatedAt,
+            oauthClientId: $tokenData->oauthClientId,
+            oauthClientName: $tokenData->oauthClientName,
         );
     }
 

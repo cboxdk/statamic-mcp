@@ -19,7 +19,9 @@ class DatabaseTokenStore implements TokenStore
         string $name,
         string $tokenHash,
         array $scopes,
-        ?Carbon $expiresAt
+        ?Carbon $expiresAt,
+        ?string $oauthClientId = null,
+        ?string $oauthClientName = null,
     ): McpTokenData {
         $model = McpToken::create([
             'user_id' => $userId,
@@ -27,6 +29,8 @@ class DatabaseTokenStore implements TokenStore
             'token' => $tokenHash,
             'scopes' => $scopes,
             'expires_at' => $expiresAt,
+            'oauth_client_id' => $oauthClientId,
+            'oauth_client_name' => $oauthClientName,
         ]);
 
         return $this->toData($model);
@@ -122,6 +126,8 @@ class DatabaseTokenStore implements TokenStore
             'name' => $token->name,
             'token' => $token->tokenHash,
             'scopes' => $token->scopes,
+            'oauth_client_id' => $token->oauthClientId,
+            'oauth_client_name' => $token->oauthClientName,
             'last_used_at' => $token->lastUsedAt,
             'expires_at' => $token->expiresAt,
             'created_at' => $token->createdAt,
@@ -161,6 +167,8 @@ class DatabaseTokenStore implements TokenStore
             expiresAt: $expiresAt !== null ? Carbon::parse($expiresAt) : null,
             createdAt: $createdAt !== null ? Carbon::parse($createdAt) : Carbon::now(),
             updatedAt: $updatedAt !== null ? Carbon::parse($updatedAt) : null,
+            oauthClientId: $model->oauth_client_id,
+            oauthClientName: $model->oauth_client_name,
         );
     }
 }

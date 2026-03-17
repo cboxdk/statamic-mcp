@@ -19,6 +19,9 @@ beforeEach(function () {
     $migration = include __DIR__ . '/../../../database/migrations/tokens/create_mcp_tokens_table.php';
     $migration->up();
 
+    $oauthMeta = include __DIR__ . '/../../../database/migrations/tokens/add_oauth_metadata_to_mcp_tokens_table.php';
+    $oauthMeta->up();
+
     // Enable web MCP endpoint for permission testing
     Config::set('statamic.mcp.web.enabled', true);
 

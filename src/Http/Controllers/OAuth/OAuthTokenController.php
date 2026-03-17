@@ -85,6 +85,8 @@ class OAuthTokenController extends Controller
             "{$clientName} (OAuth)",
             $scopes,
             $expiresAt,
+            $clientId,
+            $clientName,
         );
 
         $refreshToken = $this->oauthDriver->createRefreshToken(
@@ -141,6 +143,8 @@ class OAuthTokenController extends Controller
             "{$clientName} (OAuth)",
             $scopes,
             $expiresAt,
+            $clientId,
+            $clientName,
         );
 
         $newRefreshToken = $this->oauthDriver->createRefreshToken(
