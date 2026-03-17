@@ -31,6 +31,36 @@ Authorization: Basic <base64(email:password)>
 
 Authenticates against Statamic's user system. The user must have the `access cp` permission. Basic Auth users get no scope restrictions — they can access all tools. Use Bearer tokens for production.
 
+## OAuth 2.1 (Browser-Based Clients)
+
+For MCP clients that support the OAuth 2.1 specification, the addon provides a full authorization server with PKCE (S256).
+
+### Authorization Code Flow with PKCE
+
+1. **Dynamic Client Registration**: The client registers via `POST /mcp/oauth/register` (RFC 7591), providing a `client_name` and `redirect_uris`. The server returns a `client_id` and `client_secret`.
+2. **Authorization Request**: The client redirects to `GET /{cp}/mcp/oauth/authorize` with `code_challenge` (S256) and requested scopes.
+3. **Consent Screen**: The user sees the consent screen in the Statamic CP and approves or denies the request.
+4. **Token Exchange**: The client exchanges the authorization code at `POST /mcp/oauth/token` with the `code_verifier`.
+5. **Refresh**: The client can refresh tokens via `POST /mcp/oauth/token` with `grant_type=refresh_token`.
+
+### Token Metadata Tracking
+
+OAuth-created tokens store `oauth_client_id` and `oauth_client_name` for integration tracking. The CP dashboard shows an "OAuth" badge and hides the regenerate button for OAuth-created tokens.
+
+### Token Revocation
+
+Clients can revoke tokens via `POST /mcp/oauth/revoke` (RFC 7009), supporting both access and refresh token revocation.
+
+### Discovery
+
+OAuth metadata is available at:
+- `/.well-known/oauth-authorization-server` — RFC 8414 metadata
+- `/.well-known/oauth-protected-resource` — RFC 9728 protected resource metadata
+
+### Configuration
+
+OAuth is enabled by default. See the [Configuration Reference](../configuration/reference.md) for all OAuth settings including TTLs, default scopes, and max clients.
+
 ## Authentication Flow
 
 1. Request arrives at the web endpoint

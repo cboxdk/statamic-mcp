@@ -237,6 +237,13 @@ class DatabaseOAuthDriver implements OAuthDriver
         );
     }
 
+    public function revokeRefreshToken(string $refreshToken): bool
+    {
+        $tokenHash = hash('sha256', $refreshToken);
+
+        return OAuthRefreshTokenModel::where('token_hash', $tokenHash)->delete() > 0;
+    }
+
     public function prune(): int
     {
         $pruned = 0;

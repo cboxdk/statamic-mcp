@@ -12,17 +12,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `outputSchema()` — MCP v0.6 standard response envelope on all tools
 - Dedicated `mcp` log channel writing to `storage/logs/mcp-audit.log`
 - Correlation IDs preserved in MCP error responses for traceability
+- OAuth 2.1 authorization server with PKCE, dynamic client registration, and consent screen
+- OAuth token metadata (`oauth_client_id`, `oauth_client_name`) stored on tokens
+- "OAuth · ClientName" badge in dashboard, regenerate hidden for OAuth tokens
+- Refresh token revocation support via `/mcp/oauth/revoke` endpoint
+- `McpTokenSaved` and `McpTokenDeleted` events for Statamic Git automation
+- `STATAMIC_MCP_TOOL_{NAME}_ENABLED` env vars for toggling individual tools
+- OAuth storage paths configurable via `storage.oauth_clients_path`, `oauth_codes_path`, `oauth_refresh_path`
+- `TokenScope::resolveMany()` static method
+- `ValidatesRedirectUris` trait for OAuth drivers
+- `ResolvesUserId` trait for CP controllers
+- Path traversal check on asset filenames
+- Client name length validation (max 255 chars) on OAuth registration
+
+### Changed
+- `web.enabled` now defaults to `true` (was `false`)
+- `oauth.enabled` defaults to `true`
+- `expose_versions` code default changed to `false` (security hardening)
+- Migration filenames prefixed with `0001_`, `0002_`, `0003_` for correct ordering
+- `symfony/yaml` constraint widened to `^7.0 || ^8.0`
+- ContentFacadeRouter uses direct action routing (`content_audit`, `cross_reference`)
+- `addon.js` uses `Statamic.booting()` for Inertia page registration
+- Error handlers scoped to CLI context only in StatamicMcpServer
+- BuiltInOAuthDriver file writes use LOCK_EX for atomicity
+- Tests use `RefreshDatabase` trait for MySQL compatibility
 
 ### Fixed
 - Activity tab in CP dashboard now shows audit entries (was reading from wrong log path)
 - Stale dot-notation tool names in agent education prompts
 - Test config key mismatch in permission tests
+- OAuth login redirect: uses `redirect()->setIntendedUrl()` for reliable post-login redirect to consent screen
+- Rate limit config key mismatch (`security.rate_limit_max` → `rate_limit.max_attempts`)
+- Browser tests: user creation, asset publishing, Playwright config path, login helper
 
 ### Removed
 - `AuditService` — functionality consolidated into `ToolLogger`
 - `McpRateLimiter` — dead code, never wired into tool execution
 - `statamic-content` router — replaced by `statamic-entries`, `statamic-terms`, `statamic-globals`
 - Stale `tools.content` config entry
+- Deprecated `security.audit_channel` and `security.audit_path` config keys
+- Deprecated `ToolLogger::getLogPath()` method
+- Deprecated `ToolLogger` no-op methods (`toolSuccess`, `toolFailed`, `auditOperation`, `auditOperationFailed`)
+- Custom OAuth login page (`resources/views/oauth/login.blade.php`)
 
 ## [2.0.0] - 2026-03-12
 
@@ -55,7 +86,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bearer token and Basic Auth authentication
 
 #### Scoped API Token System
-- 19 granular permission scopes via `TokenScope` enum
+- 21 granular permission scopes via `TokenScope` enum
 - SHA-256 hashed token storage with `McpToken` Eloquent model
 - Custom `McpTokenGuard` registered as `mcp` auth guard
 - Token creation, listing, and revocation via CP dashboard
@@ -83,8 +114,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `statamic-system` — System info, health checks, cache management
 
 #### Agent Education Tools
-- `statamic-discovery` — Intent-based tool discovery for AI agents
-- `statamic-schema` — Tool schema inspection
+- `statamic-system-discover` — Intent-based tool discovery for AI agents
+- `statamic-system-schema` — Tool schema inspection
 
 #### Workflow Facades
 - `statamic-content-facade` — High-level workflow operations orchestrating multiple routers

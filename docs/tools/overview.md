@@ -23,6 +23,8 @@ Every tool follows the same pattern: send an `action` parameter to specify what 
 }
 ```
 
+The `statamic_version` and `laravel_version` fields in `meta` are only included when `security.expose_versions` is enabled (defaults to `false`).
+
 On error, the response includes an `error` key with a human-readable message and a `code` key with a machine-readable error code.
 
 ## Domain Routers
@@ -140,13 +142,14 @@ System information, health checks, and cache management. Requires a `type` param
 
 ### `statamic-content-facade`
 
-High-level workflow operations that orchestrate multiple router calls.
+High-level analysis workflows that orchestrate multiple router calls.
 
 | Action | Description | Key Parameters |
 |--------|-------------|----------------|
-| `setup` | Create collection + blueprint + entries | `collection`, `fields`, `data` |
-| `import` | Bulk import content | `collection`, `entries` |
-| `audit` | Content audit | `collection` |
+| `content_audit` | Scan all content for issues, missing references, and orphaned content | `filters` |
+| `cross_reference` | Analyze relationships and dependencies between content types | `filters` |
+
+Schema accepts `action` (required, enum: `content_audit`, `cross_reference`) and optional `filters` (object).
 
 ### `statamic-system-discover`
 

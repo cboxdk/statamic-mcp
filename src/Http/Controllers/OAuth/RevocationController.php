@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Http\Controllers\OAuth;
 
 use Cboxdk\StatamicMcp\Auth\TokenService;
+use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -13,6 +14,7 @@ class RevocationController extends Controller
 {
     public function __construct(
         private readonly TokenService $tokenService,
+        private readonly OAuthDriver $oauthDriver,
     ) {}
 
     /**
@@ -35,18 +37,15 @@ class RevocationController extends Controller
             ], 400);
         }
 
-        // Attempt to find and revoke as an access token; ignore result per RFC 7009 §2.2
+        // Try to revoke as an access token first
         $mcpToken = $this->tokenService->validateToken($token);
 
         if ($mcpToken !== null) {
             $this->tokenService->revokeToken($mcpToken->id);
+        } else {
+            // Not an access token — try as a refresh token
+            $this->oauthDriver->revokeRefreshToken($token);
         }
-
-        // Note: if $token is a refresh token (not an access token), it will not be found
-        // by validateToken() and nothing is revoked. Per RFC 7009 §2.2 this is acceptable —
-        // the server MUST respond with 200 OK regardless of whether the token existed.
-        // Full refresh token revocation would require adding a revokeRefreshToken() method
-        // to the OAuthDriver contract, which is a separate interface change.
 
         // RFC 7009 §2.2: always return 200 OK
         return response()->json([], 200);

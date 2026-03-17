@@ -6,7 +6,7 @@ A comprehensive MCP (Model Context Protocol) server for Statamic CMS v6 that pro
 
 - PHP 8.3+
 - Laravel 12+
-- Statamic 6.0+
+- Statamic 6.6+
 - Laravel MCP ^0.6
 
 ## Installation
@@ -31,10 +31,9 @@ composer require laravel/boost --dev
 
 ## Web MCP Endpoint
 
-Enable web-accessible MCP endpoints for browser-based AI assistants:
+The web MCP endpoint is **enabled by default** after installation. To customize the path:
 
 ```env
-STATAMIC_MCP_WEB_ENABLED=true
 STATAMIC_MCP_WEB_PATH="/mcp/statamic"
 ```
 
@@ -86,11 +85,11 @@ User CRUD, role assignment, group management with RBAC support.
 System info, health checks, cache management (clear/warm), and configuration access.
 
 ### Content Workflow Facade — `statamic-content-facade`
-High-level workflow operations that orchestrate multiple router actions.
+High-level workflow operations: `content_audit` and `cross_reference`.
 
 ### Agent Education Tools
-- `statamic-discovery` — Intent-based tool discovery
-- `statamic-schema` — Tool schema inspection
+- `statamic-system-discover` — Intent-based tool discovery
+- `statamic-system-schema` — Tool schema inspection
 
 ## Architecture
 
@@ -101,7 +100,8 @@ High-level workflow operations that orchestrate multiple router actions.
 - **Single file per domain**: Easy maintenance and testing
 
 ### Security
-- Scoped API tokens with 19 granular permissions
+- Scoped API tokens with 21 granular permissions
+- OAuth 2.1 authorization server with PKCE and dynamic client registration
 - Bearer token + Basic Auth authentication
 - Rate limiting per token
 - Audit logging for all operations

@@ -379,6 +379,18 @@ class BuiltInOAuthDriver implements OAuthDriver
         }
     }
 
+    public function revokeRefreshToken(string $refreshToken): bool
+    {
+        $tokenHash = hash('sha256', $refreshToken);
+        $filePath = $this->refreshDir . '/' . $this->sanitizeFilename($tokenHash) . '.json';
+
+        if (! file_exists($filePath)) {
+            return false;
+        }
+
+        return unlink($filePath);
+    }
+
     public function prune(): int
     {
         $pruned = 0;

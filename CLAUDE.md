@@ -4,17 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Statamic addon that functions as an MCP (Model Context Protocol) server, built on top of Laravel's MCP server. The addon extends Statamic CMS v6.0+ and requires `laravel/mcp` ^0.6 as a runtime dependency. It includes scoped API token authentication, a Vue 3 CP dashboard, and web MCP endpoints.
+This is a Statamic addon that functions as an MCP (Model Context Protocol) server, built on top of Laravel's MCP server. The addon extends Statamic CMS v6.6+ and requires `laravel/mcp` ^0.6 as a runtime dependency. It includes scoped API token authentication, a Vue 3 CP dashboard, and web MCP endpoints.
 
 ## Key Dependencies
 
 - **PHP**: ^8.3
-- **Statamic CMS**: ^6.0 (v6 only — v5 support was removed in v2.0)
+- **Statamic CMS**: ^6.6 (v6 only — v5 support was removed in v2.0)
 - **Laravel**: ^12.0 (via Statamic v6)
 - **Laravel MCP**: ^0.6 (required - must be in `require` section, not `require-dev`)
 - **Orchestra Testbench**: ^11.0 (dev dependency for testing)
 - **Pest**: ^4.1 (stable release with PHP 8.3 requirement)
-- **Symfony YAML**: ^7.3 (for YAML processing)
+- **Symfony YAML**: ^7.0 || ^8.0 (for YAML processing)
 
 ## Authentication System
 
@@ -24,7 +24,7 @@ The addon provides scoped API tokens for fine-grained MCP access control:
 - **Token Management**: Via Statamic CP dashboard (Tools → MCP → Tokens)
 - **Token Storage**: Eloquent model (`McpToken`) with SHA-256 hashed tokens
 - **Guard**: Custom `McpTokenGuard` registered as the `mcp` auth guard
-- **Scopes**: 19 granular scopes via `TokenScope` enum (e.g., `content:read`, `content:write`, `*`)
+- **Scopes**: 21 granular scopes via `TokenScope` enum (e.g., `content:read`, `content:write`, `*`)
 
 ### Key Auth Classes
 - `src/Auth/TokenScope.php` — Backed string enum with scope helpers
@@ -39,14 +39,48 @@ The addon provides scoped API tokens for fine-grained MCP access control:
 - `AuthenticateForMcp` — Bearer token + Basic Auth fallback
 - `RequireMcpPermission` — Validates token scopes and expiry
 
+### OAuth 2.1 Authorization Server
+The addon includes a full OAuth 2.1 authorization server with PKCE for browser-based MCP clients:
+
+- **Dynamic Client Registration**: POST `/mcp/oauth/register` (RFC 7591)
+- **Authorization Code Flow**: GET/POST `/{cp}/mcp/oauth/authorize` with PKCE (S256)
+- **Token Exchange**: POST `/mcp/oauth/token` with authorization_code and refresh_token grants
+- **Token Revocation**: POST `/mcp/oauth/revoke` (RFC 7009)
+- **Discovery**: `/.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource`
+
+OAuth tokens store `oauth_client_id` and `oauth_client_name` for integration tracking. The dashboard shows an "OAuth" badge and hides the regenerate button for OAuth-created tokens.
+
+### Key OAuth Classes
+- `src/Http/Controllers/OAuth/AuthorizeController.php` — Consent screen and approval
+- `src/Http/Controllers/OAuth/OAuthTokenController.php` — Token exchange (auth code + refresh)
+- `src/Http/Controllers/OAuth/DiscoveryController.php` — OAuth metadata endpoints
+- `src/Http/Controllers/OAuth/RegistrationController.php` — Dynamic client registration
+- `src/OAuth/Contracts/OAuthDriver.php` — Driver interface (BuiltIn or Database)
+- `src/Events/McpTokenSaved.php` — Git automation event for token changes
+- `src/Events/McpTokenDeleted.php` — Git automation event for token deletion
+- `src/OAuth/Concerns/ValidatesRedirectUris.php` — Shared redirect URI validation
+
+### Storage Drivers
+Tokens and audit logs support pluggable storage backends:
+- `src/Storage/Tokens/FileTokenStore.php` — YAML flat-file storage (default)
+- `src/Storage/Tokens/DatabaseTokenStore.php` — Eloquent/database storage
+- `src/Storage/Audit/FileAuditStore.php` — JSONL flat-file audit log (default)
+- `src/Storage/Audit/DatabaseAuditStore.php` — Database audit log
+- `src/Storage/Tokens/McpTokenData.php` — Immutable DTO for token data
+
+### Git Integration
+Token operations dispatch events for Statamic's Git automation:
+- `src/Events/McpTokenSaved.php` — Dispatched on create, update, regenerate
+- `src/Events/McpTokenDeleted.php` — Dispatched on revoke
+
 ## Web MCP Endpoint
 
-This addon supports web-accessible MCP endpoints for browser-based integrations. See [docs/WEB_MCP_SETUP.md](docs/WEB_MCP_SETUP.md) for detailed setup instructions.
+This addon supports web-accessible MCP endpoints for browser-based integrations. The web endpoint is enabled by default. See the configuration reference for customization options.
 
 ### Quick Setup
 
 ```env
-# Enable web MCP endpoint
+# Web MCP endpoint (enabled by default)
 STATAMIC_MCP_WEB_ENABLED=true
 STATAMIC_MCP_WEB_PATH="/mcp/statamic"
 ```
@@ -121,7 +155,7 @@ New tool files must include proper PHPDoc annotations:
  *
  * @return array<string, mixed>
  */
-protected function execute(array $arguments): array
+protected function executeInternal(array $arguments): array
 ```
 
 ### Composer
@@ -476,7 +510,7 @@ class BlueprintsRouter extends BaseStatamicTool
         ];
     }
 
-    protected function execute(array $arguments): array
+    protected function executeInternal(array $arguments): array
     {
         $action = $arguments['action'];
 
@@ -512,46 +546,39 @@ class BlueprintsRouter extends BaseStatamicTool
 #### 1. 🏗️ **Facade Pattern** (for commonly used combinations)
 
 ```php
-// Uses #[Name('statamic-content-workflow')] and #[Description('...')] attributes
-class StatamicContentFacade extends BaseStatamicTool
+// Uses #[Name('statamic-content-facade')] and #[Description('...')] attributes
+class ContentFacadeRouter extends BaseRouter
 {
     protected function defineSchema(JsonSchema $schema): array
     {
         return [
-            'workflow' => JsonSchema::string()
-                ->enum(['setup_collection', 'bulk_import', 'content_audit'])
+            'action' => JsonSchema::string()
+                ->description('Action to perform')
+                ->enum(['content_audit', 'cross_reference'])
                 ->required(),
-            'collection' => JsonSchema::string()->description('Collection handle'),
-            'data' => JsonSchema::array()->description('Data for operations'),
+            'filters' => JsonSchema::object()
+                ->description('Optional filter conditions to narrow the workflow scope'),
         ];
     }
 
     protected function executeInternal(array $arguments): array
     {
-        return match ($arguments['workflow']) {
-            'setup_collection' => $this->setupCollection($arguments),
-            'bulk_import' => $this->bulkImport($arguments),
+        return match ($arguments['action']) {
             'content_audit' => $this->contentAudit($arguments),
+            'cross_reference' => $this->crossReference($arguments),
         };
     }
 
-    private function setupCollection(array $arguments): array
+    private function contentAudit(array $arguments): array
     {
-        // Orchestrates: create collection → create blueprint → create initial entries
-        $results = [];
+        // Scans all content for issues across collections, taxonomies, and globals
+        // Returns validation issues, missing references, orphaned content
+    }
 
-        $results['collection'] = $this->collectionRouter->execute([
-            'action' => 'create',
-            'handle' => $arguments['collection'],
-        ]);
-
-        $results['blueprint'] = $this->blueprintsRouter->execute([
-            'action' => 'create',
-            'handle' => $arguments['collection'],
-            'fields' => $arguments['fields'] ?? [],
-        ]);
-
-        return $results;
+    private function crossReference(array $arguments): array
+    {
+        // Analyzes relationships and dependencies between content types
+        // Returns relationship maps, dependency graphs, integrity checks
     }
 }
 ```
@@ -643,8 +670,8 @@ class StatamicExportStrategy extends BaseStatamicTool
 - `statamic-system` - System operations router
 
 #### Agent Education Tools
-- `statamic-discovery` - Intent-based tool discovery
-- `statamic-schema` - Tool schema inspection
+- `statamic-system-discover` - Intent-based tool discovery
+- `statamic-system-schema` - Tool schema inspection
 
 #### Workflow Facades
 - `statamic-content-facade` - Common content workflows
@@ -677,9 +704,9 @@ class StatamicExportStrategy extends BaseStatamicTool
 
 **`statamic-content-facade`** — high-level analysis workflows: content_audit, cross_reference
 
-**`statamic-discovery`** — intent-based tool and action discovery
+**`statamic-system-discover`** — intent-based tool and action discovery
 
-**`statamic-schema`** — inspect full JSON schema of any registered tool
+**`statamic-system-schema`** — inspect full JSON schema of any registered tool
 
 ## Production-Ready Features
 
@@ -997,3 +1024,8 @@ The addon supports configuration via `config/statamic/mcp.php` for:
 - API token configuration
 - Rate limiting and audit logging
 - Per-domain tool enablement
+- OAuth 2.1 settings (driver, TTLs, default scopes, max clients)
+- Storage drivers (FileTokenStore/DatabaseTokenStore, FileAuditStore/DatabaseAuditStore)
+- Storage paths for tokens, audit, and OAuth data
+- Tool env toggles (`STATAMIC_MCP_TOOL_{NAME}_ENABLED`)
+- Git automation events for token operations

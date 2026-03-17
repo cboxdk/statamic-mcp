@@ -9,7 +9,7 @@ weight: 1
 ## Requirements
 
 - **PHP** 8.3 or higher
-- **Statamic CMS** v6.0+
+- **Statamic CMS** v6.6+
 - **Laravel** 12.0+
 - **laravel/mcp** ^0.6 (installed automatically as a dependency)
 
@@ -42,15 +42,15 @@ composer show cboxdk/statamic-mcp
 
 Visit **Tools > MCP** in the Statamic Control Panel. You should see the dashboard with Connect, Tokens, Activity, and Settings tabs.
 
-## Enable the Web Endpoint
+## Web Endpoint
 
-By default, only CLI access (`php artisan mcp:serve`) is enabled. To allow AI assistants to connect over HTTP, add to your `.env`:
+The web MCP endpoint is **enabled by default**. After installation, the endpoint is available at the path configured in `STATAMIC_MCP_WEB_PATH` (default: `/mcp/statamic`).
+
+To disable it, set in your `.env`:
 
 ```env
-STATAMIC_MCP_WEB_ENABLED=true
+STATAMIC_MCP_WEB_ENABLED=false
 ```
-
-The endpoint registers at the path configured in `STATAMIC_MCP_WEB_PATH` (default: `/mcp/statamic`).
 
 ## Publish Configuration (Optional)
 

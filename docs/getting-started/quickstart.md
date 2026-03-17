@@ -8,16 +8,15 @@ weight: 2
 
 Connect an AI assistant to your Statamic site in three steps.
 
-## 1. Enable the Web Endpoint
+## 1. Verify the Web Endpoint
 
-Add to your `.env`:
+The web MCP endpoint is **enabled by default** after installation. Your MCP endpoint is available at `https://your-site.test/mcp/statamic`.
+
+To customize the path, set in your `.env`:
 
 ```env
-STATAMIC_MCP_WEB_ENABLED=true
 STATAMIC_MCP_WEB_PATH="/mcp/statamic"
 ```
-
-Your MCP endpoint is now available at `https://your-site.test/mcp/statamic`.
 
 ## 2. Create an API Token
 
@@ -91,6 +90,10 @@ php artisan mcp:serve
 ```
 
 CLI access bypasses token authentication entirely. This is the default mode and requires no configuration.
+
+## OAuth 2.1 (Browser-Based Clients)
+
+For MCP clients that support OAuth 2.1, the addon provides an authorization server with PKCE. Clients can register dynamically via `POST /mcp/oauth/register` and authenticate through the standard authorization code flow. OAuth is enabled by default. See [Web Authentication](../authentication/web-authentication.md) for details.
 
 ## What's Next
 

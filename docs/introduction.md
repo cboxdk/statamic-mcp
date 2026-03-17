@@ -72,7 +72,7 @@ The server registers a set of domain routers — each handling a specific Statam
 ## Requirements
 
 - **PHP** 8.3+
-- **Statamic** v6.0+
+- **Statamic** v6.6+
 - **Laravel** 12.0+
 - **laravel/mcp** ^0.6
 

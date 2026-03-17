@@ -51,5 +51,10 @@ interface OAuthDriver
      */
     public function exchangeRefreshToken(string $refreshToken, string $clientId): OAuthAuthCode;
 
+    /**
+     * Revoke a refresh token. Returns true if found and revoked.
+     */
+    public function revokeRefreshToken(string $refreshToken): bool;
+
     public function prune(): int;
 }
