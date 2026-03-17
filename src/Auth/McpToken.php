@@ -5,11 +5,8 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Auth;
 
 use Carbon\Carbon;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
-use Statamic\Contracts\Auth\User as StatamicUser;
-use Statamic\Facades\User;
 
 /**
  * @property string $id
@@ -23,8 +20,6 @@ use Statamic\Facades\User;
  * @property Carbon|null $expires_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
- *
- * @method static Builder<static> active()
  */
 class McpToken extends Model
 {
@@ -74,63 +69,5 @@ class McpToken extends Model
             'last_used_at' => 'datetime',
             'expires_at' => 'datetime',
         ];
-    }
-
-    /**
-     * Check if the token has a specific scope or wildcard access.
-     */
-    public function hasScope(TokenScope $scope): bool
-    {
-        /** @var array<int, string> $scopes */
-        $scopes = $this->scopes;
-
-        if (in_array(TokenScope::FullAccess->value, $scopes, true)) {
-            return true;
-        }
-
-        return in_array($scope->value, $scopes, true);
-    }
-
-    /**
-     * Check if the token has expired.
-     */
-    public function isExpired(): bool
-    {
-        if ($this->expires_at === null) {
-            return false;
-        }
-
-        return $this->expires_at->isPast();
-    }
-
-    /**
-     * Mark the token as recently used.
-     */
-    public function markAsUsed(): void
-    {
-        $this->forceFill(['last_used_at' => now()])->saveQuietly();
-    }
-
-    /**
-     * Scope a query to only include active (non-expired) tokens.
-     *
-     * @param  Builder<static>  $query
-     *
-     * @return Builder<static>
-     */
-    public function scopeActive(Builder $query): Builder
-    {
-        return $query->where(function (Builder $query): void {
-            $query->whereNull('expires_at')
-                ->orWhere('expires_at', '>', now());
-        });
-    }
-
-    /**
-     * Get the Statamic user associated with this token.
-     */
-    public function statamicUser(): ?StatamicUser
-    {
-        return User::find($this->user_id);
     }
 }

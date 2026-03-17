@@ -30,4 +30,12 @@ class McpTokenData
         public readonly ?string $oauthClientId = null,
         public readonly ?string $oauthClientName = null,
     ) {}
+
+    /**
+     * Check whether this token has expired.
+     */
+    public function isExpired(): bool
+    {
+        return $this->expiresAt !== null && now()->greaterThan($this->expiresAt);
+    }
 }

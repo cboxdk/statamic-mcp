@@ -343,19 +343,6 @@ it('writes valid JSONL that can be parsed', function () {
         ->toHaveKeys(['level', 'message', 'tool', 'status', 'timestamp']);
 });
 
-it('deprecated toolStarted returns a correlation id without logging', function () {
-    $correlationId = ToolLogger::toolStarted('statamic-entries', ['action' => 'list']);
-
-    expect($correlationId)->toBeString()->not->toBeEmpty();
-    expect(file_exists(testLogPath()))->toBeFalse();
-});
-
-it('deprecated toolStarted uses provided correlation id', function () {
-    $correlationId = ToolLogger::toolStarted('statamic-entries', ['action' => 'list'], 'my-custom-id');
-
-    expect($correlationId)->toBe('my-custom-id');
-});
-
 it('logs optional fields only when provided', function () {
     ToolLogger::logToolCall(
         'statamic-entries',

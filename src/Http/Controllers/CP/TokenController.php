@@ -163,7 +163,7 @@ class TokenController extends CpController
                 'expires_at' => $updated->expiresAt?->toIso8601String(),
                 'created_at' => $updated->createdAt->toIso8601String(),
                 'last_used_at' => $updated->lastUsedAt?->toIso8601String(),
-                'is_expired' => $updated->expiresAt !== null && now()->greaterThan($updated->expiresAt),
+                'is_expired' => $updated->isExpired(),
             ],
             'message' => 'Token updated successfully.',
         ]);
@@ -210,7 +210,7 @@ class TokenController extends CpController
                 'expires_at' => $result['model']->expiresAt?->toIso8601String(),
                 'created_at' => $result['model']->createdAt->toIso8601String(),
                 'last_used_at' => $result['model']->lastUsedAt?->toIso8601String(),
-                'is_expired' => $result['model']->expiresAt !== null && now()->greaterThan($result['model']->expiresAt),
+                'is_expired' => $result['model']->isExpired(),
             ],
             'message' => 'Token regenerated. Copy your new token now — it will not be shown again.',
         ]);

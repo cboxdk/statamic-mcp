@@ -395,24 +395,6 @@ describe('RequireMcpPermission', function () {
         expect($response->getStatusCode())->toBe(200);
     });
 
-    it('aborts 401 when the MCP token has expired', function () {
-        $result = $this->tokenService->createToken(
-            'user-1',
-            'Expired Token',
-            [TokenScope::ContentRead],
-            Carbon::now()->subDay(),
-        );
-
-        $mockUser = createMockStatamicUser();
-
-        $middleware = new RequireMcpPermission;
-        $request = Request::create('/mcp/test', 'GET');
-        $request->attributes->set('statamic_user', $mockUser);
-        $request->attributes->set('mcp_token', $result['model']);
-
-        $middleware->handle($request, $this->passThrough);
-    })->throws(HttpException::class, 'MCP token has expired');
-
     it('aborts 403 when Basic Auth user lacks CP access', function () {
         $mockUser = createMockStatamicUser(canAccessCp: false);
 

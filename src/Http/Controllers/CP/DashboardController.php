@@ -141,7 +141,7 @@ class DashboardController extends CpController
             'last_used_at' => $token->lastUsedAt?->toIso8601String(),
             'expires_at' => $token->expiresAt?->toIso8601String(),
             'created_at' => $token->createdAt->toIso8601String(),
-            'is_expired' => $token->expiresAt !== null && now()->greaterThan($token->expiresAt),
+            'is_expired' => $token->isExpired(),
         ];
 
         if ($includeUser) {

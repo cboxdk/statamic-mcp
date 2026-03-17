@@ -27,14 +27,10 @@ class RequireMcpPermission
             abort(401, 'Authentication required for MCP access');
         }
 
-        // If authenticated via MCP token, scopes are checked at the tool level
-        // Just verify the token is still valid
+        // If authenticated via MCP token, scopes are checked at the tool level.
+        // Expiry is already validated by AuthenticateForMcp upstream.
         /** @var McpTokenData|null $mcpToken */
         $mcpToken = $request->attributes->get('mcp_token');
-
-        if ($mcpToken && $mcpToken->expiresAt !== null && now()->greaterThan($mcpToken->expiresAt)) {
-            abort(401, 'MCP token has expired');
-        }
 
         // For Basic Auth users (no token), require CP access
         if (! $mcpToken) {

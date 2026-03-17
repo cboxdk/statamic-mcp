@@ -443,7 +443,7 @@ abstract class BaseStatamicTool extends Tool
             'tool' => $this->name(),
         ];
 
-        if (app()->bound('env') && app('env') === 'local' && $exception) {
+        if (app()->environment('local') && $exception) {
             $response['debug'] = [
                 'file' => basename($exception->getFile()),
                 'line' => $exception->getLine(),

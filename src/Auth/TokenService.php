@@ -223,7 +223,7 @@ class TokenService
      */
     public function isExpired(McpTokenData $token): bool
     {
-        return $token->expiresAt !== null && now()->greaterThan($token->expiresAt);
+        return $token->isExpired();
     }
 
     /**

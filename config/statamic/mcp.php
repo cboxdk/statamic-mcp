@@ -34,10 +34,6 @@ return [
         // Use ['*'] to allow all origins, or specify domains: ['https://example.com']
         // Leave empty to disable CORS headers (desktop MCP clients don't need them).
         'allowed_origins' => [],
-
-        'middleware' => [
-            'throttle:60,1',
-        ],
     ],
 
     /*

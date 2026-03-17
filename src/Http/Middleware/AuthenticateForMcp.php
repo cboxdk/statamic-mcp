@@ -66,7 +66,7 @@ class AuthenticateForMcp
                             'Retry-After' => (string) RateLimiter::availableIn($tokenRateKey),
                         ]);
                     }
-                    RateLimiter::hit($tokenRateKey, $rateLimitDecay);
+                    RateLimiter::hit($tokenRateKey, $rateLimitDecay * 60);
 
                     $request->attributes->set('statamic_user', $statamicUser);
                     $request->attributes->set('mcp_token', $mcpToken);
@@ -96,7 +96,7 @@ class AuthenticateForMcp
                         'Retry-After' => (string) RateLimiter::availableIn($userRateKey),
                     ]);
                 }
-                RateLimiter::hit($userRateKey, $rateLimitDecay);
+                RateLimiter::hit($userRateKey, $rateLimitDecay * 60);
 
                 $request->attributes->set('statamic_user', $user);
                 Auth::setUser($user);

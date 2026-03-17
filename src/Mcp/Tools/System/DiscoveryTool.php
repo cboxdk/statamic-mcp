@@ -216,8 +216,8 @@ class DiscoveryTool extends BaseStatamicTool
                     continue;
                 }
 
+                $instance = app()->make($className);
                 $reflection = new ReflectionClass($className);
-                $instance = $reflection->newInstance();
 
                 $actions = [];
                 if ($reflection->hasMethod('getActions')) {

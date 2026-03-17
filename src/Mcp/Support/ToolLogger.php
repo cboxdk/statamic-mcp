@@ -6,7 +6,6 @@ namespace Cboxdk\StatamicMcp\Mcp\Support;
 
 use Cboxdk\StatamicMcp\Contracts\AuditStore;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
-use Illuminate\Support\Str;
 use Statamic\Contracts\Auth\User;
 
 /**
@@ -123,16 +122,6 @@ class ToolLogger
         /** @var AuditStore $store */
         $store = app(AuditStore::class);
         $store->write($entry);
-    }
-
-    /**
-     * @deprecated Use logToolCall() instead. Kept as no-op for backward compatibility.
-     *
-     * @param  array<string, mixed>  $arguments
-     */
-    public static function toolStarted(string $toolName, array $arguments, ?string $correlationId = null): string
-    {
-        return $correlationId ?: Str::uuid()->toString();
     }
 
     /**

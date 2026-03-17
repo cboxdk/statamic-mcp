@@ -305,7 +305,10 @@ class ContentFacadeRouter extends BaseRouter
                 $collectionTaxonomyFields[$collection->handle()] = array_unique($taxonomyFieldHandles);
             }
 
-            // Analyze entry-term relationships using pagination
+            // Analyze entry-term relationships and collect referenced term slugs in a single pass
+            /** @var array<string, bool> $referencedTermSlugs */
+            $referencedTermSlugs = [];
+
             foreach ($collections as $collection) {
                 /** @var \Statamic\Contracts\Entries\Collection $collection */
                 $taxFields = $collectionTaxonomyFields[$collection->handle()] ?? [];
@@ -328,8 +331,14 @@ class ContentFacadeRouter extends BaseRouter
                             $value = $entryData->get($fieldHandle);
                             if (is_array($value)) {
                                 $termReferences += count($value);
-                            } elseif (is_string($value) && ! empty($value)) {
+                                foreach ($value as $slug) {
+                                    if (is_string($slug) && $slug !== '') {
+                                        $referencedTermSlugs[$slug] = true;
+                                    }
+                                }
+                            } elseif (is_string($value) && $value !== '') {
                                 $termReferences++;
+                                $referencedTermSlugs[$value] = true;
                             }
                         }
 
@@ -340,48 +349,6 @@ class ContentFacadeRouter extends BaseRouter
                         }
                     }
 
-                    $page++;
-                } while ($entries->count() === $perPage);
-            }
-
-            // Analyze term usage — batch approach to avoid N+1 queries.
-            // Build a set of all referenced term values from entries (already iterated above),
-            // then compare against all terms to find orphans.
-            /** @var array<string, bool> $referencedTermSlugs */
-            $referencedTermSlugs = [];
-
-            // Re-scan entries to collect referenced term slugs (uses pagination)
-            foreach ($collections as $collection) {
-                /** @var \Statamic\Contracts\Entries\Collection $collection */
-                $taxFields = $collectionTaxonomyFields[$collection->handle()] ?? [];
-                if (empty($taxFields)) {
-                    continue;
-                }
-
-                $page = 1;
-                $perPage = 100;
-                do {
-                    $entries = Entry::query()
-                        ->where('collection', $collection->handle())
-                        ->limit($perPage)
-                        ->offset(($page - 1) * $perPage)
-                        ->get();
-
-                    foreach ($entries as $entry) {
-                        $entryData = $entry->data();
-                        foreach ($taxFields as $fieldHandle) {
-                            $value = $entryData->get($fieldHandle);
-                            if (is_array($value)) {
-                                foreach ($value as $slug) {
-                                    if (is_string($slug) && $slug !== '') {
-                                        $referencedTermSlugs[$slug] = true;
-                                    }
-                                }
-                            } elseif (is_string($value) && $value !== '') {
-                                $referencedTermSlugs[$value] = true;
-                            }
-                        }
-                    }
                     $page++;
                 } while ($entries->count() === $perPage);
             }
