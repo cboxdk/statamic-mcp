@@ -75,7 +75,7 @@ jobs:
 
       - name: Run Playwright tests
         working-directory: addon
-        run: npx playwright test tests/Browser/
+        run: npx playwright test --config=tests/Browser/playwright.config.js
         env:
           APP_URL: http://localhost:8787
           TEST_EMAIL: test@example.com
