@@ -224,10 +224,10 @@ class AssetsRouterTest extends TestCase
             'path' => 'uploads/uploaded.jpg',
         ]);
 
-        // Upload requires file_path or filename
+        // Upload requires file_path or content
         $this->assertFalse($result['success']);
         $this->assertNotEmpty($result['errors']);
-        $this->assertStringContainsString('Either file_path or filename is required', $result['errors'][0]);
+        $this->assertStringContainsString('Either file_path', $result['errors'][0]);
     }
 
     public function test_move_asset(): void

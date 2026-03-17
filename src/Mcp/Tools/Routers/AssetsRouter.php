@@ -61,7 +61,7 @@ class AssetsRouter extends BaseRouter
                     . 'delete (resource_type; container + path for assets, handle for containers), '
                     . 'move (resource_type=asset, container, path, destination), '
                     . 'copy (resource_type=asset, container, path, destination), '
-                    . 'upload (resource_type=asset, container, file_path)'
+                    . 'upload (resource_type=asset, container, file_path OR content+encoding+filename)'
                 )
                 ->enum(['list', 'get', 'create', 'update', 'delete', 'move', 'copy', 'upload'])
                 ->required(),
@@ -79,6 +79,12 @@ class AssetsRouter extends BaseRouter
                 ->description('Asset or container metadata. For assets: field values like alt, title. For containers: configuration like title, disk.'),
             'destination' => JsonSchema::string()
                 ->description('Destination path for move/copy operations. Example: "archive/old-hero.jpg"'),
+            'filename' => JsonSchema::string()
+                ->description('Target filename for create/upload operations. Example: "logo.png", "document.pdf"'),
+            'content' => JsonSchema::string()
+                ->description('File content for create/upload. Use with encoding=base64 for binary files. For remote MCP clients that cannot access the filesystem.'),
+            'file_path' => JsonSchema::string()
+                ->description('Local file path for upload action (CLI clients only). Must be within storage/app directory.'),
             'encoding' => JsonSchema::string()
                 ->description('Content encoding: base64 for binary files, raw for text files (default: raw)')
                 ->enum(['base64', 'raw']),
@@ -867,14 +873,15 @@ class AssetsRouter extends BaseRouter
             $container = is_string($arguments['container'] ?? null) ? $arguments['container'] : null;
             $file_path = is_string($arguments['file_path'] ?? null) ? $arguments['file_path'] : null;
             $filename = is_string($arguments['filename'] ?? null) ? $arguments['filename'] : null;
+            $content = is_string($arguments['content'] ?? null) ? $arguments['content'] : null;
             $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
 
             if (! $container) {
                 return $this->createErrorResponse('Container is required')->toArray();
             }
 
-            if (! $file_path && ! $filename) {
-                return $this->createErrorResponse('Either file_path or filename is required')->toArray();
+            if (! $file_path && ! $content) {
+                return $this->createErrorResponse('Either file_path (local files) or content with encoding+filename (remote/base64) is required')->toArray();
             }
 
             $assetContainer = AssetContainer::find($container);
@@ -882,39 +889,94 @@ class AssetsRouter extends BaseRouter
                 return $this->createErrorResponse("Asset container not found: {$container}")->toArray();
             }
 
-            if ($file_path) {
-                // Security: Validate file_path is within storage/app to prevent path traversal
+            if ($content) {
+                // Remote upload via base64/raw content (for MCP clients like ChatGPT that can't access the filesystem)
+                if (! $filename) {
+                    return $this->createErrorResponse('filename is required when uploading via content')->toArray();
+                }
+
+                if ($filename !== basename($filename)) {
+                    return $this->createErrorResponse('Filename must not contain path separators or traversal sequences')->toArray();
+                }
+
+                $encoding = is_string($arguments['encoding'] ?? null) ? $arguments['encoding'] : 'raw';
+
+                if ($encoding === 'base64') {
+                    $decodedContent = base64_decode($content, true);
+                    if ($decodedContent === false) {
+                        return $this->createErrorResponse('Invalid base64 content provided')->toArray();
+                    }
+                } else {
+                    $decodedContent = $content;
+                }
+
+                /** @var int $maxSizeBytes */
+                $maxSizeBytes = config('statamic.mcp.security.max_upload_size', 10 * 1024 * 1024);
+                if (strlen($decodedContent) > $maxSizeBytes) {
+                    $maxSizeMB = round($maxSizeBytes / 1024 / 1024, 1);
+
+                    return $this->createErrorResponse("File size exceeds maximum allowed size of {$maxSizeMB}MB")->toArray();
+                }
+
+                $tempPath = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'statamic_upload_' . bin2hex(random_bytes(16));
+
+                try {
+                    file_put_contents($tempPath, $decodedContent);
+
+                    $mimeType = 'application/octet-stream';
+                    if (function_exists('finfo_open')) {
+                        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                        if ($finfo !== false) {
+                            $detected = finfo_file($finfo, $tempPath);
+                            if ($detected !== false) {
+                                $mimeType = $detected;
+                            }
+                            finfo_close($finfo);
+                        }
+                    } elseif (function_exists('mime_content_type')) {
+                        $mimeType = mime_content_type($tempPath) ?: 'application/octet-stream';
+                    }
+
+                    $asset = $assetContainer->makeAsset($filename)->upload(new UploadedFile(
+                        $tempPath,
+                        $filename,
+                        $mimeType,
+                        null,
+                        true
+                    ));
+                } finally {
+                    if (file_exists($tempPath)) {
+                        unlink($tempPath);
+                    }
+                }
+            } else {
+                // Local file upload (CLI MCP clients with filesystem access)
+                // $file_path is guaranteed non-null here (early return above checks both)
                 $realPath = realpath($file_path);
                 $allowedBase = realpath(storage_path('app'));
                 if ($realPath === false || ! $allowedBase || ! str_starts_with($realPath, $allowedBase . DIRECTORY_SEPARATOR)) {
                     return $this->createErrorResponse('file_path must be within the storage/app directory for security')->toArray();
                 }
 
-                // Upload from existing file path
                 if (! file_exists($file_path)) {
                     return $this->createErrorResponse("File not found: {$file_path}")->toArray();
                 }
 
                 $filename = $filename ?? basename($file_path);
 
-                // Prevent path traversal in filename
                 if ($filename !== basename($filename)) {
                     return $this->createErrorResponse('Filename must not contain path separators or traversal sequences')->toArray();
                 }
 
                 $mimeType = mime_content_type($file_path) ?: 'application/octet-stream';
 
-                $uploadedFile = new UploadedFile(
+                $asset = $assetContainer->makeAsset($filename)->upload(new UploadedFile(
                     $file_path,
                     $filename,
                     $mimeType,
                     null,
                     true
-                );
-
-                $asset = $assetContainer->makeAsset($filename)->upload($uploadedFile);
-            } else {
-                return $this->createErrorResponse('Either file_path (for existing files) is required to upload an asset.')->toArray();
+                ));
             }
 
             // Set additional data
