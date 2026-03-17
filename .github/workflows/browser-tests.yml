@@ -59,7 +59,10 @@ jobs:
         run: |
           npm install
           npx vite build
-          cp -r resources/dist/build/* ../site/public/vendor/statamic-mcp/build/ 2>/dev/null || true
+
+      - name: Publish addon assets
+        working-directory: site
+        run: php artisan vendor:publish --tag=statamic-mcp --force
 
       - name: Install Playwright
         working-directory: addon
