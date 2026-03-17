@@ -270,33 +270,38 @@
                 </div>
 
                 <div>
-                    <div class="mb-2 flex items-center justify-between">
-                        <div>
-                            <ui-label text="Permissions" />
-                            <ui-description text="What this token can access." />
-                        </div>
-                        <button class="text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400" @click="toggleAllScopes">
-                            {{ form.scopes.length === availableScopes.length ? 'Deselect All' : 'Select All' }}
-                        </button>
-                    </div>
+                    <ui-label text="Permissions" />
+                    <ui-description text="What this token can access." />
 
-                    <div class="max-h-72 overflow-y-auto rounded-lg border border-gray-200 dark:border-dark-400">
+                    <div class="mt-3 flex flex-col gap-4">
                         <template v-for="(groupScopes, groupName) in groupedScopes" :key="groupName">
-                            <div class="border-b border-gray-100 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-400 first:rounded-t-lg dark:border-dark-450 dark:text-dark-200" :class="groupName === 'access' ? 'bg-purple-50/50 dark:bg-purple-900/10' : 'bg-gray-50 dark:bg-dark-575'">
-                                {{ groupName === 'access' ? 'Access Level' : groupName }}
-                            </div>
-                            <label
-                                v-for="scope in groupScopes"
-                                :key="scope.value"
-                                class="flex items-center gap-3 border-b border-gray-100 px-3 py-2 transition last:border-b-0 hover:bg-gray-50 dark:border-dark-450 dark:hover:bg-dark-575"
-                                :class="{ 'bg-blue-50/30 dark:bg-blue-900/5': form.scopes.includes(scope.value) }"
-                            >
-                                <input v-model="form.scopes" type="checkbox" :value="scope.value" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-dark-300" />
-                                <div class="flex items-center gap-2">
-                                    <span class="text-sm font-medium">{{ scope.label }}</span>
-                                    <span class="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[10px] text-gray-400 dark:bg-dark-500 dark:text-dark-250">{{ scope.value }}</span>
+                            <div class="rounded-lg border border-gray-200 bg-gray-50 dark:border-dark-400 dark:bg-dark-600">
+                                <div class="flex items-center justify-between px-4 py-2.5">
+                                    <span class="text-sm font-semibold text-gray-700 dark:text-dark-100">
+                                        {{ groupName === 'access' ? 'Access Level' : groupName.charAt(0).toUpperCase() + groupName.slice(1).replace('-', ' ') }}
+                                    </span>
+                                    <button
+                                        class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 dark:text-dark-200 dark:hover:text-dark-100"
+                                        @click="toggleGroup(groupName)"
+                                    >
+                                        <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                        {{ isGroupFullyChecked(groupName) ? 'Uncheck All' : 'Check All' }}
+                                    </button>
                                 </div>
-                            </label>
+                                <div class="rounded-b-lg border-t border-gray-200 bg-white dark:border-dark-400 dark:bg-dark-700">
+                                    <label
+                                        v-for="scope in groupScopes"
+                                        :key="scope.value"
+                                        class="flex cursor-pointer items-start gap-3 border-b border-gray-100 px-4 py-3 transition last:border-b-0 hover:bg-gray-50 dark:border-dark-500 dark:hover:bg-dark-650"
+                                    >
+                                        <input v-model="form.scopes" type="checkbox" :value="scope.value" class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-dark-300" />
+                                        <div>
+                                            <div class="text-sm font-medium text-gray-900 dark:text-dark-100">{{ scope.label }}</div>
+                                            <div v-if="scope.description" class="text-xs text-gray-500 dark:text-dark-200">{{ scope.description }}</div>
+                                        </div>
+                                    </label>
+                                </div>
+                            </div>
                         </template>
                     </div>
                     <p v-if="form.errors.scopes" class="mt-1 text-sm text-red-600">{{ form.errors.scopes }}</p>
@@ -304,10 +309,10 @@
 
                 <div>
                     <ui-label text="Expiration" />
-                    <ui-description text="Leave blank for a token that never expires." />
+                    <ui-description :text="maxTokenLifetimeDays ? `Defaults to ${maxTokenLifetimeDays} days. Clear to create a token that never expires.` : 'Leave blank for a token that never expires.'" />
                     <div class="mt-1 flex items-center gap-2">
                         <ui-input v-model="form.expires_at" type="date" class="flex-1" />
-                        <ui-button v-if="form.expires_at" text="Clear" size="sm" variant="ghost" @click="form.expires_at = ''" />
+                        <ui-button v-if="form.expires_at" text="Never expire" size="sm" variant="ghost" @click="form.expires_at = ''" />
                     </div>
                     <p v-if="form.errors.expires_at" class="mt-1 text-sm text-red-600">{{ form.errors.expires_at }}</p>
                 </div>
@@ -344,6 +349,14 @@ const props = defineProps({
     clients: { type: Object, default: () => ({}) },
     webEnabled: { type: Boolean, default: false },
     mcpEndpoint: { type: String, default: '' },
+    maxTokenLifetimeDays: { type: Number, default: null },
+});
+
+const defaultExpiryDate = computed(() => {
+    if (!props.maxTokenLifetimeDays) return '';
+    const d = new Date();
+    d.setDate(d.getDate() + props.maxTokenLifetimeDays);
+    return d.toISOString().split('T')[0];
 });
 
 const activeTab = ref('connect');
@@ -554,7 +567,7 @@ function copyEndpoint() {
 // Token form
 function openCreate() {
     editingToken.value = null;
-    form.value = { name: '', scopes: [], expires_at: '', errors: {} };
+    form.value = { name: '', scopes: [], expires_at: defaultExpiryDate.value, errors: {} };
     showTokenForm.value = true;
 }
 
@@ -579,6 +592,22 @@ function toggleAllScopes() {
         form.value.scopes = [];
     } else {
         form.value.scopes = props.availableScopes.map(s => s.value);
+    }
+}
+
+function isGroupFullyChecked(groupName) {
+    const scopes = groupedScopes.value[groupName] || [];
+    return scopes.length > 0 && scopes.every(s => form.value.scopes.includes(s.value));
+}
+
+function toggleGroup(groupName) {
+    const scopes = groupedScopes.value[groupName] || [];
+    const values = scopes.map(s => s.value);
+    if (isGroupFullyChecked(groupName)) {
+        form.value.scopes = form.value.scopes.filter(s => !values.includes(s));
+    } else {
+        const toAdd = values.filter(v => !form.value.scopes.includes(v));
+        form.value.scopes = [...form.value.scopes, ...toAdd];
     }
 }
 

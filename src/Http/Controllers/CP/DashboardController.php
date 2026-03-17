@@ -55,6 +55,7 @@ class DashboardController extends CpController
                 fn (TokenScope $s): array => [
                     'value' => $s->value,
                     'label' => $s->label(),
+                    'description' => $s->description(),
                     'group' => $s->group(),
                 ],
                 TokenScope::all()
@@ -62,6 +63,7 @@ class DashboardController extends CpController
             'clients' => $this->configGenerator->getAvailableClients(),
             'webEnabled' => (bool) config('statamic.mcp.web.enabled', false),
             'mcpEndpoint' => $this->getMcpEndpoint(),
+            'maxTokenLifetimeDays' => config('statamic.mcp.security.max_token_lifetime_days'),
         ]);
     }
 
@@ -109,6 +111,7 @@ class DashboardController extends CpController
                 fn (TokenScope $s): array => [
                     'value' => $s->value,
                     'label' => $s->label(),
+                    'description' => $s->description(),
                     'group' => $s->group(),
                 ],
                 TokenScope::all()

@@ -59,6 +59,36 @@ enum TokenScope: string
     }
 
     /**
+     * Get a human-readable description for this scope.
+     */
+    public function description(): string
+    {
+        return match ($this) {
+            self::FullAccess => 'Grants unrestricted access to all MCP tools and actions.',
+            self::ContentRead => 'View entries and taxonomy terms.',
+            self::ContentWrite => 'Create, update, and delete entries and terms.',
+            self::StructuresRead => 'View collections, taxonomies, navigations, and sites.',
+            self::StructuresWrite => 'Create, update, and delete collections, taxonomies, and navigations.',
+            self::AssetsRead => 'View asset containers and files.',
+            self::AssetsWrite => 'Upload, move, and delete assets.',
+            self::UsersRead => 'View users, roles, and groups.',
+            self::UsersWrite => 'Create, update, and delete users and assign roles.',
+            self::SystemRead => 'View system info, health checks, and configuration.',
+            self::SystemWrite => 'Manage caches and system settings.',
+            self::BlueprintsRead => 'View blueprints and fieldsets.',
+            self::BlueprintsWrite => 'Create, update, and delete blueprints.',
+            self::EntriesRead => 'View entries across collections.',
+            self::EntriesWrite => 'Create, update, delete, and publish entries.',
+            self::TermsRead => 'View taxonomy terms.',
+            self::TermsWrite => 'Create, update, and delete taxonomy terms.',
+            self::GlobalsRead => 'View global sets and their values.',
+            self::GlobalsWrite => 'Update global set values.',
+            self::ContentFacadeRead => 'Run content audits and cross-reference analysis.',
+            self::ContentFacadeWrite => 'Execute content workflow operations.',
+        };
+    }
+
+    /**
      * Get the domain group for this scope.
      */
     public function group(): string
