@@ -6,6 +6,8 @@ namespace Cboxdk\StatamicMcp\Auth;
 
 use Carbon\Carbon;
 use Cboxdk\StatamicMcp\Contracts\TokenStore;
+use Cboxdk\StatamicMcp\Events\McpTokenDeleted;
+use Cboxdk\StatamicMcp\Events\McpTokenSaved;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -50,6 +52,8 @@ class TokenService
             $oauthClientId,
             $oauthClientName,
         );
+
+        McpTokenSaved::dispatch($tokenData);
 
         return [
             'token' => $plainTextToken,
@@ -124,7 +128,13 @@ class TokenService
             $data['expiresAt'] = null;
         }
 
-        return $this->tokenStore->update($tokenId, $data);
+        $updated = $this->tokenStore->update($tokenId, $data);
+
+        if ($updated !== null) {
+            McpTokenSaved::dispatch($updated);
+        }
+
+        return $updated;
     }
 
     /**
@@ -149,6 +159,8 @@ class TokenService
             return null;
         }
 
+        McpTokenSaved::dispatch($updated);
+
         return [
             'token' => $plainTextToken,
             'model' => $updated,
@@ -160,7 +172,14 @@ class TokenService
      */
     public function revokeToken(string $tokenId): bool
     {
-        return $this->tokenStore->delete($tokenId);
+        $existing = $this->tokenStore->find($tokenId);
+        $deleted = $this->tokenStore->delete($tokenId);
+
+        if ($deleted && $existing !== null) {
+            McpTokenDeleted::dispatch($existing->name);
+        }
+
+        return $deleted;
     }
 
     /**

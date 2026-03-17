@@ -31,6 +31,7 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Laravel\Mcp\Facades\Mcp;
 use Statamic\Facades\CP\Nav;
+use Statamic\Facades\Git;
 use Statamic\Facades\Permission;
 use Statamic\Providers\AddonServiceProvider;
 use Statamic\Statamic;
@@ -47,6 +48,12 @@ class ServiceProvider extends AddonServiceProvider
     {
         // Register views for OAuth consent screen
         $this->loadViewsFrom(__DIR__ . '/../resources/views', 'statamic-mcp');
+
+        // Register token events with Statamic's Git automation (if enabled)
+        if (config('statamic.git.enabled')) {
+            Git::listen(Events\McpTokenSaved::class);
+            Git::listen(Events\McpTokenDeleted::class);
+        }
 
         // Only load routes if MCP is available
         if (class_exists('Laravel\Mcp\Facades\Mcp')) {
