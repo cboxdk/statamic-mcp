@@ -42,7 +42,7 @@
                                     <svg class="size-4 text-green-600 dark:text-green-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
                                 </div>
                                 <div class="min-w-0 flex-1">
-                                    <p class="text-[11px] font-medium uppercase tracking-wider text-gray-400 dark:text-dark-200">MCP Endpoint</p>
+                                    <p class="text-[11px] font-medium uppercase tracking-wider text-gray-400 dark:text-gray-400">MCP Endpoint</p>
                                     <p class="truncate font-mono text-sm">{{ mcpEndpoint }}</p>
                                 </div>
                                 <ui-button :text="endpointCopied ? 'Copied!' : 'Copy'" icon="clipboard" size="sm" variant="ghost" @click="copyEndpoint" />
@@ -53,30 +53,30 @@
                         <ui-card>
                             <div class="p-4 pb-3">
                                 <h3 class="text-sm font-semibold">Choose your client</h3>
-                                <p class="mt-0.5 text-sm text-gray-500 dark:text-dark-175">Select an AI assistant to see setup instructions.</p>
+                                <p class="mt-0.5 text-sm text-gray-500 dark:text-gray-400">Select an AI assistant to see setup instructions.</p>
                             </div>
-                            <div class="grid border-t border-gray-100 dark:border-dark-400" :style="{ gridTemplateColumns: `repeat(${Object.keys(clients).length}, 1fr)` }">
+                            <div class="grid border-t border-gray-100 dark:border-gray-600" :style="{ gridTemplateColumns: `repeat(${Object.keys(clients).length}, 1fr)` }">
                                 <button
                                     v-for="(client, clientId) in clients"
                                     :key="clientId"
-                                    class="group flex cursor-pointer flex-col items-center gap-2 border-r border-gray-100 px-2 py-4 text-center transition-all last:border-r-0 dark:border-dark-400"
-                                    :class="selectedClient === clientId ? 'bg-gray-50 dark:bg-dark-550' : 'hover:bg-gray-50/50 dark:hover:bg-dark-575'"
+                                    class="group flex cursor-pointer flex-col items-center gap-2 border-r border-gray-100 px-2 py-4 text-center transition-all last:border-r-0 dark:border-gray-600"
+                                    :class="selectedClient === clientId ? 'bg-gray-50 dark:bg-gray-800' : 'hover:bg-gray-50/50 dark:hover:bg-gray-800'"
                                     @click="selectClient(clientId)"
                                 >
                                     <div
                                         class="flex size-10 items-center justify-center rounded-xl transition-all"
                                         :class="selectedClient === clientId
                                             ? clientColors[clientId]?.activeBg || 'bg-blue-100 dark:bg-blue-800'
-                                            : 'bg-gray-100 group-hover:bg-gray-150 dark:bg-dark-500 dark:group-hover:bg-dark-450'"
+                                            : 'bg-gray-100 group-hover:bg-gray-150 dark:bg-gray-700 dark:group-hover:bg-gray-700'"
                                     >
                                         <span
                                             :class="selectedClient === clientId
                                                 ? clientColors[clientId]?.activeText || 'text-blue-600'
-                                                : 'text-gray-400 group-hover:text-gray-500 dark:text-dark-200'"
+                                                : 'text-gray-400 group-hover:text-gray-500 dark:text-gray-400'"
                                             v-html="clientIcons[clientId]"
                                         />
                                     </div>
-                                    <span class="text-xs font-medium" :class="selectedClient === clientId ? 'text-gray-900 dark:text-dark-50' : 'text-gray-500 dark:text-dark-175'">{{ client.name }}</span>
+                                    <span class="text-xs font-medium" :class="selectedClient === clientId ? 'text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'">{{ client.name }}</span>
                                 </button>
                             </div>
                         </ui-card>
@@ -90,13 +90,13 @@
                                         <h3 class="mb-3 text-sm font-semibold">Setup</h3>
                                         <ol class="flex flex-col gap-2.5">
                                             <li v-for="(step, i) in clientInstructions[selectedClient].steps" :key="i" class="flex gap-3">
-                                                <span class="flex size-6 shrink-0 items-center justify-center rounded-full bg-gray-100 text-xs font-semibold text-gray-500 dark:bg-dark-500 dark:text-dark-175">{{ i + 1 }}</span>
+                                                <span class="flex size-6 shrink-0 items-center justify-center rounded-full bg-gray-100 text-xs font-semibold text-gray-500 dark:bg-gray-700 dark:text-gray-400">{{ i + 1 }}</span>
                                                 <span class="text-sm leading-relaxed" v-html="step" />
                                             </li>
                                         </ol>
                                     </div>
                                     <!-- Warnings -->
-                                    <div v-if="clientInstructions[selectedClient].warnings?.length" class="border-t border-gray-100 px-4 py-3 dark:border-dark-400">
+                                    <div v-if="clientInstructions[selectedClient].warnings?.length" class="border-t border-gray-100 px-4 py-3 dark:border-gray-600">
                                         <div v-for="(warning, i) in clientInstructions[selectedClient].warnings" :key="i" class="flex items-start gap-2">
                                             <svg class="mt-0.5 size-4 shrink-0 text-amber-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                                             <span class="text-xs text-amber-700 dark:text-amber-400" v-html="warning" />
@@ -109,12 +109,12 @@
                                     <div v-if="activeConfig.cli" class="flex items-center gap-1.5">
                                         <button
                                             class="rounded-md px-3 py-1.5 text-xs font-semibold transition-all"
-                                            :class="configMode === 'cli' ? 'bg-gray-900 text-white dark:bg-dark-200 dark:text-dark-900' : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-dark-500 dark:text-dark-175 dark:hover:bg-dark-450'"
+                                            :class="configMode === 'cli' ? 'bg-gray-900 text-white dark:bg-gray-400 dark:text-gray-900' : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-700'"
                                             @click="configMode = 'cli'"
                                         >CLI Command</button>
                                         <button
                                             class="rounded-md px-3 py-1.5 text-xs font-semibold transition-all"
-                                            :class="configMode === 'json' ? 'bg-gray-900 text-white dark:bg-dark-200 dark:text-dark-900' : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-dark-500 dark:text-dark-175 dark:hover:bg-dark-450'"
+                                            :class="configMode === 'json' ? 'bg-gray-900 text-white dark:bg-gray-400 dark:text-gray-900' : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-700'"
                                             @click="configMode = 'json'"
                                         >JSON Config</button>
                                     </div>
@@ -122,15 +122,15 @@
                                     <!-- CLI block -->
                                     <ui-card v-if="configMode === 'cli' && activeConfig.cli" class="overflow-hidden">
                                         <div class="flex items-center justify-between px-4 py-2.5">
-                                            <span class="text-xs font-semibold text-gray-500 dark:text-dark-175">Terminal</span>
+                                            <span class="text-xs font-semibold text-gray-500 dark:text-gray-400">Terminal</span>
                                             <ui-button :text="configCopied ? 'Copied!' : 'Copy'" icon="clipboard" size="sm" variant="ghost" @click="copyCli" />
                                         </div>
                                         <div class="bg-[#1e1e2e] px-4 py-3">
                                             <pre class="overflow-x-auto whitespace-pre-wrap break-all font-mono text-[13px] leading-relaxed text-[#a6e3a1]">{{ activeConfig.cli }}</pre>
                                         </div>
-                                        <div class="bg-gray-100 px-4 py-2 dark:bg-dark-550">
-                                            <p class="text-xs text-gray-500 dark:text-dark-175">
-                                                Replace <code class="font-mono font-semibold text-gray-700 dark:text-dark-100">&lt;YOUR_TOKEN&gt;</code> with a token from the <button class="font-semibold text-blue-600 hover:underline dark:text-blue-400" @click="activeTab = 'tokens'">Tokens tab</button>.
+                                        <div class="bg-gray-100 px-4 py-2 dark:bg-gray-800">
+                                            <p class="text-xs text-gray-500 dark:text-gray-400">
+                                                Replace <code class="font-mono font-semibold text-gray-700 dark:text-gray-200">&lt;YOUR_TOKEN&gt;</code> with a token from the <button class="font-semibold text-blue-600 hover:underline dark:text-blue-400" @click="activeTab = 'tokens'">Tokens tab</button>.
                                             </p>
                                         </div>
                                     </ui-card>
@@ -139,18 +139,18 @@
                                     <ui-card v-if="configMode === 'json' || !activeConfig.cli" class="overflow-hidden">
                                         <div class="flex items-center justify-between px-4 py-2.5">
                                             <div class="flex items-center gap-2">
-                                                <span class="text-xs font-semibold text-gray-500 dark:text-dark-175">{{ activeConfig.name }}</span>
-                                                <span v-if="activeConfig.config_file" class="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[11px] text-gray-500 dark:bg-dark-500 dark:text-dark-200">{{ activeConfig.config_file }}</span>
+                                                <span class="text-xs font-semibold text-gray-500 dark:text-gray-400">{{ activeConfig.name }}</span>
+                                                <span v-if="activeConfig.config_file" class="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[11px] text-gray-500 dark:bg-gray-700 dark:text-gray-400">{{ activeConfig.config_file }}</span>
                                             </div>
                                             <ui-button :text="configCopied ? 'Copied!' : 'Copy'" icon="clipboard" size="sm" variant="ghost" @click="copyConfig" />
                                         </div>
                                         <div class="bg-[#1e1e2e] px-4 py-3">
                                             <pre class="overflow-x-auto font-mono text-[13px] leading-relaxed text-[#cdd6f4]">{{ JSON.stringify(activeConfig.config, null, 2) }}</pre>
                                         </div>
-                                        <div class="bg-gray-100 px-4 py-2 dark:bg-dark-550">
-                                            <p class="text-xs text-gray-500 dark:text-dark-175">
-                                                <template v-if="activeConfig.config_file">Paste into <code class="font-mono font-semibold text-gray-700 dark:text-dark-100">{{ activeConfig.config_file }}</code>. </template>
-                                                Replace <code class="font-mono font-semibold text-gray-700 dark:text-dark-100">&lt;YOUR_TOKEN&gt;</code> with a token from the <button class="font-semibold text-blue-600 hover:underline dark:text-blue-400" @click="activeTab = 'tokens'">Tokens tab</button>.
+                                        <div class="bg-gray-100 px-4 py-2 dark:bg-gray-800">
+                                            <p class="text-xs text-gray-500 dark:text-gray-400">
+                                                <template v-if="activeConfig.config_file">Paste into <code class="font-mono font-semibold text-gray-700 dark:text-gray-200">{{ activeConfig.config_file }}</code>. </template>
+                                                Replace <code class="font-mono font-semibold text-gray-700 dark:text-gray-200">&lt;YOUR_TOKEN&gt;</code> with a token from the <button class="font-semibold text-blue-600 hover:underline dark:text-blue-400" @click="activeTab = 'tokens'">Tokens tab</button>.
                                             </p>
                                         </div>
                                     </ui-card>
@@ -158,8 +158,8 @@
 
                                 <!-- ChatGPT: no config block, just instructions -->
                                 <ui-card v-if="selectedClient === 'chatgpt' && !activeConfig" class="overflow-hidden">
-                                    <div class="bg-gray-100 px-4 py-3 dark:bg-dark-550">
-                                        <p class="text-sm text-gray-600 dark:text-dark-150">ChatGPT uses a web-based UI to manage connectors — no config file needed. Follow the steps above.</p>
+                                    <div class="bg-gray-100 px-4 py-3 dark:bg-gray-800">
+                                        <p class="text-sm text-gray-600 dark:text-gray-300">ChatGPT uses a web-based UI to manage connectors — no config file needed. Follow the steps above.</p>
                                     </div>
                                 </ui-card>
                             </div>
@@ -179,8 +179,8 @@
                             </div>
                             <ui-button text="Dismiss" variant="ghost" size="sm" @click="newToken = null" />
                         </div>
-                        <div class="flex items-center gap-2 border-t border-green-200 bg-white px-4 py-3 dark:border-green-800/40 dark:bg-dark-600">
-                            <input :value="newToken" readonly class="flex-1 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 font-mono text-sm dark:border-dark-400 dark:bg-dark-700" @click="$event.target.select()" />
+                        <div class="flex items-center gap-2 border-t border-green-200 bg-white px-4 py-3 dark:border-green-800/40 dark:bg-gray-800">
+                            <input :value="newToken" readonly class="flex-1 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 font-mono text-sm dark:border-gray-600 dark:bg-gray-850" @click="$event.target.select()" />
                             <ui-button :text="tokenCopied ? 'Copied!' : 'Copy'" icon="clipboard" variant="primary" @click="copyToken" />
                         </div>
                     </div>
@@ -192,7 +192,7 @@
                                 <svg class="size-7 text-blue-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                             </div>
                             <h3 class="mb-1.5 text-base font-semibold">No tokens yet</h3>
-                            <p class="mb-6 max-w-md text-sm text-gray-500 dark:text-dark-175">Create a token to authenticate AI assistants connecting to this MCP server.</p>
+                            <p class="mb-6 max-w-md text-sm text-gray-500 dark:text-gray-400">Create a token to authenticate AI assistants connecting to this MCP server.</p>
                             <ui-button text="Create Token" variant="primary" icon="plus" @click="openCreate" />
                         </div>
                     </ui-card>
@@ -200,7 +200,7 @@
                     <!-- Token table -->
                     <template v-if="tokens.length > 0">
                         <div class="flex items-center justify-between">
-                            <p class="text-sm text-gray-500 dark:text-dark-175">{{ tokens.length }} token{{ tokens.length !== 1 ? 's' : '' }}</p>
+                            <p class="text-sm text-gray-500 dark:text-gray-400">{{ tokens.length }} token{{ tokens.length !== 1 ? 's' : '' }}</p>
                             <ui-button text="Create Token" variant="primary" icon="plus" size="sm" @click="openCreate" />
                         </div>
 
@@ -237,9 +237,9 @@
                                                 <span v-else class="text-sm text-gray-400">None</span>
                                             </div>
                                         </td>
-                                        <td class="text-sm text-gray-500 dark:text-dark-175">{{ formatDate(token.last_used_at) }}</td>
-                                        <td class="text-sm text-gray-500 dark:text-dark-175">{{ token.expires_at ? formatDate(token.expires_at) : 'Never' }}</td>
-                                        <td class="text-sm text-gray-500 dark:text-dark-175">{{ formatDate(token.created_at) }}</td>
+                                        <td class="text-sm text-gray-500 dark:text-gray-400">{{ formatDate(token.last_used_at) }}</td>
+                                        <td class="text-sm text-gray-500 dark:text-gray-400">{{ token.expires_at ? formatDate(token.expires_at) : 'Never' }}</td>
+                                        <td class="text-sm text-gray-500 dark:text-gray-400">{{ formatDate(token.created_at) }}</td>
                                         <td>
                                             <div class="flex items-center justify-end gap-1">
                                                 <ui-button text="Edit" size="sm" variant="ghost" icon="pencil" @click="openEdit(token)" />
@@ -405,7 +405,7 @@ function scopeLabel(value) {
 // Client setup instructions (verified March 2026)
 const clientInstructions = computed(() => {
     const endpoint = props.mcpEndpoint || 'https://your-site.test/mcp/statamic';
-    const codeEl = (text) => `<code class="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs dark:bg-dark-500">${text}</code>`;
+    const codeEl = (text) => `<code class="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs dark:bg-gray-700">${text}</code>`;
     return {
         'claude-desktop': {
             steps: [
@@ -496,7 +496,7 @@ const clientColors = {
     cursor: { activeBg: 'bg-blue-100 dark:bg-blue-900/40', activeText: 'text-blue-600 dark:text-blue-400' },
     chatgpt: { activeBg: 'bg-emerald-100 dark:bg-emerald-900/40', activeText: 'text-emerald-600 dark:text-emerald-400' },
     windsurf: { activeBg: 'bg-teal-100 dark:bg-teal-900/40', activeText: 'text-teal-600 dark:text-teal-400' },
-    generic: { activeBg: 'bg-gray-200 dark:bg-dark-400', activeText: 'text-gray-600 dark:text-dark-100' },
+    generic: { activeBg: 'bg-gray-200 dark:bg-gray-600', activeText: 'text-gray-600 dark:text-gray-200' },
 };
 
 onMounted(() => {

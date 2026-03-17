@@ -28,8 +28,8 @@
                             </div>
                             <ui-button text="Dismiss" variant="ghost" size="sm" @click="newToken = null" />
                         </div>
-                        <div class="flex items-center gap-2 border-t border-green-200 bg-white px-4 py-3 dark:border-green-800/40 dark:bg-dark-600">
-                            <input :value="newToken" readonly class="flex-1 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 font-mono text-sm dark:border-dark-400 dark:bg-dark-700" @click="$event.target.select()" />
+                        <div class="flex items-center gap-2 border-t border-green-200 bg-white px-4 py-3 dark:border-green-800/40 dark:bg-gray-800">
+                            <input :value="newToken" readonly class="flex-1 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 font-mono text-sm dark:border-gray-600 dark:bg-gray-850" @click="$event.target.select()" />
                             <ui-button :text="tokenCopied ? 'Copied!' : 'Copy'" icon="clipboard" variant="primary" @click="copyToken" />
                         </div>
                     </div>
@@ -47,13 +47,13 @@
                                 <svg class="size-7 text-blue-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                             </div>
                             <h3 class="mb-1.5 text-base font-semibold">{{ tokenSearch ? 'No matching tokens' : 'No tokens yet' }}</h3>
-                            <p class="max-w-md text-sm text-gray-500 dark:text-dark-175">{{ tokenSearch ? 'Try a different search term.' : 'No tokens have been created in the system.' }}</p>
+                            <p class="max-w-md text-sm text-gray-500 dark:text-gray-400">{{ tokenSearch ? 'Try a different search term.' : 'No tokens have been created in the system.' }}</p>
                         </div>
                     </ui-card>
 
                     <!-- Token table -->
                     <template v-if="filteredTokens.length > 0">
-                        <p class="text-sm text-gray-500 dark:text-dark-175">{{ filteredTokens.length }} token{{ filteredTokens.length !== 1 ? 's' : '' }}{{ tokenSearch ? ' matching' : '' }}</p>
+                        <p class="text-sm text-gray-500 dark:text-gray-400">{{ filteredTokens.length }} token{{ filteredTokens.length !== 1 ? 's' : '' }}{{ tokenSearch ? ' matching' : '' }}</p>
 
                         <ui-card>
                             <table class="data-table">
@@ -80,7 +80,7 @@
                                         <td>
                                             <div>
                                                 <div class="text-sm font-medium">{{ token.user_name }}</div>
-                                                <div v-if="token.user_email" class="text-xs text-gray-400 dark:text-dark-200">{{ token.user_email }}</div>
+                                                <div v-if="token.user_email" class="text-xs text-gray-400 dark:text-gray-400">{{ token.user_email }}</div>
                                             </div>
                                         </td>
                                         <td>
@@ -95,9 +95,9 @@
                                                 <span v-else class="text-sm text-gray-400">None</span>
                                             </div>
                                         </td>
-                                        <td class="text-sm text-gray-500 dark:text-dark-175">{{ formatDate(token.last_used_at) }}</td>
-                                        <td class="text-sm text-gray-500 dark:text-dark-175">{{ token.expires_at ? formatDate(token.expires_at) : 'Never' }}</td>
-                                        <td class="text-sm text-gray-500 dark:text-dark-175">{{ formatDate(token.created_at) }}</td>
+                                        <td class="text-sm text-gray-500 dark:text-gray-400">{{ formatDate(token.last_used_at) }}</td>
+                                        <td class="text-sm text-gray-500 dark:text-gray-400">{{ token.expires_at ? formatDate(token.expires_at) : 'Never' }}</td>
+                                        <td class="text-sm text-gray-500 dark:text-gray-400">{{ formatDate(token.created_at) }}</td>
                                         <td>
                                             <div class="flex items-center justify-end gap-1">
                                                 <ui-button text="Edit" size="sm" variant="ghost" icon="pencil" @click="openEdit(token)" />
@@ -120,7 +120,7 @@
                     <div class="flex items-center gap-3">
                         <select
                             v-model="auditFilter.tool"
-                            class="h-[38px] rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm dark:border-dark-400 dark:bg-dark-600"
+                            class="h-[38px] rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800"
                             @change="loadAudit()"
                         >
                             <option value="">All tools</option>
@@ -128,7 +128,7 @@
                         </select>
                         <select
                             v-model="auditFilter.status"
-                            class="h-[38px] rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm dark:border-dark-400 dark:bg-dark-600"
+                            class="h-[38px] rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800"
                             @change="loadAudit()"
                         >
                             <option value="">All statuses</option>
@@ -139,7 +139,7 @@
                         </select>
                         <select
                             v-model="auditFilter.user"
-                            class="h-[38px] rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm dark:border-dark-400 dark:bg-dark-600"
+                            class="h-[38px] rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800"
                             @change="filterAuditByUser()"
                         >
                             <option value="">All users</option>
@@ -153,11 +153,11 @@
                     <!-- Empty state -->
                     <ui-card v-if="filteredAuditEntries.length === 0 && !auditLoading">
                         <div class="flex flex-col items-center justify-center px-6 py-12 text-center">
-                            <div class="mb-4 flex size-14 items-center justify-center rounded-full bg-gray-100 dark:bg-dark-500">
-                                <svg class="size-7 text-gray-400 dark:text-dark-200" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                            <div class="mb-4 flex size-14 items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700">
+                                <svg class="size-7 text-gray-400 dark:text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                             </div>
                             <h3 class="mb-1.5 text-base font-semibold">No activity yet</h3>
-                            <p class="max-w-md text-sm text-gray-500 dark:text-dark-175">Tool calls will appear here once AI assistants start using the MCP server.</p>
+                            <p class="max-w-md text-sm text-gray-500 dark:text-gray-400">Tool calls will appear here once AI assistants start using the MCP server.</p>
                         </div>
                     </ui-card>
 
@@ -186,9 +186,9 @@
                                                 size="sm"
                                             />
                                         </td>
-                                        <td class="text-sm text-gray-500 dark:text-dark-175">{{ entry.user || entry.token_name || 'cli' }}</td>
-                                        <td class="text-sm text-gray-500 dark:text-dark-175">{{ entry.duration_ms ? Math.round(entry.duration_ms) + 'ms' : '-' }}</td>
-                                        <td class="text-sm text-gray-500 dark:text-dark-175">{{ formatDateTime(entry.timestamp) }}</td>
+                                        <td class="text-sm text-gray-500 dark:text-gray-400">{{ entry.user || entry.token_name || 'cli' }}</td>
+                                        <td class="text-sm text-gray-500 dark:text-gray-400">{{ entry.duration_ms ? Math.round(entry.duration_ms) + 'ms' : '-' }}</td>
+                                        <td class="text-sm text-gray-500 dark:text-gray-400">{{ formatDateTime(entry.timestamp) }}</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -198,15 +198,15 @@
                         <ui-stack v-model:open="showAuditDetail" :title="selectedAuditEntry ? (selectedAuditEntry.tool + (selectedAuditEntry.action ? '.' + selectedAuditEntry.action : '')) : 'Call Details'" size="narrow" @closed="selectedAuditEntry = null">
                             <template v-if="selectedAuditEntry">
                                 <div class="grid grid-cols-2 gap-3 text-sm">
-                                    <div><span class="text-gray-500 dark:text-dark-175">Tool:</span> <span class="font-mono">{{ selectedAuditEntry.tool }}</span></div>
-                                    <div><span class="text-gray-500 dark:text-dark-175">Action:</span> {{ selectedAuditEntry.action || '-' }}</div>
-                                    <div><span class="text-gray-500 dark:text-dark-175">Status:</span> <ui-badge :text="selectedAuditEntry.status" :color="statusColor(selectedAuditEntry.status)" size="sm" /></div>
-                                    <div><span class="text-gray-500 dark:text-dark-175">Duration:</span> {{ selectedAuditEntry.duration_ms ? Math.round(selectedAuditEntry.duration_ms) + 'ms' : '-' }}</div>
-                                    <div><span class="text-gray-500 dark:text-dark-175">User:</span> {{ selectedAuditEntry.user || '-' }}</div>
-                                    <div><span class="text-gray-500 dark:text-dark-175">Token:</span> {{ selectedAuditEntry.token_name || '-' }}</div>
-                                    <div><span class="text-gray-500 dark:text-dark-175">Context:</span> {{ selectedAuditEntry.context || '-' }}</div>
-                                    <div><span class="text-gray-500 dark:text-dark-175">IP:</span> {{ selectedAuditEntry.ip || '-' }}</div>
-                                    <div class="col-span-2"><span class="text-gray-500 dark:text-dark-175">Correlation ID:</span> <span class="font-mono text-xs">{{ selectedAuditEntry.correlation_id || '-' }}</span></div>
+                                    <div><span class="text-gray-500 dark:text-gray-400">Tool:</span> <span class="font-mono">{{ selectedAuditEntry.tool }}</span></div>
+                                    <div><span class="text-gray-500 dark:text-gray-400">Action:</span> {{ selectedAuditEntry.action || '-' }}</div>
+                                    <div><span class="text-gray-500 dark:text-gray-400">Status:</span> <ui-badge :text="selectedAuditEntry.status" :color="statusColor(selectedAuditEntry.status)" size="sm" /></div>
+                                    <div><span class="text-gray-500 dark:text-gray-400">Duration:</span> {{ selectedAuditEntry.duration_ms ? Math.round(selectedAuditEntry.duration_ms) + 'ms' : '-' }}</div>
+                                    <div><span class="text-gray-500 dark:text-gray-400">User:</span> {{ selectedAuditEntry.user || '-' }}</div>
+                                    <div><span class="text-gray-500 dark:text-gray-400">Token:</span> {{ selectedAuditEntry.token_name || '-' }}</div>
+                                    <div><span class="text-gray-500 dark:text-gray-400">Context:</span> {{ selectedAuditEntry.context || '-' }}</div>
+                                    <div><span class="text-gray-500 dark:text-gray-400">IP:</span> {{ selectedAuditEntry.ip || '-' }}</div>
+                                    <div class="col-span-2"><span class="text-gray-500 dark:text-gray-400">Correlation ID:</span> <span class="font-mono text-xs">{{ selectedAuditEntry.correlation_id || '-' }}</span></div>
                                 </div>
                                 <div v-if="selectedAuditEntry.mutation" class="mt-4 rounded border border-amber-200 bg-amber-50 p-3 dark:border-amber-800/40 dark:bg-amber-950/20">
                                     <span class="text-sm font-medium text-amber-800 dark:text-amber-300">Mutation</span>
@@ -225,22 +225,22 @@
                                     </div>
                                 </div>
                                 <div v-if="selectedAuditEntry.arguments" class="mt-4">
-                                    <span class="text-sm font-medium text-gray-500 dark:text-dark-175">Arguments</span>
-                                    <pre class="mt-1 overflow-x-auto rounded bg-gray-50 p-3 text-xs dark:bg-dark-600">{{ JSON.stringify(selectedAuditEntry.arguments, null, 2) }}</pre>
+                                    <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Arguments</span>
+                                    <pre class="mt-1 overflow-x-auto rounded bg-gray-50 p-3 text-xs dark:bg-gray-800">{{ JSON.stringify(selectedAuditEntry.arguments, null, 2) }}</pre>
                                 </div>
                                 <div v-if="selectedAuditEntry.response_summary" class="mt-4">
-                                    <span class="text-sm font-medium text-gray-500 dark:text-dark-175">Response</span>
+                                    <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Response</span>
                                     <p class="mt-1 text-sm">{{ selectedAuditEntry.response_summary }}</p>
                                 </div>
                                 <div v-if="selectedAuditEntry.error" class="mt-4">
-                                    <span class="text-sm font-medium text-gray-500 dark:text-dark-175">Error</span>
+                                    <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Error</span>
                                     <pre class="mt-1 overflow-x-auto rounded bg-red-50 p-3 text-xs text-red-800 dark:bg-red-900/20 dark:text-red-300">{{ selectedAuditEntry.error.message || JSON.stringify(selectedAuditEntry.error) }}</pre>
                                 </div>
                             </template>
                         </ui-stack>
 
                         <div v-if="auditMeta.last_page > 1" class="flex items-center justify-between">
-                            <span class="text-sm text-gray-500 dark:text-dark-175">Page {{ auditMeta.current_page }} of {{ auditMeta.last_page }} ({{ auditMeta.total }} entries)</span>
+                            <span class="text-sm text-gray-500 dark:text-gray-400">Page {{ auditMeta.current_page }} of {{ auditMeta.last_page }} ({{ auditMeta.total }} entries)</span>
                             <ui-button-group>
                                 <ui-button text="Previous" size="sm" :disabled="auditMeta.current_page <= 1" @click="loadAudit(auditMeta.current_page - 1)" />
                                 <ui-button text="Next" size="sm" :disabled="auditMeta.current_page >= auditMeta.last_page" @click="loadAudit(auditMeta.current_page + 1)" />
@@ -256,25 +256,25 @@
                     <div class="gap-4" style="display: grid; grid-template-columns: repeat(4, 1fr);">
                         <ui-card>
                             <div class="p-4">
-                                <p class="text-[11px] font-medium uppercase tracking-wider text-gray-400 dark:text-dark-200">Web Endpoint</p>
+                                <p class="text-[11px] font-medium uppercase tracking-wider text-gray-400 dark:text-gray-400">Web Endpoint</p>
                                 <div class="mt-2"><ui-badge :text="webEnabled ? 'Active' : 'Disabled'" :color="webEnabled ? 'green' : 'default'" /></div>
                             </div>
                         </ui-card>
                         <ui-card>
                             <div class="p-4">
-                                <p class="text-[11px] font-medium uppercase tracking-wider text-gray-400 dark:text-dark-200">MCP Tools</p>
+                                <p class="text-[11px] font-medium uppercase tracking-wider text-gray-400 dark:text-gray-400">MCP Tools</p>
                                 <p class="mt-1 text-2xl font-bold">{{ systemStats.tool_count ?? 0 }}</p>
                             </div>
                         </ui-card>
                         <ui-card>
                             <div class="p-4">
-                                <p class="text-[11px] font-medium uppercase tracking-wider text-gray-400 dark:text-dark-200">Statamic</p>
+                                <p class="text-[11px] font-medium uppercase tracking-wider text-gray-400 dark:text-gray-400">Statamic</p>
                                 <p class="mt-1 text-2xl font-bold">{{ systemStats.statamic_version ?? 'N/A' }}</p>
                             </div>
                         </ui-card>
                         <ui-card>
                             <div class="p-4">
-                                <p class="text-[11px] font-medium uppercase tracking-wider text-gray-400 dark:text-dark-200">Laravel</p>
+                                <p class="text-[11px] font-medium uppercase tracking-wider text-gray-400 dark:text-gray-400">Laravel</p>
                                 <p class="mt-1 text-2xl font-bold">{{ systemStats.laravel_version ?? 'N/A' }}</p>
                             </div>
                         </ui-card>
@@ -282,9 +282,9 @@
 
                     <ui-card v-if="webEnabled">
                         <div class="p-4">
-                            <p class="mb-2 text-[11px] font-medium uppercase tracking-wider text-gray-400 dark:text-dark-200">Endpoint URL</p>
+                            <p class="mb-2 text-[11px] font-medium uppercase tracking-wider text-gray-400 dark:text-gray-400">Endpoint URL</p>
                             <div class="flex items-center gap-2">
-                                <input :value="mcpEndpoint" readonly class="flex-1 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 font-mono text-sm dark:border-dark-400 dark:bg-dark-600" @click="$event.target.select()" />
+                                <input :value="mcpEndpoint" readonly class="flex-1 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 font-mono text-sm dark:border-gray-600 dark:bg-gray-800" @click="$event.target.select()" />
                                 <ui-button :text="endpointCopied ? 'Copied!' : 'Copy'" icon="clipboard" size="sm" @click="copyEndpoint" />
                             </div>
                         </div>
@@ -292,7 +292,7 @@
 
                     <ui-card>
                         <div class="p-4">
-                            <p class="mb-1 text-[11px] font-medium uppercase tracking-wider text-gray-400 dark:text-dark-200">Rate Limiting</p>
+                            <p class="mb-1 text-[11px] font-medium uppercase tracking-wider text-gray-400 dark:text-gray-400">Rate Limiting</p>
                             <p class="text-sm">{{ systemStats.rate_limit_max ?? 60 }} requests per {{ systemStats.rate_limit_decay ?? 1 }} minute{{ (systemStats.rate_limit_decay ?? 1) !== 1 ? 's' : '' }}</p>
                         </div>
                     </ui-card>
@@ -323,21 +323,21 @@
                         </button>
                     </div>
 
-                    <div class="max-h-72 overflow-y-auto rounded-lg border border-gray-200 dark:border-dark-400">
+                    <div class="max-h-72 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-600">
                         <template v-for="(groupScopes, groupName) in groupedScopes" :key="groupName">
-                            <div class="border-b border-gray-100 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-400 first:rounded-t-lg dark:border-dark-450 dark:text-dark-200" :class="groupName === 'access' ? 'bg-purple-50/50 dark:bg-purple-900/10' : 'bg-gray-50 dark:bg-dark-575'">
+                            <div class="border-b border-gray-100 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-400 first:rounded-t-lg dark:border-gray-700 dark:text-gray-400" :class="groupName === 'access' ? 'bg-purple-50/50 dark:bg-purple-900/10' : 'bg-gray-50 dark:bg-gray-800'">
                                 {{ groupName === 'access' ? 'Access Level' : groupName }}
                             </div>
                             <label
                                 v-for="scope in groupScopes"
                                 :key="scope.value"
-                                class="flex items-center gap-3 border-b border-gray-100 px-3 py-2 transition last:border-b-0 hover:bg-gray-50 dark:border-dark-450 dark:hover:bg-dark-575"
+                                class="flex items-center gap-3 border-b border-gray-100 px-3 py-2 transition last:border-b-0 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
                                 :class="{ 'bg-blue-50/30 dark:bg-blue-900/5': form.scopes.includes(scope.value) }"
                             >
-                                <input v-model="form.scopes" type="checkbox" :value="scope.value" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-dark-300" />
+                                <input v-model="form.scopes" type="checkbox" :value="scope.value" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600" />
                                 <div class="flex items-center gap-2">
                                     <span class="text-sm font-medium">{{ scope.label }}</span>
-                                    <span class="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[10px] text-gray-400 dark:bg-dark-500 dark:text-dark-250">{{ scope.value }}</span>
+                                    <span class="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[10px] text-gray-400 dark:bg-gray-700 dark:text-gray-500">{{ scope.value }}</span>
                                 </div>
                             </label>
                         </template>
