@@ -196,17 +196,6 @@ class ToolLogger
     }
 
     /**
-     * Get the configured audit log file path.
-     */
-    public static function getLogPath(): string
-    {
-        /** @var string $path */
-        $path = config('statamic.mcp.security.audit_path', storage_path('logs/mcp-audit.log'));
-
-        return $path;
-    }
-
-    /**
      * Build a concise log message.
      */
     private static function buildMessage(string $toolName, ?string $action, string $status): string

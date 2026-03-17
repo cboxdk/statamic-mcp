@@ -34,7 +34,6 @@ beforeEach(function () {
     // Reset config for each test
     config([
         'statamic.mcp.security.audit_logging' => true,
-        'statamic.mcp.security.audit_path' => $path,
     ]);
 
     // Bind a FileAuditStore pointing at the test path
@@ -316,12 +315,6 @@ it('skips logging when audit logging is disabled', function () {
     );
 
     expect(file_exists(testLogPath()))->toBeFalse();
-});
-
-it('returns correct log path from config', function () {
-    config(['statamic.mcp.security.audit_path' => '/custom/path/mcp.log']);
-
-    expect(ToolLogger::getLogPath())->toBe('/custom/path/mcp.log');
 });
 
 it('reports enabled status from config', function () {

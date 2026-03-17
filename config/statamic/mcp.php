@@ -24,7 +24,7 @@ return [
     |
     */
     'web' => [
-        'enabled' => env('STATAMIC_MCP_WEB_ENABLED', false),
+        'enabled' => env('STATAMIC_MCP_WEB_ENABLED', true),
         'path' => env('STATAMIC_MCP_WEB_PATH', '/mcp/statamic'),
 
         // Reject plain HTTP requests to the MCP endpoint (skipped in local/testing)
@@ -72,19 +72,6 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Authentication Configuration
-    |--------------------------------------------------------------------------
-    |
-    | Configure how MCP clients authenticate. Supports scoped API tokens
-    | that limit access to specific tools and actions.
-    |
-    */
-    'auth' => [
-        // Guard name is 'mcp', registered by AuthServiceProvider
-    ],
-
-    /*
-    |--------------------------------------------------------------------------
     | Dashboard Configuration
     |--------------------------------------------------------------------------
     |
@@ -110,14 +97,6 @@ return [
 
         // Audit logging for all MCP operations
         'audit_logging' => env('STATAMIC_MCP_AUDIT_LOGGING', true),
-
-        // @deprecated Use stores.audit and storage.audit_path instead.
-        // Log channel name for MCP audit entries
-        'audit_channel' => env('STATAMIC_MCP_AUDIT_CHANNEL', 'mcp'),
-
-        // @deprecated Use stores.audit and storage.audit_path instead.
-        // Path for the MCP audit log file
-        'audit_path' => storage_path('logs/mcp-audit.log'),
 
         // Maximum upload size in bytes (default: 10MB)
         'max_upload_size' => env('STATAMIC_MCP_MAX_UPLOAD_SIZE', 10 * 1024 * 1024),
@@ -147,15 +126,6 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Tool Configuration
-    |--------------------------------------------------------------------------
-    |
-    | Per-domain tool settings. Each domain router can be individually
-    | configured for web access and audit logging.
-    |
-    */
-    /*
-    |--------------------------------------------------------------------------
     | OAuth Configuration
     |--------------------------------------------------------------------------
     |
@@ -179,37 +149,37 @@ return [
     | Tool Configuration
     |--------------------------------------------------------------------------
     |
-    | Per-domain tool settings. Each domain router can be individually
-    | configured for web access and audit logging.
+    | Per-domain tool settings. Each tool can be toggled on/off via env vars.
+    | Set STATAMIC_MCP_TOOL_{NAME}_ENABLED=false to disable a specific tool.
     |
     */
     'tools' => [
-        'structures' => [
-            'enabled' => true,
-        ],
-        'assets' => [
-            'enabled' => true,
-        ],
-        'users' => [
-            'enabled' => true,
-        ],
-        'system' => [
-            'enabled' => true,
-        ],
         'blueprints' => [
-            'enabled' => true,
+            'enabled' => env('STATAMIC_MCP_TOOL_BLUEPRINTS_ENABLED', true),
         ],
         'entries' => [
-            'enabled' => true,
+            'enabled' => env('STATAMIC_MCP_TOOL_ENTRIES_ENABLED', true),
         ],
         'terms' => [
-            'enabled' => true,
+            'enabled' => env('STATAMIC_MCP_TOOL_TERMS_ENABLED', true),
         ],
         'globals' => [
-            'enabled' => true,
+            'enabled' => env('STATAMIC_MCP_TOOL_GLOBALS_ENABLED', true),
+        ],
+        'structures' => [
+            'enabled' => env('STATAMIC_MCP_TOOL_STRUCTURES_ENABLED', true),
+        ],
+        'assets' => [
+            'enabled' => env('STATAMIC_MCP_TOOL_ASSETS_ENABLED', true),
+        ],
+        'users' => [
+            'enabled' => env('STATAMIC_MCP_TOOL_USERS_ENABLED', true),
+        ],
+        'system' => [
+            'enabled' => env('STATAMIC_MCP_TOOL_SYSTEM_ENABLED', true),
         ],
         'content-facade' => [
-            'enabled' => true,
+            'enabled' => env('STATAMIC_MCP_TOOL_CONTENT_FACADE_ENABLED', true),
         ],
     ],
 

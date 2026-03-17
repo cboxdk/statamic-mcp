@@ -25,7 +25,6 @@ class ActivityLogTest extends TestCase
 
         config([
             'statamic.mcp.security.audit_logging' => true,
-            'statamic.mcp.security.audit_path' => $this->auditPath,
         ]);
 
         $this->app->singleton(AuditStore::class, fn (): FileAuditStore => new FileAuditStore($this->auditPath));
