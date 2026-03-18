@@ -6,7 +6,7 @@
 |---|------|------|
 | PHP | ^8.3 | ^8.3 |
 | Statamic | ^5.65 \| ^6.0 | ^6.6 |
-| Laravel | ^11.0 \| ^12.0 | ^12.0 (via Statamic v6) |
+| Laravel | ^11.0 \| ^12.0 | ^12.0 \| ^13.0 (via Statamic v6) |
 | Laravel MCP | ^0.4.1 \| ^0.5 | ^0.6 |
 | Symfony YAML | ^7.3 | ^7.0 \| ^8.0 |
 

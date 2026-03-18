@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Statamic v5 Support Removed
 - **Statamic v6.6+ only** — minimum requirement is now `statamic/cms:^6.6`
-- **Laravel 12 only** — minimum requirement is now `laravel/framework:^12.0`
+- **Laravel 12+ only** — supports `laravel/framework:^12.0` and `^13.0` (via Statamic v6)
 - Removed `StatamicVersion` dual-version detection helper
 - Removed v5 compatibility shims and feature flags
 

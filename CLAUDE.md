@@ -10,9 +10,9 @@ This is a Statamic addon that functions as an MCP (Model Context Protocol) serve
 
 - **PHP**: ^8.3
 - **Statamic CMS**: ^6.6 (v6 only — v5 support was removed in v2.0)
-- **Laravel**: ^12.0 (via Statamic v6)
+- **Laravel**: ^12.0 || ^13.0 (via Statamic v6)
 - **Laravel MCP**: ^0.6 (required - must be in `require` section, not `require-dev`)
-- **Orchestra Testbench**: ^11.0 (dev dependency for testing)
+- **Orchestra Testbench**: ^10.0 || ^11.0 (dev dependency for testing)
 - **Pest**: ^4.1 (stable release with PHP 8.3 requirement)
 - **Symfony YAML**: ^7.0 || ^8.0 (for YAML processing)
 
