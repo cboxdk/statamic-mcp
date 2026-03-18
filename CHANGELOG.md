@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2026-03-18
+
+### Fixed
+- Token expiry date validation no longer blocks submission — `max_token_lifetime_days` is now a default suggestion, not a hard server-side rejection
+- Token form error feedback uses Statamic toast notifications and native `ui-error-message` components with red border highlighting
+
+### Added
+- Scope presets (Read Only, Content Editor, Full Access) in token create/edit form, matching documented common combinations
+- Preset-aware badge display in admin token table — shows preset name instead of listing individual scopes
+- Admin token form now uses Statamic-style grouped permission cards with per-group "Check All"
+
+### Removed
+- Internal development plans and specs (`docs/superpowers/`) accidentally included in v2.0.0
+
 ## [2.0.0] - 2026-03-18
 
 ### Breaking Changes
