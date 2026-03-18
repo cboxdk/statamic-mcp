@@ -7,8 +7,11 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Concerns;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 use Statamic\Contracts\Auth\User;
+use Statamic\Facades\Site;
 
 /**
  * Router helper methods for common functionality across all routers.
@@ -194,24 +197,73 @@ trait RouterHelpers
     }
 
     /**
-     * Common parameter name corrections for LLM mistakes.
+     * Validate that a site handle exists.
      *
-     * @var array<string, string>
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string, mixed>|null Error response if invalid, null if valid
      */
-    private const PARAM_CORRECTIONS = [
-        'taxonomy' => 'taxonomies',
-        'collection' => 'collections',
-        'field_type' => 'type',
-        'fieldtype' => 'type',
-        'name' => 'handle',
-    ];
+    protected function validateSiteHandle(array $arguments): ?array
+    {
+        if (empty($arguments['site'])) {
+            return null;
+        }
+
+        if (! is_string($arguments['site'])) {
+            return $this->createErrorResponse('Site handle must be a string')->toArray();
+        }
+
+        /** @var Collection<int|string, \Statamic\Sites\Site> $allSites */
+        $allSites = Site::all();
+        if (! $allSites->map->handle()->contains($arguments['site'])) {
+            return $this->createErrorResponse("Invalid site handle: {$arguments['site']}")->toArray();
+        }
+
+        return null;
+    }
 
     /**
-     * Suggest a correction for a mistyped parameter name.
+     * Resolve site handle from arguments, falling back to default site.
+     *
+     * @param  array<string, mixed>  $arguments
      */
-    protected function suggestParamCorrection(string $key): ?string
+    protected function resolveSiteHandle(array $arguments): string
     {
-        return self::PARAM_CORRECTIONS[$key] ?? null;
+        $site = $arguments['site'] ?? null;
+
+        /** @var \Statamic\Sites\Site $defaultSite */
+        $defaultSite = Site::default();
+
+        return is_string($site) ? $site : $defaultSite->handle();
+    }
+
+    /**
+     * Find a resource by handle or return an error response.
+     *
+     * @return array<string, mixed>|null Error response if not found, null if found
+     */
+    protected function requireResource(mixed $resource, string $resourceType, string $handle): ?array
+    {
+        if ($resource === null) {
+            return $this->createErrorResponse("{$resourceType} not found: {$handle}")->toArray();
+        }
+
+        return null;
+    }
+
+    /**
+     * Format a ValidationException into a standardized error response.
+     *
+     * @return array<string, mixed>
+     */
+    protected function formatValidationError(ValidationException $e): array
+    {
+        $errors = [];
+        foreach ($e->errors() as $field => $fieldErrors) {
+            $errors[] = "{$field}: " . implode(', ', $fieldErrors);
+        }
+
+        return $this->createErrorResponse('Field validation failed: ' . implode('; ', $errors))->toArray();
     }
 
     /**

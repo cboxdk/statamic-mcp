@@ -14,5 +14,6 @@ class OAuthClient
         public readonly string $clientName,
         public readonly array $redirectUris,
         public readonly Carbon $createdAt,
+        public readonly ?string $registeredIp = null,
     ) {}
 }

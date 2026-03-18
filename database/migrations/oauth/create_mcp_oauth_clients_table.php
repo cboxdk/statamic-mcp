@@ -14,6 +14,7 @@ return new class extends Migration
             $table->string('client_id')->primary();
             $table->string('client_name');
             $table->json('redirect_uris');
+            $table->string('registered_ip')->nullable()->index();
             $table->timestamps();
         });
     }

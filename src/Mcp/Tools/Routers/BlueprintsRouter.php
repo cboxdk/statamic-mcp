@@ -114,19 +114,6 @@ class BlueprintsRouter extends BaseRouter
     {
         $action = is_string($arguments['action'] ?? null) ? $arguments['action'] : '';
 
-        // Check if tool is enabled for current context
-        if (! $this->isCliContext() && ! $this->isWebToolEnabled()) {
-            return $this->createErrorResponse('Permission denied: Blueprints tool is disabled for web access')->toArray();
-        }
-
-        // Apply security checks for web context
-        if ($this->isWebContext()) {
-            $permissionError = $this->checkWebPermissions($action, $arguments);
-            if ($permissionError) {
-                return $permissionError;
-            }
-        }
-
         // Validate action-specific requirements
         if (in_array($action, ['get', 'update', 'delete', 'validate']) && empty($arguments['handle'])) {
             return $this->createErrorResponse("Handle is required for {$action} action")->toArray();
@@ -161,8 +148,9 @@ class BlueprintsRouter extends BaseRouter
             $blueprints = $this->collectAllBlueprints(is_string($namespace) ? $namespace : null);
 
             $total = $blueprints->count();
-            $limit = $this->getIntegerArgument($arguments, 'limit', 50, 1, 500);
-            $offset = $this->getIntegerArgument($arguments, 'offset', 0, 0);
+            $pagination = $this->getPaginationArgs($arguments);
+            $limit = $pagination['limit'];
+            $offset = $pagination['offset'];
 
             $data = $blueprints->values()->skip($offset)->take($limit)
                 ->map(function (mixed $blueprint) use ($includeDetails, $includeFields): array {
@@ -194,12 +182,7 @@ class BlueprintsRouter extends BaseRouter
 
             return [
                 'blueprints' => $data->toArray(),
-                'pagination' => [
-                    'total' => $total,
-                    'limit' => $limit,
-                    'offset' => $offset,
-                    'has_more' => ($offset + $limit) < $total,
-                ],
+                'pagination' => $this->buildPaginationMeta($total, $limit, $offset),
                 'namespace' => $namespace,
             ];
         } catch (\Exception $e) {
@@ -223,8 +206,9 @@ class BlueprintsRouter extends BaseRouter
 
             $blueprint = $this->findBlueprint($handle, $namespace, $collectionHandle, $taxonomyHandle);
 
-            if (! $blueprint) {
-                return $this->createErrorResponse("Blueprint not found: {$handle}")->toArray();
+            $notFound = $this->requireResource($blueprint, 'Blueprint', $handle);
+            if ($notFound) {
+                return $notFound;
             }
 
             $data = [
@@ -629,8 +613,9 @@ class BlueprintsRouter extends BaseRouter
 
             $blueprint = $this->findBlueprint($handle, $namespace, $collectionHandle, $taxonomyHandle);
 
-            if (! $blueprint) {
-                return $this->createErrorResponse("Blueprint not found: {$handle}")->toArray();
+            $notFound = $this->requireResource($blueprint, 'Blueprint', $handle);
+            if ($notFound) {
+                return $notFound;
             }
 
             // Update the blueprint contents
@@ -700,8 +685,9 @@ class BlueprintsRouter extends BaseRouter
 
             $blueprint = $this->findBlueprint($handle, $namespace, $collectionHandle, $taxonomyHandle);
 
-            if (! $blueprint) {
-                return $this->createErrorResponse("Blueprint not found: {$handle}")->toArray();
+            $notFound = $this->requireResource($blueprint, 'Blueprint', $handle);
+            if ($notFound) {
+                return $notFound;
             }
 
             // Store blueprint info before deletion
@@ -839,8 +825,9 @@ class BlueprintsRouter extends BaseRouter
     {
         try {
             $outputFormat = $arguments['output_format'] ?? 'typescript';
-            $limit = $this->getIntegerArgument($arguments, 'limit', 50, 1, 200);
-            $offset = $this->getIntegerArgument($arguments, 'offset', 0, 0);
+            $pagination = $this->getPaginationArgs($arguments, 50, 200);
+            $limit = $pagination['limit'];
+            $offset = $pagination['offset'];
             $namespace = isset($arguments['namespace']) && is_string($arguments['namespace']) ? $arguments['namespace'] : null;
 
             $blueprints = $this->collectAllBlueprints($namespace);
@@ -865,12 +852,7 @@ class BlueprintsRouter extends BaseRouter
             return [
                 'format' => $outputFormat,
                 'types' => $types,
-                'pagination' => [
-                    'total' => $total,
-                    'limit' => $limit,
-                    'offset' => $offset,
-                    'has_more' => ($offset + $limit) < $total,
-                ],
+                'pagination' => $this->buildPaginationMeta($total, $limit, $offset),
                 'generated_at' => now()->toISOString(),
             ];
         } catch (\Exception $e) {
@@ -894,8 +876,9 @@ class BlueprintsRouter extends BaseRouter
 
             $blueprint = $this->findBlueprint($handle, $namespace, $collectionHandle, $taxonomyHandle);
 
-            if (! $blueprint) {
-                return $this->createErrorResponse("Blueprint not found: {$handle}")->toArray();
+            $notFound = $this->requireResource($blueprint, 'Blueprint', $handle);
+            if ($notFound) {
+                return $notFound;
             }
 
             // Basic validation - check if fields are valid

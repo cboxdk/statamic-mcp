@@ -104,6 +104,33 @@ class RegistrationEndpointTest extends TestCase
         $this->assertSame('Local Client', $response->json('client_name'));
     }
 
+    public function test_registration_enforces_per_ip_limit(): void
+    {
+        config(['statamic.mcp.oauth.max_clients_per_ip' => 2]);
+
+        // First two registrations succeed
+        $this->postJson('/mcp/oauth/register', [
+            'client_name' => 'Client 1',
+            'redirect_uris' => ['https://example.com/cb1'],
+        ])->assertCreated();
+
+        $this->postJson('/mcp/oauth/register', [
+            'client_name' => 'Client 2',
+            'redirect_uris' => ['https://example.com/cb2'],
+        ])->assertCreated();
+
+        // Third registration from same IP is rejected
+        $response = $this->postJson('/mcp/oauth/register', [
+            'client_name' => 'Client 3',
+            'redirect_uris' => ['https://example.com/cb3'],
+        ]);
+
+        $response->assertStatus(429);
+        $response->assertJson([
+            'error' => 'too_many_registrations',
+        ]);
+    }
+
     /**
      * Assert that a string contains a substring.
      */

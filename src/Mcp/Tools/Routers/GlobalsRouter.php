@@ -8,12 +8,10 @@ use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
-use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 use Statamic\Facades\GlobalSet;
-use Statamic\Facades\Site;
 use Statamic\Fields\Validator;
 
 #[Name('statamic-globals')]
@@ -74,23 +72,10 @@ class GlobalsRouter extends BaseRouter
     {
         $action = is_string($arguments['action'] ?? null) ? $arguments['action'] : '';
 
-        // Check if tool is enabled for current context
-        if ($this->isWebContext() && ! $this->isWebToolEnabled()) {
-            return $this->createErrorResponse('Permission denied: Globals tool is disabled for web access')->toArray();
-        }
-
         // Validate action-specific requirements
         $validationError = $this->validateActionRequirements($action, $arguments);
         if ($validationError) {
             return $validationError;
-        }
-
-        // Apply security checks for web context
-        if ($this->isWebContext()) {
-            $permissionError = $this->checkWebPermissions($action, $arguments);
-            if ($permissionError) {
-                return $permissionError;
-            }
         }
 
         // Execute action
@@ -129,16 +114,9 @@ class GlobalsRouter extends BaseRouter
         }
 
         // Site validation
-        if (! empty($arguments['site'])) {
-            if (! is_string($arguments['site'])) {
-                return $this->createErrorResponse('Site handle must be a string')->toArray();
-            }
-            $siteHandle = $arguments['site'];
-            /** @var Collection<int|string, \Statamic\Sites\Site> $allSites */
-            $allSites = Site::all();
-            if (! $allSites->map->handle()->contains($siteHandle)) {
-                return $this->createErrorResponse("Invalid site handle: {$siteHandle}")->toArray();
-            }
+        $siteError = $this->validateSiteHandle($arguments);
+        if ($siteError) {
+            return $siteError;
         }
 
         return null;
@@ -171,11 +149,10 @@ class GlobalsRouter extends BaseRouter
      */
     private function listGlobals(array $arguments): array
     {
-        /** @var \Statamic\Sites\Site $defaultSite */
-        $defaultSite = Site::default();
-        $site = is_string($arguments['site'] ?? null) ? $arguments['site'] : $defaultSite->handle();
-        $limit = $this->getIntegerArgument($arguments, 'limit', 50, 1, 1000);
-        $offset = $this->getIntegerArgument($arguments, 'offset', 0, 0);
+        $site = $this->resolveSiteHandle($arguments);
+        $pagination = $this->getPaginationArgs($arguments, 50, 1000);
+        $limit = $pagination['limit'];
+        $offset = $pagination['offset'];
 
         try {
             $globalSets = GlobalSet::all();
@@ -199,12 +176,7 @@ class GlobalsRouter extends BaseRouter
 
             return [
                 'globals' => $data,
-                'pagination' => [
-                    'total' => $total,
-                    'limit' => $limit,
-                    'offset' => $offset,
-                    'has_more' => ($offset + $limit) < $total,
-                ],
+                'pagination' => $this->buildPaginationMeta($total, $limit, $offset),
                 'site' => $site,
             ];
 
@@ -228,16 +200,15 @@ class GlobalsRouter extends BaseRouter
             return $this->createErrorResponse('Global set handle must be a string')->toArray();
         }
         $globalSetHandle = $rawHandle;
-        /** @var \Statamic\Sites\Site $defaultSite */
-        $defaultSite = Site::default();
-        $site = is_string($arguments['site'] ?? null) ? $arguments['site'] : $defaultSite->handle();
+        $site = $this->resolveSiteHandle($arguments);
 
         try {
             /** @var \Statamic\Contracts\Globals\GlobalSet|null $globalSet */
             $globalSet = GlobalSet::find($globalSetHandle);
 
-            if (! $globalSet) {
-                return $this->createErrorResponse("Global set not found: {$globalSetHandle}")->toArray();
+            $notFound = $this->requireResource($globalSet, 'Global set', $globalSetHandle);
+            if ($notFound) {
+                return $notFound;
             }
 
             $variables = $globalSet->in($site);
@@ -277,17 +248,16 @@ class GlobalsRouter extends BaseRouter
             return $this->createErrorResponse('Global set handle must be a string')->toArray();
         }
         $globalSetHandle = $rawHandle;
-        /** @var \Statamic\Sites\Site $defaultSite */
-        $defaultSite = Site::default();
-        $site = is_string($arguments['site'] ?? null) ? $arguments['site'] : $defaultSite->handle();
+        $site = $this->resolveSiteHandle($arguments);
         $data = is_array($arguments['data'] ?? []) ? ($arguments['data'] ?? []) : [];
 
         try {
             /** @var \Statamic\Contracts\Globals\GlobalSet|null $globalSet */
             $globalSet = GlobalSet::find($globalSetHandle);
 
-            if (! $globalSet) {
-                return $this->createErrorResponse("Global set not found: {$globalSetHandle}")->toArray();
+            $notFound = $this->requireResource($globalSet, 'Global set', $globalSetHandle);
+            if ($notFound) {
+                return $notFound;
             }
 
             $variables = $globalSet->in($site);
@@ -318,12 +288,7 @@ class GlobalsRouter extends BaseRouter
                 try {
                     $fieldsValidator->validate();
                 } catch (ValidationException $e) {
-                    $errors = [];
-                    foreach ($e->errors() as $field => $fieldErrors) {
-                        $errors[] = "{$field}: " . implode(', ', $fieldErrors);
-                    }
-
-                    return $this->createErrorResponse('Field validation failed: ' . implode('; ', $errors))->toArray();
+                    return $this->formatValidationError($e);
                 }
             }
 

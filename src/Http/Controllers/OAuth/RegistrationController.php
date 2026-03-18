@@ -60,9 +60,21 @@ class RegistrationController extends Controller
             }
         }
 
+        // Per-IP registration limit
+        /** @var int $maxPerIp */
+        $maxPerIp = config('statamic.mcp.oauth.max_clients_per_ip', 5);
+        $clientIp = (string) $request->ip();
+
+        if ($this->driver->countClientsByIp($clientIp) >= $maxPerIp) {
+            return response()->json([
+                'error' => 'too_many_registrations',
+                'error_description' => 'Maximum client registrations from this IP address exceeded.',
+            ], 429);
+        }
+
         /** @var array<int, string> $redirectUris */
         try {
-            $client = $this->driver->registerClient(trim($clientName), $redirectUris);
+            $client = $this->driver->registerClient(trim($clientName), $redirectUris, $clientIp);
         } catch (OAuthException $e) {
             return response()->json($e->toOAuthResponse(), $e->httpStatus);
         }

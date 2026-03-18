@@ -56,20 +56,20 @@ class BuiltInOAuthDriver implements OAuthDriver
         }
 
         if (! is_dir($this->clientsDir)) {
-            mkdir($this->clientsDir, 0755, true);
+            mkdir($this->clientsDir, 0700, true);
         }
 
         if (! is_dir($this->codesDir)) {
-            mkdir($this->codesDir, 0755, true);
+            mkdir($this->codesDir, 0700, true);
         }
 
         if (! is_dir($this->refreshDir)) {
-            mkdir($this->refreshDir, 0755, true);
+            mkdir($this->refreshDir, 0700, true);
         }
     }
 
     /** @param array<int, string> $redirectUris */
-    public function registerClient(string $clientName, array $redirectUris): OAuthClient
+    public function registerClient(string $clientName, array $redirectUris, ?string $registeredIp = null): OAuthClient
     {
         foreach ($redirectUris as $uri) {
             if (! $this->validateRedirectUri($uri)) {
@@ -81,7 +81,7 @@ class BuiltInOAuthDriver implements OAuthDriver
         }
 
         /** @var int $maxClients */
-        $maxClients = config('statamic.mcp.oauth.max_clients', 1000);
+        $maxClients = config('statamic.mcp.oauth.max_clients', 50);
         $existingFiles = glob($this->clientsDir . '/*.yaml');
         $count = $existingFiles !== false ? count($existingFiles) : 0;
 
@@ -101,6 +101,7 @@ class BuiltInOAuthDriver implements OAuthDriver
             'client_id' => $clientId,
             'client_name' => $clientName,
             'redirect_uris' => $redirectUris,
+            'registered_ip' => $registeredIp,
             'created_at' => $now->toIso8601String(),
         ];
 
@@ -108,6 +109,27 @@ class BuiltInOAuthDriver implements OAuthDriver
         file_put_contents($filePath, Yaml::dump($data, 2, 4, Yaml::DUMP_NULL_AS_TILDE), LOCK_EX);
 
         return $this->toClient($data);
+    }
+
+    public function countClientsByIp(string $ip): int
+    {
+        $count = 0;
+        $files = glob($this->clientsDir . '/*.yaml');
+
+        if ($files === false) {
+            return 0;
+        }
+
+        foreach ($files as $file) {
+            /** @var array<string, mixed>|null $data */
+            $data = Yaml::parseFile($file);
+
+            if (is_array($data) && ($data['registered_ip'] ?? null) === $ip) {
+                $count++;
+            }
+        }
+
+        return $count;
     }
 
     /**
@@ -528,6 +550,7 @@ class BuiltInOAuthDriver implements OAuthDriver
             clientName: is_string($data['client_name'] ?? null) ? $data['client_name'] : '',
             redirectUris: $redirectUris,
             createdAt: $createdAt,
+            registeredIp: is_string($data['registered_ip'] ?? null) ? $data['registered_ip'] : null,
         );
     }
 }

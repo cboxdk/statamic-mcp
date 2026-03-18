@@ -21,7 +21,7 @@ Route::get('/.well-known/oauth-protected-resource', [DiscoveryController::class,
 Route::get('/.well-known/oauth-authorization-server', [DiscoveryController::class, 'authorizationServer'])->name('mcp.oauth.authorization-server');
 
 // Dynamic Client Registration (RFC 7591)
-Route::post('/mcp/oauth/register', [RegistrationController::class, 'store'])->middleware('throttle:10,1');
+Route::post('/mcp/oauth/register', [RegistrationController::class, 'store'])->middleware('throttle:3,60');
 
 // Token Exchange (OAuth 2.1 authorization_code grant with PKCE)
 Route::post('/mcp/oauth/token', [OAuthTokenController::class, 'store'])->middleware('throttle:20,1');

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
-use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesContainers;
+use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\Http\UploadedFile;
 use Illuminate\JsonSchema\JsonSchema;
@@ -16,13 +16,12 @@ use Statamic\Contracts\Assets\Asset as AssetContract;
 use Statamic\Contracts\Assets\AssetContainer as AssetContainerContract;
 use Statamic\Facades\Asset;
 use Statamic\Facades\AssetContainer;
-use Statamic\Facades\Stache;
 
 #[Name('statamic-assets')]
 #[Description('Manage Statamic assets and asset containers. Set resource_type to "container" or "asset", then choose an action. Actions: list, get, create, update, delete, move, copy, upload.')]
 class AssetsRouter extends BaseRouter
 {
-    use HandlesContainers;
+    use ClearsCaches;
 
     protected function getDomain(): string
     {
@@ -112,19 +111,6 @@ class AssetsRouter extends BaseRouter
     protected function executeAction(array $arguments): array
     {
         $action = is_string($arguments['action'] ?? null) ? $arguments['action'] : '';
-
-        // Check if tool is enabled for current context
-        if (! $this->isCliContext() && ! $this->isWebToolEnabled()) {
-            return $this->createErrorResponse('Permission denied: Assets tool is disabled for web access')->toArray();
-        }
-
-        // Apply security checks for web context
-        if (! $this->isCliContext()) {
-            $permissionError = $this->checkWebPermissions($action, $arguments);
-            if ($permissionError) {
-                return $permissionError;
-            }
-        }
 
         $type = is_string($arguments['resource_type'] ?? null) ? $arguments['resource_type'] : '';
 
@@ -314,7 +300,7 @@ class AssetsRouter extends BaseRouter
             $container->save();
 
             // Clear caches
-            Stache::clear();
+            $this->clearStatamicCaches(['stache']);
 
             return [
                 'container' => [
@@ -362,7 +348,7 @@ class AssetsRouter extends BaseRouter
             $container->save();
 
             // Clear caches
-            Stache::clear();
+            $this->clearStatamicCaches(['stache']);
 
             return [
                 'container' => [
@@ -404,7 +390,7 @@ class AssetsRouter extends BaseRouter
             $container->delete();
 
             // Clear caches
-            Stache::clear();
+            $this->clearStatamicCaches(['stache']);
 
             return [
                 'container' => [
@@ -647,7 +633,7 @@ class AssetsRouter extends BaseRouter
             $asset->save();
 
             // Clear caches
-            Stache::clear();
+            $this->clearStatamicCaches(['stache']);
 
             return [
                 'asset' => [
@@ -705,7 +691,7 @@ class AssetsRouter extends BaseRouter
             $asset->save();
 
             // Clear caches
-            Stache::clear();
+            $this->clearStatamicCaches(['stache']);
 
             return [
                 'asset' => [
@@ -747,7 +733,7 @@ class AssetsRouter extends BaseRouter
             $asset->delete();
 
             // Clear caches
-            Stache::clear();
+            $this->clearStatamicCaches(['stache']);
 
             return [
                 'asset' => [
@@ -800,7 +786,7 @@ class AssetsRouter extends BaseRouter
             $asset->save();
 
             // Clear caches
-            Stache::clear();
+            $this->clearStatamicCaches(['stache']);
 
             return [
                 'asset' => [
@@ -844,7 +830,7 @@ class AssetsRouter extends BaseRouter
             $newAsset->save();
 
             // Clear caches
-            Stache::clear();
+            $this->clearStatamicCaches(['stache']);
 
             return [
                 'original' => [
@@ -991,7 +977,7 @@ class AssetsRouter extends BaseRouter
             $asset->save();
 
             // Clear caches
-            Stache::clear();
+            $this->clearStatamicCaches(['stache']);
 
             return [
                 'asset' => [

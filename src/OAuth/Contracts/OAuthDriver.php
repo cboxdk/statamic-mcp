@@ -11,9 +11,14 @@ use Cboxdk\StatamicMcp\OAuth\OAuthClient;
 interface OAuthDriver
 {
     /** @param array<int, string> $redirectUris */
-    public function registerClient(string $clientName, array $redirectUris): OAuthClient;
+    public function registerClient(string $clientName, array $redirectUris, ?string $registeredIp = null): OAuthClient;
 
     public function findClient(string $clientId): ?OAuthClient;
+
+    /**
+     * Count how many clients have been registered from a given IP address.
+     */
+    public function countClientsByIp(string $ip): int;
 
     /** @param array<int, string> $scopes */
     public function createAuthCode(

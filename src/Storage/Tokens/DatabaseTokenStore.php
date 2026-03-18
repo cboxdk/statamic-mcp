@@ -78,7 +78,7 @@ class DatabaseTokenStore extends BaseTokenStore implements TokenStore
         }
 
         if ($attributes !== []) {
-            $model->forceFill($attributes)->save();
+            $model->fill($attributes)->save();
         }
 
         return $this->toData($model);

@@ -98,19 +98,6 @@ class SystemRouter extends BaseRouter
     {
         $action = is_string($arguments['action'] ?? null) ? $arguments['action'] : '';
 
-        // Check if tool is enabled for current context
-        if (! $this->isCliContext() && ! $this->isWebToolEnabled()) {
-            return $this->createErrorResponse('Permission denied: System tool is disabled for web access')->toArray();
-        }
-
-        // Apply security checks for web context
-        if ($this->isWebContext()) {
-            $permissionError = $this->checkWebPermissions($action, $arguments);
-            if ($permissionError) {
-                return $permissionError;
-            }
-        }
-
         return match ($action) {
             'info' => $this->getSystemInfo($arguments),
             'health' => $this->getHealthStatus($arguments),
@@ -585,24 +572,10 @@ class SystemRouter extends BaseRouter
     private function parseBytes(string $size): int
     {
         if ($size === '-1') {
-            // PHP memory_limit of -1 means no limit; use a large fallback
             return PHP_INT_MAX;
         }
 
-        $unit = strtoupper(substr($size, -1));
-        $value = (int) substr($size, 0, -1);
-
-        // If the last char is a digit, the whole string is bytes
-        if (is_numeric(substr($size, -1))) {
-            return (int) $size;
-        }
-
-        return match ($unit) {
-            'G' => $value * 1024 * 1024 * 1024,
-            'M' => $value * 1024 * 1024,
-            'K' => $value * 1024,
-            default => (int) $size,
-        };
+        return (int) ini_parse_quantity($size);
     }
 
     /**

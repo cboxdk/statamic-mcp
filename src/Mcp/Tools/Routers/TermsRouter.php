@@ -8,12 +8,10 @@ use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
-use Statamic\Facades\Site;
 use Statamic\Facades\Taxonomy;
 use Statamic\Facades\Term;
 use Statamic\Fields\Validator as FieldsValidator;
@@ -100,23 +98,10 @@ class TermsRouter extends BaseRouter
             return $this->createErrorResponse("Taxonomy not found: {$taxonomyHandle}")->toArray();
         }
 
-        // Check if tool is enabled for current context
-        if ($this->isWebContext() && ! $this->isWebToolEnabled()) {
-            return $this->createErrorResponse('Permission denied: Terms tool is disabled for web access')->toArray();
-        }
-
         // Validate action-specific requirements
         $validationError = $this->validateActionRequirements($action, $arguments);
         if ($validationError) {
             return $validationError;
-        }
-
-        // Apply security checks for web context
-        if ($this->isWebContext()) {
-            $permissionError = $this->checkWebPermissions($action, $arguments);
-            if ($permissionError) {
-                return $permissionError;
-            }
         }
 
         // Execute action
@@ -152,16 +137,9 @@ class TermsRouter extends BaseRouter
         }
 
         // Site validation
-        if (! empty($arguments['site'])) {
-            if (! is_string($arguments['site'])) {
-                return $this->createErrorResponse('Site handle must be a string')->toArray();
-            }
-            $siteHandle = $arguments['site'];
-            /** @var Collection<int|string, \Statamic\Sites\Site> $allSites */
-            $allSites = Site::all();
-            if (! $allSites->map->handle()->contains($siteHandle)) {
-                return $this->createErrorResponse("Invalid site handle: {$siteHandle}")->toArray();
-            }
+        $siteError = $this->validateSiteHandle($arguments);
+        if ($siteError) {
+            return $siteError;
         }
 
         return null;
@@ -193,11 +171,10 @@ class TermsRouter extends BaseRouter
     private function listTerms(array $arguments): array
     {
         $taxonomy = $arguments['taxonomy'];
-        /** @var \Statamic\Sites\Site $defaultSite */
-        $defaultSite = Site::default();
-        $site = is_string($arguments['site'] ?? null) ? $arguments['site'] : $defaultSite->handle();
-        $limit = $this->getIntegerArgument($arguments, 'limit', 50, 1, 1000);
-        $offset = $this->getIntegerArgument($arguments, 'offset', 0, 0);
+        $site = $this->resolveSiteHandle($arguments);
+        $pagination = $this->getPaginationArgs($arguments, 50, 1000);
+        $limit = $pagination['limit'];
+        $offset = $pagination['offset'];
 
         try {
             $query = Term::query()
@@ -230,12 +207,7 @@ class TermsRouter extends BaseRouter
 
             return [
                 'terms' => $data,
-                'pagination' => [
-                    'total' => $total,
-                    'limit' => $limit,
-                    'offset' => $offset,
-                    'has_more' => ($offset + $limit) < $total,
-                ],
+                'pagination' => $this->buildPaginationMeta($total, $limit, $offset),
                 'taxonomy' => $taxonomy,
                 'site' => $site,
             ];
@@ -255,9 +227,7 @@ class TermsRouter extends BaseRouter
     private function getTerm(array $arguments): array
     {
         $taxonomy = $arguments['taxonomy'];
-        /** @var \Statamic\Sites\Site $defaultSite */
-        $defaultSite = Site::default();
-        $site = is_string($arguments['site'] ?? null) ? $arguments['site'] : $defaultSite->handle();
+        $site = $this->resolveSiteHandle($arguments);
 
         try {
             // Try to find by ID first, then by slug
@@ -321,11 +291,7 @@ class TermsRouter extends BaseRouter
     {
         /** @var \Statamic\Contracts\Taxonomies\Taxonomy $taxonomy */
         $taxonomy = Taxonomy::find(is_string($arguments['taxonomy']) ? $arguments['taxonomy'] : '');
-        /** @var \Statamic\Sites\Site $defaultSiteObj */
-        $defaultSiteObj = Site::default();
-        $siteDefault = $defaultSiteObj->handle();
-        $siteRaw = $arguments['site'] ?? $siteDefault;
-        $site = is_string($siteRaw) ? $siteRaw : $siteDefault;
+        $site = $this->resolveSiteHandle($arguments);
         /** @var array<string, mixed> $data */
         $data = is_array($arguments['data'] ?? []) ? ($arguments['data'] ?? []) : [];
 
@@ -390,12 +356,7 @@ class TermsRouter extends BaseRouter
                     unset($validatedData['slug']);
                     $term->data($validatedData);
                 } catch (ValidationException $e) {
-                    $errors = [];
-                    foreach ($e->errors() as $field => $fieldErrors) {
-                        $errors[] = "{$field}: " . implode(', ', $fieldErrors);
-                    }
-
-                    return $this->createErrorResponse('Field validation failed: ' . implode('; ', $errors))->toArray();
+                    return $this->formatValidationError($e);
                 }
             } else {
                 $term->data($data);
@@ -433,9 +394,7 @@ class TermsRouter extends BaseRouter
     private function updateTerm(array $arguments): array
     {
         $taxonomy = $arguments['taxonomy'];
-        /** @var \Statamic\Sites\Site $defaultSite */
-        $defaultSite = Site::default();
-        $site = is_string($arguments['site'] ?? null) ? $arguments['site'] : $defaultSite->handle();
+        $site = $this->resolveSiteHandle($arguments);
         $data = $arguments['data'] ?? [];
 
         try {
@@ -497,12 +456,7 @@ class TermsRouter extends BaseRouter
                 try {
                     $fieldsValidator->validate();
                 } catch (ValidationException $e) {
-                    $errors = [];
-                    foreach ($e->errors() as $field => $fieldErrors) {
-                        $errors[] = "{$field}: " . implode(', ', $fieldErrors);
-                    }
-
-                    return $this->createErrorResponse('Field validation failed: ' . implode('; ', $errors))->toArray();
+                    return $this->formatValidationError($e);
                 }
             }
 

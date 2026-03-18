@@ -26,7 +26,7 @@ class DatabaseOAuthDriver implements OAuthDriver
     use ValidatesRedirectUris;
 
     /** @param array<int, string> $redirectUris */
-    public function registerClient(string $clientName, array $redirectUris): OAuthClient
+    public function registerClient(string $clientName, array $redirectUris, ?string $registeredIp = null): OAuthClient
     {
         foreach ($redirectUris as $uri) {
             if (! $this->validateRedirectUri($uri)) {
@@ -38,7 +38,7 @@ class DatabaseOAuthDriver implements OAuthDriver
         }
 
         /** @var int $maxClients */
-        $maxClients = config('statamic.mcp.oauth.max_clients', 1000);
+        $maxClients = config('statamic.mcp.oauth.max_clients', 50);
         $count = OAuthClientModel::count();
 
         if ($count >= $maxClients) {
@@ -54,9 +54,15 @@ class DatabaseOAuthDriver implements OAuthDriver
             'client_id' => $clientId,
             'client_name' => $clientName,
             'redirect_uris' => $redirectUris,
+            'registered_ip' => $registeredIp,
         ]);
 
         return $this->modelToClient($model);
+    }
+
+    public function countClientsByIp(string $ip): int
+    {
+        return (int) OAuthClientModel::where('registered_ip', $ip)->count();
     }
 
     public function findClient(string $clientId): ?OAuthClient
@@ -289,6 +295,7 @@ class DatabaseOAuthDriver implements OAuthDriver
             clientName: $model->client_name,
             redirectUris: $model->redirect_uris,
             createdAt: $model->created_at !== null ? Carbon::instance($model->created_at) : Carbon::now(),
+            registeredIp: $model->registered_ip,
         );
     }
 }

@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property string $client_id
  * @property string $client_name
  * @property array<int, string> $redirect_uris
+ * @property string|null $registered_ip
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
@@ -33,6 +34,7 @@ class OAuthClientModel extends Model
         'client_id',
         'client_name',
         'redirect_uris',
+        'registered_ip',
     ];
 
     /**

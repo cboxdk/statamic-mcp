@@ -293,7 +293,7 @@
                     <ui-card>
                         <div class="p-4">
                             <p class="mb-1 text-[11px] font-medium uppercase tracking-wider text-gray-400 dark:text-gray-400">Rate Limiting</p>
-                            <p class="text-sm">{{ systemStats.rate_limit_max ?? 60 }} requests per {{ systemStats.rate_limit_decay ?? 1 }} minute{{ (systemStats.rate_limit_decay ?? 1) !== 1 ? 's' : '' }}</p>
+                            <p class="text-sm">{{ systemStats.rate_limit_max ?? 60 }} requests per minute</p>
                         </div>
                     </ui-card>
                 </div>

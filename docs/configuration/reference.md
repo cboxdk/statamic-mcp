@@ -76,13 +76,11 @@ Controls request throttling for the web endpoint. Skipped in CLI context.
 
 | Key | Env Variable | Default | Description |
 |-----|-------------|---------|-------------|
-| `rate_limit.max_attempts` | `STATAMIC_MCP_RATE_LIMIT_MAX` | `60` | Max requests per window |
-| `rate_limit.decay_minutes` | `STATAMIC_MCP_RATE_LIMIT_DECAY` | `1` | Window duration in minutes |
+| `rate_limit.max_attempts` | `STATAMIC_MCP_RATE_LIMIT_MAX` | `60` | Max requests per minute |
 
 ```php
 'rate_limit' => [
     'max_attempts' => env('STATAMIC_MCP_RATE_LIMIT_MAX', 60),
-    'decay_minutes' => env('STATAMIC_MCP_RATE_LIMIT_DECAY', 1),
 ],
 ```
 

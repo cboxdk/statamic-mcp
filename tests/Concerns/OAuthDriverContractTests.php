@@ -32,6 +32,50 @@ trait OAuthDriverContractTests
         expect($client->createdAt)->toBeInstanceOf(Carbon::class);
     }
 
+    public function test_register_client_stores_ip(): void
+    {
+        $driver = $this->createDriver();
+        $client = $driver->registerClient('IP App', ['https://example.com/callback'], '192.168.1.100');
+
+        expect($client->registeredIp)->toBe('192.168.1.100');
+    }
+
+    public function test_register_client_without_ip(): void
+    {
+        $driver = $this->createDriver();
+        $client = $driver->registerClient('No IP App', ['https://example.com/callback']);
+
+        expect($client->registeredIp)->toBeNull();
+    }
+
+    public function test_count_clients_by_ip(): void
+    {
+        $driver = $this->createDriver();
+
+        expect($driver->countClientsByIp('10.0.0.1'))->toBe(0);
+
+        $driver->registerClient('App 1', ['https://example.com/cb1'], '10.0.0.1');
+        $driver->registerClient('App 2', ['https://example.com/cb2'], '10.0.0.1');
+        $driver->registerClient('App 3', ['https://example.com/cb3'], '10.0.0.2');
+
+        expect($driver->countClientsByIp('10.0.0.1'))->toBe(2);
+        expect($driver->countClientsByIp('10.0.0.2'))->toBe(1);
+        expect($driver->countClientsByIp('10.0.0.3'))->toBe(0);
+    }
+
+    public function test_per_ip_limit_does_not_block_different_ips(): void
+    {
+        $driver = $this->createDriver();
+        config(['statamic.mcp.oauth.max_clients' => 100]);
+
+        // Register from two different IPs — both should succeed
+        $driver->registerClient('App A', ['https://example.com/cb1'], '10.0.0.1');
+        $driver->registerClient('App B', ['https://example.com/cb2'], '10.0.0.2');
+
+        expect($driver->countClientsByIp('10.0.0.1'))->toBe(1);
+        expect($driver->countClientsByIp('10.0.0.2'))->toBe(1);
+    }
+
     public function test_register_client_validates_redirect_uris(): void
     {
         $driver = $this->createDriver();

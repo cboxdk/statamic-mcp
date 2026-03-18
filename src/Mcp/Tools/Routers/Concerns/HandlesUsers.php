@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns;
 
 use Statamic\Facades\Role;
-use Statamic\Facades\Stache;
 use Statamic\Facades\User;
 
 /**
@@ -50,42 +49,21 @@ trait HandlesUsers
 
         try {
             $includeDetails = $this->getBooleanArgument($arguments, 'include_details', true);
-            $limit = $this->getIntegerArgument($arguments, 'limit', 100, 1, 500);
-            $offset = $this->getIntegerArgument($arguments, 'offset', 0, 0);
+            $pagination = $this->getPaginationArgs($arguments, defaultLimit: 100);
+            $limit = $pagination['limit'];
+            $offset = $pagination['offset'];
 
             $allUsers = User::all();
             $total = $allUsers->count();
 
             $users = $allUsers->slice($offset, $limit)->map(function ($user) use ($includeDetails) {
                 /** @var \Statamic\Contracts\Auth\User $user */
-                $data = [
-                    'id' => $user->id(),
-                    'email' => $user->email(),
-                    'name' => $user->name(),
-                    'super' => $user->isSuper(),
-                ];
-
-                if ($includeDetails) {
-                    $data = array_merge($data, [
-                        'roles' => $user->roles()->map->handle()->all(),
-                        'groups' => $user->groups()->map->handle()->all(),
-                        'preferences' => $user->preferences(),
-                        'last_login' => $user->lastLogin()?->timestamp,
-                        'avatar' => $user->avatar(),
-                        'initials' => $user->initials(),
-                        'data' => $user->data()->except(['password', 'remember_token'])->all(),
-                    ]);
-                }
-
-                return $data;
+                return $this->serializeUser($user, $includeDetails);
             })->values()->all();
 
             return [
                 'users' => $users,
-                'total' => $total,
-                'limit' => $limit,
-                'offset' => $offset,
-                'has_more' => ($offset + $limit) < $total,
+                'pagination' => $this->buildPaginationMeta($total, $limit, $offset),
             ];
         } catch (\Exception $e) {
             return $this->createErrorResponse("Failed to list users: {$e->getMessage()}")->toArray();
@@ -112,8 +90,9 @@ trait HandlesUsers
             $superFilter = isset($arguments['super']) ? (bool) $arguments['super'] : null;
             $statusFilter = is_string($arguments['status'] ?? null) ? $arguments['status'] : null;
             $includeDetails = $this->getBooleanArgument($arguments, 'include_details', true);
-            $limit = $this->getIntegerArgument($arguments, 'limit', 100, 1, 500);
-            $offset = $this->getIntegerArgument($arguments, 'offset', 0, 0);
+            $pagination = $this->getPaginationArgs($arguments, defaultLimit: 100);
+            $limit = $pagination['limit'];
+            $offset = $pagination['offset'];
 
             $users = User::all()->filter(function ($user) use ($query, $roleFilter, $groupFilter, $superFilter, $statusFilter) {
                 /** @var \Statamic\Contracts\Auth\User $user */
@@ -163,26 +142,7 @@ trait HandlesUsers
 
             $results = $users->slice($offset, $limit)->map(function ($user) use ($includeDetails) {
                 /** @var \Statamic\Contracts\Auth\User $user */
-                $data = [
-                    'id' => $user->id(),
-                    'email' => $user->email(),
-                    'name' => $user->name(),
-                    'super' => $user->isSuper(),
-                ];
-
-                if ($includeDetails) {
-                    $data = array_merge($data, [
-                        'roles' => $user->roles()->map->handle()->all(),
-                        'groups' => $user->groups()->map->handle()->all(),
-                        'preferences' => $user->preferences(),
-                        'last_login' => $user->lastLogin()?->timestamp,
-                        'avatar' => $user->avatar(),
-                        'initials' => $user->initials(),
-                        'data' => $user->data()->except(['password', 'remember_token'])->all(),
-                    ]);
-                }
-
-                return $data;
+                return $this->serializeUser($user, $includeDetails);
             })->values()->all();
 
             // Build applied filters summary
@@ -196,10 +156,7 @@ trait HandlesUsers
 
             return [
                 'users' => $results,
-                'total' => $total,
-                'limit' => $limit,
-                'offset' => $offset,
-                'has_more' => ($offset + $limit) < $total,
+                'pagination' => $this->buildPaginationMeta($total, $limit, $offset),
                 'filters_applied' => $appliedFilters,
             ];
         } catch (\Exception $e) {
@@ -232,20 +189,9 @@ trait HandlesUsers
             }
 
             /** @var \Statamic\Contracts\Auth\User $user */
-            $data = [
-                'id' => $user->id(),
-                'email' => $user->email(),
-                'name' => $user->name(),
-                'super' => $user->isSuper(),
-                'roles' => $user->roles()->map->handle()->all(),
-                'groups' => $user->groups()->map->handle()->all(),
-                'preferences' => $user->preferences(),
-                'last_login' => $user->lastLogin()?->timestamp,
-                'avatar' => $user->avatar(),
-                'initials' => $user->initials(),
+            $data = array_merge($this->serializeUser($user, true), [
                 'permissions' => $user->permissions()->all(),
-                'data' => $user->data()->except(['password', 'remember_token'])->all(),
-            ];
+            ]);
 
             return ['user' => $data];
         } catch (\Exception $e) {
@@ -488,7 +434,7 @@ trait HandlesUsers
             $user->save();
 
             // Clear caches
-            Stache::clear();
+            $this->clearStatamicCaches(['stache']);
 
             return [
                 'user' => [
@@ -542,7 +488,7 @@ trait HandlesUsers
             $user->save();
 
             // Clear caches
-            Stache::clear();
+            $this->clearStatamicCaches(['stache']);
 
             return [
                 'user' => [
@@ -655,5 +601,34 @@ trait HandlesUsers
         } catch (\Exception $e) {
             return $this->createErrorResponse("Failed to remove role: {$e->getMessage()}")->toArray();
         }
+    }
+
+    /**
+     * Serialize a Statamic user to an array.
+     *
+     * @return array<string, mixed>
+     */
+    private function serializeUser(\Statamic\Contracts\Auth\User $user, bool $includeDetails = false): array
+    {
+        $data = [
+            'id' => $user->id(),
+            'email' => $user->email(),
+            'name' => $user->name(),
+            'super' => $user->isSuper(),
+        ];
+
+        if ($includeDetails) {
+            $data = array_merge($data, [
+                'roles' => $user->roles()->map->handle()->all(),
+                'groups' => $user->groups()->map->handle()->all(),
+                'preferences' => $user->preferences(),
+                'last_login' => $user->lastLogin()?->timestamp,
+                'avatar' => $user->avatar(),
+                'initials' => $user->initials(),
+                'data' => $user->data()->except(['password', 'remember_token'])->all(),
+            ]);
+        }
+
+        return $data;
     }
 }

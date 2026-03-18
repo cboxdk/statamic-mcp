@@ -14,10 +14,8 @@ use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 use Statamic\Facades\Collection;
 use Statamic\Facades\Entry;
-use Statamic\Facades\Site;
 use Statamic\Fields\Validator as FieldsValidator;
 use Statamic\Rules\UniqueEntryValue;
-use Statamic\Sites\Sites;
 use Statamic\Support\Str;
 
 #[Name('statamic-entries')]
@@ -100,23 +98,10 @@ class EntriesRouter extends BaseRouter
             return $this->createErrorResponse("Collection not found: {$collectionHandle}")->toArray();
         }
 
-        // Check if tool is enabled for current context
-        if ($this->isWebContext() && ! $this->isWebToolEnabled()) {
-            return $this->createErrorResponse('Permission denied: Entries tool is disabled for web access')->toArray();
-        }
-
         // Validate action-specific requirements
         $validationError = $this->validateActionRequirements($action, $arguments);
         if ($validationError) {
             return $validationError;
-        }
-
-        // Apply security checks for web context
-        if ($this->isWebContext()) {
-            $permissionError = $this->checkWebPermissions($action, $arguments);
-            if ($permissionError) {
-                return $permissionError;
-            }
         }
 
         // Execute action
@@ -154,13 +139,9 @@ class EntriesRouter extends BaseRouter
         }
 
         // Site validation
-        if (! empty($arguments['site'])) {
-            $siteHandle = is_string($arguments['site']) ? $arguments['site'] : '';
-            /** @var Sites $sites */
-            $sites = Site::all();
-            if (! $sites->map->handle()->contains($siteHandle)) {
-                return $this->createErrorResponse("Invalid site handle: {$siteHandle}")->toArray();
-            }
+        $siteError = $this->validateSiteHandle($arguments);
+        if ($siteError) {
+            return $siteError;
         }
 
         return null;
@@ -195,12 +176,11 @@ class EntriesRouter extends BaseRouter
     private function listEntries(array $arguments): array
     {
         $collection = is_string($arguments['collection']) ? $arguments['collection'] : '';
-        /** @var \Statamic\Sites\Site $defaultSite */
-        $defaultSite = Site::default();
-        $site = is_string($arguments['site'] ?? null) ? $arguments['site'] : $defaultSite->handle();
+        $site = $this->resolveSiteHandle($arguments);
         $includeUnpublished = $this->getBooleanArgument($arguments, 'include_unpublished', false);
-        $limit = $this->getIntegerArgument($arguments, 'limit', 50, 1, 1000);
-        $offset = $this->getIntegerArgument($arguments, 'offset', 0, 0);
+        $pagination = $this->getPaginationArgs($arguments, 50, 1000);
+        $limit = $pagination['limit'];
+        $offset = $pagination['offset'];
 
         try {
             $query = Entry::query()
@@ -238,12 +218,7 @@ class EntriesRouter extends BaseRouter
 
             return [
                 'entries' => $data,
-                'pagination' => [
-                    'total' => $total,
-                    'limit' => $limit,
-                    'offset' => $offset,
-                    'has_more' => ($offset + $limit) < $total,
-                ],
+                'pagination' => $this->buildPaginationMeta($total, $limit, $offset),
                 'collection' => $collection,
                 'site' => $site,
             ];
@@ -263,15 +238,14 @@ class EntriesRouter extends BaseRouter
     private function getEntry(array $arguments): array
     {
         $id = is_string($arguments['id']) ? $arguments['id'] : '';
-        /** @var \Statamic\Sites\Site $defaultSite */
-        $defaultSite = Site::default();
-        $site = is_string($arguments['site'] ?? null) ? $arguments['site'] : $defaultSite->handle();
+        $site = $this->resolveSiteHandle($arguments);
 
         try {
             $entry = Entry::find($id);
 
-            if (! $entry) {
-                return $this->createErrorResponse("Entry not found: {$id}")->toArray();
+            $notFound = $this->requireResource($entry, 'Entry', $id);
+            if ($notFound) {
+                return $notFound;
             }
 
             // Get entry for specific site if needed
@@ -313,11 +287,7 @@ class EntriesRouter extends BaseRouter
         $collectionHandle = is_string($arguments['collection']) ? $arguments['collection'] : '';
         /** @var \Statamic\Contracts\Entries\Collection $collection */
         $collection = Collection::find($collectionHandle);
-        /** @var \Statamic\Sites\Site $defaultSiteObj */
-        $defaultSiteObj = Site::default();
-        $siteDefault = $defaultSiteObj->handle();
-        $siteRaw = $arguments['site'] ?? $siteDefault;
-        $site = is_string($siteRaw) ? $siteRaw : $siteDefault;
+        $site = $this->resolveSiteHandle($arguments);
         /** @var array<string, mixed> $data */
         $data = is_array($arguments['data'] ?? []) ? ($arguments['data'] ?? []) : [];
 
@@ -383,12 +353,7 @@ class EntriesRouter extends BaseRouter
                     unset($validatedData['slug']);
                     $entry->data($validatedData);
                 } catch (ValidationException $e) {
-                    $errors = [];
-                    foreach ($e->errors() as $field => $fieldErrors) {
-                        $errors[] = "{$field}: " . implode(', ', $fieldErrors);
-                    }
-
-                    return $this->createErrorResponse('Field validation failed: ' . implode('; ', $errors))->toArray();
+                    return $this->formatValidationError($e);
                 }
             } else {
                 $entry->data($data);
@@ -428,16 +393,15 @@ class EntriesRouter extends BaseRouter
     private function updateEntry(array $arguments): array
     {
         $id = is_string($arguments['id']) ? $arguments['id'] : '';
-        /** @var \Statamic\Sites\Site $defaultSite */
-        $defaultSite = Site::default();
-        $site = is_string($arguments['site'] ?? null) ? $arguments['site'] : $defaultSite->handle();
+        $site = $this->resolveSiteHandle($arguments);
         $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
 
         try {
             $entry = Entry::find($id);
 
-            if (! $entry) {
-                return $this->createErrorResponse("Entry not found: {$id}")->toArray();
+            $notFound = $this->requireResource($entry, 'Entry', $id);
+            if ($notFound) {
+                return $notFound;
             }
 
             // Get entry for specific site
@@ -475,12 +439,7 @@ class EntriesRouter extends BaseRouter
                 try {
                     $fieldsValidator->validate();
                 } catch (ValidationException $e) {
-                    $errors = [];
-                    foreach ($e->errors() as $field => $fieldErrors) {
-                        $errors[] = "{$field}: " . implode(', ', $fieldErrors);
-                    }
-
-                    return $this->createErrorResponse('Field validation failed: ' . implode('; ', $errors))->toArray();
+                    return $this->formatValidationError($e);
                 }
             }
 
@@ -521,8 +480,9 @@ class EntriesRouter extends BaseRouter
         try {
             $entry = Entry::find($id);
 
-            if (! $entry) {
-                return $this->createErrorResponse("Entry not found: {$id}")->toArray();
+            $notFound = $this->requireResource($entry, 'Entry', $id);
+            if ($notFound) {
+                return $notFound;
             }
 
             $entryData = [
@@ -561,8 +521,9 @@ class EntriesRouter extends BaseRouter
         try {
             $entry = Entry::find($id);
 
-            if (! $entry) {
-                return $this->createErrorResponse("Entry not found: {$id}")->toArray();
+            $notFound = $this->requireResource($entry, 'Entry', $id);
+            if ($notFound) {
+                return $notFound;
             }
 
             $entry->published(true)->save();
@@ -599,8 +560,9 @@ class EntriesRouter extends BaseRouter
         try {
             $entry = Entry::find($id);
 
-            if (! $entry) {
-                return $this->createErrorResponse("Entry not found: {$id}")->toArray();
+            $notFound = $this->requireResource($entry, 'Entry', $id);
+            if ($notFound) {
+                return $notFound;
             }
 
             $entry->published(false)->save();

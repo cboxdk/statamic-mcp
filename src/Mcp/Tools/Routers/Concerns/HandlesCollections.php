@@ -40,8 +40,9 @@ trait HandlesCollections
     {
         try {
             $includeDetails = $this->getBooleanArgument($arguments, 'include_details', true);
-            $limit = $this->getIntegerArgument($arguments, 'limit', 50, 1, 500);
-            $offset = $this->getIntegerArgument($arguments, 'offset', 0, 0);
+            $pagination = $this->getPaginationArgs($arguments);
+            $limit = $pagination['limit'];
+            $offset = $pagination['offset'];
 
             $allCollections = Collection::all();
             $total = $allCollections->count();
@@ -72,12 +73,7 @@ trait HandlesCollections
             return [
                 'collections' => $collections,
                 'total' => $total,
-                'pagination' => [
-                    'total' => $total,
-                    'limit' => $limit,
-                    'offset' => $offset,
-                    'has_more' => ($offset + $limit) < $total,
-                ],
+                'pagination' => $this->buildPaginationMeta($total, $limit, $offset),
             ];
         } catch (\Exception $e) {
             return $this->createErrorResponse("Failed to list collections: {$e->getMessage()}")->toArray();

@@ -38,8 +38,7 @@ class EnsureSecureTransport
         if (! $request->secure()) {
             return response()->json([
                 'error' => 'HTTPS required',
-                'message' => 'MCP web endpoint requires a secure (HTTPS) connection. '
-                    . 'Set STATAMIC_MCP_WEB_REQUIRE_HTTPS=false to disable this check.',
+                'message' => 'MCP web endpoint requires a secure (HTTPS) connection.',
             ], 403);
         }
 

@@ -74,12 +74,30 @@ abstract class BaseRouter extends BaseStatamicTool
     /**
      * Implementation of BaseStatamicTool's executeInternal method.
      *
+     * Centralizes the web context security guard that every router needs:
+     * 1. Check if tool is enabled for web access
+     * 2. Check web permissions (token scopes + Statamic user permissions)
+     *
      * @param  array<string, mixed>  $arguments
      *
      * @return array<string, mixed>
      */
     protected function executeInternal(array $arguments): array
     {
+        if ($this->isWebContext() && ! $this->isWebToolEnabled()) {
+            return $this->createErrorResponse(
+                'Permission denied: ' . ucfirst($this->getDomain()) . ' tool is disabled for web access'
+            )->toArray();
+        }
+
+        if ($this->isWebContext()) {
+            $action = is_string($arguments['action'] ?? null) ? $arguments['action'] : '';
+            $permissionError = $this->checkWebPermissions($action, $arguments);
+            if ($permissionError) {
+                return $permissionError;
+            }
+        }
+
         return $this->executeAction($arguments);
     }
 }

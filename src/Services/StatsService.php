@@ -29,7 +29,6 @@ class StatsService
             'dashboard_enabled' => $this->isDashboardEnabled(),
             'audit_logging' => $this->isAuditLoggingEnabled(),
             'rate_limit_max' => $this->getRateLimitMax(),
-            'rate_limit_decay' => $this->getRateLimitDecay(),
         ];
     }
 
@@ -91,17 +90,6 @@ class StatsService
         $max = config('statamic.mcp.rate_limit.max_attempts', 60);
 
         return $max;
-    }
-
-    /**
-     * Get the configured rate limit decay in minutes.
-     */
-    private function getRateLimitDecay(): int
-    {
-        /** @var int $decay */
-        $decay = config('statamic.mcp.rate_limit.decay_minutes', 1);
-
-        return $decay;
     }
 
     /**

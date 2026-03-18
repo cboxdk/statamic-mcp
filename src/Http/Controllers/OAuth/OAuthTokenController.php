@@ -71,40 +71,7 @@ class OAuthTokenController extends Controller
             return response()->json($e->toOAuthResponse(), $e->httpStatus);
         }
 
-        $client = $this->oauthDriver->findClient($clientId);
-        $clientName = $client !== null ? $client->clientName : 'OAuth Client';
-
-        /** @var int $tokenTtl */
-        $tokenTtl = config('statamic.mcp.oauth.token_ttl', 86400);
-        $expiresAt = Carbon::now()->addSeconds($tokenTtl);
-
-        $scopes = TokenScope::resolveMany($authCode->scopes);
-
-        // Revoke previous access tokens for this client+user to prevent accumulation
-        $this->tokenService->revokeOAuthTokens($authCode->userId, $clientId);
-
-        $result = $this->tokenService->createToken(
-            $authCode->userId,
-            "{$clientName} (OAuth)",
-            $scopes,
-            $expiresAt,
-            $clientId,
-            $clientName,
-        );
-
-        $refreshToken = $this->oauthDriver->createRefreshToken(
-            $authCode->userId,
-            $clientId,
-            $authCode->scopes,
-        );
-
-        return response()->json([
-            'access_token' => $result['token'],
-            'token_type' => 'Bearer',
-            'expires_in' => $tokenTtl,
-            'refresh_token' => $refreshToken,
-            'scope' => implode(' ', $authCode->scopes),
-        ]);
+        return $this->issueTokenResponse($clientId, $authCode->userId, $authCode->scopes);
     }
 
     /**
@@ -132,6 +99,20 @@ class OAuthTokenController extends Controller
             return response()->json($e->toOAuthResponse(), $e->httpStatus);
         }
 
+        return $this->issueTokenResponse($clientId, $authCode->userId, $authCode->scopes);
+    }
+
+    /**
+     * Issue an access token and refresh token, then build the JSON response.
+     *
+     * Shared by both authorization_code and refresh_token grant flows.
+     *
+     * @param  string  $clientId  The OAuth client ID.
+     * @param  string  $userId  The authenticated user ID.
+     * @param  array<int, string>  $scopes  The granted scope strings.
+     */
+    private function issueTokenResponse(string $clientId, string $userId, array $scopes): JsonResponse
+    {
         $client = $this->oauthDriver->findClient($clientId);
         $clientName = $client !== null ? $client->clientName : 'OAuth Client';
 
@@ -139,32 +120,32 @@ class OAuthTokenController extends Controller
         $tokenTtl = config('statamic.mcp.oauth.token_ttl', 86400);
         $expiresAt = Carbon::now()->addSeconds($tokenTtl);
 
-        $scopes = TokenScope::resolveMany($authCode->scopes);
+        $resolvedScopes = TokenScope::resolveMany($scopes);
 
         // Revoke previous access tokens for this client+user to prevent accumulation
-        $this->tokenService->revokeOAuthTokens($authCode->userId, $clientId);
+        $this->tokenService->revokeOAuthTokens($userId, $clientId);
 
         $result = $this->tokenService->createToken(
-            $authCode->userId,
+            $userId,
             "{$clientName} (OAuth)",
-            $scopes,
+            $resolvedScopes,
             $expiresAt,
             $clientId,
             $clientName,
         );
 
-        $newRefreshToken = $this->oauthDriver->createRefreshToken(
-            $authCode->userId,
+        $refreshToken = $this->oauthDriver->createRefreshToken(
+            $userId,
             $clientId,
-            $authCode->scopes,
+            $scopes,
         );
 
         return response()->json([
             'access_token' => $result['token'],
             'token_type' => 'Bearer',
             'expires_in' => $tokenTtl,
-            'refresh_token' => $newRefreshToken,
-            'scope' => implode(' ', $authCode->scopes),
+            'refresh_token' => $refreshToken,
+            'scope' => implode(' ', $scopes),
         ]);
     }
 }

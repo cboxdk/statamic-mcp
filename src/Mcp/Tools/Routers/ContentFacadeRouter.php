@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
-use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Laravel\Mcp\Server\Attributes\Description;
@@ -23,8 +22,6 @@ use Statamic\Fields\Field;
 #[Description('High-level content analysis workflows spanning all content types. Workflows: content_audit scans for issues across collections/taxonomies/globals; cross_reference analyzes relationships and dependencies between content types.')]
 class ContentFacadeRouter extends BaseRouter
 {
-    use ClearsCaches;
-
     protected function getDomain(): string
     {
         return 'content-facade';
@@ -64,19 +61,6 @@ class ContentFacadeRouter extends BaseRouter
     protected function executeAction(array $arguments): array
     {
         $action = is_string($arguments['action'] ?? null) ? $arguments['action'] : '';
-
-        // Check if tool is enabled for current context
-        if ($this->isWebContext() && ! $this->isWebToolEnabled()) {
-            return $this->createErrorResponse('Permission denied: Content facade is disabled for web access')->toArray();
-        }
-
-        // Apply security checks for web context
-        if ($this->isWebContext()) {
-            $permissionError = $this->checkWebPermissions($action, $arguments);
-            if ($permissionError) {
-                return $permissionError;
-            }
-        }
 
         return match ($action) {
             'content_audit' => $this->executeContentAudit($arguments),

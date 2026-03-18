@@ -27,7 +27,10 @@ class AuthenticateForMcp
     public function handle(Request $request, Closure $next): Response
     {
         // Generate correlation ID for request tracing across middleware → tools → audit logs
-        $correlationId = $request->header('X-Correlation-ID') ?? Str::uuid()->toString();
+        $clientCorrelationId = $request->header('X-Correlation-ID');
+        $correlationId = (is_string($clientCorrelationId) && preg_match('/^[\w\-]{1,128}$/', $clientCorrelationId))
+            ? $clientCorrelationId
+            : Str::uuid()->toString();
         $request->attributes->set('mcp_correlation_id', $correlationId);
 
         // IP-level rate limiting for brute-force auth protection

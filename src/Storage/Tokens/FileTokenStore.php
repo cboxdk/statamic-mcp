@@ -38,7 +38,7 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
         }
 
         if (! is_dir($this->storagePath)) {
-            mkdir($this->storagePath, 0755, true);
+            mkdir($this->storagePath, 0700, true);
         }
     }
 

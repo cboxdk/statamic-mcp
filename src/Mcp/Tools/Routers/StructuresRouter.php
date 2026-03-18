@@ -96,19 +96,6 @@ class StructuresRouter extends BaseRouter
     {
         $action = is_string($arguments['action'] ?? null) ? $arguments['action'] : '';
 
-        // Check if tool is enabled for current context
-        if (! $this->isCliContext() && ! $this->isWebToolEnabled()) {
-            return $this->createErrorResponse('Permission denied: Structures tool is disabled for web access')->toArray();
-        }
-
-        // Apply security checks for web context
-        if ($this->isWebContext()) {
-            $permissionError = $this->checkWebPermissions($action, $arguments);
-            if ($permissionError) {
-                return $permissionError;
-            }
-        }
-
         $type = is_string($arguments['resource_type'] ?? null) ? $arguments['resource_type'] : '';
 
         // Validate action-specific requirements
