@@ -35,7 +35,7 @@
                     </div>
 
                     <!-- Search filter -->
-                    <div class="flex items-center justify-between">
+                    <div class="flex items-center justify-between gap-4">
                         <ui-input v-model="tokenSearch" placeholder="Filter by user name or email..." class="w-64" />
                         <ui-button text="Create Token" variant="primary" icon="plus" size="sm" @click="openCreate" />
                     </div>
@@ -71,10 +71,12 @@
                                 <tbody>
                                     <tr v-for="token in filteredTokens" :key="token.id">
                                         <td>
-                                            <div class="flex items-center gap-2">
+                                            <div>
                                                 <span class="font-medium">{{ token.name }}</span>
-                                                <ui-badge v-if="token.is_oauth" :text="'OAuth' + (token.oauth_client_name ? ' · ' + token.oauth_client_name : '')" color="green" size="sm" />
-                                                <ui-badge v-if="token.is_expired" text="Expired" color="red" />
+                                                <div v-if="token.is_oauth || token.is_expired" class="mt-1 flex gap-1">
+                                                    <ui-badge v-if="token.is_oauth" :text="'OAuth' + (token.oauth_client_name ? ' · ' + token.oauth_client_name : '')" color="green" size="sm" />
+                                                    <ui-badge v-if="token.is_expired" text="Expired" color="red" size="sm" />
+                                                </div>
                                             </div>
                                         </td>
                                         <td>
@@ -84,16 +86,18 @@
                                             </div>
                                         </td>
                                         <td>
-                                            <div class="flex flex-wrap gap-1">
-                                                <template v-if="token.scopes?.length">
-                                                    <ui-badge v-if="token.scopes.includes('*')" text="Full Access" color="purple" size="sm" />
-                                                    <template v-else>
-                                                        <ui-badge v-for="scope in token.scopes.slice(0, 3)" :key="scope" :text="scopeLabel(scope)" color="blue" size="sm" />
-                                                        <ui-badge v-if="token.scopes.length > 3" :text="'+' + (token.scopes.length - 3)" color="default" size="sm" />
-                                                    </template>
+                                            <div v-if="token.scopes?.length" class="flex flex-wrap gap-1">
+                                                <ui-badge v-if="token.scopes.includes('*')" text="Full Access" color="purple" size="sm" />
+                                                <template v-else-if="matchingPreset(token.scopes)">
+                                                    <ui-badge :text="matchingPreset(token.scopes)" color="blue" size="sm" />
+                                                    <ui-badge :text="token.scopes.length + ' scopes'" color="default" size="sm" />
                                                 </template>
-                                                <span v-else class="text-sm text-gray-400">None</span>
+                                                <template v-else>
+                                                    <ui-badge v-for="scope in token.scopes.slice(0, 3)" :key="scope" :text="scopeLabel(scope)" color="blue" size="sm" />
+                                                    <ui-badge v-if="token.scopes.length > 3" :text="'+' + (token.scopes.length - 3)" color="default" size="sm" />
+                                                </template>
                                             </div>
+                                            <span v-else class="text-sm text-gray-400">None</span>
                                         </td>
                                         <td class="text-sm text-gray-500 dark:text-gray-400">{{ formatDate(token.last_used_at) }}</td>
                                         <td class="text-sm text-gray-500 dark:text-gray-400">{{ token.expires_at ? formatDate(token.expires_at) : 'Never' }}</td>
@@ -195,7 +199,7 @@
                         </ui-card>
 
                         <!-- Detail slide-in -->
-                        <ui-stack v-model:open="showAuditDetail" :title="selectedAuditEntry ? (selectedAuditEntry.tool + (selectedAuditEntry.action ? '.' + selectedAuditEntry.action : '')) : 'Call Details'" size="narrow" @closed="selectedAuditEntry = null">
+                        <ui-stack v-model:open="showAuditDetail" :title="selectedAuditEntry ? (selectedAuditEntry.tool + (selectedAuditEntry.action ? '.' + selectedAuditEntry.action : '')) : 'Call Details'" size="half" @closed="selectedAuditEntry = null">
                             <template v-if="selectedAuditEntry">
                                 <div class="grid grid-cols-2 gap-3 text-sm">
                                     <div><span class="text-gray-500 dark:text-gray-400">Tool:</span> <span class="font-mono">{{ selectedAuditEntry.tool }}</span></div>
@@ -302,57 +306,77 @@
     </div>
 
     <!-- ==================== CREATE / EDIT TOKEN STACK ==================== -->
-    <ui-stack :open="showTokenForm" :title="editingToken ? 'Edit Token' : 'Create Token'" @closed="closeTokenForm">
+    <ui-stack :open="showTokenForm" :title="editingToken ? 'Edit Token' : 'Create Token'" size="half" @closed="closeTokenForm">
         <ui-stack-content>
             <div class="flex flex-col gap-5 p-4">
                 <div>
                     <ui-label text="Name" />
                     <ui-description text="A label to identify this token." />
-                    <ui-input v-model="form.name" placeholder="e.g. Claude Desktop, Cursor IDE" class="mt-1" />
-                    <p v-if="form.errors.name" class="mt-1 text-sm text-red-600">{{ form.errors.name }}</p>
+                    <div class="mt-1" :class="{ 'has-error': form.errors.name }">
+                        <ui-input v-model="form.name" placeholder="e.g. Claude Desktop, Cursor IDE" />
+                    </div>
+                    <ui-error-message v-if="form.errors.name" :text="form.errors.name" class="mt-1" />
                 </div>
 
                 <div>
-                    <div class="mb-2 flex items-center justify-between">
-                        <div>
-                            <ui-label text="Permissions" />
-                            <ui-description text="What this token can access." />
-                        </div>
-                        <button class="text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400" @click="toggleAllScopes">
-                            {{ form.scopes.length === availableScopes.length ? 'Deselect All' : 'Select All' }}
+                    <ui-label text="Permissions" />
+                    <ui-description text="What this token can access. Use a preset or select individual scopes." />
+
+                    <div class="mt-2 flex flex-wrap gap-2">
+                        <button
+                            v-for="preset in scopePresets"
+                            :key="preset.name"
+                            type="button"
+                            class="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition"
+                            :class="isPresetActive(preset) ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-300' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-gray-500'"
+                            @click="applyPreset(preset)"
+                        >
+                            {{ preset.name }}
                         </button>
                     </div>
 
-                    <div class="max-h-72 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-600">
+                    <div class="mt-3 flex flex-col gap-4">
                         <template v-for="(groupScopes, groupName) in groupedScopes" :key="groupName">
-                            <div class="border-b border-gray-100 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-400 first:rounded-t-lg dark:border-gray-700 dark:text-gray-400" :class="groupName === 'access' ? 'bg-purple-50/50 dark:bg-purple-900/10' : 'bg-gray-50 dark:bg-gray-800'">
-                                {{ groupName === 'access' ? 'Access Level' : groupName }}
-                            </div>
-                            <label
-                                v-for="scope in groupScopes"
-                                :key="scope.value"
-                                class="flex items-center gap-3 border-b border-gray-100 px-3 py-2 transition last:border-b-0 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
-                                :class="{ 'bg-blue-50/30 dark:bg-blue-900/5': form.scopes.includes(scope.value) }"
-                            >
-                                <input v-model="form.scopes" type="checkbox" :value="scope.value" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600" />
-                                <div class="flex items-center gap-2">
-                                    <span class="text-sm font-medium">{{ scope.label }}</span>
-                                    <span class="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[10px] text-gray-400 dark:bg-gray-700 dark:text-gray-500">{{ scope.value }}</span>
+                            <div class="rounded-lg border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-900">
+                                <div class="flex items-center justify-between px-4 py-2.5">
+                                    <span class="text-sm font-semibold text-gray-700 dark:text-gray-200">
+                                        {{ groupName === 'access' ? 'Access Level' : groupName.charAt(0).toUpperCase() + groupName.slice(1).replace('-', ' ') }}
+                                    </span>
+                                    <button
+                                        class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
+                                        @click="toggleGroup(groupName)"
+                                    >
+                                        <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                        {{ isGroupFullyChecked(groupName) ? 'Uncheck All' : 'Check All' }}
+                                    </button>
                                 </div>
-                            </label>
+                                <div class="rounded-b-lg border-t border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-850">
+                                    <label
+                                        v-for="scope in groupScopes"
+                                        :key="scope.value"
+                                        class="flex cursor-pointer items-start gap-3 border-b border-gray-100 px-4 py-3 transition last:border-b-0 hover:bg-gray-50 dark:border-gray-700/50 dark:hover:bg-gray-800"
+                                    >
+                                        <input v-model="form.scopes" type="checkbox" :value="scope.value" class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800" />
+                                        <div>
+                                            <div class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ scope.label }}</div>
+                                            <div v-if="scope.description" class="text-xs text-gray-500 dark:text-gray-400">{{ scope.description }}</div>
+                                        </div>
+                                    </label>
+                                </div>
+                            </div>
                         </template>
                     </div>
-                    <p v-if="form.errors.scopes" class="mt-1 text-sm text-red-600">{{ form.errors.scopes }}</p>
+                    <ui-error-message v-if="form.errors.scopes" :text="form.errors.scopes" class="mt-1" />
                 </div>
 
                 <div>
                     <ui-label text="Expiration" />
                     <ui-description text="Leave blank for a token that never expires." />
-                    <div class="mt-1 flex items-center gap-2">
+                    <div class="mt-1 flex items-center gap-2" :class="{ 'has-error': form.errors.expires_at }">
                         <ui-input v-model="form.expires_at" type="date" class="flex-1" />
                         <ui-button v-if="form.expires_at" text="Clear" size="sm" variant="ghost" @click="form.expires_at = ''" />
                     </div>
-                    <p v-if="form.errors.expires_at" class="mt-1 text-sm text-red-600">{{ form.errors.expires_at }}</p>
+                    <ui-error-message v-if="form.errors.expires_at" :text="form.errors.expires_at" class="mt-1" />
                 </div>
             </div>
         </ui-stack-content>
@@ -452,6 +476,44 @@ const filteredAuditEntries = computed(() => {
     return auditEntries.value.filter(e => e.user === filter);
 });
 
+const scopePresets = [
+    {
+        name: 'Read Only',
+        scopes: [
+            'content:read', 'blueprints:read', 'entries:read', 'terms:read',
+            'globals:read', 'structures:read', 'assets:read', 'system:read',
+        ],
+    },
+    {
+        name: 'Content Editor',
+        scopes: [
+            'content:read', 'content:write', 'entries:read', 'entries:write',
+            'terms:read', 'terms:write', 'globals:read', 'globals:write',
+            'blueprints:read', 'structures:read', 'assets:read', 'assets:write',
+        ],
+    },
+    {
+        name: 'Full Access',
+        scopes: ['*'],
+    },
+];
+
+function isPresetActive(preset) {
+    return preset.scopes.length === form.value.scopes.length
+        && preset.scopes.every(s => form.value.scopes.includes(s));
+}
+
+function applyPreset(preset) {
+    form.value.scopes = isPresetActive(preset) ? [] : [...preset.scopes];
+}
+
+function matchingPreset(scopes) {
+    const match = scopePresets.find(p =>
+        p.scopes.length === scopes.length && p.scopes.every(s => scopes.includes(s))
+    );
+    return match ? match.name : null;
+}
+
 const groupedScopes = computed(() => {
     const groups = {};
     for (const scope of props.availableScopes) {
@@ -515,11 +577,19 @@ function closeTokenForm() {
     editingToken.value = null;
 }
 
-function toggleAllScopes() {
-    if (form.value.scopes.length === props.availableScopes.length) {
-        form.value.scopes = [];
+function isGroupFullyChecked(groupName) {
+    const scopes = groupedScopes.value[groupName] || [];
+    return scopes.length > 0 && scopes.every(s => form.value.scopes.includes(s.value));
+}
+
+function toggleGroup(groupName) {
+    const scopes = groupedScopes.value[groupName] || [];
+    const values = scopes.map(s => s.value);
+    if (isGroupFullyChecked(groupName)) {
+        form.value.scopes = form.value.scopes.filter(s => !values.includes(s));
     } else {
-        form.value.scopes = props.availableScopes.map(s => s.value);
+        const toAdd = values.filter(v => !form.value.scopes.includes(v));
+        form.value.scopes = [...form.value.scopes, ...toAdd];
     }
 }
 
@@ -539,15 +609,17 @@ async function createToken() {
                 for (const [key, value] of Object.entries(data.errors)) errors[key] = Array.isArray(value) ? value[0] : value;
                 form.value.errors = errors;
             }
+            Statamic.$toast.error(data.message || 'Validation failed.');
             return;
         }
         newToken.value = data.token;
         showTokenForm.value = false;
         editingToken.value = null;
         activeTab.value = 'tokens';
+        Statamic.$toast.success('Token created successfully.');
         router.reload({ only: ['allTokens'] });
     } catch (e) {
-        form.value.errors = { name: 'An error occurred. Please try again.' };
+        Statamic.$toast.error('An error occurred. Please try again.');
     } finally {
         submitting.value = false;
     }
@@ -574,13 +646,15 @@ async function updateToken() {
                 for (const [key, value] of Object.entries(data.errors)) errors[key] = Array.isArray(value) ? value[0] : value;
                 form.value.errors = errors;
             } else if (data.message) form.value.errors = { name: data.message };
+            Statamic.$toast.error(data.message || 'Validation failed.');
             return;
         }
         showTokenForm.value = false;
         editingToken.value = null;
+        Statamic.$toast.success('Token updated successfully.');
         router.reload({ only: ['allTokens'] });
     } catch (e) {
-        form.value.errors = { name: 'An error occurred. Please try again.' };
+        Statamic.$toast.error('An error occurred. Please try again.');
     } finally {
         submitting.value = false;
     }
@@ -594,8 +668,12 @@ async function deleteToken() {
             headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': Statamic.$config.get('csrfToken') },
         });
         tokenToDelete.value = null;
+        Statamic.$toast.success('Token deleted.');
         router.reload({ only: ['allTokens'] });
-    } catch (e) { tokenToDelete.value = null; }
+    } catch (e) {
+        Statamic.$toast.error('Failed to delete token.');
+        tokenToDelete.value = null;
+    }
 }
 
 function confirmDelete(token) { tokenToDelete.value = token; }
@@ -610,8 +688,14 @@ async function regenerateToken(token) {
         if (response.ok) {
             const result = await response.json();
             newToken.value = result.token;
+            Statamic.$toast.success('Token regenerated.');
+        } else {
+            const data = await response.json();
+            Statamic.$toast.error(data.message || 'Failed to regenerate token.');
         }
-    } catch (e) { /* silently fail */ }
+    } catch (e) {
+        Statamic.$toast.error('Failed to regenerate token.');
+    }
 }
 
 function copyToken() {
@@ -687,3 +771,9 @@ function formatDateTime(dateString) {
     return new Date(dateString).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 </script>
+
+<style scoped>
+.has-error :deep([data-ui-control]) {
+    border-color: #ef4444 !important;
+}
+</style>

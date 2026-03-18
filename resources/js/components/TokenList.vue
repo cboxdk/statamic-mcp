@@ -85,7 +85,7 @@
     </div>
 
     <!-- ==================== CREATE / EDIT TOKEN STACK ==================== -->
-    <ui-stack :open="showTokenForm" :title="editingToken ? 'Edit Token' : 'Create Token'" @closed="closeTokenForm">
+    <ui-stack :open="showTokenForm" :title="editingToken ? 'Edit Token' : 'Create Token'" size="half" @closed="closeTokenForm">
         <ui-stack-content>
             <div class="flex flex-col gap-5 p-4">
                 <div>
@@ -97,7 +97,20 @@
 
                 <div>
                     <ui-label text="Permissions" />
-                    <ui-description text="What this token can access." />
+                    <ui-description text="What this token can access. Use a preset or select individual scopes." />
+
+                    <div class="mt-2 flex flex-wrap gap-2">
+                        <button
+                            v-for="preset in scopePresets"
+                            :key="preset.name"
+                            type="button"
+                            class="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition"
+                            :class="isPresetActive(preset) ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-300' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-gray-500'"
+                            @click="applyPreset(preset)"
+                        >
+                            {{ preset.name }}
+                        </button>
+                    </div>
 
                     <div class="mt-3 flex flex-col gap-4">
                         <template v-for="(groupScopes, groupName) in groupedScopes" :key="groupName">
@@ -199,6 +212,38 @@ const defaultExpiryDate = computed(() => {
     d.setDate(d.getDate() + props.maxTokenLifetimeDays);
     return d.toISOString().split('T')[0];
 });
+
+// Scope presets matching documented common combinations
+const scopePresets = [
+    {
+        name: 'Read Only',
+        scopes: [
+            'content:read', 'blueprints:read', 'entries:read', 'terms:read',
+            'globals:read', 'structures:read', 'assets:read', 'system:read',
+        ],
+    },
+    {
+        name: 'Content Editor',
+        scopes: [
+            'content:read', 'content:write', 'entries:read', 'entries:write',
+            'terms:read', 'terms:write', 'globals:read', 'globals:write',
+            'blueprints:read', 'structures:read', 'assets:read', 'assets:write',
+        ],
+    },
+    {
+        name: 'Full Access',
+        scopes: ['*'],
+    },
+];
+
+function isPresetActive(preset) {
+    return preset.scopes.length === form.value.scopes.length
+        && preset.scopes.every(s => form.value.scopes.includes(s));
+}
+
+function applyPreset(preset) {
+    form.value.scopes = isPresetActive(preset) ? [] : [...preset.scopes];
+}
 
 // Computed
 const groupedScopes = computed(() => {
