@@ -217,20 +217,34 @@ class TokenController extends CpController
     }
 
     /**
-     * Revoke (delete) a specific token. Users can only revoke their own tokens.
+     * Revoke (delete) a specific token.
+     *
+     * Users with 'revoke mcp tokens' can revoke their own tokens.
+     * Users with 'revoke all mcp tokens' can revoke any token (admin).
      */
     public function destroy(string $tokenId): JsonResponse
     {
-        $this->authorize('revoke mcp tokens');
+        $user = \Statamic\Facades\User::current();
+        $canRevokeAll = $user && ($user->isSuper() || $user->hasPermission('revoke all mcp tokens'));
+        $canRevokeOwn = $user && $user->hasPermission('revoke mcp tokens');
 
-        $userId = $this->resolveUserId();
+        if (! $canRevokeAll && ! $canRevokeOwn) {
+            abort(403);
+        }
 
-        $tokens = $this->tokenService->listTokensForUser($userId);
-        $token = $tokens->firstWhere('id', $tokenId);
+        if ($canRevokeAll) {
+            // Admin: can delete any token — search across all tokens
+            $token = $this->tokenService->listAllTokens()->firstWhere('id', $tokenId);
+        } else {
+            // Regular user: can only delete own tokens
+            $userId = $this->resolveUserId();
+            $tokens = $this->tokenService->listTokensForUser($userId);
+            $token = $tokens->firstWhere('id', $tokenId);
+        }
 
         if ($token === null) {
             return response()->json([
-                'message' => 'Token not found or does not belong to you.',
+                'message' => 'Token not found.',
             ], 404);
         }
 
