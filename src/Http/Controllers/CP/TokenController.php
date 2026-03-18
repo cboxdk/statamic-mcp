@@ -8,8 +8,10 @@ use Carbon\Carbon;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\Http\Controllers\CP\Concerns\ResolvesUserId;
+use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Statamic\Facades\User;
 use Statamic\Http\Controllers\CP\CpController;
 
 class TokenController extends CpController
@@ -92,6 +94,14 @@ class TokenController extends CpController
     {
         $this->authorize('create mcp tokens');
 
+        $token = $this->findTokenWithPermission($tokenId, 'manage all mcp tokens');
+
+        if ($token === null) {
+            return response()->json([
+                'message' => 'Token not found.',
+            ], 404);
+        }
+
         /** @var int $maxDays */
         $maxDays = config('statamic.mcp.security.max_token_lifetime_days', 365);
         $maxDate = (int) $maxDays > 0 ? now()->addDays((int) $maxDays)->toDateString() : null;
@@ -108,17 +118,6 @@ class TokenController extends CpController
             ]),
             'clear_expiry' => ['sometimes', 'boolean'],
         ]);
-
-        $userId = $this->resolveUserId();
-
-        $tokens = $this->tokenService->listTokensForUser($userId);
-        $token = $tokens->firstWhere('id', $tokenId);
-
-        if ($token === null) {
-            return response()->json([
-                'message' => 'Token not found or does not belong to you.',
-            ], 404);
-        }
 
         $scopes = null;
 
@@ -176,14 +175,11 @@ class TokenController extends CpController
     {
         $this->authorize('create mcp tokens');
 
-        $userId = $this->resolveUserId();
-
-        $tokens = $this->tokenService->listTokensForUser($userId);
-        $token = $tokens->firstWhere('id', $tokenId);
+        $token = $this->findTokenWithPermission($tokenId, 'manage all mcp tokens');
 
         if ($token === null) {
             return response()->json([
-                'message' => 'Token not found or does not belong to you.',
+                'message' => 'Token not found.',
             ], 404);
         }
 
@@ -224,23 +220,9 @@ class TokenController extends CpController
      */
     public function destroy(string $tokenId): JsonResponse
     {
-        $user = \Statamic\Facades\User::current();
-        $canRevokeAll = $user && ($user->isSuper() || $user->hasPermission('revoke all mcp tokens'));
-        $canRevokeOwn = $user && $user->hasPermission('revoke mcp tokens');
+        $this->authorize('revoke mcp tokens');
 
-        if (! $canRevokeAll && ! $canRevokeOwn) {
-            abort(403);
-        }
-
-        if ($canRevokeAll) {
-            // Admin: can delete any token — search across all tokens
-            $token = $this->tokenService->listAllTokens()->firstWhere('id', $tokenId);
-        } else {
-            // Regular user: can only delete own tokens
-            $userId = $this->resolveUserId();
-            $tokens = $this->tokenService->listTokensForUser($userId);
-            $token = $tokens->firstWhere('id', $tokenId);
-        }
+        $token = $this->findTokenWithPermission($tokenId, 'revoke all mcp tokens');
 
         if ($token === null) {
             return response()->json([
@@ -253,5 +235,25 @@ class TokenController extends CpController
         return response()->json([
             'message' => 'Token revoked successfully.',
         ]);
+    }
+
+    /**
+     * Find a token by ID, respecting admin permissions.
+     *
+     * If the current user has the given admin permission (or is super),
+     * searches all tokens. Otherwise, only searches the user's own tokens.
+     */
+    private function findTokenWithPermission(string $tokenId, string $adminPermission): ?McpTokenData
+    {
+        $user = User::current();
+        $isAdmin = $user && ($user->isSuper() || $user->hasPermission($adminPermission));
+
+        if ($isAdmin) {
+            return $this->tokenService->listAllTokens()->firstWhere('id', $tokenId);
+        }
+
+        $userId = $this->resolveUserId();
+
+        return $this->tokenService->listTokensForUser($userId)->firstWhere('id', $tokenId);
     }
 }
