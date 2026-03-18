@@ -5,62 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Added
-- `shouldRegister()` — config-driven tool registration (`statamic.mcp.tools.{domain}.enabled`)
-- `outputSchema()` — MCP v0.6 standard response envelope on all tools
-- Dedicated `mcp` log channel writing to `storage/logs/mcp-audit.log`
-- Correlation IDs preserved in MCP error responses for traceability
-- OAuth 2.1 authorization server with PKCE, dynamic client registration, and consent screen
-- OAuth token metadata (`oauth_client_id`, `oauth_client_name`) stored on tokens
-- "OAuth · ClientName" badge in dashboard, regenerate hidden for OAuth tokens
-- Refresh token revocation support via `/mcp/oauth/revoke` endpoint
-- `McpTokenSaved` and `McpTokenDeleted` events for Statamic Git automation
-- `STATAMIC_MCP_TOOL_{NAME}_ENABLED` env vars for toggling individual tools
-- OAuth storage paths configurable via `storage.oauth_clients_path`, `oauth_codes_path`, `oauth_refresh_path`
-- `TokenScope::resolveMany()` static method
-- `ValidatesRedirectUris` trait for OAuth drivers
-- `ResolvesUserId` trait for CP controllers
-- Path traversal check on asset filenames
-- Client name length validation (max 255 chars) on OAuth registration
-
-### Changed
-- `web.enabled` now defaults to `true` (was `false`)
-- `oauth.enabled` defaults to `true`
-- `expose_versions` code default changed to `false` (security hardening)
-- Migration filenames prefixed with `0001_`, `0002_`, `0003_` for correct ordering
-- `symfony/yaml` constraint widened to `^7.0 || ^8.0`
-- ContentFacadeRouter uses direct action routing (`content_audit`, `cross_reference`)
-- `addon.js` uses `Statamic.booting()` for Inertia page registration
-- Error handlers scoped to CLI context only in StatamicMcpServer
-- BuiltInOAuthDriver file writes use LOCK_EX for atomicity
-- Tests use `RefreshDatabase` trait for MySQL compatibility
-
-### Fixed
-- Activity tab in CP dashboard now shows audit entries (was reading from wrong log path)
-- Stale dot-notation tool names in agent education prompts
-- Test config key mismatch in permission tests
-- OAuth login redirect: uses `redirect()->setIntendedUrl()` for reliable post-login redirect to consent screen
-- Rate limit config key mismatch (`security.rate_limit_max` → `rate_limit.max_attempts`)
-- Browser tests: user creation, asset publishing, Playwright config path, login helper
-
-### Removed
-- `AuditService` — functionality consolidated into `ToolLogger`
-- `McpRateLimiter` — dead code, never wired into tool execution
-- `statamic-content` router — replaced by `statamic-entries`, `statamic-terms`, `statamic-globals`
-- Stale `tools.content` config entry
-- Deprecated `security.audit_channel` and `security.audit_path` config keys
-- Deprecated `ToolLogger::getLogPath()` method
-- Deprecated `ToolLogger` no-op methods (`toolSuccess`, `toolFailed`, `auditOperation`, `auditOperationFailed`)
-- Custom OAuth login page (`resources/views/oauth/login.blade.php`)
-
-## [2.0.0] - 2026-03-12
+## [Unreleased] — v2.0.0
 
 ### Breaking Changes
 
 #### Statamic v5 Support Removed
-- **Statamic v6 only** — minimum requirement is now `statamic/cms:^6.0`
+- **Statamic v6.6+ only** — minimum requirement is now `statamic/cms:^6.6`
 - **Laravel 12 only** — minimum requirement is now `laravel/framework:^12.0`
 - Removed `StatamicVersion` dual-version detection helper
 - Removed v5 compatibility shims and feature flags
@@ -73,114 +23,113 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ToolResult` and `ToolInputSchema` classes removed
 
 #### Architecture: Single-Purpose Tools → Router Pattern
-- **~10 domain routers** replace 140+ individual tools
+- **11 MCP tools** replace 140+ individual tools
 - Each router handles multiple actions via `action` parameter
 - Tool names changed from dot notation (`statamic.blueprints.list`) to hyphenated routers (`statamic-blueprints` with `action: list`)
+- `type` parameter renamed to `resource_type` (avoids JSON Schema keyword collision)
+
+#### Config Restructured
+- Per-tool config (`tools.statamic.content.web_enabled`) replaced with simple toggles (`tools.entries.enabled`)
+- Per-tool rate limiting removed — single global `rate_limit.max_attempts`
+- New sections: `stores`, `storage`, `oauth`, `security`, `dashboard`
+- Re-publish required: `php artisan vendor:publish --tag=statamic-mcp-config --force`
 
 ### Added
 
-#### Web MCP Endpoint
-- Browser-accessible MCP endpoint at configurable path (default `/mcp/statamic`)
-- Enable via `STATAMIC_MCP_WEB_ENABLED=true`
-- Compatible with Claude, Cursor, ChatGPT, Windsurf, and other MCP clients
-- Bearer token and Basic Auth authentication
+#### Storage Driver Abstraction
+- `TokenStore` and `AuditStore` contracts with config-based class binding
+- File drivers (default): YAML tokens with hash index, JSONL audit with SplFileObject
+- Database drivers: Eloquent with atomic operations
+- `mcp:migrate-store` command for file↔database migration
+- `mcp:prune-audit` and `mcp:prune-tokens` commands
+
+#### OAuth 2.1 Authorization Server
+- Discovery endpoints (`.well-known/oauth-protected-resource`, `.well-known/oauth-authorization-server`)
+- Dynamic Client Registration (RFC 7591) with per-IP quotas
+- Authorization Code + PKCE S256 with Blade consent screen
+- Refresh token rotation (30-day TTL)
+- Token revocation endpoint (RFC 7009)
+- `OAuthDriver` interface with built-in file driver and database driver
+- Live-tested with ChatGPT and Claude Desktop
 
 #### Scoped API Token System
-- 21 granular permission scopes via `TokenScope` enum
-- SHA-256 hashed token storage with `McpToken` Eloquent model
+- 21 granular permission scopes via `TokenScope` backed string enum
+- SHA-256 hashed token storage
 - Custom `McpTokenGuard` registered as `mcp` auth guard
-- Token creation, listing, and revocation via CP dashboard
-- Configurable token expiry and max tokens per user
 - `AuthenticateForMcp` middleware with Bearer + Basic Auth fallback
 - `RequireMcpPermission` middleware for scope validation
 
 #### CP Dashboard (Vue 3 + KITT UI)
-- Unified single-page dashboard at Tools → MCP with 4 tabs:
-  - **Connect** — Endpoint URL, copy-paste config snippets for Claude/Cursor/ChatGPT/Windsurf
-  - **Tokens** — Create, list, revoke API tokens with scope selection
-  - **Activity** — Audit log of MCP tool calls with filtering
-  - **Settings** — System stats, endpoint status, rate limiting info
-- Built with Statamic v6 KITT UI components (`ui-tabs`, `ui-tab-list`, etc.)
-- Vite IIFE build with Vue externalized as `window.Vue`
+- User page (`/cp/mcp`): Connect + My Tokens
+- Admin page (`/cp/mcp/admin`): All Tokens, Activity log, System info
+- Stateful tab URLs (`?tab=activity`)
+- Connect panel with client config snippets for Claude/Cursor/ChatGPT/Windsurf
 
 #### Domain Routers
 - `statamic-blueprints` — list, get, create, update, delete, scan, generate, types, validate
-- `statamic-entries` — Entry operations with filtering, search, pagination, bulk ops
-- `statamic-terms` — Taxonomy term operations with slug conflict prevention
-- `statamic-globals` — Global set structure and values with multi-site support
-- `statamic-structures` — Collection, taxonomy, navigation, site configuration
-- `statamic-assets` — Asset container and file operations with metadata management
-- `statamic-users` — User CRUD, role assignment, group management
-- `statamic-system` — System info, health checks, cache management
+- `statamic-entries` — list, get, create, update, delete, publish, unpublish
+- `statamic-terms` — list, get, create, update, delete
+- `statamic-globals` — list, get, update
+- `statamic-structures` — list, get, create, update, delete, configure (collections, taxonomies, navigations, sites, global sets)
+- `statamic-assets` — list, get, create, update, delete, move, copy, upload (containers + assets)
+- `statamic-users` — list, get, search, create, update, delete, activate, deactivate, assign_role, remove_role
+- `statamic-system` — info, health, cache_status, cache_clear, cache_warm, config_get, config_set
+- `statamic-content-facade` — content_audit, cross_reference
 
 #### Agent Education Tools
-- `statamic-system-discover` — Intent-based tool discovery for AI agents
-- `statamic-system-schema` — Tool schema inspection
+- `statamic-system-discover` — intent-based tool and action discovery
+- `statamic-system-schema` — tool schema inspection
 
-#### Workflow Facades
-- `statamic-content-facade` — High-level workflow operations orchestrating multiple routers
+#### Security Hardening
+- Centralized web context security guard in `BaseRouter`
+- Path traversal protection on all file-based stores
+- Recursive null-byte validation on tool arguments
+- Atomic rate limiting per-IP and per-token
+- OAuth scope injection prevention
+- PKCE S256 strict enforcement with timing-safe comparison
+- Constant-time Basic Auth to prevent user enumeration
+- PII redaction in audit logs
+- `config_set` restricted to CLI-only
+- CORS wildcard rejected in production
+- Directory permissions 0700 for token/OAuth storage
+- Correlation ID validation (alphanumeric, max 128 chars)
+- HTTPS error messages don't leak env variable names
+- Per-IP OAuth client registration quota (default 5)
 
-#### Security
-- Rate limiting per token (configurable max attempts and decay)
-- Audit logging for all MCP operations
-- Path traversal protection
-- Force web mode option for production environments
+#### Audit Logging
+- Single entry per tool call with user/token/IP context
+- Mutation tracking (resource type, id, changed fields)
+- Pluggable storage backends (file JSONL or database)
+- Admin dashboard with filters and detail panel
+
+#### Events
+- `McpTokenSaved` and `McpTokenDeleted` for Statamic Git automation
 
 #### Documentation
-- `docs/WEB_MCP_SETUP.md` — Detailed web endpoint setup guide
-- `docs/AI_ASSISTANT_SETUP.md` — Client-specific configuration for Claude, Cursor, ChatGPT, Windsurf
-- Installation command: `php artisan mcp:statamic:install`
+- Complete docs site: introduction, getting-started, authentication, configuration, tools
+- UPGRADE.md migration guide from v1.x
 
 ### Changed
-- **PHP minimum**: `^8.3` (unchanged from v1.4)
-- **Statamic**: `^5.65|^6.0` → `^6.0` (v6 only)
-- **Laravel**: `^11.0|^12.0` → `^12.0` (via Statamic v6)
-- **Laravel MCP**: `^0.2` → `^0.6`
-- **Orchestra Testbench**: Updated to `^11.0`
-- Config namespace standardized to `statamic.mcp.*`
-- All tools include PHPStan Level 8 strict typing
-- Comprehensive PHPDoc annotations on all public methods
+- `web.enabled` now defaults to `true` (was `false`)
+- `symfony/yaml` constraint widened to `^7.0 || ^8.0`
+- All error responses use standardized envelope format
+- `parseBytes()` replaced with PHP 8.3 `ini_parse_quantity()`
+- `DatabaseTokenStore` uses `fill()` instead of `forceFill()`
 
 ### Removed
-- Statamic v5 compatibility layer and version detection
-- 140+ individual single-purpose tool classes (replaced by routers)
+- Statamic v5 compatibility layer and `StatamicVersion` helper
+- 140+ individual single-purpose tool classes (replaced by 11 routers)
 - Dot-notation tool names
 - `getToolName()` / `getToolDescription()` method pattern
-- Legacy `ToolResult` and `ToolInputSchema` imports
-
-### Upgrade Guide
-
-#### From 1.4.x to 2.0.0
-
-**Prerequisites:**
-1. Upgrade to Statamic v6 and Laravel 12 **before** updating this package
-2. Ensure PHP 8.3+
-
-**Update Steps:**
-```bash
-# Update the MCP server package
-composer require cboxdk/statamic-mcp:^2.0
-
-# Run the installation command (sets up config, migrations, assets)
-php artisan mcp:statamic:install
-
-# Run migrations for token storage
-php artisan migrate
-
-# Clear caches
-php artisan cache:clear
-php artisan statamic:stache:clear
-```
-
-**Enable Web MCP (optional):**
-```env
-STATAMIC_MCP_WEB_ENABLED=true
-STATAMIC_MCP_WEB_PATH="/mcp/statamic"
-```
-
-**If using MCP tools programmatically:**
-- Tool names changed: `statamic.blueprints.list` → call `statamic-blueprints` with `action: list`
-- Update any custom integrations to use the router pattern
+- `ToolResult` and `ToolInputSchema` imports
+- `AuditService` (consolidated into `ToolLogger`)
+- `McpRateLimiter` (dead code)
+- `statamic-content` router (split into entries, terms, globals)
+- `HandlesContainers` trait (dead code — shadowed by AssetsRouter)
+- `decay_minutes` config key (was unused)
+- `web.middleware` config key (never existed)
+- Deprecated `ToolLogger` no-op methods
+- Custom OAuth login page
 
 ---
 
@@ -188,160 +137,27 @@ STATAMIC_MCP_WEB_PATH="/mcp/statamic"
 
 ### Added
 
-#### 🎯 Statamic v6 Dual Version Support
-- **Full compatibility** with both Statamic v5.65+ and v6.0+
-- **Automatic version detection** - no code changes needed when upgrading
-- **Zero breaking changes** - all tools work identically across versions
-- **Asset permission compatibility** - handles both v5 and v6 permission models
+#### Statamic v6 Dual Version Support
+- Full compatibility with both Statamic v5.65+ and v6.0+
+- Automatic version detection — no code changes needed when upgrading
+- Zero breaking changes — all tools work identically across versions
+- Asset permission compatibility for both v5 and v6 models
 
-#### 🔧 Version Detection System
-- New `StatamicVersion` helper class for runtime version detection
+#### Version Detection System
+- `StatamicVersion` helper class for runtime version detection
 - Methods: `isV6OrLater()`, `supportsV6OptIns()`, `hasV6AssetPermissions()`
-- Automatic adaptation to installed Statamic version
-- Feature detection for v6-specific capabilities
 
-#### 📚 Documentation
-- Comprehensive [Statamic v6 Migration Guide](docs/STATAMIC_V6_MIGRATION.md)
-- Step-by-step upgrade instructions with testing checklist
-- Troubleshooting guide for common migration issues
-- Rollback procedures for safe migrations
-- Updated README with version compatibility matrix
-- Enhanced CLAUDE.md with v6 development patterns
-
-#### 🧪 Testing Infrastructure
+#### Testing Infrastructure
 - GitHub Actions test matrix for PHP 8.3 × Statamic 5.65/6.0
 - Automated dual-version validation in CI/CD
-- Version-specific test execution capabilities
-- Comprehensive test coverage maintained (149 tests, 1476 assertions)
 
 ### Changed
-
-#### 📦 Dependencies
-- **PHP**: Minimum version raised to `^8.3` (required for Pest v4 and Statamic v6)
-- **Statamic CMS**: Updated to `^5.65|^6.0` (dual version support)
-- **Laravel**: Support for `^11.0|^12.0` via Statamic
-- **Orchestra Testbench**: Updated to `^9.0|^10.0|^11.0`
-- **Pest**: Updated to `^4.1` (stable release with PHP 8.3 requirement)
-- **Pest Plugin Laravel**: Updated to `^4.0` (stable release with PHP 8.3 requirement)
-- **Laravel Pint**: Updated to `^1.17`
-- **Larastan**: Updated to `^3.0`
-
-#### 🏗️ Architecture
-- All MCP tools now include version information in responses
-- Asset tools automatically detect and use appropriate permission model
-- Enhanced error handling with version-aware validation
-- Improved cache invalidation with targeted clearing
-
-#### 🎨 Code Quality
-- **PHPStan Level 8**: All type errors resolved (100% compliance)
-- Fixed type safety issues in ContentRouter (slug validation error handling)
-- Laravel Pint formatting applied across all files
-- Strict type declarations enforced project-wide
-- **Composer Stability**: Changed `minimum-stability` from `dev` to `stable`
-- **Production Dependencies**: Removed @dev flags from Pest packages for stable releases
-
-### Upgrade Guide
-
-#### From 1.3.x to 1.4.0
-
-**Prerequisites:**
-1. Upgrade to PHP 8.3+ before updating this package
-2. Backup your Statamic installation
-
-**Update Steps:**
-```bash
-# Update PHP requirement in your project
-composer require "php:^8.3"
-
-# Update the MCP server package
-composer update cboxdk/statamic-mcp
-
-# Clear caches
-php artisan cache:clear
-php artisan statamic:stache:clear
-
-# Verify installation
-composer show cboxdk/statamic-mcp
-```
-
-**Testing v6 Opt-In Features (Statamic v5.65+):**
-```bash
-# Enable v6 asset permissions in .env
-STATAMIC_ASSETS_V6_PERMISSIONS=true
-
-# Test your application thoroughly
-php artisan test
-```
-
-**Upgrading to Statamic v6 (when available):**
-```bash
-# Update Statamic to v6
-composer require "statamic/cms:^6.0"
-
-# Follow the complete migration guide
-# See: docs/STATAMIC_V6_MIGRATION.md
-```
-
-### Migration Notes
-
-#### Breaking Changes
-**None** - This release maintains 100% backward compatibility with existing code.
-
-#### Behavioral Changes
-- Asset tools automatically detect v6 permission model when enabled
-- Version information included in all tool responses
-- Cache clearing strategies optimized for dual version support
-
-#### New Capabilities Available
-- Runtime version detection via `StatamicVersion` helper
-- v6 feature flags for conditional logic
-- Enhanced asset permission handling
-
-### Technical Details
-
-#### Version Detection Example
-```php
-use Cboxdk\StatamicMcp\Support\StatamicVersion;
-
-// Check current version
-StatamicVersion::current();        // "5.69.0"
-StatamicVersion::isV6OrLater();    // false
-StatamicVersion::majorVersion();   // 5
-
-// Check v6 features
-StatamicVersion::supportsV6OptIns();      // true (v5.65+)
-StatamicVersion::hasV6AssetPermissions(); // depends on config
-
-// Get comprehensive info
-StatamicVersion::info();
-// Returns: [
-//   'statamic_version' => '5.69.0',
-//   'is_v6' => 'false',
-//   'supports_v6_opt_ins' => 'true',
-//   'v6_asset_permissions' => 'disabled'
-// ]
-```
-
-#### Asset Permission Model Detection
-The MCP server automatically detects and adapts to the asset permission model:
-- **v5 Model**: Traditional folder-based permissions
-- **v6 Model**: New permission system (when enabled)
-
-Detection happens automatically - no code changes required.
-
-### Testing Matrix
-
-| PHP | Statamic | Laravel | Status |
-|-----|----------|---------|--------|
-| 8.3 | 5.65+    | 11      | ✅ Tested |
-| 8.3 | 5.65+    | 12      | ✅ Tested |
-| 8.3 | 6.0+     | 11/12   | 🚧 Ready when v6 releases |
-
-### Support
-
-- **Issues**: Report bugs at [GitHub Issues](https://github.com/cboxdk/statamic-mcp/issues)
-- **Migration Guide**: See [docs/STATAMIC_V6_MIGRATION.md](docs/STATAMIC_V6_MIGRATION.md)
-- **Statamic v6 Docs**: https://statamic.dev/upgrade-guide
+- **PHP**: Minimum version raised to `^8.3`
+- **Statamic CMS**: Updated to `^5.65|^6.0`
+- **Laravel**: Support for `^11.0|^12.0`
+- **Pest**: Updated to `^4.1`
+- PHPStan Level 8 compliance across all files
+- Composer minimum-stability changed from `dev` to `stable`
 
 ---
 
@@ -353,11 +169,6 @@ Detection happens automatically - no code changes required.
 - Advanced template performance analysis
 - Navigation structure management
 - Enhanced cache management with selective clearing
-
-### Changed
-- Improved error handling across all tools
-- Enhanced performance optimizations
-- Better pagination support for large datasets
 
 ---
 
@@ -389,8 +200,7 @@ Detection happens automatically - no code changes required.
 - Laravel MCP v0.2.0 integration
 - Comprehensive test suite
 
-[Unreleased]: https://github.com/cboxdk/statamic-mcp/compare/v2.0.0...HEAD
-[2.0.0]: https://github.com/cboxdk/statamic-mcp/compare/v1.4.0...v2.0.0
+[Unreleased]: https://github.com/cboxdk/statamic-mcp/compare/v1.4.0...HEAD
 [1.4.0]: https://github.com/cboxdk/statamic-mcp/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/cboxdk/statamic-mcp/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/cboxdk/statamic-mcp/compare/v1.1.0...v1.2.0
