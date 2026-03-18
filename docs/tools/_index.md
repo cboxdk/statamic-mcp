@@ -6,7 +6,7 @@ weight: 30
 
 # Tools
 
-The Statamic MCP Server provides 12 tools organized by domain. Each tool is a router that handles multiple actions via an `action` parameter.
+The Statamic MCP Server provides 11 tools organized by domain. Each tool is a router that handles multiple actions via an `action` parameter.
 
 ## Guides
 

@@ -10,7 +10,7 @@ weight: 1
 
 ## Overview
 
-The server registers a set of domain routers — each handling a specific Statamic concern — and makes them available over both CLI (`php artisan mcp:serve`) and web (HTTP endpoint) transports. All web access is gated by scoped API tokens with 17 granular permissions.
+The server registers a set of domain routers — each handling a specific Statamic concern — and makes them available over both CLI (`php artisan mcp:serve`) and web (HTTP endpoint) transports. All web access is gated by scoped API tokens with 21 granular permissions.
 
 ```json
 {
@@ -28,13 +28,13 @@ The server registers a set of domain routers — each handling a specific Statam
 ## Key Features
 
 ### Router-Based Architecture
-- **12 domain tools** instead of 140+ individual tools
+- **11 MCP tools** instead of 140+ individual tools
 - Each router handles multiple actions via an `action` parameter
 - Fewer tools for the LLM to reason about, clearer purpose per tool
 - Single file per domain for easy maintenance
 
 ### Scoped API Tokens
-- 17 granular scopes in `domain:permission` format (plus `*` for full access)
+- 21 granular scopes in `domain:permission` format (plus `*` for full access)
 - SHA-256 hashed storage, configurable expiry, max tokens per user
 - Bearer token authentication with Basic Auth fallback
 - Created and managed in the Statamic Control Panel
@@ -60,12 +60,12 @@ The server registers a set of domain routers — each handling a specific Statam
 | `statamic-blueprints` | list, get, create, update, delete, scan, generate, types, validate | Blueprint management and type generation |
 | `statamic-entries` | list, get, create, update, delete, publish, unpublish | Entry operations with filtering and search |
 | `statamic-terms` | list, get, create, update, delete | Taxonomy term operations with slug conflict prevention |
-| `statamic-globals` | list, get, create, update, delete | Global set structure and values with multi-site support |
-| `statamic-structures` | list, get, create, update, delete | Collections, taxonomies, navigations, sites |
+| `statamic-globals` | list, get, update | Global set structure and values with multi-site support |
+| `statamic-structures` | list, get, create, update, delete, configure | Collections, taxonomies, navigations, sites |
 | `statamic-assets` | list, get, create, update, delete, upload, move, copy | Asset container and file operations |
 | `statamic-users` | list, get, create, update, delete, assign-role | User CRUD with role and group management |
-| `statamic-system` | info, health, cache, config | System info, health checks, cache management |
-| `statamic-content-facade` | setup, import, audit | High-level workflow orchestration |
+| `statamic-system` | info, health, cache_status, cache_clear, cache_warm, config_get, config_set | System info, health checks, cache management |
+| `statamic-content-facade` | content_audit, cross_reference | High-level workflow orchestration |
 | `statamic-system-discover` | — | Intent-based tool discovery for AI agents |
 | `statamic-system-schema` | — | Tool schema inspection |
 
@@ -80,7 +80,7 @@ The server registers a set of domain routers — each handling a specific Statam
 
 - [Installation](getting-started/installation.md) — Install and configure the package
 - [Quick Start](getting-started/quickstart.md) — Connect your first AI assistant in 2 minutes
-- [Token Scopes](authentication/token-scopes.md) — All 17 scopes explained
+- [Token Scopes](authentication/token-scopes.md) — All 21 scopes explained
 - [AI Client Setup](getting-started/ai-clients.md) — Config for Claude, Cursor, ChatGPT, Windsurf
 - [Configuration Reference](configuration/reference.md) — All config options and env variables
 - [Tool Reference](tools/overview.md) — Detailed documentation for each tool

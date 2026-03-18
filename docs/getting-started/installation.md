@@ -21,7 +21,7 @@ composer require cboxdk/statamic-mcp
 
 ## Run the Install Command
 
-The install command publishes the config file, runs migrations for token storage, and publishes the dashboard assets:
+The install command publishes configuration and (when using the database storage driver) creates the necessary database tables, and publishes the dashboard assets:
 
 ```bash
 php artisan mcp:statamic:install
@@ -29,8 +29,10 @@ php artisan mcp:statamic:install
 
 This creates:
 - `config/statamic/mcp.php` — Package configuration
-- `mcp_tokens` database table — Stores hashed API tokens
+- `storage/statamic-mcp/` — File-based token and audit storage (default driver)
 - `public/vendor/statamic-mcp/` — Dashboard assets (Vue 3 build)
+
+By default, tokens are stored as YAML flat files. To use database storage instead, change the `stores.tokens` driver to `DatabaseTokenStore` in `config/statamic/mcp.php` and run `php artisan migrate`.
 
 ## Verify Installation
 

@@ -112,21 +112,10 @@ When `allowed_origins` is empty (the default), no CORS headers are sent.
 
 ### Rate Limiting
 
-The endpoint applies `throttle:60,1` middleware by default (60 requests per minute). Configure in `.env`:
+The endpoint applies rate limiting by default (60 requests per minute). Configure in `.env`:
 
 ```env
 STATAMIC_MCP_RATE_LIMIT_MAX=120
-STATAMIC_MCP_RATE_LIMIT_DECAY=1
-```
-
-Or override the middleware stack in `config/statamic/mcp.php`:
-
-```php
-'web' => [
-    'middleware' => [
-        'throttle:120,1',
-    ],
-],
 ```
 
 ### Force Web Mode
@@ -137,12 +126,12 @@ By default, CLI access bypasses authentication. To require tokens even in CLI co
 STATAMIC_MCP_FORCE_WEB_MODE=true
 ```
 
-### Token Expiry Default
+### Maximum Token Lifetime
 
-Set a default expiry (in days) for new tokens:
+Set the maximum lifetime (in days) for tokens:
 
 ```env
-STATAMIC_MCP_TOKEN_EXPIRY=30
+STATAMIC_MCP_MAX_TOKEN_LIFETIME=365
 ```
 
-Leave unset or set to `null` for tokens that never expire.
+This is the upper bound — tokens cannot be created with an expiry beyond this limit. Leave unset or set to `null` for no maximum.

@@ -18,7 +18,6 @@ Controls the HTTP-accessible MCP endpoint.
 | `web.path` | `STATAMIC_MCP_WEB_PATH` | `/mcp/statamic` | URL path for the endpoint |
 | `web.require_https` | `STATAMIC_MCP_WEB_REQUIRE_HTTPS` | `true` | Reject plain HTTP requests (skipped in local/testing) |
 | `web.allowed_origins` | — | `[]` | CORS allowed origins for browser-based clients. Empty = no CORS headers |
-| `web.middleware` | — | `['throttle:60,1']` | Additional middleware applied to the endpoint |
 
 ```php
 'web' => [
@@ -26,9 +25,6 @@ Controls the HTTP-accessible MCP endpoint.
     'path' => env('STATAMIC_MCP_WEB_PATH', '/mcp/statamic'),
     'require_https' => env('STATAMIC_MCP_WEB_REQUIRE_HTTPS', true),
     'allowed_origins' => [], // e.g. ['https://your-app.com'] or ['*']
-    'middleware' => [
-        'throttle:60,1',
-    ],
 ],
 ```
 
@@ -124,7 +120,8 @@ Configure the OAuth 2.1 authorization server for browser-based MCP client regist
 | `oauth.token_ttl` | `STATAMIC_MCP_OAUTH_TOKEN_TTL` | `604800` | Access token TTL in seconds (7 days) |
 | `oauth.refresh_token_ttl` | `STATAMIC_MCP_OAUTH_REFRESH_TOKEN_TTL` | `2592000` | Refresh token TTL in seconds (30 days) |
 | `oauth.default_scopes` | `STATAMIC_MCP_OAUTH_DEFAULT_SCOPES` | `*` | Comma-separated default scopes for OAuth tokens |
-| `oauth.max_clients` | `STATAMIC_MCP_OAUTH_MAX_CLIENTS` | `1000` | Maximum number of registered OAuth clients |
+| `oauth.max_clients` | `STATAMIC_MCP_OAUTH_MAX_CLIENTS` | `50` | Maximum number of registered OAuth clients |
+| `oauth.max_clients_per_ip` | `STATAMIC_MCP_OAUTH_MAX_CLIENTS_PER_IP` | `5` | Maximum client registrations per IP address |
 
 ```php
 'oauth' => [
@@ -135,7 +132,8 @@ Configure the OAuth 2.1 authorization server for browser-based MCP client regist
     'token_ttl' => (int) env('STATAMIC_MCP_OAUTH_TOKEN_TTL', 604800),
     'refresh_token_ttl' => (int) env('STATAMIC_MCP_OAUTH_REFRESH_TOKEN_TTL', 2592000),
     'default_scopes' => array_filter(explode(',', env('STATAMIC_MCP_OAUTH_DEFAULT_SCOPES', '*'))),
-    'max_clients' => (int) env('STATAMIC_MCP_OAUTH_MAX_CLIENTS', 1000),
+    'max_clients' => (int) env('STATAMIC_MCP_OAUTH_MAX_CLIENTS', 50),
+    'max_clients_per_ip' => (int) env('STATAMIC_MCP_OAUTH_MAX_CLIENTS_PER_IP', 5),
 ],
 ```
 
@@ -200,7 +198,6 @@ STATAMIC_MCP_TOOL_TIMEOUT=30
 
 # Rate limiting
 STATAMIC_MCP_RATE_LIMIT_MAX=60
-STATAMIC_MCP_RATE_LIMIT_DECAY=1
 
 # OAuth 2.1
 STATAMIC_MCP_OAUTH_ENABLED=true
@@ -210,7 +207,8 @@ STATAMIC_MCP_OAUTH_CLIENT_TTL=2592000
 STATAMIC_MCP_OAUTH_TOKEN_TTL=604800
 STATAMIC_MCP_OAUTH_REFRESH_TOKEN_TTL=2592000
 STATAMIC_MCP_OAUTH_DEFAULT_SCOPES=*
-STATAMIC_MCP_OAUTH_MAX_CLIENTS=1000
+STATAMIC_MCP_OAUTH_MAX_CLIENTS=50
+STATAMIC_MCP_OAUTH_MAX_CLIENTS_PER_IP=5
 
 # Tool toggles (set to false to disable)
 STATAMIC_MCP_TOOL_BLUEPRINTS_ENABLED=true

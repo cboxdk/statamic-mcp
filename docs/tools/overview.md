@@ -80,8 +80,6 @@ Global set structure and values management with multi-site support.
 | `list` | List global sets | — |
 | `get` | Get global set | `handle`, `site` |
 | `update` | Update values | `handle`, `site`, `data`, `merge_strategy` |
-| `create` | Create global set | `handle`, `title`, `fields` |
-| `delete` | Delete global set | `handle`, `confirm` |
 
 ### `statamic-structures`
 
@@ -131,14 +129,17 @@ User CRUD with role and group management. Requires a `type` parameter (`user`, `
 
 ### `statamic-system`
 
-System information, health checks, and cache management. Requires a `type` parameter (`info`, `health`, `cache`, `config`).
+System information, health checks, cache management, and configuration access.
 
-| Action | Type | Description | Key Parameters |
-|--------|------|-------------|----------------|
-| `get` | info | System information | — |
-| `get` | health | Health check status | — |
-| `clear` | cache | Clear caches | `types` (array: stache, static, application, views) |
-| `get` | config | Read config value | `key` |
+| Action | Description | Key Parameters |
+|--------|-------------|----------------|
+| `info` | Get system information | — |
+| `health` | Health check status | — |
+| `cache_status` | Check cache status and statistics | `include_details` |
+| `cache_clear` | Clear system caches | `cache_type` (all, stache, static, views, app, config, route) |
+| `cache_warm` | Warm system caches | `cache_type` |
+| `config_get` | Read config value | `config_key` |
+| `config_set` | Set config value | `config_key`, `config_value` |
 
 ### `statamic-content-facade`
 

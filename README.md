@@ -122,10 +122,10 @@ php artisan vendor:publish --tag=statamic-mcp-config
 ```
 
 Key settings in `config/statamic/mcp.php`:
-- Web endpoint (enabled, path, middleware)
-- Authentication (guard, token expiry, max per user)
+- Web endpoint (enabled, path, HTTPS enforcement)
+- Authentication (scoped tokens, token lifetime, audit logging)
 - Security (force web mode, audit logging)
-- Rate limiting (max attempts, decay minutes)
+- Rate limiting (max attempts per minute)
 - Per-domain tool enablement
 
 ## Development

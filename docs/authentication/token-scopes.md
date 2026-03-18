@@ -1,6 +1,6 @@
 ---
 title: "Token Scopes"
-description: "All 17 granular permission scopes for controlling what AI assistants can access via MCP tokens"
+description: "All 21 granular permission scopes for controlling what AI assistants can access via MCP tokens"
 weight: 1
 ---
 
@@ -31,6 +31,8 @@ Every API token carries a set of scopes that control which tools and actions the
 | `users:write` | Create, update, delete users and role assignments |
 | `system:read` | Read system info, health status, cache state, config |
 | `system:write` | Clear caches, manage system operations |
+| `content-facade:read` | Read content audit and cross-reference data |
+| `content-facade:write` | Write content facade operations |
 
 ## Common Combinations
 
@@ -93,6 +95,7 @@ Each tool maps to a scope domain:
 | `statamic-assets` | `assets` |
 | `statamic-users` | `users` |
 | `statamic-system` | `system` |
+| `statamic-content-facade` | `content-facade` |
 
 ## Managing Tokens
 
@@ -107,12 +110,5 @@ Tokens are created and revoked in the Statamic Control Panel at **Tools > MCP > 
 
 ### Token Storage
 
-Tokens are stored as SHA-256 hashes in the `mcp_tokens` table. The plaintext token is shown once at creation and cannot be retrieved later. If lost, revoke the old token and create a new one.
+Tokens are stored as SHA-256 hashes (in YAML files by default, or in the `mcp_tokens` database table when using the database storage driver). The plaintext token is shown once at creation and cannot be retrieved later. If lost, revoke the old token and create a new one.
 
-### Token Limits
-
-By default, each user can create up to 10 tokens. Configure with:
-
-```env
-STATAMIC_MCP_MAX_TOKENS=10
-```

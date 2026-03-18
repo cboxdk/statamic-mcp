@@ -10,5 +10,5 @@ The Statamic MCP Server uses scoped API tokens for fine-grained access control o
 
 ## Guides
 
-- **[Token Scopes](token-scopes.md)** — All 17 scopes with common combinations
+- **[Token Scopes](token-scopes.md)** — All 21 scopes with common combinations
 - **[Web Authentication](web-authentication.md)** — Bearer tokens, Basic Auth, and security best practices
