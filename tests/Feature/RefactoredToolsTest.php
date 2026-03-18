@@ -18,10 +18,8 @@ describe('Refactored Tools', function () {
                 array_filter($reflection->getMethods(), fn ($method) => $method->isAbstract())
             );
 
-            expect($abstractMethods)->toContain('getToolName');
-            expect($abstractMethods)->toContain('getToolDescription');
             expect($abstractMethods)->toContain('defineSchema');
-            // Note: execute() is now protected, not abstract
+            expect($abstractMethods)->toContain('executeInternal');
         });
     });
 

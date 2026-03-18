@@ -21,7 +21,7 @@ class UsersRouterTest extends TestCase
     {
         $result = $this->router->execute([
             'action' => 'list',
-            'type' => 'user',
+            'resource_type' => 'user',
         ]);
 
         // Users list should work
@@ -33,7 +33,7 @@ class UsersRouterTest extends TestCase
     {
         $result = $this->router->execute([
             'action' => 'get',
-            'type' => 'user',
+            'resource_type' => 'user',
             'email' => 'admin@example.com',
         ]);
 
@@ -49,7 +49,7 @@ class UsersRouterTest extends TestCase
     {
         $result = $this->router->execute([
             'action' => 'get',
-            'type' => 'role',
+            'resource_type' => 'role',
             'handle' => 'super',
         ]);
 
@@ -65,7 +65,7 @@ class UsersRouterTest extends TestCase
     {
         $result = $this->router->execute([
             'action' => 'list',
-            'type' => 'invalid',
+            'resource_type' => 'invalid',
         ]);
 
         $this->assertFalse($result['success']);
@@ -76,7 +76,7 @@ class UsersRouterTest extends TestCase
     {
         $result = $this->router->execute([
             'action' => 'invalid',
-            'type' => 'user',
+            'resource_type' => 'user',
         ]);
 
         $this->assertFalse($result['success']);
@@ -87,7 +87,7 @@ class UsersRouterTest extends TestCase
     {
         $result = $this->router->execute([
             'action' => 'get',
-            'type' => 'user',
+            'resource_type' => 'user',
         ]);
 
         $this->assertFalse($result['success']);
@@ -98,7 +98,7 @@ class UsersRouterTest extends TestCase
     {
         $result = $this->router->execute([
             'action' => 'get',
-            'type' => 'role',
+            'resource_type' => 'role',
         ]);
 
         $this->assertFalse($result['success']);
@@ -109,7 +109,7 @@ class UsersRouterTest extends TestCase
     {
         $result = $this->router->execute([
             'action' => 'get',
-            'type' => 'user',
+            'resource_type' => 'user',
             'id' => 'nonexistent_user',
         ]);
 
@@ -121,7 +121,7 @@ class UsersRouterTest extends TestCase
     {
         $result = $this->router->execute([
             'action' => 'get',
-            'type' => 'role',
+            'resource_type' => 'role',
             'handle' => 'nonexistent_role',
         ]);
 
@@ -133,7 +133,7 @@ class UsersRouterTest extends TestCase
     {
         $result = $this->router->execute([
             'action' => 'get',
-            'type' => 'group',
+            'resource_type' => 'group',
             'handle' => 'nonexistent_group',
         ]);
 
@@ -145,7 +145,7 @@ class UsersRouterTest extends TestCase
     {
         $result = $this->router->execute([
             'action' => 'create',
-            'type' => 'user',
+            'resource_type' => 'user',
             'data' => ['name' => 'No Email User'],
         ]);
 
@@ -157,7 +157,7 @@ class UsersRouterTest extends TestCase
     {
         $result = $this->router->execute([
             'action' => 'create',
-            'type' => 'role',
+            'resource_type' => 'role',
             'title' => 'No Handle Role',
         ]);
 
@@ -169,7 +169,7 @@ class UsersRouterTest extends TestCase
     {
         $result = $this->router->execute([
             'action' => 'assign_role',
-            'type' => 'user',
+            'resource_type' => 'user',
             'user_id' => 'testuser',
             'role_handle' => 'nonexistent_role',
         ]);

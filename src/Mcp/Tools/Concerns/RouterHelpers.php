@@ -4,7 +4,14 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Concerns;
 
-use Illuminate\Support\Facades\Artisan;
+use Cboxdk\StatamicMcp\Auth\TokenScope;
+use Cboxdk\StatamicMcp\Auth\TokenService;
+use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
+use Statamic\Contracts\Auth\User;
+use Statamic\Facades\Site;
 
 /**
  * Router helper methods for common functionality across all routers.
@@ -18,7 +25,7 @@ trait RouterHelpers
     {
         return app()->runningInConsole() &&
                ! request()->hasHeader('X-MCP-Remote') &&
-               ! config('statamic-mcp.security.force_web_mode', false);
+               ! config('statamic.mcp.security.force_web_mode', false);
     }
 
     /**
@@ -28,19 +35,7 @@ trait RouterHelpers
     {
         $domain = $this->getDomain();
 
-        return config("statamic.mcp.tools.statamic.{$domain}.web_enabled", false);
-    }
-
-    /**
-     * Check permissions for the given action and resource.
-     *
-     * @param  array<string, mixed>  $arguments
-     */
-    protected function hasPermissionForAction(array $arguments): bool
-    {
-        $action = $arguments['action'] ?? '';
-
-        return $this->hasPermission($action, $this->getDomain());
+        return config("statamic.mcp.tools.{$domain}.enabled", true) && config('statamic.mcp.web.enabled', false);
     }
 
     /**
@@ -59,182 +54,220 @@ trait RouterHelpers
         }
 
         // Check Statamic permissions based on resource type
+        /** @var User|null $user */
         $user = auth()->user();
 
+        if (! $user) {
+            return false;
+        }
+
+        // Super admins bypass all permission checks
+        if ($user->isSuper()) {
+            return true;
+        }
+
         return match ($resource) {
-            'system' => $user->isSuper() || $user->can('access utilities'),
-            'users' => $this->checkUserPermissions($user, $action, $resource),
-            'assets' => $user->can("{$action} {$resource}"),
-            'blueprints' => $user->can('configure collections') || $user->can('configure taxonomies'),
-            'structures' => $user->can('configure collections') || $user->can('configure taxonomies'),
-            'content' => $user->can("{$action} entries") || $user->can("{$action} terms"),
-            default => $user->can("{$action} {$resource}"),
+            'system' => $user->hasPermission('access utilities'),
+            'blueprints', 'structures', 'collections' => $user->hasPermission('configure collections') || $user->hasPermission('configure taxonomies'),
+            'content' => $user->hasPermission("{$action} entries") || $user->hasPermission("{$action} terms"),
+            'user_groups' => $user->hasPermission("{$action} user groups"),
+            'taxonomies' => $user->hasPermission('configure taxonomies'),
+            'navigations' => $user->hasPermission('configure navigations'),
+            default => $user->hasPermission("{$action} {$resource}"),
         };
     }
 
     /**
-     * Check user-specific permissions with fallback handling.
+     * Determine if we're in web context.
      */
-    private function checkUserPermissions(mixed $user, string $action, string $resource): bool
+    protected function isWebContext(): bool
     {
-        return match ($resource) {
-            'users' => $user->can("{$action} {$resource}"),
-            'roles' => $user->can("{$action} {$resource}"),
-            'user_groups' => $user->can("{$action} user groups"),
-            default => $user->can("{$action} {$resource}"),
-        };
+        return ! $this->isCliContext();
     }
 
     /**
-     * Clear specified caches with comprehensive cache management.
+     * Check permissions for web context operations.
      *
-     * @param  array<int, string>  $caches
-     */
-    protected function clearCaches(array $caches = ['stache']): void
-    {
-        foreach ($caches as $cache) {
-            match ($cache) {
-                'stache' => Artisan::call('statamic:stache:clear'),
-                'static' => Artisan::call('statamic:static:clear'),
-                'views' => Artisan::call('view:clear'),
-                'config' => Artisan::call('config:clear'),
-                'route' => Artisan::call('route:clear'),
-                'all' => $this->clearAllCaches(),
-                default => null,
-            };
-        }
-    }
-
-    /**
-     * Clear all available caches.
-     */
-    private function clearAllCaches(): void
-    {
-        $caches = ['stache', 'static', 'views', 'config', 'route'];
-
-        foreach ($caches as $cache) {
-            try {
-                match ($cache) {
-                    'stache' => Artisan::call('statamic:stache:clear'),
-                    'static' => Artisan::call('statamic:static:clear'),
-                    'views' => Artisan::call('view:clear'),
-                    'config' => Artisan::call('config:clear'),
-                    'route' => Artisan::call('route:clear'),
-                };
-            } catch (\Exception $e) {
-                // Continue clearing other caches even if one fails
-                continue;
-            }
-        }
-    }
-
-    /**
-     * Create standardized permission denied response.
-     *
-     * @param  array<int, string>  $requiredPermissions
-     *
-     * @return array<string, mixed>
-     */
-    protected function createPermissionDeniedResponse(string $operation, ?string $resource = null, array $requiredPermissions = []): array
-    {
-        return $this->createErrorResponse(
-            "Permission denied: Cannot {$operation}" .
-            ($resource ? " {$resource}" : '') . '. ' .
-            'Requires appropriate permissions or CLI context.'
-        )->toArray();
-    }
-
-    /**
-     * Get Statamic version for metadata.
-     */
-    protected function getStatamicVersion(): string
-    {
-        try {
-            if (class_exists('\\Statamic\\Statamic')) {
-                $version = \Statamic\Statamic::version();
-
-                return $version ?: 'unknown';
-            }
-        } catch (\Exception $e) {
-            // Continue with fallback
-        }
-
-        return 'unknown';
-    }
-
-    /**
-     * Get Laravel version for metadata.
-     */
-    protected function getLaravelVersion(): string
-    {
-        try {
-            return app()->version();
-        } catch (\Exception $e) {
-            return 'unknown';
-        }
-    }
-
-    /**
-     * Add common metadata to responses.
-     *
-     * @param  array<string, mixed>  $response
-     *
-     * @return array<string, mixed>
-     */
-    protected function addResponseMetadata(array $response): array
-    {
-        $response['meta'] = array_merge($response['meta'] ?? [], [
-            'tool' => $this->getToolName(),
-            'timestamp' => now()->toISOString(),
-            'statamic_version' => $this->getStatamicVersion(),
-            'laravel_version' => $this->getLaravelVersion(),
-        ]);
-
-        return $response;
-    }
-
-    /**
-     * Validate required fields for action.
+     * Nested permission model:
+     * 1. MCP token scopes (does the token allow this domain/action?)
+     * 2. Statamic user permissions (does the underlying user have CMS rights?)
      *
      * @param  array<string, mixed>  $arguments
-     * @param  array<int, string>  $requiredFields
      *
-     * @return array<string, mixed>|null Returns error response if validation fails, null if valid
+     * @return array<string, mixed>|null
      */
-    protected function validateRequiredFields(array $arguments, array $requiredFields): ?array
+    protected function checkWebPermissions(string $action, array $arguments): ?array
     {
-        $missing = [];
+        /** @var User|null $user */
+        $user = auth()->user();
 
-        foreach ($requiredFields as $field) {
-            if (! isset($arguments[$field]) || $arguments[$field] === '') {
-                $missing[] = $field;
+        if (! $user) {
+            return $this->createErrorResponse('Permission denied: Authentication required')->toArray();
+        }
+
+        // Layer 1: Check MCP token scopes
+        /** @var McpTokenData|null $mcpToken */
+        $mcpToken = request()->attributes->get('mcp_token');
+
+        if ($mcpToken) {
+            $requiredScope = $this->getRequiredTokenScope($action);
+            /** @var TokenService $tokenService */
+            $tokenService = app(TokenService::class);
+            if ($requiredScope && ! $tokenService->hasScope($mcpToken, $requiredScope)) {
+                Log::warning('MCP permission denied: token missing scope', [
+                    'domain' => $this->getDomain(),
+                    'action' => $action,
+                    'required_scope' => $requiredScope->value,
+                    'token_id' => $mcpToken->id,
+                    'ip' => request()->ip(),
+                ]);
+
+                return $this->createErrorResponse(
+                    "Token missing required scope: {$requiredScope->value}"
+                )->toArray();
             }
         }
 
-        if (! empty($missing)) {
-            return $this->createErrorResponse(
-                'Missing required fields: ' . implode(', ', $missing)
-            )->toArray();
+        // Layer 2: Check Statamic user permissions
+        // Super admins pass all Statamic permission checks
+        if ($user->isSuper()) {
+            return null;
+        }
+
+        $requiredPermissions = $this->getRequiredPermissions($action, $arguments);
+
+        foreach ($requiredPermissions as $permission) {
+            if (! $user->hasPermission($permission)) {
+                Log::warning('MCP permission denied: missing Statamic permission', [
+                    'domain' => $this->getDomain(),
+                    'action' => $action,
+                    'missing_permission' => $permission,
+                    'user_id' => method_exists($user, 'id') ? $user->id() : $user->getAuthIdentifier(),
+                    'ip' => request()->ip(),
+                ]);
+
+                return $this->createErrorResponse("Permission denied: Cannot {$action} " . $this->getDomain())->toArray();
+            }
         }
 
         return null;
     }
 
     /**
-     * Sanitize handle for safe usage.
+     * Get required token scope for action. Maps actions to TokenScope enum.
+     * Override in routers for domain-specific scope mapping.
      */
-    protected function sanitizeHandle(string $handle): string
+    protected function getRequiredTokenScope(string $action): ?TokenScope
     {
-        return preg_replace('/[^a-z0-9_-]/', '', strtolower($handle)) ?: '';
+        $domain = $this->getDomain();
+        $isWrite = in_array($action, [
+            'create', 'update', 'delete', 'publish', 'unpublish',
+            'activate', 'deactivate', 'assign_role', 'remove_role',
+            'move', 'copy', 'upload', 'configure',
+            'cache_clear', 'cache_warm', 'config_set',
+        ]);
+
+        return TokenScope::tryFrom("{$domain}:" . ($isWrite ? 'write' : 'read'));
+    }
+
+    /**
+     * Get required Statamic permissions for action - can be overridden by each router.
+     *
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string>
+     */
+    protected function getRequiredPermissions(string $action, array $arguments): array
+    {
+        return [];
+    }
+
+    /**
+     * Check if a resource handle already exists and return error if so.
+     *
+     * @return array<string, mixed>|null Error response if exists, null if available
+     */
+    protected function checkHandleNotExists(mixed $existing, string $resourceType, string $handle): ?array
+    {
+        if ($existing !== null) {
+            return $this->createErrorResponse("{$resourceType} '{$handle}' already exists")->toArray();
+        }
+
+        return null;
+    }
+
+    /**
+     * Validate that a site handle exists.
+     *
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string, mixed>|null Error response if invalid, null if valid
+     */
+    protected function validateSiteHandle(array $arguments): ?array
+    {
+        if (empty($arguments['site'])) {
+            return null;
+        }
+
+        if (! is_string($arguments['site'])) {
+            return $this->createErrorResponse('Site handle must be a string')->toArray();
+        }
+
+        /** @var Collection<int|string, \Statamic\Sites\Site> $allSites */
+        $allSites = Site::all();
+        if (! $allSites->map->handle()->contains($arguments['site'])) {
+            return $this->createErrorResponse("Invalid site handle: {$arguments['site']}")->toArray();
+        }
+
+        return null;
+    }
+
+    /**
+     * Resolve site handle from arguments, falling back to default site.
+     *
+     * @param  array<string, mixed>  $arguments
+     */
+    protected function resolveSiteHandle(array $arguments): string
+    {
+        $site = $arguments['site'] ?? null;
+
+        /** @var \Statamic\Sites\Site $defaultSite */
+        $defaultSite = Site::default();
+
+        return is_string($site) ? $site : $defaultSite->handle();
+    }
+
+    /**
+     * Find a resource by handle or return an error response.
+     *
+     * @return array<string, mixed>|null Error response if not found, null if found
+     */
+    protected function requireResource(mixed $resource, string $resourceType, string $handle): ?array
+    {
+        if ($resource === null) {
+            return $this->createErrorResponse("{$resourceType} not found: {$handle}")->toArray();
+        }
+
+        return null;
+    }
+
+    /**
+     * Format a ValidationException into a standardized error response.
+     *
+     * @return array<string, mixed>
+     */
+    protected function formatValidationError(ValidationException $e): array
+    {
+        $errors = [];
+        foreach ($e->errors() as $field => $fieldErrors) {
+            $errors[] = "{$field}: " . implode(', ', $fieldErrors);
+        }
+
+        return $this->createErrorResponse('Field validation failed: ' . implode('; ', $errors))->toArray();
     }
 
     /**
      * Get domain name - must be implemented by concrete router classes.
      */
     abstract protected function getDomain(): string;
-
-    /**
-     * Get tool name - must be implemented by concrete router classes.
-     */
-    abstract protected function getToolName(): string;
 }

@@ -1,762 +1,177 @@
 # Statamic MCP Server
 
-A comprehensive MCP (Model Context Protocol) server for Statamic CMS that provides AI assistants with structured access to Statamic's content management capabilities through a modern router-based architecture.
+A comprehensive MCP (Model Context Protocol) server for Statamic CMS v6 that provides AI assistants with structured access to Statamic's content management capabilities through a modern router-based architecture.
 
-> [!WARNING]
-> **🚧 Alpha Software - Expect Bugs!**
-> 
-> This MCP server is currently in **alpha stage**. With over 100+ tools available, many of which were AI-generated, comprehensive testing is an ongoing process that takes time.
-> 
-> **What to expect:**
-> - 🐛 **Bugs and errors** - This is alpha software, things will break
-> - 🤖 **AI-generated tools** - Some tools were created with AI assistance and may have edge cases
-> - 🔧 **Ongoing improvements** - We're actively testing and refining all tools
-> - 📈 **Rapid iteration** - Frequent updates as we discover and fix issues
-> 
-> **How you can help:**
-> - 🧪 **Test the tools** in your Statamic projects
-> - 🐞 **Report bugs** by [creating issues](https://github.com/cboxdk/statamic-mcp/issues)
-> - 🎯 **Submit PRs** with fixes and improvements
-> - 💬 **Share feedback** on what works and what doesn't
-> 
-> Your testing and contributions help make this tool better for everyone! 🙏
-
-## 📋 Requirements
+## Requirements
 
 - PHP 8.3+
-- Laravel 11+ / 12+
-- Statamic 5.65+ / 6.0+ (dual version support)
+- Laravel 12+
+- Statamic 6.6+
+- Laravel MCP ^0.6
 
-## 🚀 Installation
+## Installation
 
 ```bash
 # Install via Composer
 composer require cboxdk/statamic-mcp
 
-# Run the installation command to set up MCP
+# Run the installation command
 php artisan mcp:statamic:install
-
-# The addon automatically registers with Laravel's MCP server
 ```
 
-### 🎯 Recommended: Laravel Boost Integration
+### Recommended: Laravel Boost Integration
 
-We strongly recommend installing **Laravel Boost** alongside this Statamic MCP server for the best development experience:
+We recommend installing **Laravel Boost** alongside this addon for the best experience:
 
 ```bash
 composer require laravel/boost --dev
 ```
 
-**Why use both?**
-- **Laravel Boost** and **Statamic MCP Server** run in parallel, complementing each other perfectly
-- **Laravel Boost** provides Laravel-specific tools (Eloquent, database, debugging, Artisan commands)
-- **Statamic MCP Server** provides Statamic-specific tools (blueprints, collections, entries, assets)
-- Together, they give you complete AI-assisted development capabilities for your Statamic/Laravel application
+**Laravel Boost** provides Laravel-specific tools (Eloquent, database, debugging), while **Statamic MCP Server** provides Statamic-specific tools (blueprints, collections, entries, assets). Together they give your AI assistant complete coverage.
 
-With both installed, your AI assistant can:
-- Use Laravel Boost for database queries, debugging, and Laravel framework operations
-- Use Statamic MCP for content management, blueprint operations, and Statamic-specific tasks
-- Seamlessly work across both the Laravel framework and Statamic CMS layers
+## Web MCP Endpoint
 
-## ✨ Features
+The web MCP endpoint is **enabled by default** after installation. To customize the path:
 
-The MCP server provides powerful router tools that organize Statamic's capabilities into logical domains with action-based routing:
-
-### 📋 Blueprint Management
-**Router**: `statamic.blueprints`
-**Actions**: `list`, `get`, `create`, `update`, `delete`, `scan`, `generate`, `types`, `validate`
-
-- **List blueprints** with optional details and namespace filtering
-- **Get specific blueprints** with full field definitions and relationships
-- **Create new blueprints** from field definitions with validation
-- **Update existing blueprints** with field changes and configuration
-- **Delete blueprints** with safety checks and dependency validation
-- **Scan blueprint directories** with performance optimization
-- **Generate blueprints** from templates and AI-assisted field definitions
-- **Analyze blueprint types** for TypeScript/PHP type generation
-- **Validate blueprints** for field conflicts and structural integrity
-
-### 📚 Content Management
-**Router**: `statamic.content`
-**Actions**: `list`, `get`, `create`, `update`, `delete`, `publish`, `unpublish`
-**Types**: `entry`, `term`, `global`
-
-- **Unified content operations** across entries, terms, and global sets
-- **Security-first permissions** with audit logging and validation
-- **Multi-site support** with proper localization handling
-- **Blueprint-based validation** with comprehensive field validation
-- **Slug uniqueness validation** using Statamic's built-in rules
-- **Publishing workflows** with state management and validation
-- **Bulk operations** with safety checks and rollback capabilities
-
-### 📚 System Management
-**Router**: `statamic.system`
-**Actions**: `info`, `health`, `cache_status`, `cache_clear`, `cache_warm`, `config_get`, `config_set`
-
-- **System information** with version, edition, and multi-site analysis
-- **Health monitoring** with comprehensive diagnostic checks
-- **Cache management** with selective clearing and warming capabilities
-- **Configuration access** with safe get/set operations
-- **Performance analysis** with bottleneck detection and optimization
-- **Storage detection** for file-based, database, or mixed patterns
-
-### 🏗️ Structure Management
-**Router**: `statamic.structures`
-**Purpose**: Manage structural configurations across Statamic
-
-- **Collection structures** with route patterns and blueprint associations
-- **Navigation trees** with hierarchical organization and URL structures
-- **Form configurations** with field definitions and validation rules
-- **Global set structures** with multi-site value management
-- **Asset containers** with storage driver configuration
-- **User group hierarchies** with permission inheritance
-- **Permission structures** with role-based access control analysis
-
-### 📝 Entry Management
-**Router**: `statamic.entries`
-**Purpose**: Dedicated entry operations with advanced features
-
-- **List entries** with filtering, search, pagination, and status filtering
-- **Get entry details** with full data, relationships, and metadata
-- **Create entries** with blueprint validation and slug uniqueness checks
-- **Update entries** with merge strategies and change tracking
-- **Delete entries** with relationship validation and cleanup
-- **Publishing workflows** with draft/published state management
-- **Bulk operations** with collection-wide actions and validation
-
-### 🏷️ Term Management
-**Router**: `statamic.terms`
-**Purpose**: Dedicated taxonomy term operations
-
-- **List terms** with taxonomy filtering, search, and pagination
-- **Get term details** with full data and related entry connections
-- **Create terms** with validation and slug conflict prevention
-- **Update terms** with merge strategies and relationship maintenance
-- **Delete terms** with dependency validation and cleanup
-- **Taxonomy analysis** with term usage and relationship mapping
-
-### 🌐 Global Management
-**Router**: `statamic.globals`
-**Purpose**: Global set and values management
-
-- **List global sets** with structure and value metadata
-- **Get global values** with site-specific data and field filtering
-- **Update global values** with validation and change tracking
-- **Create global sets** with blueprint support and initial values
-- **Delete global sets** with backup options and safety checks
-- **Multi-site support** with localization and value inheritance
-
-### 🗂️ Asset Management
-**Router**: `statamic.assets`
-**Purpose**: Asset container and file operations
-
-- **List asset containers** with storage driver information
-- **Create containers** with custom disk configurations
-- **Update containers** with settings and access control
-- **Delete containers** with content cleanup options
-- **File operations** with upload, move, and organization features
-- **Metadata management** with alt text, titles, and custom fields
-
-### 🌐 Sites Management Tools
-**Purpose**: Multi-site Statamic configuration and management
-
-- **`statamic.sites.list`** - List all configured sites with settings and status
-- **`statamic.sites.create`** - Create new site configurations with validation
-- **`statamic.sites.update`** - Update existing site configurations with backup options
-- **`statamic.sites.delete`** - Delete sites with content analysis and cleanup options
-- **`statamic.sites.switch`** - Switch default site with impact analysis
-- **`statamic.sites.analyze`** - Analyze site configuration and detect potential issues
-
-### 👥 User Management Tools
-**Purpose**: Comprehensive user management with RBAC support
-
-- **`statamic.users.list`** - List users with filtering, roles, and metadata
-- **`statamic.users.get`** - Get specific user with detailed role and permission information
-- **`statamic.users.create`** - Create new users with role assignment and validation
-- **`statamic.users.update`** - Update users with granular role management
-- **`statamic.users.delete`** - Delete users with content reassignment options
-- **`statamic.users.analyze`** - Analyze user activity and permission usage patterns
-
-### 🔐 Role & Permission Tools
-**Purpose**: Role-based access control and security management
-
-- **`statamic.roles.list`** - List all roles with permissions and user counts
-- **`statamic.roles.get`** - Get specific role with detailed permission analysis
-- **`statamic.roles.create`** - Create new roles with permission validation
-- **`statamic.roles.update`** - Update roles with impact analysis on affected users
-- **`statamic.roles.delete`** - Delete roles with user impact assessment
-- **`statamic.permissions.list`** - List all available permissions with descriptions
-- **`statamic.permissions.analyze`** - Analyze permission usage and security implications
-
-### 🗂️ Other Content Tools
-**Purpose**: Additional content management capabilities
-
-- **`statamic.content.assets`** - Asset CRUD operations (coming soon)
-- **`statamic.content.submissions`** - Form submission management (coming soon)
-
-### 🏷️ Tag Tools
-**Router**: `statamic.tags` | **Actions**: `list`, `create`, `discover`
-**Purpose**: Manage Statamic tags for both Antlers and Blade
-
-- **list** - Tag discovery and management for both Antlers and Blade
-- **create** - Generate new custom tags with proper structure
-- **discover** - Find and analyze existing tags in the codebase
-
-### 🔧 Modifier Tools
-**Router**: `statamic.modifiers` | **Actions**: `list`, `create`, `examples`
-**Purpose**: Manage template modifiers
-
-- **list** - Modifier discovery and creation
-- **create** - Generate new custom modifiers
-- **examples** - Get usage examples for existing modifiers
-
-### 🎛️ Field Type Tools
-**Router**: `statamic.fieldtypes` | **Actions**: `list`, `create`, `configure`
-**Purpose**: Manage custom field types
-
-- **list** - Field type discovery and configuration options
-- **create** - Generate new custom field types
-- **configure** - Get configuration options for field types
-
-### 🔍 Scope Tools
-**Router**: `statamic.scopes` | **Actions**: `list`, `create`, `apply`
-**Purpose**: Manage query scopes
-
-- **list** - Query scope discovery
-- **create** - Generate new query scopes
-- **apply** - Test scope application on collections
-
-### 🗂️ Filter Tools
-**Router**: `statamic.filters` | **Actions**: `list`, `create`, `test`
-**Purpose**: Manage collection filters
-
-- **list** - Filter discovery
-- **create** - Generate new collection filters
-- **test** - Test filter logic against sample data
-
-### ⚙️ Development Tools
-**Router**: `statamic.development` | **Actions**: `templates`, `antlers-validate`, `blade-lint`, `addons`, `types`
-**Purpose**: Enhanced developer experience with advanced optimization
-
-- **templates** - Template hints with performance analysis and edge case warnings
-- **antlers-validate** - Advanced Antlers template validation with performance analysis
-- **blade-lint** - Comprehensive Blade linting with policy enforcement
-- **addons** - Addon development, analysis, and scaffolding
-- **types** - TypeScript/PHP type generation from blueprints
-
-**Advanced Features**:
-- **OptimizedTemplateAnalyzer**: Detects N+1 queries, nested loops, excessive partials
-- **Performance Analysis**: Memory issues, recursive partials, XSS vulnerabilities
-- **Edge Case Detection**: Infinite loop risks, unescaped output, caching conflicts
-- **Security Scanning**: XSS detection, input sanitization, security best practices
-
-### 🔧 System Tools
-**Router**: `statamic.system` | **Actions**: `info`, `cache`, `docs`, `health`
-**Purpose**: System management and operations
-
-- **info** - Comprehensive system analysis and health checks
-- **cache** - Advanced cache management with selective clearing and warming
-- **docs** - Documentation search and discovery
-- **health** - System health checks with performance analysis
-
-## 🏗️ Architecture & Design
-
-### Router-Based MCP Tool Architecture
-The addon follows a **router-based architecture** where domain routers handle multiple actions:
-- **Domain-based organization**: Each router manages one Statamic domain (blueprints, collections, etc.)
-- **Action-based routing**: Single router handles multiple related operations (list, get, create, update, delete)
-- **Reduced tool count**: ~10 router tools instead of 140+ individual tools
-- **Better performance**: Fewer tools for AI assistants to choose from
-- **Clearer organization**: Domain boundaries with action-based routing
-- **Easier maintenance**: Single file per domain reduces fragmentation
-
-### Router Pattern Benefits
-- **Scalability**: Easy to add new actions without creating new tools
-- **Maintainability**: All domain operations in one location
-- **Performance**: Reduced overhead and faster tool loading
-- **Clarity**: Clear domain boundaries and action routing
-- **Testing**: Complete domain functionality in single test suite
-
-### Security & Reliability
-- **Path traversal protection**: All file operations validated against allowed directories
-- **Input sanitization**: Sensitive data redacted from logs
-- **Structured error handling**: Standardized error codes and responses
-- **Type safety**: PHPStan Level 8 compliance with strict typing
-
-### Developer-Focused Design
-- **Local development first**: Optimized for development workflows
-- **Smart caching**: Expensive operations cached with dependency tracking
-- **Comprehensive logging**: Structured logs with correlation IDs for debugging
-- **Router-based efficiency**: Domain-focused operations reduce complexity
-- **Action-driven workflows**: Clear action patterns for predictable behavior
-
-## 🎯 New Features & Performance
-
-### ⚡ Automatic Cache Purging
-All structural and content changes automatically clear relevant caches:
-- **Blueprint/fieldset changes**: Clears stache, static, views
-- **Content operations**: Clears stache, static caches  
-- **Structure changes**: Comprehensive cache clearing
-- **Transparent reporting**: All responses include cache status
-
-### 📊 Performance Optimizations
-- **Pagination support**: Use `limit` and `filter` parameters for large datasets
-- **Field filtering**: `include_fields: false` for blueprint scanning performance
-- **Response limits**: Automatic limits to prevent token overflow (< 25,000 tokens)
-- **Smart defaults**: Optimized for AI assistant token limits
-- **Smart caching**: Discovery operations cached with file modification tracking
-
-## 🤖 AI Assistant Setup
-
-
-```bash
-# Run the installation command to set up MCP
-php artisan mcp:statamic:install
+```env
+STATAMIC_MCP_WEB_PATH="/mcp/statamic"
 ```
 
-See [docs/AI_ASSISTANT_SETUP.md](docs/AI_ASSISTANT_SETUP.md) for more details or manual setup.
+Create a token in the CP dashboard (Tools > MCP > Tokens), then configure your AI client:
 
-## 💡 Example Usage with AI
-
-### Router-Based Tool Architecture
-This MCP server uses a **router-based architecture** where each domain (blueprints, collections, entries, etc.) has a single router tool that handles multiple actions. For example:
-- `statamic.blueprints` router handles: `list`, `get`, `create`, `update`, `delete`, `scan`, `generate`, `types`
-- `statamic.entries` router handles: `list`, `get`, `create`, `update`, `delete`, `publish`, `unpublish`
-- `statamic.system` router handles: `info`, `cache`, `docs`, `health`
-
-This design provides better organization and performance compared to having 140+ individual tools.
-
-### Natural Language Usage
-Once configured, you can ask your AI assistant using natural language:
-
-```
-"What version of Statamic is installed and is it Pro or Solo?"
-
-"Show me all my blueprint structures and generate TypeScript types"
-
-"List all global sets and their current values across all sites"
-
-"Create a new global set for company contact information with phone, email, and address fields"
-
-"Update the footer global values for the Danish site"
-
-"What modifiers and filters are available in my project?"
-
-"Analyze this Antlers template for performance issues and security vulnerabilities"
-
-"Lint this Blade template and detect N+1 query problems"
-
-"Validate this template against my blueprint and check for edge cases"
-
-"Create a new blog entry with proper field validation"
-
-"Search for documentation about collections and how they work"
-
-"Check my templates for XSS vulnerabilities and recursive partial issues"
-
-"What global sets exist and what's their blueprint structure?"
-
-"Clear all Statamic caches and show me the status"
-
-"Analyze template performance and suggest optimizations"
-
-"Check for missing pagination in large collection loops"
-
-"Find templates with excessive complexity and suggest refactoring"
-
-"Show me user preferences and configure global settings"
+```json
+{
+    "mcpServers": {
+        "statamic": {
+            "url": "https://your-site.test/mcp/statamic",
+            "headers": {
+                "Authorization": "Bearer <YOUR_TOKEN>"
+            }
+        }
+    }
+}
 ```
 
-## 🎯 Key Capabilities
+See [Getting Started](docs/getting-started/quickstart.md) for detailed setup or [AI Client Setup](docs/getting-started/ai-clients.md) for client-specific instructions (Claude, Cursor, ChatGPT, Windsurf).
 
-### System Intelligence & Management
-- **Installation Analysis**: Version, edition (Pro/Solo), licensing status, multi-site configuration
-- **Storage Detection**: File-based, database (Runway), or mixed storage patterns  
-- **Content Extraction**: Dynamic analysis of modifiers, globals, taxonomies, users, permissions
-- **Cache Management**: Clear, warm, and monitor all Statamic caches (Stache, static, images, views)
+## Features
 
-### Content Operations
-- **CRUD Operations**: Create, edit, delete, reorder entries, taxonomy terms, navigation items
-- **Content Discovery**: Extract all content types with filtering and metadata
-- **Bulk Operations**: Mass content management and organization
-- **Data Integrity**: Safe operations with proper validation and error handling
+The MCP server organizes Statamic's capabilities into domain routers with action-based routing:
 
-### Blueprint Intelligence  
-- **Complete Analysis**: Blueprint and fieldset scanning with relationship mapping
-- **Type Generation**: TypeScript, PHP classes, JSON Schema from blueprints
-- **Field Categories**: 25+ supported field types with validation patterns
-- **Dynamic Discovery**: On-demand field type and configuration analysis
+### Blueprint Management — `statamic-blueprints`
+Actions: `list`, `get`, `create`, `update`, `delete`, `scan`, `generate`, `types`, `validate`
 
-### Documentation Intelligence
-- **Dynamic Search**: Live content from statamic.dev with sitemap parsing
-- **Relevance Scoring**: Intelligent content ranking and suggestions
-- **Addon Coverage**: Third-party documentation and community resources
-- **Comprehensive Coverage**: All modifiers, tags, and constantly updated content
+List, inspect, create, and modify blueprints. Generate TypeScript/PHP types from field definitions. Validate blueprints for conflicts and structural integrity.
 
-### Template Development
-- **Language-Aware Hints**: Context-appropriate suggestions for Antlers vs Blade
-- **Syntax Validation**: Blueprint-driven template validation with error reporting
-- **Best Practices**: Anti-pattern detection with auto-fix suggestions
-- **Template Separation**: Clear guidance on when to use Antlers vs Blade
+### Entry Management — `statamic-entries`
+Dedicated entry operations with filtering, search, pagination, status filtering, merge strategies, and bulk operations.
 
-### Code Quality & Security
-- **Policy Enforcement**: Configurable linting rules for both Antlers and Blade
-- **Security Detection**: Template vulnerability scanning and prevention
-- **Accessibility**: Compliance checks and automated improvements
-- **Performance**: Template optimization suggestions and cache-aware development
+### Term Management — `statamic-terms`
+Taxonomy term operations with slug conflict prevention, dependency validation, and relationship mapping.
 
-## 📁 Project Structure
+### Global Management — `statamic-globals`
+Global set structure and values management with multi-site support, change tracking, and field-level filtering.
 
-```
-statamic-mcp/
-├── src/Mcp/Tools/                      # 50+ specialized MCP tools
-│   ├── Blueprints/                     # Blueprint management and analysis
-│   │   ├── ListBlueprintsTool.php
-│   │   ├── GetBlueprintTool.php
-│   │   ├── CreateBlueprintTool.php
-│   │   ├── UpdateBlueprintTool.php
-│   │   ├── DeleteBlueprintTool.php
-│   │   ├── ScanBlueprintsTool.php
-│   │   ├── GenerateBlueprintTool.php
-│   │   ├── TypesBlueprintTool.php
-│   │   ├── ValidateBlueprintTool.php
-│   │   ├── CheckFieldDependenciesTool.php
-│   │   └── DetectFieldConflictsTool.php
-│   ├── Collections/                    # Collection management
-│   │   ├── ListCollectionsTool.php
-│   │   ├── GetCollectionTool.php
-│   │   ├── CreateCollectionTool.php
-│   │   ├── UpdateCollectionTool.php
-│   │   └── DeleteCollectionTool.php
-│   ├── Taxonomies/                     # Taxonomy management
-│   │   ├── ListTaxonomyTool.php
-│   │   ├── GetTaxonomyTool.php
-│   │   ├── CreateTaxonomyTool.php
-│   │   ├── UpdateTaxonomyTool.php
-│   │   ├── DeleteTaxonomyTool.php
-│   │   ├── AnalyzeTaxonomyTool.php
-│   │   └── ListTermsTool.php
-│   ├── Entries/                        # Entry management
-│   │   ├── ListEntresTool.php
-│   │   ├── GetEntryTool.php
-│   │   ├── CreateEntryTool.php
-│   │   ├── UpdateEntryTool.php
-│   │   ├── DeleteEntryTool.php
-│   │   ├── PublishEntryTool.php
-│   │   └── UnpublishEntryTool.php
-│   ├── Terms/                          # Term management
-│   │   ├── ListTermsTool.php
-│   │   ├── GetTermTool.php
-│   │   ├── CreateTermTool.php
-│   │   ├── UpdateTermTool.php
-│   │   └── DeleteTermTool.php
-│   ├── Globals/                        # Global sets and values management
-│   │   ├── ListGlobalSetsTool.php
-│   │   ├── GetGlobalSetTool.php
-│   │   ├── CreateGlobalSetTool.php
-│   │   ├── DeleteGlobalSetTool.php
-│   │   ├── ListGlobalValuesTool.php
-│   │   ├── GetGlobalValuesTool.php
-│   │   └── UpdateGlobalValuesTool.php
-│   ├── Navigation/                     # Navigation management
-│   │   └── ListNavigationTool.php
-│   ├── Content/                        # Other content operations
-│   │   ├── AssetsContentTool.php
-│   │   ├── SubmissionsContentTool.php
-│   │   └── UsersContentTool.php
-│   ├── Tags/                           # Tag management
-│   │   └── ListTagsTool.php
-│   ├── Modifiers/                      # Modifier management
-│   │   └── ListModifiersTool.php
-│   ├── FieldTypes/                     # Field type management
-│   │   └── ListFieldTypesTool.php
-│   ├── Scopes/                         # Scope management
-│   │   └── ListScopesTool.php
-│   ├── Filters/                        # Filter management
-│   │   └── ListFiltersTool.php
-│   ├── Sites/                           # Multi-site management
-│   │   ├── ListSitesTool.php
-│   │   ├── CreateSiteTool.php
-│   │   ├── UpdateSiteTool.php
-│   │   ├── DeleteSiteTool.php
-│   │   ├── SwitchSiteTool.php
-│   │   └── AnalyzeSitesTool.php
-│   ├── Users/                           # User management and RBAC
-│   │   ├── ListUsersTool.php
-│   │   ├── GetUserTool.php
-│   │   ├── CreateUserTool.php
-│   │   ├── UpdateUserTool.php
-│   │   ├── DeleteUserTool.php
-│   │   └── AnalyzeUsersTool.php
-│   ├── Roles/                           # Role management
-│   │   ├── ListRolesTool.php
-│   │   ├── GetRoleTool.php
-│   │   ├── CreateRoleTool.php
-│   │   ├── UpdateRoleTool.php
-│   │   ├── DeleteRoleTool.php
-│   │   ├── ListPermissionsTool.php
-│   │   └── AnalyzePermissionsTool.php
-│   ├── Development/                    # Advanced developer tools
-│   │   ├── TemplatesDevelopmentTool.php
-│   │   ├── AddonsDevelopmentTool.php
-│   │   ├── AddonDiscoveryTool.php
-│   │   ├── TypesDevelopmentTool.php
-│   │   ├── ConsoleDevelopmentTool.php
-│   │   ├── AntlersValidateTool.php
-│   │   ├── BladeLintTool.php
-│   │   ├── OptimizedTemplateAnalyzer.php  # Advanced template analysis
-│   │   ├── AnalyzeTemplatePerformanceTool.php
-│   │   ├── DetectUnusedTemplatesTool.php
-│   │   ├── ExtractTemplateVariablesTool.php
-│   │   ├── SuggestTemplateOptimizationsTool.php
-│   │   └── WidgetsDevelopmentTool.php
-│   ├── Structures/                     # Structure management
-│   │   ├── FieldsetsScanStructuresTool.php
-│   │   ├── FieldsetsStructureTool.php
-│   │   ├── NavigationsStructureTool.php
-│   │   ├── FormsStructureTool.php
-│   │   ├── GlobalsStructureTool.php
-│   │   ├── AssetsStructureTool.php
-│   │   ├── GroupsStructureTool.php
-│   │   └── PermissionsStructureTool.php
-│   └── System/                         # System operations
-│       ├── InfoSystemTool.php
-│       ├── CacheSystemTool.php
-│       ├── DocsSystemTool.php
-│       ├── GetLicenseStatusTool.php
-│       ├── VerifyLicenseTool.php
-│       ├── PreferencesManagementTool.php
-│       ├── StacheManagementTool.php
-│       ├── SearchIndexAnalyzerTool.php
-│       ├── SitesTool.php
-│       ├── DiscoverToolsTool.php
-│       ├── GetToolSchemaTool.php
-│       ├── SystemHealthCheckTool.php
-│       └── PerformanceMonitorTool.php
-├── tests/                              # Comprehensive test suite  
-├── docs/                               # Detailed documentation
-└── config/statamic/mcp.php            # Configuration options
-```
+### Structure Management — `statamic-structures`
+Collection, taxonomy, navigation, and site configuration management.
 
-## 📚 Documentation
+### Asset Management — `statamic-assets`
+Asset container and file operations: upload, move, copy, rename, delete with metadata management.
 
-### Tool Discovery
-Use the built-in discovery tools to explore available capabilities:
+### User Management — `statamic-users`
+User CRUD, role assignment, group management with RBAC support.
 
-```bash
-# Discover all available tools with their schemas
-"Use the statamic.system discover action to show me all available router tools"
+### System Management — `statamic-system`
+System info, health checks, cache management (clear/warm), and configuration access.
 
-# Get detailed schema for a specific tool
-"Show me the schema for the statamic.entries router and its available actions"
+### Content Workflow Facade — `statamic-content-facade`
+High-level workflow operations: `content_audit` and `cross_reference`.
 
-# Find tools by domain
-"What blueprint management tools are available?"
-```
+### Agent Education Tools
+- `statamic-system-discover` — Intent-based tool discovery
+- `statamic-system-schema` — Tool schema inspection
 
-### Additional Documentation
-- **Installation Guide**: See Installation section above
-- **AI Assistant Setup**: See AI Assistant Setup section
-- **Tool Examples**: Use discovery tools for live examples
+## Architecture
 
-## ⚙️ Configuration
+### Router-Based Design
+- **11 domain routers** instead of 140+ individual tools
+- **Action-based routing**: Each router handles multiple related operations
+- **Better AI performance**: Fewer tools to choose from, clearer purposes
+- **Single file per domain**: Easy maintenance and testing
 
-Publish and customize the configuration:
+### Security
+- Scoped API tokens with 21 granular permissions
+- OAuth 2.1 authorization server with PKCE and dynamic client registration
+- Bearer token + Basic Auth authentication
+- Rate limiting per token
+- Audit logging for all operations
+- Path traversal protection
+- PHPStan Level 8 strict typing
+
+### CP Dashboard
+Vue 3 dashboard in the Statamic CP (Tools > MCP) with:
+- **Connect** — Endpoint URL, client config snippets for Claude/Cursor/ChatGPT/Windsurf
+- **Tokens** — Create, list, and revoke API tokens with scope selection
+- **Activity** — Audit log of MCP tool calls
+- **Settings** — System stats, endpoint status, rate limiting
+
+## Configuration
 
 ```bash
 php artisan vendor:publish --tag=statamic-mcp-config
 ```
 
-Configure blueprint paths, linting rules, cache settings, and more in `config/statamic/mcp.php`.
+Key settings in `config/statamic/mcp.php`:
+- Web endpoint (enabled, path, HTTPS enforcement)
+- Authentication (scoped tokens, token lifetime, audit logging)
+- Security (force web mode, audit logging)
+- Rate limiting (max attempts per minute)
+- Per-domain tool enablement
 
-## Development Installation
-
-For local development or contributing:
+## Development
 
 ```bash
-# Clone the repository into your Statamic project's addons folder
-mkdir -p addons/cboxdk
-cd addons/cboxdk
-git clone https://github.com/cboxdk/statamic-mcp.git
-
-# Add to composer.json repositories section
-"repositories": [
-    {
-        "type": "path",
-        "url": "addons/cboxdk/statamic-mcp"
-    }
-]
-
-# Install the addon
-composer require cboxdk/statamic-mcp:@dev
-
-# Install dependencies
-cd addons/cboxdk/statamic-mcp
-composer install
-```
-
-## 🧪 Development & Testing
-
-### Running Tests
-```bash
-# Run all tests with Pest
+# Run tests
 ./vendor/bin/pest
 composer test
 
-# Run with coverage report
-./vendor/bin/pest --coverage
-composer test:coverage
-
-# Development watch mode
-./vendor/bin/pest --watch
-
-# Run specific test file
-./vendor/bin/pest tests/BlueprintsScanToolTest.php
-```
-
-### Code Quality
-```bash
-# Format code with Laravel Pint
+# Code formatting
 ./vendor/bin/pint
 composer pint
 
-# Check formatting without fixing
-./vendor/bin/pint --test
-composer pint:test
-
-# Run PHPStan Level 8 analysis
+# Static analysis (Level 8)
 ./vendor/bin/phpstan analyse
 composer stan
 
-# Run complete quality check (format + analysis + tests)
+# Full quality check
 composer quality
 ```
 
 ### Quality Standards
-This project maintains the highest code quality standards:
-- **PHPStan Level 8**: Strict type checking with zero tolerance for errors
-- **Laravel Pint**: Consistent code formatting following Laravel conventions
-- **Type Safety**: All methods have explicit parameter and return types
-- **Test Coverage**: Comprehensive test suite with 92+ passing tests
-- **Strict Types**: All PHP files declare `strict_types=1`
+- PHPStan Level 8 with zero errors
+- Laravel Pint formatting
+- Strict types on all PHP files
+- Comprehensive test suite
 
-## 🔧 Troubleshooting
+## Example Usage
 
-### Common Issues
+```
+"What version of Statamic is installed?"
+"Show me all blueprints and generate TypeScript types"
+"Create a new blog entry with title and content fields"
+"List all global sets and their current values"
+"Clear all caches and show me the status"
+"Analyze this Antlers template for performance issues"
+```
 
-**MCP server not connecting in Claude:**
-- Ensure absolute paths in config file
-- Check `APP_ENV` is set to `local`
-- Verify PHP path: `which php`
-- Test manually: `php artisan mcp:serve statamic`
-
-**Tools not appearing:**
-- Clear Laravel cache: `php artisan cache:clear`
-- Check service provider registration
-- Verify `laravel/mcp` is installed: `composer show laravel/mcp`
-
-**PHPStan errors:**
-- Run `composer update` to ensure latest dependencies
-- Check PHP version: minimum 8.2 required
-- Clear PHPStan cache: `./vendor/bin/phpstan clear-result-cache`
-
-**Test failures:**
-- Ensure Statamic is properly installed
-- Check test database configuration
-- Run `composer dump-autoload`
-
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repository
 2. Install: `composer install`
 3. Test: `./vendor/bin/pest`
-4. Ensure quality checks pass: `composer quality`
+4. Quality: `composer quality`
 5. Submit pull request
 
-## 🔄 Version Compatibility
-
-### Statamic v5.65+ / v6.0+ Support
-
-This MCP server supports **dual version compatibility** with both Statamic v5.65+ and v6.0+:
-
-- **PHP 8.3+**: Required for both versions
-- **Laravel 11/12**: Full compatibility with both Laravel versions
-- **Statamic 5.65+**: All features supported with v6 opt-in capabilities
-- **Statamic 6.0+**: Ready for v6 when officially released
-
-### Version Detection
-
-The addon automatically detects your Statamic version and adjusts behavior accordingly:
-
-```php
-use Cboxdk\StatamicMcp\Support\StatamicVersion;
-
-// Check version
-StatamicVersion::current();        // "5.69.0"
-StatamicVersion::isV6OrLater();    // false
-StatamicVersion::majorVersion();   // 5
-
-// Check v6 features
-StatamicVersion::supportsV6OptIns();      // true (v5.65+)
-StatamicVersion::hasV6AssetPermissions(); // false (until enabled)
-```
-
-### V6 Preparation Features
-
-For Statamic v5.65+, you can enable v6 opt-in features in your installation:
-
-```php
-// config/statamic/assets.php
-'v6_permissions' => true,  // Enable v6 asset permissions model
-```
-
-The MCP server will automatically detect and adapt to these settings using the `StatamicVersion` helper.
-
-### Asset Management V6 Compatibility
-
-The `statamic.assets` router provides full compatibility with both v5 and v6 permission models:
-
-- **V5 Mode**: Traditional asset folder permissions
-- **V6 Mode**: New permission model (when enabled)
-- **Auto-detection**: Seamlessly handles both models
-- **Unified API**: Same tool interface for both versions
-
-### Testing Matrix
-
-Our CI/CD pipeline tests against multiple version combinations:
-
-| PHP    | Statamic | Laravel | Status |
-|--------|----------|---------|--------|
-| 8.3    | 5.65+    | 11      | ✅ Tested |
-| 8.3    | 5.65+    | 12      | ✅ Tested |
-| 8.3    | 6.0+     | 11/12   | 🚧 Ready when v6 releases |
-
-### Upgrade Path
-
-**From Statamic v5 → v5.65+:**
-```bash
-composer require "statamic/cms:^5.65"
-# All MCP tools continue working seamlessly
-```
-
-**From Statamic v5.65+ → v6 (when released):**
-```bash
-composer require "statamic/cms:^6.0"
-# MCP server automatically detects v6 and adjusts
-```
-
-### Breaking Changes
-
-**None expected**: The MCP server maintains backward compatibility through version detection and adaptive behavior. All tools work identically across v5.65+ and v6.0+.
-
-### Migration Guide
-
-For detailed migration information when v6 is released, see [docs/STATAMIC_V6_MIGRATION.md](docs/STATAMIC_V6_MIGRATION.md).
-
-## 📄 License
+## License
 
 MIT License
-
----
-
-**Enhanced Statamic development with AI assistance** 🚀

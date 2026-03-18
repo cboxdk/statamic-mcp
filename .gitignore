@@ -1,8 +1,14 @@
 node_modules
+package-lock.json
 vendor
 composer.lock
 .phpunit.result.cache
 /.idea
+
+# Dev tooling
+.playwright-mcp
+*.png
+*.jpg
 
 # Testing
 .phpunit.cache

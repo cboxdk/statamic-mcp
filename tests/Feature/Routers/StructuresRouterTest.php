@@ -24,7 +24,7 @@ class StructuresRouterTest extends TestCase
     {
         $result = $this->router->execute([
             'action' => 'list',
-            'type' => 'collection',
+            'resource_type' => 'collection',
         ]);
 
         // Expect either success or specific failure
@@ -39,7 +39,7 @@ class StructuresRouterTest extends TestCase
     {
         $result = $this->router->execute([
             'action' => 'get',
-            'type' => 'collection',
+            'resource_type' => 'collection',
             'handle' => 'nonexistent',
         ]);
 
@@ -52,7 +52,7 @@ class StructuresRouterTest extends TestCase
     {
         $result = $this->router->execute([
             'action' => 'create',
-            'type' => 'collection',
+            'resource_type' => 'collection',
         ]);
 
         // Should fail with missing handle
@@ -64,7 +64,7 @@ class StructuresRouterTest extends TestCase
     {
         $result = $this->router->execute([
             'action' => 'list',
-            'type' => 'taxonomy',
+            'resource_type' => 'taxonomy',
         ]);
 
         // Expect either success or specific failure
@@ -79,7 +79,7 @@ class StructuresRouterTest extends TestCase
     {
         $result = $this->router->execute([
             'action' => 'get',
-            'type' => 'taxonomy',
+            'resource_type' => 'taxonomy',
             'handle' => 'nonexistent',
         ]);
 
@@ -92,7 +92,7 @@ class StructuresRouterTest extends TestCase
     {
         $result = $this->router->execute([
             'action' => 'list',
-            'type' => 'navigation',
+            'resource_type' => 'navigation',
         ]);
 
         // Navigation actually succeeds - it's implemented in the router
@@ -104,7 +104,7 @@ class StructuresRouterTest extends TestCase
     {
         $result = $this->router->execute([
             'action' => 'list',
-            'type' => 'site',
+            'resource_type' => 'site',
         ]);
 
         // Sites should work
@@ -116,7 +116,7 @@ class StructuresRouterTest extends TestCase
     {
         $result = $this->router->execute([
             'action' => 'get',
-            'type' => 'site',
+            'resource_type' => 'site',
             'handle' => 'default',
         ]);
 
@@ -130,7 +130,7 @@ class StructuresRouterTest extends TestCase
     {
         $result = $this->router->execute([
             'action' => 'invalid',
-            'type' => 'collection',
+            'resource_type' => 'collection',
         ]);
 
         $this->assertFalse($result['success']);
@@ -141,7 +141,7 @@ class StructuresRouterTest extends TestCase
     {
         $result = $this->router->execute([
             'action' => 'list',
-            'type' => 'invalid',
+            'resource_type' => 'invalid',
         ]);
 
         $this->assertFalse($result['success']);
@@ -152,7 +152,7 @@ class StructuresRouterTest extends TestCase
     {
         $result = $this->router->execute([
             'action' => 'get',
-            'type' => 'collection',
+            'resource_type' => 'collection',
         ]);
 
         $this->assertFalse($result['success']);
@@ -163,7 +163,7 @@ class StructuresRouterTest extends TestCase
     {
         $result = $this->router->execute([
             'action' => 'get',
-            'type' => 'collection',
+            'resource_type' => 'collection',
             'handle' => 'nonexistent_collection',
         ]);
 
@@ -175,7 +175,7 @@ class StructuresRouterTest extends TestCase
     {
         $result = $this->router->execute([
             'action' => 'get',
-            'type' => 'taxonomy',
+            'resource_type' => 'taxonomy',
             'handle' => 'nonexistent_taxonomy',
         ]);
 
@@ -187,7 +187,7 @@ class StructuresRouterTest extends TestCase
     {
         $result = $this->router->execute([
             'action' => 'get',
-            'type' => 'navigation',
+            'resource_type' => 'navigation',
             'handle' => 'nonexistent_navigation',
         ]);
 

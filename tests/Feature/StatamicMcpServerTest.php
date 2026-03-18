@@ -28,21 +28,55 @@ class StatamicMcpServerTest extends TestCase
         return app(StatamicMcpServer::class);
     }
 
+    /**
+     * Access the protected $tools property via reflection.
+     *
+     * @return array<int, class-string>
+     */
+    protected function getServerTools(StatamicMcpServer $server): array
+    {
+        $reflection = new ReflectionProperty($server, 'tools');
+
+        /** @var array<int, class-string> $tools */
+        $tools = $reflection->getValue($server);
+
+        return $tools;
+    }
+
+    /**
+     * Access the protected $prompts property via reflection.
+     *
+     * @return array<int, class-string>
+     */
+    protected function getServerPrompts(StatamicMcpServer $server): array
+    {
+        $reflection = new ReflectionProperty($server, 'prompts');
+
+        /** @var array<int, class-string> $prompts */
+        $prompts = $reflection->getValue($server);
+
+        return $prompts;
+    }
+
     public function test_mcp_server_can_be_instantiated()
     {
         $server = $this->getServer();
         expect($server)->toBeInstanceOf(StatamicMcpServer::class);
-        expect($server->name())->toBeString();
-        expect($server->version())->toBeString();
+
+        // v0.6: name and version are protected string properties, not methods
+        $nameReflection = new ReflectionProperty($server, 'name');
+        $versionReflection = new ReflectionProperty($server, 'version');
+        expect($nameReflection->getValue($server))->toBeString()->not->toBeEmpty();
+        expect($versionReflection->getValue($server))->toBeString()->not->toBeEmpty();
     }
 
     public function test_all_registered_tools_can_be_instantiated()
     {
         $server = $this->getServer();
-        $tools = $server->tools;
+        $tools = $this->getServerTools($server);
 
         expect($tools)->toBeArray();
-        expect(count($tools))->toBeGreaterThan(0);
+        expect(count($tools))->toBe(11);
 
         foreach ($tools as $toolClass) {
             // Test that the tool class exists and can be instantiated
@@ -68,7 +102,7 @@ class StatamicMcpServerTest extends TestCase
     public function test_all_registered_prompts_can_be_instantiated()
     {
         $server = $this->getServer();
-        $prompts = $server->prompts;
+        $prompts = $this->getServerPrompts($server);
 
         expect($prompts)->toBeArray();
 
@@ -86,7 +120,7 @@ class StatamicMcpServerTest extends TestCase
     public function test_mcp_server_tool_definitions_are_valid()
     {
         $server = $this->getServer();
-        $tools = $server->tools;
+        $tools = $this->getServerTools($server);
 
         foreach ($tools as $toolClass) {
             $tool = app($toolClass);
@@ -113,7 +147,7 @@ class StatamicMcpServerTest extends TestCase
     public function test_no_duplicate_tool_names()
     {
         $server = $this->getServer();
-        $tools = $server->tools;
+        $tools = $this->getServerTools($server);
         $toolNames = [];
 
         foreach ($tools as $toolClass) {
@@ -130,9 +164,9 @@ class StatamicMcpServerTest extends TestCase
     public function test_tool_categories_are_properly_organized()
     {
         $server = $this->getServer();
-        $tools = $server->tools;
+        $tools = $this->getServerTools($server);
         // Updated for hyphen-based naming: statamic-domain or statamic-domain-action
-        $expectedCategories = ['content', 'entries', 'terms', 'globals', 'content-facade', 'structures', 'assets', 'users', 'system', 'system-discover', 'system-schema', 'blueprints'];
+        $expectedCategories = ['entries', 'terms', 'globals', 'content-facade', 'structures', 'assets', 'users', 'system', 'system-discover', 'system-schema', 'blueprints'];
         $foundCategories = [];
 
         foreach ($tools as $toolClass) {
@@ -154,7 +188,7 @@ class StatamicMcpServerTest extends TestCase
         $uniqueFoundCategories = array_unique($foundCategories);
 
         // Ensure we have tools in most expected categories (relaxed for router architecture)
-        $coreCategories = ['content', 'system', 'blueprints'];
+        $coreCategories = ['entries', 'system', 'blueprints'];
         foreach ($coreCategories as $coreCategory) {
             expect(in_array($coreCategory, $foundCategories))
                 ->toBeTrue("No tools found in core category '{$coreCategory}'. Found categories: " . implode(', ', $uniqueFoundCategories));

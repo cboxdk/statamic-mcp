@@ -3,7 +3,7 @@ includes:
     - phpstan-baseline.neon
 
 parameters:
-    level: 8
+    level: 9
     paths:
         - src
     excludePaths:
@@ -45,6 +45,10 @@ parameters:
         - '#Unable to resolve the template type .* in call to method.*#'
         # Allow validation array comparisons in entry tools
         - '#Strict comparison using === between array\{\} and array\{\} will always evaluate to true#'
+        # Allow can() calls on auth user (Statamic User extends Authorizable in implementation)
+        - '#Cannot call method can\(\) on mixed#'
+        # Allow string cast on mixed (auth guard returns vary by Statamic version)
+        - '#Cannot cast mixed to string#'
 
     reportUnmatchedIgnoredErrors: false
 

@@ -2,28 +2,27 @@
 
 namespace Cboxdk\StatamicMcp\Tests\Tools;
 
-use Cboxdk\StatamicMcp\Mcp\Tools\Routers\ContentRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\GlobalsRouter;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 
 class GlobalToolsIntegrationTest extends TestCase
 {
-    public function test_content_router_handles_global_operations(): void
+    public function test_globals_router_handles_global_operations(): void
     {
-        $router = new ContentRouter;
+        $router = new GlobalsRouter;
 
-        // Test that ContentRouter handles globals
-        $this->assertEquals('statamic-content', $router->name());
-        $this->assertStringContainsString('content', $router->description());
+        // Test that GlobalsRouter handles globals
+        $this->assertEquals('statamic-globals', $router->name());
+        $this->assertStringContainsString('global', $router->description());
     }
 
-    public function test_content_router_supports_global_actions(): void
+    public function test_globals_router_supports_global_actions(): void
     {
-        $router = new ContentRouter;
+        $router = new GlobalsRouter;
 
         // Test list globals operation
         $response = $router->execute([
             'action' => 'list',
-            'type' => 'global',
         ]);
 
         $this->assertIsArray($response);
@@ -32,14 +31,13 @@ class GlobalToolsIntegrationTest extends TestCase
         $this->assertTrue($response['success']);
     }
 
-    public function test_global_operations_follow_content_router_pattern(): void
+    public function test_global_operations_follow_globals_router_pattern(): void
     {
-        $router = new ContentRouter;
+        $router = new GlobalsRouter;
 
-        // Test that ContentRouter validates global operations properly
+        // Test that GlobalsRouter handles global operations properly
         $response = $router->execute([
             'action' => 'list',
-            'type' => 'global',
         ]);
 
         // Global operations are now implemented and should work
@@ -48,29 +46,27 @@ class GlobalToolsIntegrationTest extends TestCase
         $this->assertArrayHasKey('globals', $response['data']);
     }
 
-    public function test_content_router_provides_global_metadata(): void
+    public function test_globals_router_provides_global_metadata(): void
     {
-        $router = new ContentRouter;
+        $router = new GlobalsRouter;
 
         $response = $router->execute([
             'action' => 'list',
-            'type' => 'global',
         ]);
 
         // Check metadata structure (even on error responses)
         $this->assertArrayHasKey('meta', $response);
         $this->assertArrayHasKey('tool', $response['meta']);
-        $this->assertEquals('statamic-content', $response['meta']['tool']);
+        $this->assertEquals('statamic-globals', $response['meta']['tool']);
     }
 
-    public function test_global_operations_require_valid_type(): void
+    public function test_global_operations_require_valid_action(): void
     {
-        $router = new ContentRouter;
+        $router = new GlobalsRouter;
 
-        // Test invalid type parameter
+        // Test invalid action parameter
         $response = $router->execute([
-            'action' => 'list',
-            'type' => 'invalid_type',
+            'action' => 'invalid_action',
         ]);
 
         $this->assertFalse($response['success']);

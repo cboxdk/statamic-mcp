@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Cboxdk\StatamicMcp\Mcp\DataTransferObjects;
 
 use JsonSerializable;
@@ -9,8 +11,8 @@ final readonly class ResponseMeta implements JsonSerializable
     public function __construct(
         public string $tool,
         public string $timestamp,
-        public string $statamic_version,
-        public string $laravel_version,
+        public ?string $statamic_version = null,
+        public ?string $laravel_version = null,
     ) {}
 
     /**
@@ -18,11 +20,11 @@ final readonly class ResponseMeta implements JsonSerializable
      */
     public function jsonSerialize(): array
     {
-        return [
+        return array_filter([
             'tool' => $this->tool,
             'timestamp' => $this->timestamp,
             'statamic_version' => $this->statamic_version,
             'laravel_version' => $this->laravel_version,
-        ];
+        ], fn (mixed $value): bool => $value !== null);
     }
 }

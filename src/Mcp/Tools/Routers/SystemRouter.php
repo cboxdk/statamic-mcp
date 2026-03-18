@@ -5,150 +5,90 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
-use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ExecutesWithAudit;
-use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\RouterHelpers;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
+use Laravel\Mcp\Server\Attributes\Description;
+use Laravel\Mcp\Server\Attributes\Name;
+use Statamic\Facades\AssetContainer;
+use Statamic\Facades\Blueprint;
+use Statamic\Facades\Form;
+use Statamic\Facades\GlobalSet;
+use Statamic\Facades\Nav;
+use Statamic\Facades\Taxonomy;
+use Statamic\Facades\User;
+use Statamic\Sites\Site;
 
+#[Name('statamic-system')]
+#[Description('Statamic system operations: environment info, health checks, cache management, and configuration. Actions: info, health, cache_status, cache_clear, cache_warm, config_get, config_set.')]
 class SystemRouter extends BaseRouter
 {
-    use ExecutesWithAudit;
-    use RouterHelpers;
-
-    protected function getToolName(): string
-    {
-        return 'statamic-system';
-    }
-
-    protected function getToolDescription(): string
-    {
-        return 'Manage Statamic system operations: cache management, health checks, configuration, and system information';
-    }
-
     protected function getDomain(): string
     {
         return 'system';
     }
 
-    protected function getActions(): array
+    public function getActions(): array
     {
         return [
-            'info' => [
-                'description' => 'Get comprehensive system information and status',
-                'purpose' => 'System inspection and health overview',
-                'destructive' => false,
-                'examples' => [
-                    ['action' => 'info'],
-                    ['action' => 'info', 'include_performance' => true],
-                ],
-            ],
-            'health' => [
-                'description' => 'Perform system health checks and diagnostics',
-                'purpose' => 'System monitoring and troubleshooting',
-                'destructive' => false,
-                'examples' => [
-                    ['action' => 'health'],
-                ],
-            ],
-            'cache_status' => [
-                'description' => 'Check cache status and statistics',
-                'purpose' => 'Cache monitoring and analysis',
-                'destructive' => false,
-                'examples' => [
-                    ['action' => 'cache_status'],
-                    ['action' => 'cache_status', 'cache_type' => 'stache'],
-                ],
-            ],
-            'cache_clear' => [
-                'description' => 'Clear system caches for optimization',
-                'purpose' => 'Cache management and performance',
-                'destructive' => true,
-                'examples' => [
-                    ['action' => 'cache_clear', 'cache_type' => 'stache'],
-                ],
-            ],
-            'cache_warm' => [
-                'description' => 'Warm system caches for performance',
-                'purpose' => 'Cache optimization and preloading',
-                'destructive' => false,
-                'examples' => [
-                    ['action' => 'cache_warm', 'cache_type' => 'stache'],
-                ],
-            ],
-            'config_get' => [
-                'description' => 'Get system configuration values',
-                'purpose' => 'Configuration inspection and debugging',
-                'destructive' => false,
-                'examples' => [
-                    ['action' => 'config_get', 'config_key' => 'app.name'],
-                ],
-            ],
-            'config_set' => [
-                'description' => 'Set system configuration values',
-                'purpose' => 'Configuration management and updates',
-                'destructive' => true,
-                'examples' => [
-                    ['action' => 'config_set', 'config_key' => 'app.debug', 'config_value' => 'false'],
-                ],
-            ],
+            'info' => 'Get comprehensive system information and status',
+            'health' => 'Perform system health checks and diagnostics',
+            'cache_status' => 'Check cache status and statistics',
+            'cache_clear' => 'Clear system caches for optimization',
+            'cache_warm' => 'Warm system caches for performance',
+            'config_get' => 'Get system configuration values',
+            'config_set' => 'Set system configuration values',
         ];
     }
 
-    protected function getTypes(): array
+    public function getTypes(): array
     {
         return [
-            'system' => [
-                'description' => 'Overall system information and status',
-                'properties' => ['version', 'environment', 'php_version', 'memory_usage'],
-                'relationships' => ['cache', 'config'],
-                'examples' => ['info', 'health'],
-            ],
-            'cache' => [
-                'description' => 'System cache components and management',
-                'properties' => ['type', 'size', 'hit_rate', 'status'],
-                'relationships' => ['system'],
-                'examples' => ['stache', 'static', 'views'],
-            ],
-            'config' => [
-                'description' => 'System configuration and settings',
-                'properties' => ['key', 'value', 'environment', 'source'],
-                'relationships' => ['system'],
-                'examples' => ['app.name', 'statamic-license_key'],
-            ],
-            'health' => [
-                'description' => 'System health checks and diagnostics',
-                'properties' => ['status', 'checks', 'warnings', 'errors'],
-                'relationships' => ['system', 'cache'],
-                'examples' => ['overall', 'database', 'filesystem'],
-            ],
+            'system' => 'Overall system information and status',
+            'cache' => 'System cache components and management',
+            'config' => 'System configuration and settings',
+            'health' => 'System health checks and diagnostics',
         ];
     }
 
     protected function defineSchema(JsonSchemaContract $schema): array
     {
         return array_merge(parent::defineSchema($schema), [
-            'type' => JsonSchema::string()
-                ->description('System component type')
+            'action' => JsonSchema::string()
+                ->description(
+                    'Action to perform. Required params per action: '
+                    . 'info (no params), '
+                    . 'health (no params), '
+                    . 'cache_status (optional: include_details), '
+                    . 'cache_clear (cache_type), '
+                    . 'cache_warm (cache_type), '
+                    . 'config_get (config_key), '
+                    . 'config_set (config_key, config_value)'
+                )
+                ->enum(['info', 'health', 'cache_status', 'cache_clear', 'cache_warm', 'config_get', 'config_set'])
+                ->required(),
+            'resource_type' => JsonSchema::string()
+                ->description('System component type. Optional — most actions do not require this.')
                 ->enum(['system', 'cache', 'config', 'health']),
             'cache_type' => JsonSchema::string()
-                ->description('Cache type to operate on')
+                ->description('Cache type to clear or warm. "all" clears everything, "stache" for content index, "static" for static page cache, "views" for compiled views')
                 ->enum(['all', 'stache', 'static', 'views', 'app', 'config', 'route']),
             'config_key' => JsonSchema::string()
-                ->description('Configuration key for config operations'),
+                ->description('Laravel/Statamic configuration key in dot notation. Example: "statamic.mcp.web.enabled", "app.name"'),
             'config_value' => JsonSchema::string()
-                ->description('Configuration value for config set operations'),
+                ->description('Value to set for the configuration key. Type must match expected config type'),
             'include_details' => JsonSchema::boolean()
-                ->description('Include detailed information (default: true)'),
+                ->description('Include detailed metrics and diagnostic information'),
             'include_performance' => JsonSchema::boolean()
-                ->description('Include performance metrics (default: false)'),
+                ->description('Include performance metrics like response times and memory usage'),
         ]);
     }
 
     /**
-     * Route system operations to appropriate handlers with security checks and audit logging.
+     * Route system operations to appropriate handlers with security checks.
      *
      * @param  array<string, mixed>  $arguments
      *
@@ -156,34 +96,8 @@ class SystemRouter extends BaseRouter
      */
     protected function executeAction(array $arguments): array
     {
-        $action = $arguments['action'];
+        $action = is_string($arguments['action'] ?? null) ? $arguments['action'] : '';
 
-        // Check if tool is enabled for current context
-        if (! $this->isCliContext() && ! $this->isWebToolEnabled()) {
-            return $this->createErrorResponse('Permission denied: System tool is disabled for web access')->toArray();
-        }
-
-        // Apply security checks for web context
-        if ($this->isWebContext()) {
-            $permissionError = $this->checkWebPermissions($action, $arguments);
-            if ($permissionError) {
-                return $permissionError;
-            }
-        }
-
-        // Execute action with audit logging
-        return $this->executeWithAuditLog($action, $arguments);
-    }
-
-    /**
-     * Perform the actual domain action.
-     *
-     * @param  array<string, mixed>  $arguments
-     *
-     * @return array<string, mixed>
-     */
-    protected function performDomainAction(string $action, array $arguments): array
-    {
         return match ($action) {
             'info' => $this->getSystemInfo($arguments),
             'health' => $this->getHealthStatus($arguments),
@@ -204,7 +118,7 @@ class SystemRouter extends BaseRouter
     private function getSystemInfo(array $arguments): array
     {
         try {
-            $includeDetails = $this->getBooleanArgument($arguments, 'include_details', true);
+            $includeDetails = $this->getBooleanArgument($arguments, 'include_details', false);
             $includePerformance = $this->getBooleanArgument($arguments, 'include_performance', false);
 
             $info = [
@@ -217,8 +131,10 @@ class SystemRouter extends BaseRouter
             ];
 
             if ($includeDetails) {
+                /** @var Collection<int|string, Site> $allSites */
+                $allSites = \Statamic\Facades\Site::all();
                 $info = array_merge($info, [
-                    'sites' => \Statamic\Facades\Site::all()->map(function ($site) {
+                    'sites' => $allSites->map(function ($site) {
                         return [
                             'handle' => $site->handle(),
                             'name' => $site->name(),
@@ -226,14 +142,16 @@ class SystemRouter extends BaseRouter
                             'locale' => $site->locale(),
                         ];
                     })->all(),
-                    'collections_count' => \Statamic\Facades\Collection::all()->count(),
-                    'taxonomies_count' => \Statamic\Facades\Taxonomy::all()->count(),
-                    'users_count' => \Statamic\Facades\User::all()->count(),
-                    'asset_containers_count' => \Statamic\Facades\AssetContainer::all()->count(),
-                    'navigation_count' => \Statamic\Facades\Nav::all()->count(),
-                    'global_sets_count' => \Statamic\Facades\GlobalSet::all()->count(),
-                    'form_count' => \Statamic\Facades\Form::all()->count(),
-                    'blueprint_count' => 0, // Blueprint counting simplified
+                    'collections_count' => \Statamic\Facades\Collection::handles()->count(),
+                    'taxonomies_count' => Taxonomy::handles()->count(),
+                    'users_count' => User::all()->count(),
+                    'asset_containers_count' => AssetContainer::all()->count(),
+                    'navigation_count' => Nav::all()->count(),
+                    'global_sets_count' => GlobalSet::all()->count(),
+                    'form_count' => Form::all()->count(),
+                    'blueprint_count' => Blueprint::in('collections')->count()
+                        + Blueprint::in('taxonomies')->count()
+                        + Blueprint::in('globals')->count(),
                 ]);
             }
 
@@ -242,19 +160,16 @@ class SystemRouter extends BaseRouter
                     'memory_usage' => [
                         'current' => memory_get_usage(true),
                         'peak' => memory_get_peak_usage(true),
-                        'limit' => ini_get('memory_limit'),
+                        'limit' => (string) (ini_get('memory_limit') ?: '-1'),
                     ],
                     'execution_time' => microtime(true) - LARAVEL_START,
-                    'opcache_enabled' => function_exists('opcache_get_status') && opcache_get_status(),
+                    'opcache_enabled' => function_exists('opcache_get_status') && (bool) opcache_get_status(),
                 ]);
             }
 
-            return [
-                'success' => true,
-                'data' => ['system_info' => $info],
-            ];
+            return ['system_info' => $info];
         } catch (\Exception $e) {
-            return ['success' => false, 'errors' => ["Failed to get system info: {$e->getMessage()}"]];
+            return $this->createErrorResponse("Failed to get system info: {$e->getMessage()}")->toArray();
         }
     }
 
@@ -314,7 +229,7 @@ class SystemRouter extends BaseRouter
 
             // Memory check
             $memoryUsage = memory_get_usage(true);
-            $memoryLimit = $this->parseBytes(ini_get('memory_limit'));
+            $memoryLimit = $this->parseBytes((string) (ini_get('memory_limit') ?: '-1'));
             $memoryPercentage = ($memoryUsage / $memoryLimit) * 100;
 
             if ($memoryPercentage > 90) {
@@ -332,12 +247,9 @@ class SystemRouter extends BaseRouter
             // Stache status check - basic health indicator
             $health['checks']['stache'] = ['status' => 'healthy', 'message' => 'Stache cache operational'];
 
-            return [
-                'success' => true,
-                'data' => ['health' => $health],
-            ];
+            return ['health' => $health];
         } catch (\Exception $e) {
-            return ['success' => false, 'errors' => ["Failed to get health status: {$e->getMessage()}"]];
+            return $this->createErrorResponse("Failed to get health status: {$e->getMessage()}")->toArray();
         }
     }
 
@@ -349,13 +261,14 @@ class SystemRouter extends BaseRouter
     private function getCacheStatus(array $arguments): array
     {
         try {
-            $cacheType = $arguments['cache_type'] ?? 'all';
+            $cacheType = is_string($arguments['cache_type'] ?? null) ? $arguments['cache_type'] : 'all';
 
             $status = [
                 'timestamp' => now()->toISOString(),
                 'caches' => [],
             ];
 
+            /** @var array<int, string> $cacheTypes */
             $cacheTypes = $cacheType === 'all'
                 ? ['stache', 'static', 'views', 'app', 'config', 'route']
                 : [$cacheType];
@@ -364,12 +277,9 @@ class SystemRouter extends BaseRouter
                 $status['caches'][$type] = $this->getCacheTypeStatus($type);
             }
 
-            return [
-                'success' => true,
-                'data' => ['cache_status' => $status],
-            ];
+            return ['cache_status' => $status];
         } catch (\Exception $e) {
-            return ['success' => false, 'errors' => ["Failed to get cache status: {$e->getMessage()}"]];
+            return $this->createErrorResponse("Failed to get cache status: {$e->getMessage()}")->toArray();
         }
     }
 
@@ -380,14 +290,16 @@ class SystemRouter extends BaseRouter
      */
     private function clearCache(array $arguments): array
     {
-        if (! $this->hasPermission('manage', 'cache')) {
+        if (! $this->hasPermission('manage', 'system')) {
             return $this->createErrorResponse('Permission denied: Cannot clear cache')->toArray();
         }
 
         try {
-            $cacheType = $arguments['cache_type'] ?? 'all';
+            $cacheType = is_string($arguments['cache_type'] ?? null) ? $arguments['cache_type'] : 'all';
+            /** @var array<string, array<string, mixed>> $cleared */
             $cleared = [];
 
+            /** @var array<int, string> $cacheTypes */
             $cacheTypes = $cacheType === 'all'
                 ? ['stache', 'static', 'views', 'app', 'config', 'route']
                 : [$cacheType];
@@ -398,14 +310,11 @@ class SystemRouter extends BaseRouter
             }
 
             return [
-                'success' => true,
-                'data' => [
-                    'cache_cleared' => $cleared,
-                    'timestamp' => now()->toISOString(),
-                ],
+                'cache_cleared' => $cleared,
+                'timestamp' => now()->toISOString(),
             ];
         } catch (\Exception $e) {
-            return ['success' => false, 'errors' => ["Failed to clear cache: {$e->getMessage()}"]];
+            return $this->createErrorResponse("Failed to clear cache: {$e->getMessage()}")->toArray();
         }
     }
 
@@ -416,7 +325,7 @@ class SystemRouter extends BaseRouter
      */
     private function warmCache(array $arguments): array
     {
-        if (! $this->hasPermission('manage', 'cache')) {
+        if (! $this->hasPermission('manage', 'system')) {
             return $this->createErrorResponse('Permission denied: Cannot warm cache')->toArray();
         }
 
@@ -436,14 +345,11 @@ class SystemRouter extends BaseRouter
             }
 
             return [
-                'success' => true,
-                'data' => [
-                    'cache_warmed' => $warmed,
-                    'timestamp' => now()->toISOString(),
-                ],
+                'cache_warmed' => $warmed,
+                'timestamp' => now()->toISOString(),
             ];
         } catch (\Exception $e) {
-            return ['success' => false, 'errors' => ["Failed to warm cache: {$e->getMessage()}"]];
+            return $this->createErrorResponse("Failed to warm cache: {$e->getMessage()}")->toArray();
         }
     }
 
@@ -454,48 +360,50 @@ class SystemRouter extends BaseRouter
      */
     private function getConfig(array $arguments): array
     {
-        if (! $this->hasPermission('view', 'config')) {
+        if (! $this->hasPermission('view', 'system')) {
             return $this->createErrorResponse('Permission denied: Cannot get config')->toArray();
         }
 
         try {
-            $configKey = $arguments['config_key'] ?? null;
+            $configKey = is_string($arguments['config_key'] ?? null) ? $arguments['config_key'] : null;
 
             if (! $configKey) {
-                return ['success' => false, 'errors' => ['Config key is required']];
+                return $this->createErrorResponse('Config key is required')->toArray();
             }
 
-            // Security: Only allow reading from safe config keys
+            // Security: Only allow reading from specific safe config keys
+            // Deliberately restrictive — no broad namespace access, no app.url (reveals infrastructure)
             $safeKeys = [
                 'app.name',
-                'app.env',
-                'app.debug',
-                'app.timezone',
-                'statamic',
-                'statamic_mcp',
+                'statamic.mcp.web.enabled',
+                'statamic.mcp.web.path',
+                'statamic.mcp.dashboard.enabled',
+                'statamic.mcp.oauth.enabled',
+                'statamic.cp.route',
             ];
 
             $allowed = collect($safeKeys)->some(function ($safeKey) use ($configKey) {
-                return str_starts_with($configKey, $safeKey);
+                // Exact match or match with dot separator to prevent partial key injection
+                return $configKey === $safeKey || str_starts_with($configKey, $safeKey . '.');
             });
 
             if (! $allowed) {
-                return ['success' => false, 'errors' => ["Access to config key '{$configKey}' is restricted"]];
+                return $this->createErrorResponse("Access to config key '{$configKey}' is restricted")->toArray();
             }
 
             $value = Config::get($configKey);
 
+            // Redact values that look like secrets even within safe config namespaces
+            $value = self::redactSensitiveConfigValues($value);
+
             return [
-                'success' => true,
-                'data' => [
-                    'config' => [
-                        'key' => $configKey,
-                        'value' => $value,
-                    ],
+                'config' => [
+                    'key' => $configKey,
+                    'value' => $value,
                 ],
             ];
         } catch (\Exception $e) {
-            return ['success' => false, 'errors' => ["Failed to get config: {$e->getMessage()}"]];
+            return $this->createErrorResponse("Failed to get config: {$e->getMessage()}")->toArray();
         }
     }
 
@@ -506,55 +414,65 @@ class SystemRouter extends BaseRouter
      */
     private function setConfig(array $arguments): array
     {
-        if (! $this->hasPermission('manage', 'config')) {
+        if (! $this->hasPermission('manage', 'system')) {
             return $this->createErrorResponse('Permission denied: Cannot set config')->toArray();
         }
 
         try {
-            $configKey = $arguments['config_key'] ?? null;
+            $configKey = is_string($arguments['config_key'] ?? null) ? $arguments['config_key'] : null;
             $configValue = $arguments['config_value'] ?? null;
 
             if (! $configKey) {
-                return ['success' => false, 'errors' => ['Config key is required']];
+                return $this->createErrorResponse('Config key is required')->toArray();
             }
 
-            // Security: Only allow setting runtime config for specific keys
+            // Security: config_set is only available in CLI context to prevent
+            // remote configuration tampering via web MCP endpoints
+            if ($this->isWebContext()) {
+                return $this->createErrorResponse('config_set is only available in CLI context for security reasons')->toArray();
+            }
+
+            // Security: Only allow setting runtime config for non-security keys
+            // Deliberately excludes security.force_web_mode and security.audit_logging
+            // to prevent MCP tools from weakening their own security controls
             $allowedKeys = [
-                'statamic-mcp.tools',
-                'statamic-mcp.security.force_web_mode',
-                'statamic-mcp.tools.statamic-system.audit_logging',
+                'statamic.mcp.tools',
             ];
 
             $allowed = collect($allowedKeys)->some(function ($allowedKey) use ($configKey) {
-                return str_starts_with($configKey, $allowedKey);
+                // Exact match or match with dot separator to prevent partial key injection
+                return $configKey === $allowedKey || str_starts_with($configKey, $allowedKey . '.');
             });
 
             if (! $allowed) {
-                return ['success' => false, 'errors' => ["Setting config key '{$configKey}' is restricted"]];
+                return $this->createErrorResponse("Setting config key '{$configKey}' is restricted")->toArray();
             }
 
             // Parse value as JSON if it looks like JSON
             if (is_string($configValue) && (str_starts_with($configValue, '{') || str_starts_with($configValue, '['))) {
                 $configValue = json_decode($configValue, true);
                 if (json_last_error() !== JSON_ERROR_NONE) {
-                    return ['success' => false, 'errors' => ['Invalid JSON value provided']];
+                    return $this->createErrorResponse('Invalid JSON value provided')->toArray();
                 }
+            }
+
+            // Validate config value size to prevent memory abuse
+            $serialized = json_encode($configValue);
+            if ($serialized !== false && strlen($serialized) > 10000) {
+                return $this->createErrorResponse('Config value too large (maximum 10KB allowed)')->toArray();
             }
 
             Config::set($configKey, $configValue);
 
             return [
-                'success' => true,
-                'data' => [
-                    'config' => [
-                        'key' => $configKey,
-                        'value' => $configValue,
-                        'updated' => true,
-                    ],
+                'config' => [
+                    'key' => $configKey,
+                    'value' => $configValue,
+                    'updated' => true,
                 ],
             ];
         } catch (\Exception $e) {
-            return ['success' => false, 'errors' => ["Failed to set config: {$e->getMessage()}"]];
+            return $this->createErrorResponse("Failed to set config: {$e->getMessage()}")->toArray();
         }
     }
 
@@ -653,186 +571,38 @@ class SystemRouter extends BaseRouter
      */
     private function parseBytes(string $size): int
     {
-        $unit = strtoupper(substr($size, -1));
-        $value = (int) $size;
+        if ($size === '-1') {
+            return PHP_INT_MAX;
+        }
 
-        return match ($unit) {
-            'G' => $value * 1024 * 1024 * 1024,
-            'M' => $value * 1024 * 1024,
-            'K' => $value * 1024,
-            default => $value,
-        };
+        return (int) ini_parse_quantity($size);
     }
 
     /**
-     * Get Statamic version.
+     * Recursively redact config values whose keys suggest secrets.
      */
-    private function getStatamicVersion(): string
+    private static function redactSensitiveConfigValues(mixed $value): mixed
     {
-        try {
-            if (class_exists('\\Statamic\\Statamic')) {
-                $version = \Statamic\Statamic::version();
-
-                return $version ?: 'unknown';
+        if (is_array($value)) {
+            $result = [];
+            foreach ($value as $k => $v) {
+                $lowerKey = strtolower((string) $k);
+                if (str_contains($lowerKey, 'password')
+                    || str_contains($lowerKey, 'secret')
+                    || str_contains($lowerKey, 'key')
+                    || str_contains($lowerKey, 'token')
+                    || str_contains($lowerKey, 'credential')
+                ) {
+                    $result[$k] = '[REDACTED]';
+                } else {
+                    $result[$k] = self::redactSensitiveConfigValues($v);
+                }
             }
-        } catch (\Exception $e) {
-            // Continue with fallback
+
+            return $result;
         }
 
-        return 'unknown';
-    }
-
-    // Helper methods now provided by RouterHelpers trait
-
-    // BaseRouter abstract method implementations
-
-    protected function getFeatures(): array
-    {
-        return [
-            'health_monitoring' => 'Comprehensive system health checks and diagnostics',
-            'cache_management' => 'Intelligent cache operations with selective clearing',
-            'performance_analysis' => 'System performance metrics and optimization insights',
-            'configuration_management' => 'Safe configuration reading and validation',
-            'license_management' => 'License validation and status monitoring',
-            'environment_detection' => 'Environment-aware operations (CLI vs web)',
-            'permission_control' => 'Role-based access control for system operations',
-        ];
-    }
-
-    protected function getPrimaryUse(): string
-    {
-        return 'System administration and monitoring for Statamic installations with comprehensive health checks, cache management, and performance optimization';
-    }
-
-    protected function getDecisionTree(): array
-    {
-        return [
-            'system_inspection' => [
-                'question' => 'What type of system information do you need?',
-                'actions' => [
-                    'general_status' => 'action=info for overall system status',
-                    'health_check' => 'action=health for comprehensive diagnostics',
-                    'cache_status' => 'action=cache_status for cache information',
-                ],
-            ],
-            'system_maintenance' => [
-                'question' => 'What maintenance operation do you need?',
-                'actions' => [
-                    'cache_clearing' => 'action=clear_cache with specific cache types',
-                    'cache_warming' => 'action=warm_cache for performance preparation',
-                    'configuration_check' => 'action=config for configuration validation',
-                ],
-            ],
-            'troubleshooting' => [
-                'question' => 'What issue are you investigating?',
-                'actions' => [
-                    'performance_issues' => 'action=health with performance focus',
-                    'cache_problems' => 'action=cache_status then selective clearing',
-                    'license_issues' => 'action=license for license validation',
-                ],
-            ],
-        ];
-    }
-
-    protected function getContextAwareness(): array
-    {
-        return [
-            'environment_detection' => [
-                'cli_context' => 'Full access to all system operations',
-                'web_context' => 'Permission-controlled access based on user roles',
-                'permission_levels' => 'Super user or utilities access required',
-            ],
-            'safety_protocols' => [
-                'cache_operations' => 'Selective cache clearing to avoid performance impact',
-                'dry_run_support' => 'Preview cache clearing effects before execution',
-                'permission_validation' => 'Automatic permission checks for web context',
-            ],
-            'performance_awareness' => [
-                'cache_impact' => 'Understand cache clearing performance implications',
-                'selective_operations' => 'Target specific cache types for efficiency',
-                'health_monitoring' => 'Regular health checks for proactive maintenance',
-            ],
-        ];
-    }
-
-    protected function getWorkflowIntegration(): array
-    {
-        return [
-            'development_workflow' => [
-                'local_development' => 'Clear development caches during active development',
-                'testing_preparation' => 'Cache warming before performance testing',
-                'debugging_support' => 'Health checks to identify system bottlenecks',
-            ],
-            'deployment_workflow' => [
-                'pre_deployment' => 'System health validation before deployment',
-                'post_deployment' => 'Cache warming and health verification',
-                'rollback_support' => 'Health monitoring for deployment validation',
-            ],
-            'maintenance_workflow' => [
-                'scheduled_maintenance' => 'Regular health checks and cache optimization',
-                'performance_monitoring' => 'Ongoing system performance tracking',
-                'issue_resolution' => 'Systematic troubleshooting with health diagnostics',
-            ],
-            'integration_patterns' => [
-                'monitoring_systems' => 'Health check data for external monitoring',
-                'ci_cd_pipelines' => 'Automated health validation in deployment pipelines',
-                'alerting_systems' => 'Performance metrics for proactive alerting',
-            ],
-        ];
-    }
-
-    protected function getCommonPatterns(): array
-    {
-        return [
-            'system_health_check' => [
-                'description' => 'Comprehensive system health assessment',
-                'pattern' => [
-                    'step_1' => 'action=health for full diagnostic',
-                    'step_2' => 'action=info for system overview',
-                    'step_3' => 'action=cache_status for cache health',
-                ],
-                'use_case' => 'Regular maintenance or troubleshooting',
-            ],
-            'performance_optimization' => [
-                'description' => 'Optimize system performance through cache management',
-                'pattern' => [
-                    'step_1' => 'action=cache_status to assess current state',
-                    'step_2' => 'action=clear_cache with selective types',
-                    'step_3' => 'action=warm_cache for key content',
-                    'step_4' => 'action=health to validate improvements',
-                ],
-                'use_case' => 'Performance issues or after content changes',
-            ],
-            'deployment_validation' => [
-                'description' => 'Validate system after deployment',
-                'pattern' => [
-                    'step_1' => 'action=health for comprehensive check',
-                    'step_2' => 'action=license to validate licensing',
-                    'step_3' => 'action=warm_cache for production readiness',
-                ],
-                'use_case' => 'Post-deployment verification',
-            ],
-            'troubleshooting_workflow' => [
-                'description' => 'Systematic issue investigation',
-                'pattern' => [
-                    'step_1' => 'action=info to understand environment',
-                    'step_2' => 'action=health to identify issues',
-                    'step_3' => 'action=cache_status for cache-related problems',
-                    'step_4' => 'action=clear_cache if cache issues found',
-                ],
-                'use_case' => 'When experiencing system issues',
-            ],
-            'maintenance_routine' => [
-                'description' => 'Regular system maintenance workflow',
-                'pattern' => [
-                    'step_1' => 'action=health for baseline assessment',
-                    'step_2' => 'action=clear_cache types=["static","image"] if needed',
-                    'step_3' => 'action=warm_cache for performance preparation',
-                    'step_4' => 'action=info to confirm system status',
-                ],
-                'use_case' => 'Scheduled maintenance windows',
-            ],
-        ];
+        return $value;
     }
 
     /**
@@ -844,11 +614,13 @@ class SystemRouter extends BaseRouter
      */
     protected function getRequiredPermissions(string $action, array $arguments): array
     {
+        // Read-only system ops require 'access utilities' (real Statamic permission).
+        // Write ops (cache clear/warm, config set) have no granular Statamic permission —
+        // 'super' will never match a real permission, so only super admins (who bypass
+        // permission checks entirely in checkWebPermissions) can execute them.
         return match ($action) {
-            'info', 'health', 'cache_status' => ['view system'],
-            'cache_clear', 'cache_warm' => ['manage cache'],
-            'config_get' => ['view config'],
-            'config_set' => ['manage config'],
+            'info', 'health', 'cache_status', 'config_get' => ['access utilities'],
+            'cache_clear', 'cache_warm', 'config_set' => ['super'],
             default => ['super'],
         };
     }

@@ -1,6 +1,6 @@
 {
     "name": "cboxdk/statamic-mcp",
-    "description": "AI-powered development tools for Statamic CMS. Provides 100+ MCP tools for blueprints, entries, collections, and more.",
+    "description": "MCP (Model Context Protocol) server for Statamic CMS v6 — gives AI assistants structured access to content, blueprints, assets, and more.",
     "keywords": ["statamic", "mcp", "ai", "claude", "cursor", "development", "tools", "laravel"],
     "homepage": "https://github.com/cboxdk/statamic-mcp",
     "license": "MIT",
@@ -16,20 +16,21 @@
     },
     "require": {
         "php": "^8.3",
-        "statamic/cms": "^5.65|^6.0",
-        "laravel/mcp": "^0.4.1 || ^0.5",
-        "symfony/yaml": "^7.3"
+        "statamic/cms": "^6.6",
+        "laravel/mcp": "^0.6",
+        "symfony/yaml": "^7.0 || ^8.0"
     },
     "require-dev": {
-        "orchestra/testbench": "^9.0|^10.0|^11.0",
+        "orchestra/testbench": "^10.0|^11.0",
         "pestphp/pest": "^4.1",
         "pestphp/pest-plugin-laravel": "^4.0",
         "laravel/pint": "^1.17",
         "larastan/larastan": "^3.0"
     },
     "scripts": {
-        "test": "pest --parallel",
-        "test:coverage": "pest --parallel --coverage",
+        "test": "pest",
+        "test:coverage": "pest --coverage",
+        "test:parallel": "pest --parallel",
         "pint": "pint",
         "pint:test": "pint --test",
         "stan": "phpstan analyse",
@@ -40,6 +41,7 @@
         ]
     },
     "config": {
+        "process-timeout": 600,
         "allow-plugins": {
             "pixelfear/composer-dist-plugin": true,
             "pestphp/pest-plugin": true
@@ -48,7 +50,7 @@
     "extra": {
         "statamic": {
             "name": "Statamic MCP Server",
-            "description": "AI-powered development tools for Statamic CMS. Provides 100+ MCP tools for blueprints, entries, collections, and more."
+            "description": "MCP server for Statamic CMS v6 — gives AI assistants structured access to content, blueprints, assets, and more."
         },
         "laravel": {
             "providers": [

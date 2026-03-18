@@ -1,29 +1,25 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Cboxdk\StatamicMcp\Mcp\Tools;
 
 use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorResponse;
 use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ResponseMeta;
 use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\SuccessResponse;
-use Cboxdk\StatamicMcp\Mcp\Support\ErrorCodes;
 use Cboxdk\StatamicMcp\Mcp\Support\ToolLogger;
-use Cboxdk\StatamicMcp\Mcp\Support\ToolResponse;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use Laravel\Mcp\Request;
+use Laravel\Mcp\Response;
+use Laravel\Mcp\ResponseFactory;
 use Laravel\Mcp\Server\Tool;
+use Statamic\Statamic;
 
 abstract class BaseStatamicTool extends Tool
 {
-    /**
-     * Get the tool name.
-     */
-    abstract protected function getToolName(): string;
-
-    /**
-     * Get the tool description.
-     */
-    abstract protected function getToolDescription(): string;
-
     /**
      * Define the tool's input schema.
      *
@@ -41,50 +37,59 @@ abstract class BaseStatamicTool extends Tool
     abstract protected function executeInternal(array $arguments): array;
 
     /**
-     * The tool name.
-     */
-    final public function name(): string
-    {
-        return $this->getToolName();
-    }
-
-    /**
-     * The tool description.
-     */
-    final public function description(): string
-    {
-        return $this->getToolDescription();
-    }
-
-    /**
-     * Define the tool's input schema.
+     * Define the tool's input schema (v0.6 convention).
+     * Delegates to defineSchema() for backward compatibility with existing routers.
      *
      * @return array<string, mixed>
      */
-    final public function schema(JsonSchemaContract $schema): array
+    public function schema(JsonSchemaContract $schema): array
     {
         return $this->defineSchema($schema);
     }
 
     /**
-     * Handle the tool invocation (required by Laravel MCP v0.2.0).
+     * Define the output schema for this tool's results.
+     *
+     * Returns the standard MCP response envelope used by all tools.
+     *
+     * @return array<string, mixed>
      */
-    final public function handle(\Laravel\Mcp\Request $request): \Laravel\Mcp\Response
+    public function outputSchema(JsonSchemaContract $schema): array
+    {
+        return [
+            'success' => JsonSchema::boolean()->description('Whether the operation succeeded'),
+            'data' => JsonSchema::object()->description('Operation result data'),
+            'meta' => JsonSchema::object()->description('Response metadata (tool, timestamp, versions)'),
+            'errors' => JsonSchema::array()->description('Error messages if operation failed'),
+            'warnings' => JsonSchema::array()->description('Warning messages'),
+        ];
+    }
+
+    /**
+     * Handle the tool invocation (Laravel MCP v0.6).
+     *
+     * Called via container DI: Container::getInstance()->call([$tool, 'handle'])
+     */
+    public function handle(Request $request): Response|ResponseFactory
     {
         $arguments = $request->all();
         $result = $this->execute($arguments);
 
-        // Create appropriate Response based on success/failure
         if ($result['success'] ?? false) {
-            $jsonData = json_encode($result['data'] ?? $result);
-
-            return \Laravel\Mcp\Response::text($jsonData !== false ? $jsonData : '{}');
+            return Response::structured($result);
         }
 
-        // Extract error message and create error response
-        $errorMessage = $result['errors'][0] ?? $result['error'] ?? 'Unknown error occurred';
+        $errors = $result['errors'] ?? null;
+        $firstError = is_array($errors) ? ($errors[0] ?? null) : null;
+        $errorRaw = $firstError ?? $result['error'] ?? 'Unknown error occurred';
+        $errorMessage = is_string($errorRaw) ? $errorRaw : 'Unknown error occurred';
 
-        return \Laravel\Mcp\Response::error($errorMessage);
+        $correlationId = $result['correlation_id'] ?? null;
+        if (is_string($correlationId)) {
+            $errorMessage .= " [correlation_id: {$correlationId}]";
+        }
+
+        return Response::error($errorMessage);
     }
 
     /**
@@ -96,71 +101,109 @@ abstract class BaseStatamicTool extends Tool
      */
     final public function execute(array $arguments): array
     {
-        $toolName = $this->getToolName();
+        $toolName = $this->name();
         $startTime = microtime(true);
-        $correlationId = ToolLogger::toolStarted($toolName, $arguments);
+
+        // Propagate correlation ID from middleware if available
+        $requestCorrelationId = null;
+        if (app()->bound('request')) {
+            $raw = request()->attributes->get('mcp_correlation_id');
+            $requestCorrelationId = is_string($raw) ? $raw : null;
+        }
+        $correlationId = $requestCorrelationId ?: Str::uuid()->toString();
 
         try {
-            // Global defensive validation
             $arguments = $this->validateAndSanitizeArguments($arguments);
 
             $result = $this->executeInternal($arguments);
             $standardized = $this->wrapInStandardFormat($result);
 
             $duration = microtime(true) - $startTime;
-            ToolLogger::toolSuccess($toolName, $correlationId, $duration);
 
-            // Log performance warning if tool takes too long
+            // Enforce configurable timeout
+            /** @var int|float $timeout */
+            $timeout = config('statamic.mcp.security.tool_timeout_seconds', 30);
+            if ($duration > (float) $timeout) {
+                ToolLogger::logToolCall(
+                    $toolName, $arguments, 'timeout', $duration * 1000,
+                    action: $this->extractAction($arguments),
+                    result: $standardized,
+                    correlationId: $correlationId,
+                );
+                ToolLogger::performanceWarning($toolName, "Tool execution exceeded {$timeout}s timeout", $duration);
+
+                return $this->createSafeErrorResponse(
+                    "Tool '{$toolName}' timed out after " . round($duration, 1) . "s (limit: {$timeout}s). Use pagination or filters to reduce scope.",
+                    $correlationId
+                );
+            }
+
+            ToolLogger::logToolCall(
+                $toolName, $arguments, 'success', $duration * 1000,
+                action: $this->extractAction($arguments),
+                result: $standardized,
+                correlationId: $correlationId,
+            );
+
             if ($duration > 5.0) {
                 ToolLogger::performanceWarning($toolName, 'Tool execution exceeded 5 seconds', $duration);
             }
 
             return $standardized;
-        } catch (\TypeError $e) {
-            $duration = microtime(true) - $startTime;
-            ToolLogger::toolFailed($toolName, $correlationId, $e, $duration);
-
-            $errorMessage = "Type error in {$toolName}: " . $this->sanitizeErrorMessage($e->getMessage());
-            $errorResponse = $this->createSafeErrorResponse($errorMessage, $correlationId);
-
-            return $errorResponse;
-        } catch (\Error $e) {
-            $duration = microtime(true) - $startTime;
-            ToolLogger::toolFailed($toolName, $correlationId, $e, $duration);
-
-            $errorMessage = "Fatal error in {$toolName}: " . $this->sanitizeErrorMessage($e->getMessage());
-            $errorResponse = $this->createSafeErrorResponse($errorMessage, $correlationId);
-
-            return $errorResponse;
-        } catch (\InvalidArgumentException $e) {
-            $duration = microtime(true) - $startTime;
-            ToolLogger::toolFailed($toolName, $correlationId, $e, $duration);
-
-            $errorMessage = "Invalid argument in {$toolName}: " . $this->sanitizeErrorMessage($e->getMessage());
-            $errorResponse = $this->createSafeErrorResponse($errorMessage, $correlationId);
-
-            return $errorResponse;
-        } catch (\Exception $e) {
-            $duration = microtime(true) - $startTime;
-            ToolLogger::toolFailed($toolName, $correlationId, $e, $duration);
-
-            $errorMessage = "Exception in {$toolName}: " . $this->sanitizeErrorMessage($e->getMessage());
-            $errorResponse = $this->createSafeErrorResponse($errorMessage, $correlationId, $e);
-
-            return $errorResponse;
         } catch (\Throwable $e) {
             $duration = microtime(true) - $startTime;
-            ToolLogger::toolFailed($toolName, $correlationId, $e, $duration);
+            $status = ($e instanceof \InvalidArgumentException) ? 'validation_error' : 'error';
 
-            $errorMessage = "Critical error in {$toolName}: Tool execution failed";
-            $errorResponse = $this->createSafeErrorResponse($errorMessage, $correlationId);
+            ToolLogger::logToolCall(
+                $toolName, $arguments, $status, $duration * 1000,
+                action: $this->extractAction($arguments),
+                error: $e,
+                correlationId: $correlationId,
+            );
 
-            return $errorResponse;
+            $prefix = match (true) {
+                $e instanceof \TypeError => 'Type error',
+                $e instanceof \InvalidArgumentException => 'Invalid argument',
+                $e instanceof \Error => 'Fatal error',
+                default => 'Exception',
+            };
+
+            // Always log the full error server-side
+            Log::error("MCP tool error in {$toolName}", [
+                'exception' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+
+            $rawMessage = $this->sanitizeErrorMessage($e->getMessage());
+            $errorMessage = app()->environment('local', 'testing')
+                ? "{$prefix} in {$toolName}: {$rawMessage}"
+                : "{$prefix} in {$toolName}: An error occurred. Check server logs for details.";
+
+            return $this->createSafeErrorResponse($errorMessage, $correlationId, $e);
         }
     }
 
     /**
+     * Extract the action parameter from arguments (used by routers).
+     *
+     * @param  array<string, mixed>  $arguments
+     */
+    protected function extractAction(array $arguments): ?string
+    {
+        $action = $arguments['action'] ?? null;
+
+        return is_string($action) ? $action : null;
+    }
+
+    /**
      * Wrap result in standardized format if needed.
+     *
+     * Contract: If executeInternal() returns an array with 'success' and 'meta' keys,
+     * it's assumed to be already wrapped (e.g., from createSuccessResponse()->toArray()).
+     * Otherwise, the raw array is wrapped automatically in a SuccessResponse envelope.
+     *
+     * Also validates response size to prevent LLM token overflow.
      *
      * @param  array<string, mixed>  $result
      *
@@ -168,40 +211,22 @@ abstract class BaseStatamicTool extends Tool
      */
     private function wrapInStandardFormat(array $result): array
     {
-        // If already standardized, return as is
         if (isset($result['success']) && isset($result['meta'])) {
-            return $result;
+            $wrapped = $result;
+        } else {
+            $wrapped = $this->createSuccessResponse($result)->toArray();
         }
 
-        // Otherwise wrap in success response
-        $response = $this->createSuccessResponse($result);
-
-        return $response->toArray();
-    }
-
-    /**
-     * Validate required arguments.
-     *
-     * @param  array<string, mixed>  $arguments
-     * @param  array<int, string>  $required
-     */
-    protected function validateRequiredArguments(array $arguments, array $required): void
-    {
-        foreach ($required as $field) {
-            if (! isset($arguments[$field]) || empty($arguments[$field])) {
-                throw new \InvalidArgumentException("Missing required parameter: {$field}");
-            }
+        // Guard against oversized responses that would overflow LLM token budgets
+        $encoded = json_encode($wrapped);
+        if ($encoded !== false && strlen($encoded) > 100000) {
+            return $this->createErrorResponse(
+                'Response too large (' . round(strlen($encoded) / 1024) . 'KB). Use pagination or filters to reduce the result set.',
+                ['response_size_bytes' => strlen($encoded)],
+            )->toArray();
         }
-    }
 
-    /**
-     * Get argument with default value.
-     *
-     * @param  array<string, mixed>  $arguments
-     */
-    protected function getArgument(array $arguments, string $key, mixed $default = null): mixed
-    {
-        return $arguments[$key] ?? $default;
+        return $wrapped;
     }
 
     /**
@@ -215,13 +240,26 @@ abstract class BaseStatamicTool extends Tool
     }
 
     /**
+     * Get string argument with default value.
+     *
+     * @param  array<string, mixed>  $arguments
+     */
+    protected function getStringArgument(array $arguments, string $key, string $default = ''): string
+    {
+        $value = $arguments[$key] ?? $default;
+
+        return is_string($value) ? $value : $default;
+    }
+
+    /**
      * Get integer argument with validation.
      *
      * @param  array<string, mixed>  $arguments
      */
     protected function getIntegerArgument(array $arguments, string $key, int $default = 0, int $min = 0, ?int $max = null): int
     {
-        $value = (int) ($arguments[$key] ?? $default);
+        $raw = $arguments[$key] ?? $default;
+        $value = is_scalar($raw) ? (int) $raw : $default;
 
         if ($value < $min) {
             $value = $min;
@@ -234,35 +272,85 @@ abstract class BaseStatamicTool extends Tool
         return $value;
     }
 
+    /** @var array{statamic: string, laravel: string}|null */
+    private ?array $versionCache = null;
+
+    /**
+     * @return array{statamic: string, laravel: string}
+     */
+    private function getCachedVersions(): array
+    {
+        if ($this->versionCache === null) {
+            $this->versionCache = [
+                'statamic' => Statamic::version() ?? 'unknown',
+                'laravel' => app()->version(),
+            ];
+        }
+
+        return $this->versionCache;
+    }
+
+    /**
+     * Determine if this tool should be registered.
+     *
+     * Checks the per-domain tool configuration. Tools whose domain
+     * is disabled in config will not be exposed to MCP clients.
+     */
+    public function shouldRegister(): bool
+    {
+        $domain = $this->getToolDomain();
+
+        if ($domain === null) {
+            return true;
+        }
+
+        /** @var bool $enabled */
+        $enabled = config("statamic.mcp.tools.{$domain}.enabled", true);
+
+        return $enabled;
+    }
+
+    /**
+     * Get the domain key for config lookup.
+     *
+     * Override in subclasses to map to config keys.
+     * Returns null if tool has no domain toggle.
+     */
+    protected function getToolDomain(): ?string
+    {
+        return null;
+    }
+
     /**
      * Create response metadata.
      */
     private function createResponseMeta(): ResponseMeta
     {
+        $exposeVersions = (bool) config('statamic.mcp.security.expose_versions', false);
+
+        if ($exposeVersions) {
+            $versions = $this->getCachedVersions();
+
+            return new ResponseMeta(
+                tool: $this->name(),
+                timestamp: now()->toISOString() ?? date('c'),
+                statamic_version: $versions['statamic'],
+                laravel_version: $versions['laravel'],
+            );
+        }
+
         return new ResponseMeta(
             tool: $this->name(),
             timestamp: now()->toISOString() ?? date('c'),
-            statamic_version: $this->getStatamicVersion(),
-            laravel_version: app()->version(),
         );
     }
 
     /**
      * Get Statamic version.
      */
-    private function getStatamicVersion(): string
+    protected function getStatamicVersion(): string
     {
-        try {
-            if (class_exists('\Statamic\Statamic')) {
-                $version = \Statamic\Statamic::version();
-
-                return $version ?: 'unknown';
-            }
-        } catch (\Exception $e) {
-            // Continue with fallback
-        }
-
-        return 'unknown';
+        return $this->getCachedVersions()['statamic'];
     }
 
     /**
@@ -296,183 +384,6 @@ abstract class BaseStatamicTool extends Tool
     }
 
     /**
-     * Check if this is a dry-run operation.
-     *
-     * @param  array<string, mixed>  $arguments
-     */
-    protected function isDryRun(array $arguments): bool
-    {
-        return $this->getBooleanArgument($arguments, 'dry_run', false);
-    }
-
-    /**
-     * Add dry-run schema field to tools that support it.
-     *
-     * @return array<string, mixed>
-     */
-    protected function addDryRunSchema(): array
-    {
-        return [
-            'dry_run' => JsonSchema::boolean()->description('Preview changes without executing them (default: false)'),
-        ];
-    }
-
-    /**
-     * Simulate dry-run operation result.
-     *
-     * @param  array<int, string>  $targets
-     * @param  array<string, mixed>  $changes
-     *
-     * @return array<string, mixed>
-     */
-    protected function simulateOperation(string $operation, array $targets, array $changes = []): array
-    {
-        return [
-            'dry_run' => true,
-            'operation' => $operation,
-            'targets' => $targets,
-            'changes_preview' => $changes,
-            'would_affect' => count($targets),
-            'timestamp' => now()->toISOString(),
-            'note' => 'This is a preview - no changes have been made',
-        ];
-    }
-
-    /**
-     * Validate operation safety before execution.
-     *
-     * @param  array<int, string>  $targets
-     *
-     * @return array<string, mixed>
-     */
-    protected function validateOperationSafety(string $operation, array $targets): array
-    {
-        $warnings = [];
-        $risks = [];
-
-        // Check for destructive operations
-        if (in_array($operation, ['delete', 'remove', 'clear', 'purge'])) {
-            $risks[] = "Destructive operation: {$operation}";  // Will be converted to associative
-            $warnings[] = 'This operation cannot be undone without a backup';  // Will be converted to associative
-        }
-
-        // Check target count
-        if (count($targets) > 50) {
-            $warnings[] = 'Large operation affecting ' . count($targets) . ' items';
-        }
-
-        // Check for critical system targets
-        foreach ($targets as $target) {
-            if (in_array($target, ['pages', 'home', 'default', 'user'])) {
-                $risks[] = "Critical system target: {$target}";  // Will be converted to associative
-            }
-        }
-
-        return [
-            'safe' => empty($risks),
-            'warnings' => $warnings,
-            'risks' => $risks,
-        ];
-    }
-
-    /**
-     * Legacy compatibility method for error responses.
-     *
-     * @param  string|array<int, string>  $message
-     *
-     * @deprecated Use createErrorResponse() instead
-     *
-     * @return array<string, mixed>
-     */
-    protected function errorResponse(string|array $message): array
-    {
-        return [
-            'success' => false,
-            'error' => is_array($message) ? $message[0] ?? 'Unknown error' : $message,
-            'message' => is_array($message) ? $message : [$message],
-        ];
-    }
-
-    /**
-     * Create a standardized success response.
-     *
-     * @param  array<string, mixed>  $data
-     * @param  array<string, mixed>  $meta
-     *
-     * @return array<string, mixed>
-     */
-    protected function createStandardSuccessResponse(array $data, array $meta = []): array
-    {
-        return ToolResponse::success($data, array_merge([
-            'tool' => $this->getToolName(),
-        ], $meta));
-    }
-
-    /**
-     * Create a standardized error response with error code.
-     *
-     * @param  array<string, mixed>  $data
-     * @param  array<string, mixed>  $meta
-     *
-     * @return array<string, mixed>
-     */
-    protected function createStandardErrorResponse(ErrorCodes $errorCode, array $data = [], array $meta = []): array
-    {
-        return ToolResponse::error($errorCode, $data, array_merge([
-            'tool' => $this->getToolName(),
-        ], $meta));
-    }
-
-    /**
-     * Create a not found error response.
-     *
-     * @param  array<string, mixed>  $suggestions
-     *
-     * @return array<string, mixed>
-     */
-    protected function createNotFoundResponse(string $resource, ?string $identifier = null, array $suggestions = []): array
-    {
-        return ToolResponse::notFound($resource, $identifier, $suggestions);
-    }
-
-    /**
-     * Create a validation error response.
-     *
-     * @param  array<string, string|array<string>>  $errors
-     *
-     * @return array<string, mixed>
-     */
-    protected function createValidationErrorResponse(array $errors): array
-    {
-        return ToolResponse::validationError($errors, [
-            'tool' => $this->getToolName(),
-        ]);
-    }
-
-    /**
-     * Create a permission denied error response.
-     *
-     * @param  array<string>  $requiredPermissions
-     *
-     * @return array<string, mixed>
-     */
-    protected function createPermissionDeniedResponse(string $operation, ?string $resource = null, array $requiredPermissions = []): array
-    {
-        return ToolResponse::permissionDenied($operation, $resource, $requiredPermissions);
-    }
-
-    /**
-     * Create a security error response.
-     *
-     *
-     * @return array<string, mixed>
-     */
-    protected function createSecurityErrorResponse(ErrorCodes $securityError, ?string $details = null): array
-    {
-        return ToolResponse::securityError($securityError, $details);
-    }
-
-    /**
      * Basic argument validation (permissive for Claude compatibility).
      *
      * @param  array<string, mixed>  $arguments
@@ -481,53 +392,32 @@ abstract class BaseStatamicTool extends Tool
      */
     protected function validateAndSanitizeArguments(array $arguments): array
     {
-        // Only perform basic validation - don't modify arguments that Claude sends
-        // Only basic null byte protection - don't validate keys or content to avoid breaking Claude
-        foreach ($arguments as $value) {
-            if (is_string($value) && str_contains($value, "\x00")) {
-                throw new \InvalidArgumentException('Null bytes not allowed in string arguments');
+        foreach ($arguments as $key => $value) {
+            if ($this->containsNullByte($value)) {
+                throw new \InvalidArgumentException("Argument '{$key}' contains invalid null bytes");
             }
         }
 
-        // Return arguments unchanged to preserve Claude's data
         return $arguments;
     }
 
     /**
-     * Recursively sanitize array values with depth protection.
-     *
-     * @param  array<mixed>  $array
-     *
-     * @return array<mixed>
+     * Recursively check if a value contains null bytes.
      */
-    protected function sanitizeArrayRecursively(array $array, int $depth = 0, int $maxDepth = 5): array
+    private function containsNullByte(mixed $value): bool
     {
-        if ($depth >= $maxDepth) {
-            return ['_truncated' => 'Array too deep'];
+        if (is_string($value)) {
+            return str_contains($value, "\x00");
         }
-
-        $sanitized = [];
-        $itemCount = 0;
-        $maxItems = 1000; // Prevent memory exhaustion
-
-        foreach ($array as $key => $value) {
-            if (++$itemCount > $maxItems) {
-                $sanitized['_truncated'] = 'Array too large';
-                break;
-            }
-
-            $cleanKey = is_string($key) ? preg_replace('/[^a-zA-Z0-9_-]/', '', $key) : $key;
-
-            if (is_string($value)) {
-                $sanitized[$cleanKey] = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', '', $value) ?? '';
-            } elseif (is_array($value)) {
-                $sanitized[$cleanKey] = $this->sanitizeArrayRecursively($value, $depth + 1, $maxDepth);
-            } else {
-                $sanitized[$cleanKey] = $value;
+        if (is_array($value)) {
+            foreach ($value as $v) {
+                if ($this->containsNullByte($v)) {
+                    return true;
+                }
             }
         }
 
-        return $sanitized;
+        return false;
     }
 
     /**
@@ -535,12 +425,8 @@ abstract class BaseStatamicTool extends Tool
      */
     protected function sanitizeErrorMessage(string $message): string
     {
-        // Only perform minimal sanitization to avoid breaking Claude
-
-        // Remove null bytes if present
         $message = str_replace("\x00", '', $message);
 
-        // Limit message length to prevent excessive output
         if (strlen($message) > 1000) {
             $message = substr($message, 0, 997) . '...';
         }
@@ -560,11 +446,10 @@ abstract class BaseStatamicTool extends Tool
             'error' => $message,
             'correlation_id' => $correlationId,
             'timestamp' => now()->toISOString() ?? date('c'),
-            'tool' => $this->getToolName(),
+            'tool' => $this->name(),
         ];
 
-        // Only add debug info in local environment
-        if (app()->bound('env') && app('env') === 'local' && $exception) {
+        if (app()->environment('local') && $exception) {
             $response['debug'] = [
                 'file' => basename($exception->getFile()),
                 'line' => $exception->getLine(),

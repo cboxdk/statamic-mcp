@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Cboxdk\StatamicMcp\Console;
 
 use Illuminate\Console\Command;
@@ -14,13 +16,16 @@ class InstallCommand extends Command
 
     protected $description = 'Install and configure Statamic MCP Server for AI assistants';
 
-    public function handle()
+    public function handle(): int
     {
-        $this->info('🚀 Installing Statamic MCP Server...');
+        $this->info('🚀 Installing Statamic MCP Server v2.0...');
         $this->newLine();
 
         // Publish configuration
         $this->publishConfiguration();
+
+        // Run migrations
+        $this->runMigrations();
 
         // Detect and configure AI assistants
         $this->configureAiAssistants();
@@ -54,6 +59,18 @@ class InstallCommand extends Command
         ]);
 
         $this->info('✅ Configuration published successfully.');
+        $this->newLine();
+    }
+
+    protected function runMigrations()
+    {
+        $this->info('🗄️  Running migrations...');
+
+        $this->call('migrate', [
+            '--force' => $this->option('force'),
+        ]);
+
+        $this->info('✅ Migrations completed successfully.');
         $this->newLine();
     }
 
@@ -541,13 +558,21 @@ class InstallCommand extends Command
 
     protected function showCompletionMessage()
     {
-        $this->info('🎉 Statamic MCP Server installation complete!');
+        $this->info('🎉 Statamic MCP Server v2.0 installation complete!');
         $this->newLine();
 
         $this->info('📚 What was configured:');
         $this->line('  • Published MCP server configuration');
+        $this->line('  • Ran database migrations (MCP token storage)');
         $this->line('  • Created AI assistant configurations where possible');
         $this->line('  • Added MCP guidelines for better AI understanding');
+        $this->newLine();
+
+        $this->info('🔑 API Token Setup:');
+        $this->line('  1. Visit the MCP dashboard in your Statamic CP (Tools → MCP)');
+        $this->line('  2. Create a new API token with the scopes your agent needs');
+        $this->line('  3. Copy the token — it will only be shown once');
+        $this->line('  4. For web MCP: Set STATAMIC_MCP_WEB_ENABLED=true in .env');
         $this->newLine();
 
         $this->info('🚀 Next Steps:');
@@ -558,22 +583,25 @@ class InstallCommand extends Command
         $this->newLine();
 
         $this->info('📖 Available MCP Tools (Router Architecture):');
-        $this->line('  🚦 Domain Routers (6 tools consolidating 140+ operations):');
-        $this->line('  • statamic.content - Manage entries, terms, globals content (40+ operations)');
-        $this->line('  • statamic.structures - Collections, taxonomies, navigations, sites (30+ operations)');
-        $this->line('  • statamic.assets - Asset containers and file operations (20+ operations)');
-        $this->line('  • statamic.users - Users, roles, user groups, permissions (25+ operations)');
-        $this->line('  • statamic.system - Cache, health, config, system info (15+ operations)');
-        $this->line('  • statamic.blueprints - Blueprint CRUD, scanning, type generation (10+ operations)');
+        $this->line('  🚦 Domain Routers (9 tools consolidating 140+ operations):');
+        $this->line('  • statamic-entries   - Manage entries across all collections (CRUD, publish/unpublish)');
+        $this->line('  • statamic-terms     - Manage taxonomy terms (CRUD operations)');
+        $this->line('  • statamic-globals   - Manage global set values (list, get, update)');
+        $this->line('  • statamic-structures - Collections, taxonomies, navigations, sites (30+ operations)');
+        $this->line('  • statamic-assets    - Asset containers and file operations (20+ operations)');
+        $this->line('  • statamic-users     - Users, roles, user groups, permissions (25+ operations)');
+        $this->line('  • statamic-system    - Cache, health, config, system info (15+ operations)');
+        $this->line('  • statamic-blueprints - Blueprint CRUD, scanning, type generation (10+ operations)');
+        $this->line('  • statamic-content-facade - Common content workflow shortcuts');
         $this->newLine();
         $this->line('  🎓 Agent Education Tools (2 specialized tools):');
-        $this->line('  • statamic.system.discover - Intent-based tool discovery with recommendations');
-        $this->line('  • statamic.system.schema - Detailed tool schema inspection and documentation');
+        $this->line('  • statamic-system-discover - Intent-based tool discovery with recommendations');
+        $this->line('  • statamic-system-schema   - Detailed tool schema inspection and documentation');
         $this->newLine();
 
         $this->info('📋 Manual Configuration:');
-        $this->line('  • See docs/AI_ASSISTANT_SETUP.md for manual setup');
-        $this->line('  • GitHub Copilot users: Check .github/copilot-instructions.md');
+        $this->line('  • See docs/WEB_MCP_SETUP.md for web MCP endpoint setup');
+        $this->line('  • Visit Statamic CP → Tools → MCP for token management');
         $this->newLine();
 
         $this->info('Happy coding with AI assistance! 🤖✨');
@@ -582,50 +610,61 @@ class InstallCommand extends Command
     protected function getCursorRulesContent(string $projectPath): string
     {
         return <<<MARKDOWN
-# Statamic MCP Server Integration
+# Statamic MCP Server v2.0 Integration
 
-This project uses Statamic MCP Server for enhanced AI-assisted development.
+This project uses Statamic MCP Server v2.0 for enhanced AI-assisted development.
+Requires Statamic v6+ and laravel/mcp v0.6+.
 
 ## MCP Server Configuration
 - Command: php artisan mcp:start statamic
 - Project Path: {$projectPath}
-- Tools Available: 8 MCP tools (Router Architecture)
+- Tools Available: 11 MCP tools (Router Architecture)
+- Authentication: Scoped API tokens (manage via CP → Tools → MCP)
 
 ## MCP Tools Architecture (Router-Based)
 
-### 🚦 Domain Routers (6 Core Tools)
+### 🚦 Domain Routers (9 Core Tools)
 
-#### statamic.content
-**Purpose**: Unified content management across all content types
-**Actions**: list, get, create, update, delete, publish, unpublish, search
-**Handles**: entries (15+ ops), terms (10+ ops), globals (10+ ops)
-**Example**: `{"action": "list", "type": "entries", "collection": "blog"}`
+#### statamic-entries
+**Purpose**: Manage entries across all collections
+**Actions**: list, get, create, update, delete, publish, unpublish
+**Example**: `{"action": "list", "collection": "blog"}`
 
-#### statamic.structures
+#### statamic-terms
+**Purpose**: Manage taxonomy terms
+**Actions**: list, get, create, update, delete
+**Example**: `{"action": "list", "taxonomy": "categories"}`
+
+#### statamic-globals
+**Purpose**: Manage global set values
+**Actions**: list, get, update
+**Example**: `{"action": "get", "handle": "site_settings"}`
+
+#### statamic-structures
 **Purpose**: Manage all structural elements of your Statamic site
 **Actions**: list, get, create, update, delete, reorder
 **Handles**: collections (8+ ops), taxonomies (7+ ops), navigations (6+ ops), sites (5+ ops)
 **Example**: `{"action": "create", "type": "collection", "handle": "products"}`
 
-#### statamic.assets
+#### statamic-assets
 **Purpose**: Complete asset and media file management
 **Actions**: list, upload, move, rename, delete, metadata, regenerate
 **Handles**: containers (5+ ops), assets (15+ ops)
 **Example**: `{"action": "upload", "container": "images", "file": "..."}`
 
-#### statamic.users
+#### statamic-users
 **Purpose**: User, role, and permission management
 **Actions**: list, get, create, update, delete, assign-role, permissions
 **Handles**: users (10+ ops), roles (8+ ops), user groups (6+ ops)
 **Example**: `{"action": "assign-role", "user": "123", "role": "editor"}`
 
-#### statamic.system
+#### statamic-system
 **Purpose**: System operations and maintenance
 **Actions**: info, cache-clear, cache-warm, health-check, config, discover
 **Handles**: cache (5+ ops), health (3+ ops), config (4+ ops), info (3+ ops)
 **Example**: `{"action": "cache-clear", "types": ["stache", "static"]}`
 
-#### statamic.blueprints
+#### statamic-blueprints
 **Purpose**: Blueprint schema management and type generation
 **Actions**: list, get, create, update, delete, scan, generate, types
 **Handles**: all blueprint operations (10+ ops)
@@ -633,7 +672,7 @@ This project uses Statamic MCP Server for enhanced AI-assisted development.
 
 ### 🎓 Agent Education Tools (2 Specialized Tools)
 
-#### statamic.system.discover
+#### statamic-discovery
 **Purpose**: Help AI agents discover the right tools for their intent
 **Features**:
 - Intent-based tool recommendations
@@ -641,22 +680,30 @@ This project uses Statamic MCP Server for enhanced AI-assisted development.
 - Tool capability search
 **Example**: `{"intent": "create a blog", "context": "new project"}`
 
-#### statamic.system.schema
+#### statamic-schema
 **Purpose**: Detailed schema inspection for any tool
 **Features**:
 - Complete parameter documentation
 - Valid value enumerations
 - Response format examples
-**Example**: `{"tool": "statamic.content", "action": "create"}`
+**Example**: `{"tool": "statamic-entries", "action": "create"}`
+
+## Authentication
+
+Web MCP endpoints require scoped API tokens:
+1. Visit Statamic CP → Tools → MCP
+2. Create a token with required scopes (e.g., content:read, content:write)
+3. Use Bearer token authentication for web requests
+4. CLI mode (php artisan mcp:start) runs with full permissions
 
 ## Development Guidelines
 
 ### Router Pattern Usage
 
 1. **Start with Discovery**:
-   - Use `statamic.system.discover` to find the right tool for your intent
-   - Use `statamic.system.schema` to understand tool parameters and responses
-   - Use `statamic.system` with action "info" for installation details
+   - Use `statamic-discovery` to find the right tool for your intent
+   - Use `statamic-schema` to understand tool parameters and responses
+   - Use `statamic-system` with action "info" for installation details
 
 2. **Router Pattern Syntax**:
    - Each router handles multiple related operations via the "action" parameter
@@ -664,9 +711,11 @@ This project uses Statamic MCP Server for enhanced AI-assisted development.
    - Example: `{"action": "list", "type": "entries", "collection": "blog"}`
 
 3. **Content Operations**:
-   - Use `statamic.content` for all entry, term, and global value operations
-   - Use `statamic.structures` for collections, taxonomies, navigations
-   - Use `statamic.blueprints` for schema management and type generation
+   - Use `statamic-entries` for entry operations (CRUD, publish/unpublish)
+   - Use `statamic-terms` for taxonomy term operations
+   - Use `statamic-globals` for global set value operations
+   - Use `statamic-structures` for collections, taxonomies, navigations
+   - Use `statamic-blueprints` for schema management and type generation
 
 4. **Performance & Best Practices**:
    - Router tools consolidate operations for better performance
@@ -696,103 +745,98 @@ MARKDOWN;
     protected function getStatamicMcpGuidelines(): string
     {
         return <<<'MARKDOWN'
-# Statamic MCP Guidelines
+# Statamic MCP Guidelines (v2.0)
 
-This file provides AI assistants with comprehensive understanding of the Statamic MCP Server capabilities and best practices.
+This file provides AI assistants with comprehensive understanding of the Statamic MCP Server v2.0 capabilities.
+Requires Statamic v6+ and laravel/mcp v0.6+.
 
 ## MCP Server Overview
 
-The Statamic MCP Server uses a revolutionary router-based architecture with 8 powerful tools:
+The Statamic MCP Server uses a router-based architecture with 11 tools:
 
-### Router Architecture (6 + 2 Tools)
+### Router Architecture (9 + 2 Tools)
 
-**Domain Routers** (6 core tools consolidating 140+ operations):
-- **statamic.content**: Unified content management (entries, terms, globals - 35+ ops)
-- **statamic.structures**: Structural elements (collections, taxonomies, navigations, sites - 26+ ops)
-- **statamic.assets**: Complete asset management (containers, files, metadata - 20+ ops)
-- **statamic.users**: User and permission management (users, roles, groups - 24+ ops)
-- **statamic.system**: System operations (cache, health, config, info - 15+ ops)
-- **statamic.blueprints**: Schema management (CRUD, scanning, type generation - 10+ ops)
+**Domain Routers** (9 core tools consolidating 140+ operations):
+- **statamic-entries**: Manage entries across all collections (CRUD, publish/unpublish)
+- **statamic-terms**: Manage taxonomy terms (CRUD operations)
+- **statamic-globals**: Manage global set values (list, get, update)
+- **statamic-structures**: Structural elements (collections, taxonomies, navigations, sites - 26+ ops)
+- **statamic-assets**: Complete asset management (containers, files, metadata - 20+ ops)
+- **statamic-users**: User and permission management (users, roles, groups - 24+ ops)
+- **statamic-system**: System operations (cache, health, config, info - 15+ ops)
+- **statamic-blueprints**: Schema management (CRUD, scanning, type generation - 10+ ops)
 
 **Agent Education Tools** (2 specialized tools):
-- **statamic.system.discover**: Intent-based tool discovery and recommendations
-- **statamic.system.schema**: Detailed tool schema inspection and documentation
+- **statamic-discovery**: Intent-based tool discovery and recommendations
+- **statamic-schema**: Detailed tool schema inspection and documentation
 
-Use `statamic.system.discover` to find the right tool for your intent and `statamic.system.schema` for detailed documentation.
+Use `statamic-discovery` to find the right tool for your intent and `statamic-schema` for detailed documentation.
+
+## Authentication
+
+### Scoped API Tokens
+Web MCP endpoints use scoped API tokens for fine-grained access control:
+- Tokens are managed via the Statamic CP dashboard (Tools → MCP)
+- Each token has specific scopes (e.g., content:read, content:write, system:read)
+- Use Bearer token authentication: `Authorization: Bearer <token>`
+- CLI mode (php artisan mcp:start) runs with full permissions
+
+### Available Scopes
+- `content:read` / `content:write` - Entry and term operations
+- `structures:read` / `structures:write` - Collection and taxonomy management
+- `assets:read` / `assets:write` - Asset operations
+- `users:read` / `users:write` - User management
+- `globals:read` / `globals:write` - Global set operations
+- `blueprints:read` / `blueprints:write` - Blueprint management
+- `system:read` / `system:write` - System operations
+- `structures:read` / `structures:write` - Navigation management
+- `*` - Wildcard (all permissions)
 
 ## Usage Patterns
 
 ### Discovery Phase
 Always start development sessions with:
-1. `statamic.system.discover` - Find the right tool for your intent
-2. `statamic.system` (action: "info") - Understand the installation
-3. `statamic.system.schema` - Get detailed tool documentation when needed
-4. `statamic.structures` (action: "list", type: "collections") - Map content structure
+1. `statamic-discovery` - Find the right tool for your intent
+2. `statamic-system` (action: "info") - Understand the installation
+3. `statamic-schema` - Get detailed tool documentation when needed
+4. `statamic-structures` (action: "list", type: "collections") - Map content structure
 
 ### Development Phase
 For content work:
-- Use `statamic.content` with appropriate actions (list, get, create, update, delete)
-- Use `statamic.structures` for collections, taxonomies, navigations
-- Use `statamic.blueprints` for schema management and type generation
+- Use `statamic-entries` for entry CRUD and publishing across collections
+- Use `statamic-terms` for taxonomy term management
+- Use `statamic-globals` for global set value management
+- Use `statamic-structures` for collections, taxonomies, navigations
+- Use `statamic-blueprints` for schema management and type generation
 
 For system operations:
-- Use `statamic.system` for cache management, health checks, configuration
-- Use `statamic.assets` for file and media management
-- Use `statamic.users` for user, role, and permission management
+- Use `statamic-system` for cache management, health checks, configuration
+- Use `statamic-assets` for file and media management
+- Use `statamic-users` for user, role, and permission management
 
 ### Content Architecture
 Create structures with appropriate router tools:
 
 **Creating a Collection:**
-Use `statamic.structures` with `{"action": "create", "type": "collection", "handle": "blog"}`
+Use `statamic-structures` with `{"action": "create", "type": "collection", "handle": "blog"}`
 
 **Creating Blueprints:**
-Use `statamic.blueprints` with `{"action": "create", "handle": "article", "fields": [...]}`
+Use `statamic-blueprints` with `{"action": "create", "handle": "article", "fields": [...]}`
 
 **Managing Entries:**
-Use `statamic.content` with `{"action": "create", "type": "entries", "collection": "blog"}`
+Use `statamic-entries` with `{"action": "create", "collection": "blog", "data": {...}}`
+
+**Managing Terms:**
+Use `statamic-terms` with `{"action": "create", "taxonomy": "categories", "data": {...}}`
 
 **Global Settings:**
-Use `statamic.content` with `{"action": "update", "type": "globals", "set": "site_settings"}`
-
-### Code Generation & Analysis
-- Generate types with `statamic.blueprints` (action: "generate", type: "typescript")
-- Use `statamic.system.discover` to find tools for specific development tasks
-- Use `statamic.system.schema` to understand tool parameters and response formats
+Use `statamic-globals` with `{"action": "update", "handle": "site_settings", "data": {...}}`
 
 ## Statamic Development Best Practices
 
 ### Primary Templating Language
-Always consider the project's primary templating language when making suggestions:
 - **Antlers-first projects**: Prefer Antlers syntax, use Antlers tags and variables
 - **Blade-first projects**: Prefer Blade components, use Statamic Blade tags
-
-### Template Language-Specific Patterns
-
-#### Antlers Templates (Primary: Antlers)
-1. **Use Antlers syntax**: `{{ title }}`, `{{ collection:articles }}`
-2. **Field relationships**: `{{ author:name }}`, `{{ categories }}{{ title }}{{ /categories }}`
-3. **Conditional logic**: `{{ if featured }}...{{ /if }}`
-4. **Loops**: `{{ collection:blog }}{{ title }}{{ /collection:blog }}`
-5. **Modifiers**: `{{ content | markdown }}`, `{{ date | format:Y-m-d }}`
-
-#### Blade Templates (Primary: Blade)
-1. **Use Statamic Blade tags**: `<s:collection>`, `<s:form:create>`
-2. **Blade directives**: `@if`, `@foreach`, `@include`
-3. **Components**: `<x-card>`, custom Blade components
-4. **Avoid facades in views**: Use tags instead of `Entry::all()`
-5. **Field access**: `{{ $entry->title }}`, `{{ $entry->author->name }}`
-
-### Mixed Approach
-- **Antlers for content templates**: Simple content display, loops, conditionals
-- **Blade for complex logic**: Components, layouts, complex data processing
-- **Never mix syntaxes in same template**: Choose one approach per template
-
-### Content Architecture
-1. **Blueprint-driven**: Design content structure first
-2. **Relationship mapping**: Use entries, taxonomy, users appropriately
-3. **Field type selection**: Match field types to content needs
-4. **Validation rules**: Include appropriate validation
 
 ### Code Quality
 1. **No inline PHP** in templates (both Antlers and Blade)
@@ -810,7 +854,6 @@ Always consider the project's primary templating language when making suggestion
 
 ### Rich Content
 - `bard` - Rich editor with custom sets
-- `redactor` - Alternative rich editor
 
 ### Media
 - `assets` - File/image management
@@ -820,41 +863,27 @@ Always consider the project's primary templating language when making suggestion
 - `entries` - Link to other entries
 - `taxonomy` - Link to taxonomy terms
 - `users` - Link to user accounts
-- `collections` - Reference collections
 
 ### Structured Data
 - `replicator` - Flexible content blocks
 - `grid` - Tabular data
 - `group` - Field grouping
-- `yaml` - Raw YAML data
 
 ## AI Assistant Integration
 
-When working with Statamic projects:
-
-1. **Start with discovery** - Use `statamic.system.discover` to find the right tool for your task
-2. **Use router tools** - Each domain router handles multiple related operations efficiently
-3. **Check schemas** - Use `statamic.system.schema` for detailed parameter documentation
-4. **Validate with real data** - Router tools provide current, accurate project state
+1. **Start with discovery** - Use `statamic-discovery` to find the right tool
+2. **Use router tools** - Each domain router handles multiple operations efficiently
+3. **Check schemas** - Use `statamic-schema` for detailed parameter documentation
+4. **Respect scopes** - Ensure your token has required scopes for the operations
 5. **Follow router patterns** - Always use action-based syntax for consistent behavior
 
 ## Error Handling
 
 All router tools provide consistent error responses. When tools return errors:
-- Use `statamic.system.discover` to find the correct tool and action for your intent
-- Use `statamic.system.schema` to verify parameter requirements and formats
-- Check blueprints with `statamic.blueprints` (action: "scan")
+- Use `statamic-discovery` to find the correct tool and action
+- Use `statamic-schema` to verify parameter requirements
+- Check token scopes if you receive permission errors
 - Validate project state with appropriate router tools
-
-## Router Architecture Benefits
-
-- **Reduced Complexity**: 8 tools instead of 140+ individual tools
-- **Better Performance**: Consolidated operations with intelligent routing
-- **Easier Discovery**: Intent-based tool finding with `statamic.system.discover`
-- **Consistent Patterns**: All routers use action-based parameter syntax
-- **Self-Documenting**: Built-in schema inspection with `statamic.system.schema`
-
-This router architecture ensures AI assistants provide efficient, accurate, and scalable Statamic development assistance.
 MARKDOWN;
     }
 

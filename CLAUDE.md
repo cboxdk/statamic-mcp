@@ -4,67 +4,88 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Statamic addon that functions as an MCP (Model Context Protocol) server, built on top of Laravel's MCP server. The addon extends Statamic CMS v5.65+ / v6.0+ with dual version support and requires `laravel/mcp` as a runtime dependency.
+This is a Statamic addon that functions as an MCP (Model Context Protocol) server, built on top of Laravel's MCP server. The addon extends Statamic CMS v6.6+ and requires `laravel/mcp` ^0.6 as a runtime dependency. It includes scoped API token authentication, a Vue 3 CP dashboard, and web MCP endpoints.
 
 ## Key Dependencies
 
-- **PHP**: ^8.3 (required for Pest v4 and v6 compatibility)
-- **Statamic CMS**: ^5.65|^6.0 (dual version support)
-- **Laravel**: ^11.0|^12.0 (via Statamic)
-- **Laravel MCP**: ^0.3.2 (required - must be in `require` section, not `require-dev`)
-- **Orchestra Testbench**: ^9.0|^10.0|^11.0 (dev dependency for testing)
+- **PHP**: ^8.3
+- **Statamic CMS**: ^6.6 (v6 only — v5 support was removed in v2.0)
+- **Laravel**: ^12.0 || ^13.0 (via Statamic v6)
+- **Laravel MCP**: ^0.6 (required - must be in `require` section, not `require-dev`)
+- **Orchestra Testbench**: ^10.0 || ^11.0 (dev dependency for testing)
 - **Pest**: ^4.1 (stable release with PHP 8.3 requirement)
-- **Symfony YAML**: ^7.3 (for YAML processing)
+- **Symfony YAML**: ^7.0 || ^8.0 (for YAML processing)
 
-## Version Compatibility & Detection
+## Authentication System
 
-This addon supports both Statamic v5.65+ and v6.0+ through automatic version detection:
+### Scoped API Tokens
+The addon provides scoped API tokens for fine-grained MCP access control:
 
-### StatamicVersion Helper
+- **Token Management**: Via Statamic CP dashboard (Tools → MCP → Tokens)
+- **Token Storage**: Eloquent model (`McpToken`) with SHA-256 hashed tokens
+- **Guard**: Custom `McpTokenGuard` registered as the `mcp` auth guard
+- **Scopes**: 21 granular scopes via `TokenScope` enum (e.g., `content:read`, `content:write`, `*`)
 
-Use the `StatamicVersion` helper class for version-aware code:
+### Key Auth Classes
+- `src/Auth/TokenScope.php` — Backed string enum with scope helpers
+- `src/Auth/McpToken.php` — Eloquent model with UUID primary keys
+- `src/Auth/TokenService.php` — Token CRUD, validation, and pruning
+- `src/Auth/McpTokenGuard.php` — Laravel Guard implementation for Bearer tokens
+- `src/Auth/AuthServiceProvider.php` — Registers singletons and auth guard
 
-```php
-use Cboxdk\StatamicMcp\Support\StatamicVersion;
+### Middleware
+- `HandleMcpCors` — CORS headers for browser-based clients (only when `allowed_origins` configured)
+- `EnsureSecureTransport` — Rejects plain HTTP in production (when `require_https` enabled)
+- `AuthenticateForMcp` — Bearer token + Basic Auth fallback
+- `RequireMcpPermission` — Validates token scopes and expiry
 
-// Version detection
-if (StatamicVersion::isV6OrLater()) {
-    // V6-specific code
-} else if (StatamicVersion::supportsV6OptIns()) {
-    // V5.65+ with v6 opt-in features
-}
+### OAuth 2.1 Authorization Server
+The addon includes a full OAuth 2.1 authorization server with PKCE for browser-based MCP clients:
 
-// Feature detection
-if (StatamicVersion::hasV6AssetPermissions()) {
-    // Use v6 asset permission model
-}
+- **Dynamic Client Registration**: POST `/mcp/oauth/register` (RFC 7591)
+- **Authorization Code Flow**: GET/POST `/{cp}/mcp/oauth/authorize` with PKCE (S256)
+- **Token Exchange**: POST `/mcp/oauth/token` with authorization_code and refresh_token grants
+- **Token Revocation**: POST `/mcp/oauth/revoke` (RFC 7009)
+- **Discovery**: `/.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource`
 
-// Get version info for tool responses
-$versionInfo = StatamicVersion::info();
-// Returns: ['statamic_version' => '5.69.0', 'is_v6' => 'false', ...]
-```
+OAuth tokens store `oauth_client_id` and `oauth_client_name` for integration tracking. The dashboard shows an "OAuth" badge and hides the regenerate button for OAuth-created tokens.
 
-### Version-Specific Considerations
+### Key OAuth Classes
+- `src/Http/Controllers/OAuth/AuthorizeController.php` — Consent screen and approval
+- `src/Http/Controllers/OAuth/OAuthTokenController.php` — Token exchange (auth code + refresh)
+- `src/Http/Controllers/OAuth/DiscoveryController.php` — OAuth metadata endpoints
+- `src/Http/Controllers/OAuth/RegistrationController.php` — Dynamic client registration
+- `src/OAuth/Contracts/OAuthDriver.php` — Driver interface (BuiltIn or Database)
+- `src/Events/McpTokenSaved.php` — Git automation event for token changes
+- `src/Events/McpTokenDeleted.php` — Git automation event for token deletion
+- `src/OAuth/Concerns/ValidatesRedirectUris.php` — Shared redirect URI validation
 
-**Asset Operations**: The AssetRouter automatically detects and handles both v5 and v6 permission models. No code changes needed.
+### Storage Drivers
+Tokens and audit logs support pluggable storage backends:
+- `src/Storage/Tokens/FileTokenStore.php` — YAML flat-file storage (default)
+- `src/Storage/Tokens/DatabaseTokenStore.php` — Eloquent/database storage
+- `src/Storage/Audit/FileAuditStore.php` — JSONL flat-file audit log (default)
+- `src/Storage/Audit/DatabaseAuditStore.php` — Database audit log
+- `src/Storage/Tokens/McpTokenData.php` — Immutable DTO for token data
 
-**Tool Responses**: All tools automatically include version information in their metadata using `StatamicVersion::info()`.
-
-**Testing**: CI/CD runs tests against both Statamic v5.65+ and v6.0+ (when released) on PHP 8.3.
+### Git Integration
+Token operations dispatch events for Statamic's Git automation:
+- `src/Events/McpTokenSaved.php` — Dispatched on create, update, regenerate
+- `src/Events/McpTokenDeleted.php` — Dispatched on revoke
 
 ## Web MCP Endpoint
 
-This addon supports web-accessible MCP endpoints for browser-based integrations. See [docs/WEB_MCP_SETUP.md](docs/WEB_MCP_SETUP.md) for detailed setup instructions.
+This addon supports web-accessible MCP endpoints for browser-based integrations. The web endpoint is enabled by default. See the configuration reference for customization options.
 
 ### Quick Setup
 
 ```env
-# Enable web MCP endpoint
+# Web MCP endpoint (enabled by default)
 STATAMIC_MCP_WEB_ENABLED=true
 STATAMIC_MCP_WEB_PATH="/mcp/statamic"
 ```
 
-The endpoint will be available at `https://your-site.test/mcp/statamic` with Basic Auth using Statamic credentials.
+The endpoint will be available at `https://your-site.test/mcp/statamic` with Bearer token or Basic Auth authentication.
 
 ### MCP Client Configuration
 
@@ -73,14 +94,15 @@ The endpoint will be available at `https://your-site.test/mcp/statamic` with Bas
     "mcpServers": {
         "statamic": {
             "url": "https://your-site.test/mcp/statamic",
-            "auth": {
-                "username": "your-email@example.com",
-                "password": "your-statamic-password"
+            "headers": {
+                "Authorization": "Bearer <your-mcp-token>"
             }
         }
     }
 }
 ```
+
+Tokens are created via the CP dashboard (Tools → MCP → Tokens) with specific scopes.
 
 ## Development Commands
 
@@ -133,7 +155,7 @@ New tool files must include proper PHPDoc annotations:
  *
  * @return array<string, mixed>
  */
-protected function execute(array $arguments): array
+protected function executeInternal(array $arguments): array
 ```
 
 ### Composer
@@ -161,13 +183,13 @@ The main entry point is `src/ServiceProvider.php` which extends `Statamic\Provid
 ### Addon Registration
 The addon is registered through Laravel's service provider discovery mechanism via the `extra.laravel.providers` configuration in `composer.json`.
 
-## Laravel MCP v0.2.0 Tool Development Guide
+## Laravel MCP v0.6 Tool Development Guide
 
-**CRITICAL**: This project uses Laravel MCP v0.2.0 which has specific patterns that MUST be followed exactly.
+**CRITICAL**: This project uses Laravel MCP v0.6 which has specific patterns that MUST be followed exactly.
 
 ### Required Tool Structure
 
-All tools MUST extend `BaseStatamicTool` which provides standardized error handling and MCP compliance:
+All tools MUST extend `BaseStatamicTool` which provides standardized error handling and MCP compliance. Tools use `#[Name]` and `#[Description]` attributes (not methods):
 
 ```php
 <?php
@@ -178,21 +200,15 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Domain;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseStatamicTool;
 use Illuminate\JsonSchema\JsonSchema;
+use Laravel\Mcp\Server\Attributes\Description;
+use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly; // Optional
 
+#[Name('statamic-domain-action')]
+#[Description('Clear description of what this tool does')]
 #[IsReadOnly] // Optional annotation
 class ExampleTool extends BaseStatamicTool
 {
-    protected function getToolName(): string
-    {
-        return 'statamic.domain.action';
-    }
-
-    protected function getToolDescription(): string
-    {
-        return 'Clear description of what this tool does';
-    }
-
     protected function defineSchema(JsonSchema $schema): array
     {
         return [
@@ -208,7 +224,7 @@ class ExampleTool extends BaseStatamicTool
      * @param  array<string, mixed>  $arguments
      * @return array<string, mixed>
      */
-    protected function execute(array $arguments): array
+    protected function executeInternal(array $arguments): array
     {
         // Tool implementation
         return ['result' => 'data'];
@@ -216,22 +232,15 @@ class ExampleTool extends BaseStatamicTool
 }
 ```
 
-### Schema Definition Requirements
+### Key Differences from v0.2.0
 
-**NEVER use fluent chaining** - Laravel MCP v0.2.0 uses array return format:
+- **Attributes instead of methods**: Use `#[Name('...')]` and `#[Description('...')]` instead of `getToolName()`/`getToolDescription()`
+- **Tool extends Primitive**: `Tool` base class provides `name()` and `description()` via attributes or string properties
+- **Response objects**: `handle()` returns `Response|ResponseFactory`. Use `Response::structured(array)` for success and `Response::error(string)` for errors
+- **BaseStatamicTool wraps this**: `executeInternal()` is the abstract method tools implement; `handle()` and `schema()` are handled by BaseStatamicTool
 
-❌ **WRONG (v0.1.x pattern)**:
-```php
-protected function defineSchema(ToolInputSchema $schema): ToolInputSchema
-{
-    return $schema
-        ->string('field')
-        ->description('desc')
-        ->required();
-}
-```
+### Schema Definition
 
-✅ **CORRECT (v0.2.0 pattern)**:
 ```php
 protected function defineSchema(JsonSchema $schema): array
 {
@@ -257,36 +266,10 @@ Available JsonSchema field types:
 
 ### Required Method Signatures
 
-All tool methods MUST have exact signatures:
-
 ```php
-abstract protected function getToolName(): string;
-abstract protected function getToolDescription(): string;
+// Provided via #[Name] and #[Description] attributes — no methods needed
 abstract protected function defineSchema(JsonSchema $schema): array;
-abstract protected function execute(array $arguments): array;
-```
-
-### Dry-Run Support
-
-For tools that modify data, add dry-run support:
-
-```php
-protected function defineSchema(JsonSchema $schema): array
-{
-    return array_merge([
-        'handle' => JsonSchema::string()->description('Blueprint handle')->required(),
-        'title' => JsonSchema::string()->description('Blueprint title'),
-    ], $this->addDryRunSchema());
-}
-
-protected function execute(array $arguments): array
-{
-    if ($this->isDryRun($arguments)) {
-        return $this->simulateOperation('create_blueprint', [$arguments['handle']]);
-    }
-
-    // Actual implementation
-}
+abstract protected function executeInternal(array $arguments): array;
 ```
 
 ### Error Handling
@@ -306,86 +289,34 @@ return $this->createNotFoundResponse('Blueprint', $handle)->toArray();
 
 ### Tool Annotations
 
-Available annotations:
+Available annotations/attributes:
+- `#[Name('tool-name')]` - Tool name (required)
+- `#[Description('...')]` - Tool description (required)
 - `#[IsReadOnly]` - Tool only reads data
 - `#[IsIdempotent]` - Tool can be called multiple times safely
-- `#[Title('Custom Title')]` - Override tool title
 
 ### Important Implementation Notes
 
-Since this addon builds on Laravel's MCP server, ensure that:
-1. MCP server configurations and handlers are properly registered in the ServiceProvider
-2. Any Statamic-specific MCP extensions are documented
-3. The addon follows both Statamic addon conventions and MCP server patterns
-4. **NEVER override the `handle()` method** - Laravel MCP v0.2.0 handles tool execution automatically
-
-### Common Migration Patterns (v0.1.x → v0.2.0)
-
-When updating existing tools, follow these patterns:
-
-**Import Changes:**
-```php
-// OLD v0.1.x
-use Laravel\Mcp\Server\Tools\ToolInputSchema;
-use Laravel\Mcp\Server\Tools\ToolResult;
-
-// NEW v0.2.0
-use Illuminate\JsonSchema\JsonSchema;
-// No ToolResult needed - handled automatically
-```
-
-**Method Signature Changes:**
-```php
-// OLD v0.1.x
-protected function defineSchema(ToolInputSchema $schema): ToolInputSchema
-public function handle(array $arguments): ToolResult
-
-// NEW v0.2.0
-protected function defineSchema(JsonSchema $schema): array
-protected function execute(array $arguments): array
-```
-
-**Schema Definition Migration:**
-```php
-// OLD v0.1.x (fluent chaining)
-return $schema
-    ->string('handle')->description('Blueprint handle')->required()
-    ->boolean('include_details')->description('Include details')->optional();
-
-// NEW v0.2.0 (array format)
-return [
-    'handle' => JsonSchema::string()->description('Blueprint handle')->required(),
-    'include_details' => JsonSchema::boolean()->description('Include details'),
-];
-```
-
-**addDryRunSchema Migration:**
-```php
-// OLD v0.1.x
-return $this->addDryRunSchema($schema)
-    ->string('handle')->required();
-
-// NEW v0.2.0
-return array_merge([
-    'handle' => JsonSchema::string()->required(),
-], $this->addDryRunSchema());
-```
+1. MCP server configurations and handlers are registered in the ServiceProvider
+2. **NEVER override the `handle()` method** — BaseStatamicTool handles execution
+3. Tool names use hyphens: `statamic-blueprints`, `statamic-entries` (not dots)
+4. All tools must validate token scopes when accessed via web endpoint
 
 ### Validation Rules
 
 ✅ **DO:**
-- Always use `JsonSchema` static methods for field definitions
+- Use `#[Name]` and `#[Description]` attributes on tool classes
 - Return arrays from `defineSchema()`
+- Implement `executeInternal()` (not `execute()` or `handle()`)
 - Use `BaseStatamicTool` error response methods
 - Include proper PHPDoc type annotations
 - Use tool annotations for behavior (`#[IsReadOnly]`)
 
 ❌ **DON'T:**
-- Use fluent chaining (old v0.1.x pattern)
+- Define `getToolName()` or `getToolDescription()` methods
 - Override the `handle()` method
-- Import or use `ToolResult` class
-- Import or use `ToolInputSchema` class
-- Return non-array values from `defineSchema()`
+- Use dot-separated tool names (use hyphens)
+- Import or use `ToolResult` or `ToolInputSchema` classes
 
 ## CRITICAL: No Hardcoded Templates
 
@@ -492,18 +423,27 @@ This project follows strict separation of concerns between MCP tools, LLM, and p
 - **Determinism**: Same input → same output
 
 ### Required Output Contract for All Tools
+
+Success response:
 ```json
 {
-  "success": true/false,
+  "success": true,
   "data": {...},
   "meta": {
-    "statamic_version": "v5.46",
+    "statamic_version": "6.0.0",
     "laravel_version": "12.0",
     "timestamp": "2025-01-01T12:00:00Z",
     "tool": "tool_name"
-  },
-  "errors": [...],
-  "warnings": [...]
+  }
+}
+```
+
+Error response:
+```json
+{
+  "success": false,
+  "error": "Human-readable error message",
+  "code": "MACHINE_READABLE_CODE"
 }
 ```
 
@@ -517,14 +457,14 @@ This project follows strict separation of concerns between MCP tools, LLM, and p
 
 ## MCP Tools Architecture
 
-The MCP server is organized around **single-purpose tools** following the Command Pattern. Each tool performs one specific action with clear input/output schemas.
+The MCP server is organized around **domain router tools** following the Router Pattern. Each router handles all operations for its domain via an `action` parameter.
 
 ### Tool Naming Convention
-**Format**: `statamic.{domain}.{action}`
+**Format**: `statamic-{domain}`
 
 Where:
-- `domain` = The Statamic concept (blueprints, collections, entries, etc.)
-- `action` = The specific operation (list, get, create, update, delete, etc.)
+- `domain` = The Statamic concept (blueprints, entries, terms, globals, etc.)
+- Actions are passed as a parameter, not encoded in the tool name
 
 ### Modern Tool Architecture: Router Pattern
 
@@ -542,18 +482,13 @@ Where:
 Each domain has a **single router tool** that handles all operations within that domain:
 
 ```php
+use Laravel\Mcp\Server\Attributes\Description;
+use Laravel\Mcp\Server\Attributes\Name;
+
+#[Name('statamic-blueprints')]
+#[Description('Manage Statamic blueprints: list, get, create, update, delete, scan, generate, and analyze')]
 class BlueprintsRouter extends BaseStatamicTool
 {
-    protected function getToolName(): string
-    {
-        return 'statamic.blueprints';
-    }
-
-    protected function getToolDescription(): string
-    {
-        return 'Manage Statamic blueprints: list, get, create, update, delete, scan, generate, and analyze';
-    }
-
     protected function defineSchema(JsonSchema $schema): array
     {
         return [
@@ -575,7 +510,7 @@ class BlueprintsRouter extends BaseStatamicTool
         ];
     }
 
-    protected function execute(array $arguments): array
+    protected function executeInternal(array $arguments): array
     {
         $action = $arguments['action'];
 
@@ -611,50 +546,39 @@ class BlueprintsRouter extends BaseStatamicTool
 #### 1. 🏗️ **Facade Pattern** (for commonly used combinations)
 
 ```php
-class StatamicContentFacade extends BaseStatamicTool
+// Uses #[Name('statamic-content-facade')] and #[Description('...')] attributes
+class ContentFacadeRouter extends BaseRouter
 {
-    protected function getToolName(): string
-    {
-        return 'statamic.content.workflow';
-    }
-
     protected function defineSchema(JsonSchema $schema): array
     {
         return [
-            'workflow' => JsonSchema::string()
-                ->enum(['setup_collection', 'bulk_import', 'content_audit'])
+            'action' => JsonSchema::string()
+                ->description('Action to perform')
+                ->enum(['content_audit', 'cross_reference'])
                 ->required(),
-            'collection' => JsonSchema::string()->description('Collection handle'),
-            'data' => JsonSchema::array()->description('Data for operations'),
+            'filters' => JsonSchema::object()
+                ->description('Optional filter conditions to narrow the workflow scope'),
         ];
     }
 
-    protected function execute(array $arguments): array
+    protected function executeInternal(array $arguments): array
     {
-        return match ($arguments['workflow']) {
-            'setup_collection' => $this->setupCollection($arguments),
-            'bulk_import' => $this->bulkImport($arguments),
+        return match ($arguments['action']) {
             'content_audit' => $this->contentAudit($arguments),
+            'cross_reference' => $this->crossReference($arguments),
         };
     }
 
-    private function setupCollection(array $arguments): array
+    private function contentAudit(array $arguments): array
     {
-        // Orchestrates: create collection → create blueprint → create initial entries
-        $results = [];
+        // Scans all content for issues across collections, taxonomies, and globals
+        // Returns validation issues, missing references, orphaned content
+    }
 
-        $results['collection'] = $this->collectionRouter->execute([
-            'action' => 'create',
-            'handle' => $arguments['collection'],
-        ]);
-
-        $results['blueprint'] = $this->blueprintsRouter->execute([
-            'action' => 'create',
-            'handle' => $arguments['collection'],
-            'fields' => $arguments['fields'] ?? [],
-        ]);
-
-        return $results;
+    private function crossReference(array $arguments): array
+    {
+        // Analyzes relationships and dependencies between content types
+        // Returns relationship maps, dependency graphs, integrity checks
     }
 }
 ```
@@ -662,9 +586,10 @@ class StatamicContentFacade extends BaseStatamicTool
 #### 2. 🔗 **Chain of Responsibility** (for prioritized operations)
 
 ```php
+// Uses #[Name('statamic-validation-chain')] and #[Description('...')] attributes
 class StatamicValidationChain extends BaseStatamicTool
 {
-    protected function execute(array $arguments): array
+    protected function executeInternal(array $arguments): array
     {
         $validators = [
             new BlueprintValidator(),
@@ -695,6 +620,7 @@ class StatamicValidationChain extends BaseStatamicTool
 #### 3. 🎯 **Strategy Pattern** (for different implementations)
 
 ```php
+// Uses #[Name('statamic-export-strategy')] and #[Description('...')] attributes
 class StatamicExportStrategy extends BaseStatamicTool
 {
     protected function defineSchema(JsonSchema $schema): array
@@ -709,7 +635,7 @@ class StatamicExportStrategy extends BaseStatamicTool
         ];
     }
 
-    protected function execute(array $arguments): array
+    protected function executeInternal(array $arguments): array
     {
         $strategy = $this->getExportStrategy($arguments['strategy']);
 
@@ -731,35 +657,24 @@ class StatamicExportStrategy extends BaseStatamicTool
 }
 ```
 
-### New Tool Organization
+### Tool Organization (v2.0)
 
-#### Domain Routers (Core Tools)
-- `statamic.blueprints` - Blueprint management router
-- `statamic.collections` - Collection management router
-- `statamic.entries` - Entry management router
-- `statamic.taxonomies` - Taxonomy management router
-- `statamic.globals` - Global management router
-- `statamic.assets` - Asset management router
-- `statamic.users` - User management router
-- `statamic.system` - System operations router
+#### Domain Routers (Core Tools — MCP tool names use hyphens)
+- `statamic-blueprints` - Blueprint management router
+- `statamic-entries` - Entry CRUD with filtering and publishing workflows
+- `statamic-terms` - Taxonomy term management router
+- `statamic-globals` - Global set structure and values router
+- `statamic-structures` - Structural elements router (collections, taxonomies, navigations)
+- `statamic-assets` - Asset management router
+- `statamic-users` - User management router
+- `statamic-system` - System operations router
 
-#### Workflow Facades (Common Combinations)
-- `statamic.content.workflow` - Common content workflows
-- `statamic.development.workflow` - Development workflows
-- `statamic.deployment.workflow` - Deployment workflows
+#### Agent Education Tools
+- `statamic-system-discover` - Intent-based tool discovery
+- `statamic-system-schema` - Tool schema inspection
 
-#### Specialized Tools
-- `statamic.validation.chain` - Validation chain processor
-- `statamic.export.strategy` - Export strategy processor
-- `statamic.import.strategy` - Import strategy processor
-
-### Migration Strategy
-
-1. **Phase 1**: Create router tools for each domain
-2. **Phase 2**: Implement facade patterns for common workflows
-3. **Phase 3**: Add strategy patterns for configurable operations
-4. **Phase 4**: Retire single-purpose tools gradually
-5. **Phase 5**: Add chain of responsibility for complex validations
+#### Workflow Facades
+- `statamic-content-facade` - Common content workflows
 
 ### Benefits of Router Architecture:
 1. **Scalability**: Easy to add new actions without new tools
@@ -769,144 +684,29 @@ class StatamicExportStrategy extends BaseStatamicTool
 5. **Testing**: Easier to test complete domain functionality
 6. **Documentation**: Single place for all domain operations
 
-### Blueprint Tools ✅
-**Purpose**: Manage blueprint definitions and schema
+### Router Actions Reference
 
-- `statamic.blueprints.list` - List blueprints in specific namespaces with optional details
-- `statamic.blueprints.get` - Get specific blueprint with full field definitions
-- `statamic.blueprints.create` - Create new blueprint from field definitions
-- `statamic.blueprints.update` - Update existing blueprint fields
-- `statamic.blueprints.delete` - Delete blueprint with safety checks
-- `statamic.blueprints.scan` - Blueprint scanning with performance optimization
-- `statamic.blueprints.generate` - Generate blueprints from templates and field definitions
-- `statamic.blueprints.types` - Blueprint type analysis and TypeScript/PHP type generation
+**`statamic-blueprints`** — list, get, create, update, delete, scan, generate, types, validate
 
-### Taxonomy Tools ✅
-**Purpose**: Manage taxonomies and their terms
+**`statamic-entries`** — list, get, create, update, delete, publish, unpublish
 
-- `statamic.taxonomies.list` - List all taxonomies with filtering and metadata
-- `statamic.taxonomies.get` - Get specific taxonomy with detailed information
-- `statamic.taxonomies.create` - Create new taxonomies with configuration
-- `statamic.taxonomies.update` - Update taxonomy settings and associations
-- `statamic.taxonomies.delete` - Delete taxonomies with safety checks
-- `statamic.taxonomies.analyze` - Analyze taxonomy usage and term relationships
-- `statamic.taxonomies.terms` - List and manage terms within taxonomies
+**`statamic-terms`** — list, get, create, update, delete
 
-### Structure Tools ✅
-**Purpose**: Manage structural configurations (collections, forms, navigations, etc.)
+**`statamic-globals`** — list, get, update (global set values with multi-site support)
 
-- `statamic.structures.collections` - Collection configuration management
-- `statamic.structures.navigations` - Navigation structure management (coming soon)
-- `statamic.structures.forms` - Form configuration management (coming soon)
-- `statamic.structures.globals` - Global set configuration management (coming soon)
-- `statamic.structures.assets` - Asset container configuration (coming soon)
+**`statamic-structures`** — list/get/create for collections, taxonomies, navigations, and sites (via `type` param)
 
-### Entry Tools ✅
-**Purpose**: Manage entries across all collections
+**`statamic-assets`** — list/get/create/update/delete/upload/move/copy for containers and assets (via `type` param)
 
-- `statamic.entries.list` - List entries with filtering, search, and pagination
-- `statamic.entries.get` - Get specific entry with full data and relationships
-- `statamic.entries.create` - Create new entries with validation and blueprint compliance
-- `statamic.entries.update` - Update existing entries with merge options and validation
-- `statamic.entries.delete` - Delete entries with safety checks and relationship validation
-- `statamic.entries.publish` - Publish draft entries with validation
-- `statamic.entries.unpublish` - Unpublish entries with safety checks
+**`statamic-users`** — list, get, create, update, delete, assign-role for users, roles, and groups (via `type` param)
 
-### Term Tools ✅
-**Purpose**: Manage taxonomy terms across all taxonomies
+**`statamic-system`** — system info, health checks, cache management, config access (via `type` param)
 
-- `statamic.terms.list` - List terms with filtering, search, and pagination
-- `statamic.terms.get` - Get specific term with full data and related entries
-- `statamic.terms.create` - Create new terms with validation and slug conflict checking
-- `statamic.terms.update` - Update existing terms with merge options and validation
-- `statamic.terms.delete` - Delete terms with safety checks and dependency validation
+**`statamic-content-facade`** — high-level analysis workflows: content_audit, cross_reference
 
-### Global Tools ✅
-**Purpose**: Manage global sets (structure) and global values (content)
+**`statamic-system-discover`** — intent-based tool and action discovery
 
-**Global Sets (Structure Management)**:
-- `statamic.globals.sets.list` - List all global sets with configuration and blueprint info
-- `statamic.globals.sets.get` - Get specific global set structure with detailed field definitions
-- `statamic.globals.sets.create` - Create new global sets with blueprint support and initial values
-- `statamic.globals.sets.delete` - Delete global sets with backup options and safety checks
-
-**Global Values (Content Management)**:
-- `statamic.globals.values.list` - List global values across all sets and sites with filtering
-- `statamic.globals.values.get` - Get specific global values from a set with field filtering
-- `statamic.globals.values.update` - Update global values with validation, merge options, and change tracking
-
-**Key Features**:
-- **Clear Separation**: Structure (sets) vs Content (values) with distinct tool namespaces
-- **Multi-site Support**: Full localization support across all sites
-- **Blueprint Integration**: Automatic field validation against blueprints
-- **Change Tracking**: Detailed change logs for all value updates
-- **Backup Options**: Optional backup creation before destructive operations
-- **Performance Optimized**: Pagination and filtering for large global datasets
-
-### Navigation Tools ✅
-**Purpose**: Manage navigation structures
-
-- `statamic.navigation.list` - List navigation trees with full structure
-
-### Other Content Tools
-**Purpose**: Additional content management capabilities
-
-- `statamic.content.assets` - Asset CRUD operations (coming soon)
-- `statamic.content.submissions` - Form submission management (coming soon)
-- `statamic.content.users` - User content management (coming soon)
-
-### Tag Tools ✅
-**Purpose**: Manage Statamic tags for both Antlers and Blade
-
-- `statamic.tags.list` - Tag discovery, creation, and management for both Antlers and Blade
-
-### Modifier Tools ✅
-**Purpose**: Manage template modifiers
-
-- `statamic.modifiers.list` - Modifier discovery, creation, and usage examples
-
-### Field Type Tools ✅
-**Purpose**: Manage custom field types
-
-- `statamic.fieldtypes.list` - Field type discovery, creation, and configuration options
-
-### Scope Tools ✅
-**Purpose**: Manage query scopes
-
-- `statamic.scopes.list` - Query scope discovery and creation
-
-### Filter Tools ✅
-**Purpose**: Manage collection filters
-
-- `statamic.filters.list` - Filter discovery and creation
-
-### Development Tools ✅
-**Purpose**: Developer experience and tooling with advanced optimization
-
-**Template Development & Optimization**:
-- `statamic.development.templates` - Template hints with performance analysis and edge case warnings
-- `statamic.development.antlers-validate` - Advanced Antlers template validation with performance analysis
-- `statamic.development.blade-lint` - Comprehensive Blade linting with policy enforcement and performance analysis
-
-**Advanced Features**:
-- **OptimizedTemplateAnalyzer**: Detects N+1 queries, nested loops, excessive partials, and edge cases
-- **Performance Analysis**: Identifies memory issues, recursive partials, and XSS vulnerabilities
-- **Edge Case Detection**: Infinite loop risks, unescaped output, and caching conflicts
-- **Optimization Suggestions**: Severity-based recommendations (Critical, High, Medium, Low)
-- **Security Scanning**: XSS detection, input sanitization checks, and security best practices
-- **Blueprint Integration**: Template validation against blueprint field definitions
-
-**Additional Tools**:
-- `statamic.development.addons` - Addon development, analysis, and scaffolding
-- `statamic.development.types` - TypeScript/PHP type generation from blueprints (coming soon)
-- `statamic.development.console` - Artisan command execution and management (coming soon)
-
-### System Tools ✅
-**Purpose**: System management and operations
-
-- `statamic.system.info` - Comprehensive system analysis and health checks
-- `statamic.system.cache` - Advanced cache management with selective clearing and warming
-- `statamic.system.docs` - Documentation search and discovery (coming soon)
+**`statamic-system-schema`** — inspect full JSON schema of any registered tool
 
 ## Production-Ready Features
 
@@ -980,8 +780,7 @@ This project maintains high code quality through automated tools:
 - **Purpose**: Static analysis for type safety and bug detection
 - **Features**: Statamic-specific stubs and Laravel integration
 - **Run**: `composer stan` to analyze code
-- **Production Status**: **89% error reduction** achieved (from 38+ to 4 template type warnings)
-- **All critical errors resolved** for production deployment
+- **Status**: Zero errors — all files pass Level 8 analysis
 
 ### Quality Assurance Workflow
 ```bash
@@ -1010,20 +809,14 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseStatamicTool;
 use Illuminate\JsonSchema\JsonSchema;
+use Laravel\Mcp\Server\Attributes\Description;
+use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
+#[Name('statamic-domain')]
+#[Description('Manage domain resources: list, get, create, update, delete operations')]
 class DomainRouter extends BaseStatamicTool
 {
-    protected function getToolName(): string
-    {
-        return 'statamic.domain';
-    }
-
-    protected function getToolDescription(): string
-    {
-        return 'Manage domain resources: list, get, create, update, delete operations';
-    }
-
     protected function defineSchema(JsonSchema $schema): array
     {
         return [
@@ -1046,7 +839,7 @@ class DomainRouter extends BaseStatamicTool
      * @param  array<string, mixed>  $arguments
      * @return array<string, mixed>
      */
-    protected function execute(array $arguments): array
+    protected function executeInternal(array $arguments): array
     {
         $action = $arguments['action'];
 
@@ -1111,18 +904,13 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Workflows;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseStatamicTool;
 use Illuminate\JsonSchema\JsonSchema;
 
+use Laravel\Mcp\Server\Attributes\Description;
+use Laravel\Mcp\Server\Attributes\Name;
+
+#[Name('statamic-domain-workflow')]
+#[Description('Execute common domain workflows: setup, import, export, audit')]
 class WorkflowFacade extends BaseStatamicTool
 {
-    protected function getToolName(): string
-    {
-        return 'statamic.domain.workflow';
-    }
-
-    protected function getToolDescription(): string
-    {
-        return 'Execute common domain workflows: setup, import, export, audit';
-    }
-
     protected function defineSchema(JsonSchema $schema): array
     {
         return [
@@ -1137,7 +925,7 @@ class WorkflowFacade extends BaseStatamicTool
         ];
     }
 
-    protected function execute(array $arguments): array
+    protected function executeInternal(array $arguments): array
     {
         return match ($arguments['workflow']) {
             'setup' => $this->executeSetup($arguments),
@@ -1183,13 +971,13 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Strategies;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseStatamicTool;
 use Illuminate\JsonSchema\JsonSchema;
 
+use Laravel\Mcp\Server\Attributes\Description;
+use Laravel\Mcp\Server\Attributes\Name;
+
+#[Name('statamic-domain-strategy')]
+#[Description('Process data using configurable strategies')]
 class StrategyTool extends BaseStatamicTool
 {
-    protected function getToolName(): string
-    {
-        return 'statamic.domain.strategy';
-    }
-
     protected function defineSchema(JsonSchema $schema): array
     {
         return [
@@ -1205,7 +993,7 @@ class StrategyTool extends BaseStatamicTool
         ];
     }
 
-    protected function execute(array $arguments): array
+    protected function executeInternal(array $arguments): array
     {
         $strategy = $this->getStrategy($arguments['strategy']);
 
@@ -1225,9 +1013,19 @@ class StrategyTool extends BaseStatamicTool
         };
     }
 }
-``i`
+```
+
 ## Configuration
 
 The addon supports configuration via `config/statamic/mcp.php` for:
 - Primary templating language (Antlers/Blade preference)
 - Blade policy rules (forbidden patterns, preferred approaches)
+- Web MCP endpoint settings
+- API token configuration
+- Rate limiting and audit logging
+- Per-domain tool enablement
+- OAuth 2.1 settings (driver, TTLs, default scopes, max clients)
+- Storage drivers (FileTokenStore/DatabaseTokenStore, FileAuditStore/DatabaseAuditStore)
+- Storage paths for tokens, audit, and OAuth data
+- Tool env toggles (`STATAMIC_MCP_TOOL_{NAME}_ENABLED`)
+- Git automation events for token operations
