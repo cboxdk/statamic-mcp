@@ -34,20 +34,11 @@ class TokenController extends CpController
     {
         $this->authorize('create mcp tokens');
 
-        /** @var int $maxDays */
-        $maxDays = config('statamic.mcp.security.max_token_lifetime_days', 365);
-        $maxDate = (int) $maxDays > 0 ? now()->addDays((int) $maxDays)->toDateString() : null;
-
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'scopes' => ['required', 'array', 'min:1'],
             'scopes.*' => ['required', 'string'],
-            'expires_at' => array_filter([
-                'nullable',
-                'date',
-                'after:now',
-                $maxDate ? "before:{$maxDate}" : null,
-            ]),
+            'expires_at' => ['nullable', 'date', 'after:now'],
         ]);
 
         $scopes = TokenScope::resolveMany($validated['scopes']);
@@ -102,20 +93,11 @@ class TokenController extends CpController
             ], 404);
         }
 
-        /** @var int $maxDays */
-        $maxDays = config('statamic.mcp.security.max_token_lifetime_days', 365);
-        $maxDate = (int) $maxDays > 0 ? now()->addDays((int) $maxDays)->toDateString() : null;
-
         $validated = $request->validate([
             'name' => ['sometimes', 'required', 'string', 'max:255'],
             'scopes' => ['sometimes', 'required', 'array', 'min:1'],
             'scopes.*' => ['required', 'string'],
-            'expires_at' => array_filter([
-                'nullable',
-                'date',
-                'after:now',
-                $maxDate ? "before:{$maxDate}" : null,
-            ]),
+            'expires_at' => ['nullable', 'date', 'after:now'],
             'clear_expiry' => ['sometimes', 'boolean'],
         ]);
 
