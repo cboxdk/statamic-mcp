@@ -36,3 +36,5 @@ tests/__fixtures__/content/assets/*
 !tests/__fixtures__/content/assets/.gitkeep
 /backup/
 composer.phar
+
+.context
