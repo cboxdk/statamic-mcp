@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Console;
 
+use Cboxdk\StatamicMcp\OAuth\Drivers\DatabaseOAuthDriver;
+use Cboxdk\StatamicMcp\Storage\Audit\DatabaseAuditStore;
+use Cboxdk\StatamicMcp\Storage\Tokens\DatabaseTokenStore;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Process;
@@ -12,7 +15,7 @@ use function Laravel\Prompts\multiselect;
 
 class InstallCommand extends Command
 {
-    protected $signature = 'mcp:statamic:install {--force : Overwrite existing configuration} {--debug : Show debug information}';
+    protected $signature = 'mcp:statamic:install {--force : Overwrite existing configuration} {--skip-migrations : Skip database migrations} {--debug : Show debug information}';
 
     protected $description = 'Install and configure Statamic MCP Server for AI assistants';
 
@@ -39,39 +42,85 @@ class InstallCommand extends Command
         return 0;
     }
 
-    protected function publishConfiguration()
+    protected function publishConfiguration(): void
     {
         $this->info('📋 Publishing configuration...');
 
         $configExists = File::exists(config_path('statamic/mcp.php'));
+        $forcePublish = $this->option('force');
 
-        if ($configExists && ! $this->option('force')) {
+        if ($configExists && ! $forcePublish) {
             if (! $this->confirm('Configuration already exists. Overwrite?')) {
                 $this->info('⏭️  Skipping configuration publish.');
+                $this->newLine();
 
                 return;
             }
+
+            // User confirmed overwrite — force the publish
+            $forcePublish = true;
         }
 
         $this->call('vendor:publish', [
             '--tag' => 'statamic-mcp-config',
-            '--force' => $this->option('force'),
+            '--force' => $forcePublish,
         ]);
 
         $this->info('✅ Configuration published successfully.');
         $this->newLine();
     }
 
-    protected function runMigrations()
+    protected function runMigrations(): void
     {
+        if ($this->option('skip-migrations')) {
+            $this->info('⏭️  Skipping migrations (--skip-migrations flag).');
+            $this->newLine();
+
+            return;
+        }
+
+        if (! $this->requiresDatabaseMigrations()) {
+            $this->info('⏭️  Skipping migrations — file-based storage drivers configured (no database needed).');
+            $this->newLine();
+
+            return;
+        }
+
         $this->info('🗄️  Running migrations...');
 
-        $this->call('migrate', [
-            '--force' => $this->option('force'),
-        ]);
+        try {
+            $this->call('migrate', [
+                '--force' => $this->option('force'),
+            ]);
 
-        $this->info('✅ Migrations completed successfully.');
+            $this->info('✅ Migrations completed successfully.');
+        } catch (\Exception $e) {
+            $this->error('❌ Migration failed: ' . $e->getMessage());
+            $this->newLine();
+            $this->warn('💡 If you don\'t need database storage, set file-based drivers in config/statamic/mcp.php:');
+            $this->line('   \'stores\' => [');
+            $this->line('       \'tokens\' => \\Cboxdk\\StatamicMcp\\Storage\\Tokens\\FileTokenStore::class,');
+            $this->line('       \'audit\'  => \\Cboxdk\\StatamicMcp\\Storage\\Audit\\FileAuditStore::class,');
+            $this->line('   ]');
+            $this->newLine();
+            $this->warn('💡 Or re-run with: php artisan mcp:statamic:install --skip-migrations');
+        }
+
         $this->newLine();
+    }
+
+    /**
+     * Check if any configured storage driver requires database migrations.
+     */
+    protected function requiresDatabaseMigrations(): bool
+    {
+        $tokenDriver = config('statamic.mcp.stores.tokens');
+        $auditDriver = config('statamic.mcp.stores.audit');
+        $oauthDriver = config('statamic.mcp.oauth.driver');
+
+        return (is_string($tokenDriver) && is_a($tokenDriver, DatabaseTokenStore::class, true))
+            || (is_string($auditDriver) && is_a($auditDriver, DatabaseAuditStore::class, true))
+            || (is_string($oauthDriver) && is_a($oauthDriver, DatabaseOAuthDriver::class, true));
     }
 
     protected function configureAiAssistants()
@@ -563,7 +612,11 @@ class InstallCommand extends Command
 
         $this->info('📚 What was configured:');
         $this->line('  • Published MCP server configuration');
-        $this->line('  • Ran database migrations (MCP token storage)');
+        if ($this->requiresDatabaseMigrations() && ! $this->option('skip-migrations')) {
+            $this->line('  • Ran database migrations (MCP token storage)');
+        } else {
+            $this->line('  • Using file-based storage (no database required)');
+        }
         $this->line('  • Created AI assistant configurations where possible');
         $this->line('  • Added MCP guidelines for better AI understanding');
         $this->newLine();
