@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.2] - 2026-03-19
+
+### Fixed
+- Install command no longer crashes on sites without a database — migrations are now skipped automatically when file-based storage drivers are configured (the default)
+- Config publish prompt: confirming "Overwrite? yes" now actually overwrites the file (previously `--force` stayed false, so `vendor:publish` silently skipped it)
+- Migration failures are caught with actionable guidance instead of crashing the installer
+- Completion message now reflects what actually happened during install
+
+### Added
+- `--skip-migrations` flag on `mcp:statamic:install` as an explicit escape hatch
+
 ## [2.0.1] - 2026-03-18
 
 ### Fixed
