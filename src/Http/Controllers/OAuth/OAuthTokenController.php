@@ -7,8 +7,13 @@ namespace Cboxdk\StatamicMcp\Http\Controllers\OAuth;
 use Carbon\Carbon;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
+use Cboxdk\StatamicMcp\OAuth\Cimd\CimdClientId;
+use Cboxdk\StatamicMcp\OAuth\Cimd\CimdFetchException;
+use Cboxdk\StatamicMcp\OAuth\Cimd\CimdResolver;
+use Cboxdk\StatamicMcp\OAuth\Cimd\CimdValidationException;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
 use Cboxdk\StatamicMcp\OAuth\Exceptions\OAuthException;
+use Cboxdk\StatamicMcp\OAuth\OAuthClient;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -18,6 +23,7 @@ class OAuthTokenController extends Controller
     public function __construct(
         private readonly OAuthDriver $oauthDriver,
         private readonly TokenService $tokenService,
+        private readonly CimdResolver $cimdResolver,
     ) {}
 
     /**
@@ -113,7 +119,24 @@ class OAuthTokenController extends Controller
      */
     private function issueTokenResponse(string $clientId, string $userId, array $scopes): JsonResponse
     {
-        $client = $this->oauthDriver->findClient($clientId);
+        // Try to find client via DCR registry. findClient() throws OAuthException
+        // for URL-format client_ids (BuiltInOAuthDriver rejects non-filename identifiers),
+        // so we catch and treat as "not found" to allow CIMD fallback.
+        try {
+            $client = $this->oauthDriver->findClient($clientId);
+        } catch (OAuthException) {
+            $client = null;
+        }
+
+        // Fall back to CIMD resolution for URL-format client_ids
+        if ($client === null) {
+            $client = $this->resolveClientViaCimd($clientId);
+
+            if ($client instanceof JsonResponse) {
+                return $client;
+            }
+        }
+
         $clientName = $client !== null ? $client->clientName : 'OAuth Client';
 
         /** @var int $tokenTtl */
@@ -147,5 +170,38 @@ class OAuthTokenController extends Controller
             'refresh_token' => $refreshToken,
             'scope' => implode(' ', $scopes),
         ]);
+    }
+
+    /**
+     * Attempt to resolve a client_id via CIMD (Client ID Metadata Document).
+     *
+     * Returns an OAuthClient on success, null if the client_id is not a CIMD URL,
+     * or a JsonResponse error if CIMD resolution fails.
+     */
+    private function resolveClientViaCimd(string $clientId): OAuthClient|JsonResponse|null
+    {
+        $cimdClientId = CimdClientId::tryFrom($clientId);
+
+        if ($cimdClientId === null) {
+            return null;
+        }
+
+        if (config('statamic.mcp.oauth.cimd_enabled') !== true) {
+            return response()->json([
+                'error' => 'invalid_client',
+                'error_description' => 'CIMD client_id resolution is disabled.',
+            ], 400);
+        }
+
+        try {
+            $metadata = $this->cimdResolver->resolve($cimdClientId);
+        } catch (CimdFetchException|CimdValidationException) {
+            return response()->json([
+                'error' => 'invalid_client',
+                'error_description' => 'Failed to resolve CIMD client metadata.',
+            ], 400);
+        }
+
+        return OAuthClient::fromCimdMetadata($metadata);
     }
 }
