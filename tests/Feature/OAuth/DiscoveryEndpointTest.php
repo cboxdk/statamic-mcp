@@ -85,4 +85,29 @@ class DiscoveryEndpointTest extends TestCase
         $data = $response->json();
         $this->assertContains('S256', $data['code_challenge_methods_supported']);
     }
+
+    public function test_authorization_server_includes_cimd_support_when_enabled(): void
+    {
+        config()->set('statamic.mcp.oauth.cimd_enabled', true);
+
+        $response = $this->getJson('/.well-known/oauth-authorization-server');
+
+        $response->assertOk();
+
+        $data = $response->json();
+        $this->assertArrayHasKey('client_id_metadata_document_supported', $data);
+        $this->assertTrue($data['client_id_metadata_document_supported']);
+    }
+
+    public function test_authorization_server_excludes_cimd_support_when_disabled(): void
+    {
+        config()->set('statamic.mcp.oauth.cimd_enabled', false);
+
+        $response = $this->getJson('/.well-known/oauth-authorization-server');
+
+        $response->assertOk();
+
+        $data = $response->json();
+        $this->assertArrayNotHasKey('client_id_metadata_document_supported', $data);
+    }
 }
