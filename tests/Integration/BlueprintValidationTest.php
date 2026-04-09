@@ -7,6 +7,7 @@ namespace Cboxdk\StatamicMcp\Tests\Integration;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\BlueprintsRouter;
 use Cboxdk\StatamicMcp\Tests\Concerns\CreatesTestContent;
 use Cboxdk\StatamicMcp\Tests\TestCase;
+use Statamic\Facades\Blueprint;
 
 class BlueprintValidationTest extends TestCase
 {
@@ -279,7 +280,7 @@ class BlueprintValidationTest extends TestCase
         $bpHandle = "multitab_{$this->testId}";
 
         // Create a blueprint with multiple tabs via Statamic API directly
-        $blueprint = \Statamic\Facades\Blueprint::make($bpHandle)
+        $blueprint = Blueprint::make($bpHandle)
             ->setNamespace("collections.{$this->collectionHandle}")
             ->setContents([
                 'title' => 'Multi-Tab Blueprint',
@@ -333,7 +334,7 @@ class BlueprintValidationTest extends TestCase
         $this->assertCount(5, $fieldHandles);
 
         // Verify tab structure is preserved by reading the raw blueprint contents
-        $savedBlueprint = collect(\Statamic\Facades\Blueprint::in("collections.{$this->collectionHandle}")->all())
+        $savedBlueprint = collect(Blueprint::in("collections.{$this->collectionHandle}")->all())
             ->firstWhere('handle', $bpHandle);
         $this->assertNotNull($savedBlueprint);
         /** @var \Statamic\Fields\Blueprint $savedBlueprint */
