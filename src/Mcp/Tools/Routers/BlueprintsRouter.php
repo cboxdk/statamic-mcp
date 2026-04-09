@@ -65,7 +65,7 @@ class BlueprintsRouter extends BaseRouter
                     . 'list (namespace; optional: include_fields), '
                     . 'get (handle, namespace; requires collection_handle for collections namespace, taxonomy_handle for taxonomies namespace), '
                     . 'create (handle, namespace, fields — each field needs "handle" and "field" object with "type"), '
-                    . 'update (handle, namespace, fields), '
+                    . 'update (handle, namespace, fields — merges with existing fields by default; set replace_fields=true to replace all), '
                     . 'delete (handle, namespace), '
                     . 'scan (namespace), '
                     . 'types (namespace, output_format), '
@@ -89,8 +89,12 @@ class BlueprintsRouter extends BaseRouter
                 ->description(
                     'Array of field definition objects. Each MUST have "handle" (string) and "field" (object with at minimum a "type" key). '
                     . 'Use statamic-schema tool to see available field types. '
+                    . 'For update action: fields are MERGED with existing fields by default (existing fields are preserved, matching handles are updated). '
+                    . 'Set replace_fields=true to replace ALL fields instead. '
                     . 'Example: [{"handle": "title", "field": {"type": "text", "display": "Title"}}]'
                 ),
+            'replace_fields' => JsonSchema::boolean()
+                ->description('Only for update action: when true, replaces ALL blueprint fields with the provided fields instead of merging. Default: false (merge mode — existing fields are preserved)'),
             'include_details' => JsonSchema::boolean()
                 ->description('Include field type and configuration details in response. Default: false for list, true for get'),
             'include_fields' => JsonSchema::boolean()
@@ -632,7 +636,16 @@ class BlueprintsRouter extends BaseRouter
                 }
                 /** @var array<int, array{handle: string, field: array<string, mixed>}> $validatedFields */
                 $validatedFields = $validationResult['validated'];
-                $contents['fields'] = $validatedFields;
+
+                $replaceFields = isset($arguments['replace_fields']) && $arguments['replace_fields'] === true;
+
+                if ($replaceFields) {
+                    // Remove tabs structure and set flat fields — Statamic will re-normalize
+                    unset($contents['tabs']);
+                    $contents['fields'] = $validatedFields;
+                } else {
+                    $contents = $this->mergeFieldsIntoContents($contents, $validatedFields);
+                }
             }
 
             $blueprint->setContents($contents);
@@ -951,6 +964,105 @@ class BlueprintsRouter extends BaseRouter
         }
 
         return $blueprints;
+    }
+
+    /**
+     * Merge new fields into existing blueprint contents, preserving tab/section structure.
+     *
+     * Updated fields are replaced in-place within their original tab/section.
+     * New fields are appended to the first section of the first tab.
+     *
+     * @param  array<string, mixed>  $contents
+     * @param  array<int, array{handle: string, field: array<string, mixed>}>  $newFields
+     *
+     * @return array<string, mixed>
+     */
+    private function mergeFieldsIntoContents(array $contents, array $newFields): array
+    {
+        // Index new fields by handle for quick lookup
+        /** @var array<string, array{handle: string, field: array<string, mixed>}> $newByHandle */
+        $newByHandle = [];
+        foreach ($newFields as $field) {
+            $newByHandle[$field['handle']] = $field;
+        }
+
+        // If contents has tabs structure, merge into it preserving organization
+        if (isset($contents['tabs']) && is_array($contents['tabs'])) {
+            /** @var array<string, array<string, mixed>> $tabs */
+            $tabs = $contents['tabs'];
+            $handlesUpdated = [];
+
+            // Walk through tabs → sections → fields and update matching handles in-place
+            foreach ($tabs as $tabName => $tab) {
+                if (! isset($tab['sections']) || ! is_array($tab['sections'])) {
+                    continue;
+                }
+                /** @var array<int, array<string, mixed>> $sections */
+                $sections = $tab['sections'];
+                foreach ($sections as $sectionIndex => $section) {
+                    if (! isset($section['fields']) || ! is_array($section['fields'])) {
+                        continue;
+                    }
+                    /** @var array<int, mixed> $sectionFields */
+                    $sectionFields = $section['fields'];
+                    foreach ($sectionFields as $fieldIndex => $existingField) {
+                        if (! is_array($existingField)) {
+                            continue;
+                        }
+                        $handle = $existingField['handle'] ?? null;
+                        if (is_string($handle) && isset($newByHandle[$handle])) {
+                            $sectionFields[$fieldIndex] = $newByHandle[$handle];
+                            $handlesUpdated[] = $handle;
+                        }
+                    }
+                    $sections[$sectionIndex]['fields'] = $sectionFields;
+                }
+                $tabs[$tabName]['sections'] = $sections;
+            }
+
+            // Append truly new fields (not updates) to the first section of the first tab
+            $remainingNew = array_diff_key($newByHandle, array_flip($handlesUpdated));
+            if ($remainingNew !== []) {
+                $firstTab = array_key_first($tabs);
+                if ($firstTab !== null) {
+                    $firstSections = $tabs[$firstTab]['sections'] ?? null;
+                    if (is_array($firstSections) && isset($firstSections[0]) && is_array($firstSections[0])) {
+                        $appendFields = is_array($firstSections[0]['fields'] ?? null) ? $firstSections[0]['fields'] : [];
+                        foreach ($remainingNew as $field) {
+                            $appendFields[] = $field;
+                        }
+                        $firstSections[0]['fields'] = $appendFields;
+                        $tabs[$firstTab]['sections'] = $firstSections;
+                    }
+                }
+            }
+
+            $contents['tabs'] = $tabs;
+
+            return $contents;
+        }
+
+        // Fallback: contents uses flat fields array (pre-normalization or simple blueprint)
+        /** @var array<string, array{handle: string, field: array<string, mixed>}> $existingByHandle */
+        $existingByHandle = [];
+        $existingFields = isset($contents['fields']) && is_array($contents['fields']) ? $contents['fields'] : [];
+        foreach ($existingFields as $existingField) {
+            if (! is_array($existingField)) {
+                continue;
+            }
+            $fieldHandle = $existingField['handle'] ?? null;
+            if (is_string($fieldHandle)) {
+                $existingByHandle[$fieldHandle] = $existingField;
+            }
+        }
+
+        foreach ($newByHandle as $handle => $field) {
+            $existingByHandle[$handle] = $field;
+        }
+
+        $contents['fields'] = array_values($existingByHandle);
+
+        return $contents;
     }
 
     /**
