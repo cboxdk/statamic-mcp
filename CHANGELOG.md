@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.3] - 2026-04-09
+
+### Fixed
+- **Critical:** Blueprint update action no longer destroys existing fields — fields are now merged by default instead of replaced
+- Blueprint update preserves tab and section organization in multi-tab blueprints
+
+### Added
+- `replace_fields` parameter on blueprint update for explicit full-replacement when needed
+
 ## [2.0.2] - 2026-03-19
 
 ### Fixed
