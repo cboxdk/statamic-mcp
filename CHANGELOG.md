@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.4] - 2026-04-10
+
+### Fixed
+- **Critical:** Entry creation no longer crashes with "Cannot access offset of type string on string" when data contains complex nested fields (Bard, Replicator)
+- Date fields now accept any common format (Y-m-d, Y-m-d H:i, ISO 8601, `{date, time}` objects) — values are normalized to the Zulu format Statamic expects before validation
+- `date` and `published` in entry data are now correctly extracted as first-class entry properties instead of failing blueprint validation on dated collections
+
+### Added
+- `NormalizesDateFields` trait for consistent date handling across all routers (Entries, Terms, Globals)
+- 13 new integration tests covering date normalization, published extraction, and error handling
+
 ## [2.0.3] - 2026-04-09
 
 ### Fixed
