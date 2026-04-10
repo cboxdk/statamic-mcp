@@ -6,6 +6,7 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
+use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\NormalizesDateFields;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\Validation\ValidationException;
@@ -19,6 +20,7 @@ use Statamic\Fields\Validator;
 class GlobalsRouter extends BaseRouter
 {
     use ClearsCaches;
+    use NormalizesDateFields;
 
     protected function getDomain(): string
     {
@@ -274,21 +276,26 @@ class GlobalsRouter extends BaseRouter
             }
 
             if (! empty($data)) {
+                // Normalize date field values to the format Statamic expects
+                $data = $this->normalizeDateFields($blueprint, $data);
+
                 // Merge new data with existing for full blueprint validation
                 /** @var array<string, mixed> $mergedData */
                 $mergedData = array_merge($variables->data()->all(), $data);
 
-                $fieldsValidator = (new Validator)
-                    ->fields($blueprint->fields()->addValues($mergedData))
-                    ->withContext([
-                        'global_set' => $globalSet,
-                        'site' => $site,
-                    ]);
-
                 try {
+                    $fieldsValidator = (new Validator)
+                        ->fields($blueprint->fields()->addValues($mergedData))
+                        ->withContext([
+                            'global_set' => $globalSet,
+                            'site' => $site,
+                        ]);
+
                     $fieldsValidator->validate();
                 } catch (ValidationException $e) {
                     return $this->formatValidationError($e);
+                } catch (\Throwable $e) {
+                    return $this->createErrorResponse('Failed to process global data: ' . $e->getMessage())->toArray();
                 }
             }
 

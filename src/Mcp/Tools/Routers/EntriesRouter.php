@@ -6,6 +6,7 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
+use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\NormalizesDateFields;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\Support\Facades\Validator;
@@ -23,6 +24,7 @@ use Statamic\Support\Str;
 class EntriesRouter extends BaseRouter
 {
     use ClearsCaches;
+    use NormalizesDateFields;
 
     protected function getDomain(): string
     {
@@ -324,6 +326,24 @@ class EntriesRouter extends BaseRouter
                 $entry->slug(Str::slug(is_string($titleValue) ? $titleValue : ''));
             }
 
+            // Extract published — it's a first-class entry property, not a data field
+            if (array_key_exists('published', $data)) {
+                $entry->published((bool) $data['published']);
+                unset($data['published']);
+            }
+
+            // For dated collections, parse the date and set it on the entry.
+            // Keep a normalized copy in data so the FieldsValidator sees the required field.
+            if (array_key_exists('date', $data) && $collection->dated()) {
+                try {
+                    $parsedDate = $this->parseDateValue($data['date']);
+                    $entry->date($parsedDate);
+                    $data['date'] = $parsedDate->format('Y-m-d\TH:i:s.v\Z');
+                } catch (\Throwable $e) {
+                    return $this->createErrorResponse("Invalid date value: {$e->getMessage()}")->toArray();
+                }
+            }
+
             // Get blueprint and validate field data
             $blueprint = $entry->blueprint();
 
@@ -332,6 +352,9 @@ class EntriesRouter extends BaseRouter
             }
 
             if (! empty($data)) {
+                // Normalize date field values to the format Statamic expects
+                $data = $this->normalizeDateFields($blueprint, $data);
+
                 // Add slug to data for validation if it's set
                 $dataWithSlug = $data;
                 if ($entry->slug()) {
@@ -339,21 +362,23 @@ class EntriesRouter extends BaseRouter
                 }
 
                 // Use Statamic's Fields Validator for blueprint-based validation
-                $fieldsValidator = (new FieldsValidator)
-                    ->fields($blueprint->fields()->addValues($dataWithSlug))
-                    ->withContext([
-                        'entry' => $entry,
-                        'collection' => $collection,
-                        'site' => $site,
-                    ]);
-
                 try {
+                    $fieldsValidator = (new FieldsValidator)
+                        ->fields($blueprint->fields()->addValues($dataWithSlug))
+                        ->withContext([
+                            'entry' => $entry,
+                            'collection' => $collection,
+                            'site' => $site,
+                        ]);
+
                     $validatedData = $fieldsValidator->validate();
-                    // Remove slug from validated data since it's handled separately
-                    unset($validatedData['slug']);
+                    // Remove entry-level properties from validated data
+                    unset($validatedData['slug'], $validatedData['date']);
                     $entry->data($validatedData);
                 } catch (ValidationException $e) {
                     return $this->formatValidationError($e);
+                } catch (\Throwable $e) {
+                    return $this->createErrorResponse('Failed to process entry data: ' . $e->getMessage())->toArray();
                 }
             } else {
                 $entry->data($data);
@@ -414,6 +439,24 @@ class EntriesRouter extends BaseRouter
                 }
             }
 
+            // Extract published — it's a first-class entry property
+            if (array_key_exists('published', $data)) {
+                $entry->published((bool) $data['published']);
+                unset($data['published']);
+            }
+
+            // For dated collections, parse the date and set it on the entry.
+            // Keep a normalized copy in data so the FieldsValidator sees the required field.
+            if (array_key_exists('date', $data) && $entry->collection()->dated()) {
+                try {
+                    $parsedDate = $this->parseDateValue($data['date']);
+                    $entry->date($parsedDate);
+                    $data['date'] = $parsedDate->format('Y-m-d\TH:i:s.v\Z');
+                } catch (\Throwable $e) {
+                    return $this->createErrorResponse("Invalid date value: {$e->getMessage()}")->toArray();
+                }
+            }
+
             // Validate data against blueprint before saving
             $blueprint = $entry->blueprint();
 
@@ -422,25 +465,33 @@ class EntriesRouter extends BaseRouter
             }
 
             if (! empty($data)) {
+                // Normalize date field values to the format Statamic expects
+                $data = $this->normalizeDateFields($blueprint, $data);
+
                 // Merge new data with existing for full blueprint validation
                 // Include slug since blueprint validates it as required
                 /** @var array<string, mixed> $mergedData */
                 $mergedData = array_merge($entry->data()->all(), $data);
                 $mergedData['slug'] = $entry->slug();
 
-                $fieldsValidator = (new FieldsValidator)
-                    ->fields($blueprint->fields()->addValues($mergedData))
-                    ->withContext([
-                        'entry' => $entry,
-                        'collection' => $entry->collection(),
-                        'site' => $site,
-                    ]);
-
                 try {
+                    $fieldsValidator = (new FieldsValidator)
+                        ->fields($blueprint->fields()->addValues($mergedData))
+                        ->withContext([
+                            'entry' => $entry,
+                            'collection' => $entry->collection(),
+                            'site' => $site,
+                        ]);
+
                     $fieldsValidator->validate();
                 } catch (ValidationException $e) {
                     return $this->formatValidationError($e);
+                } catch (\Throwable $e) {
+                    return $this->createErrorResponse('Failed to process entry data: ' . $e->getMessage())->toArray();
                 }
+
+                // Remove date from merge data — it's already set on the entry
+                unset($data['date']);
             }
 
             $entry->merge($data)->save();

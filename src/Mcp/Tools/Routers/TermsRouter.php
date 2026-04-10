@@ -6,6 +6,7 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
+use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\NormalizesDateFields;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\Support\Facades\Validator;
@@ -23,6 +24,7 @@ use Statamic\Support\Str;
 class TermsRouter extends BaseRouter
 {
     use ClearsCaches;
+    use NormalizesDateFields;
 
     protected function getDomain(): string
     {
@@ -335,6 +337,9 @@ class TermsRouter extends BaseRouter
             }
 
             if (! empty($data)) {
+                // Normalize date field values to the format Statamic expects
+                $data = $this->normalizeDateFields($blueprint, $data);
+
                 // Add slug to data for validation if it's set
                 $dataWithSlug = $data;
                 if ($term->slug()) {
@@ -342,21 +347,23 @@ class TermsRouter extends BaseRouter
                 }
 
                 // Use Statamic's Fields Validator for blueprint-based validation
-                $fieldsValidator = (new FieldsValidator)
-                    ->fields($blueprint->fields()->addValues($dataWithSlug))
-                    ->withContext([
-                        'term' => $term,
-                        'taxonomy' => $taxonomy,
-                        'site' => $site,
-                    ]);
-
                 try {
+                    $fieldsValidator = (new FieldsValidator)
+                        ->fields($blueprint->fields()->addValues($dataWithSlug))
+                        ->withContext([
+                            'term' => $term,
+                            'taxonomy' => $taxonomy,
+                            'site' => $site,
+                        ]);
+
                     $validatedData = $fieldsValidator->validate();
                     // Remove slug from validated data since it's handled separately
                     unset($validatedData['slug']);
                     $term->data($validatedData);
                 } catch (ValidationException $e) {
                     return $this->formatValidationError($e);
+                } catch (\Throwable $e) {
+                    return $this->createErrorResponse('Failed to process term data: ' . $e->getMessage())->toArray();
                 }
             } else {
                 $term->data($data);
@@ -439,24 +446,29 @@ class TermsRouter extends BaseRouter
             $validatedData = is_array($data) ? $data : [];
 
             if (! empty($validatedData)) {
+                // Normalize date field values to the format Statamic expects
+                $validatedData = $this->normalizeDateFields($blueprint, $validatedData);
+
                 // Merge new data with existing for full blueprint validation
                 // Include slug since blueprint validates it as required
                 /** @var array<string, mixed> $mergedData */
                 $mergedData = array_merge($term->data()->all(), $validatedData);
                 $mergedData['slug'] = $term->slug();
 
-                $fieldsValidator = (new FieldsValidator)
-                    ->fields($blueprint->fields()->addValues($mergedData))
-                    ->withContext([
-                        'term' => $term,
-                        'taxonomy' => Taxonomy::find(is_string($taxonomy) ? $taxonomy : ''),
-                        'site' => $site,
-                    ]);
-
                 try {
+                    $fieldsValidator = (new FieldsValidator)
+                        ->fields($blueprint->fields()->addValues($mergedData))
+                        ->withContext([
+                            'term' => $term,
+                            'taxonomy' => Taxonomy::find(is_string($taxonomy) ? $taxonomy : ''),
+                            'site' => $site,
+                        ]);
+
                     $fieldsValidator->validate();
                 } catch (ValidationException $e) {
                     return $this->formatValidationError($e);
+                } catch (\Throwable $e) {
+                    return $this->createErrorResponse('Failed to process term data: ' . $e->getMessage())->toArray();
                 }
             }
 
