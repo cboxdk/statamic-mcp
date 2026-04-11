@@ -7,6 +7,7 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\NormalizesDateFields;
+use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\SanitizesFieldData;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\Support\Facades\Validator;
@@ -25,6 +26,7 @@ class EntriesRouter extends BaseRouter
 {
     use ClearsCaches;
     use NormalizesDateFields;
+    use SanitizesFieldData;
 
     protected function getDomain(): string
     {
@@ -352,6 +354,9 @@ class EntriesRouter extends BaseRouter
             }
 
             if (! empty($data)) {
+                // Strip entry-level metadata and coerce values to expected types
+                $data = $this->sanitizeIncomingFieldData($blueprint, $data);
+
                 // Normalize date field values to the format Statamic expects
                 $data = $this->normalizeDateFields($blueprint, $data);
 
@@ -465,6 +470,9 @@ class EntriesRouter extends BaseRouter
             }
 
             if (! empty($data)) {
+                // Strip entry-level metadata and coerce values to expected types
+                $data = $this->sanitizeIncomingFieldData($blueprint, $data);
+
                 // Normalize date field values to the format Statamic expects
                 $data = $this->normalizeDateFields($blueprint, $data);
 
@@ -473,6 +481,11 @@ class EntriesRouter extends BaseRouter
                 /** @var array<string, mixed> $mergedData */
                 $mergedData = array_merge($entry->data()->all(), $data);
                 $mergedData['slug'] = $entry->slug();
+
+                // Sanitize the merged data — existing entry values may be in
+                // legacy formats (e.g. plain strings for Bard fields) that
+                // crash Statamic's preProcessValidatable() pipeline.
+                $mergedData = $this->sanitizeStoredFieldDataForValidation($blueprint, $mergedData);
 
                 try {
                     $fieldsValidator = (new FieldsValidator)

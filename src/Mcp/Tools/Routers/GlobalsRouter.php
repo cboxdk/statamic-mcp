@@ -7,6 +7,7 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\NormalizesDateFields;
+use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\SanitizesFieldData;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\Validation\ValidationException;
@@ -21,6 +22,7 @@ class GlobalsRouter extends BaseRouter
 {
     use ClearsCaches;
     use NormalizesDateFields;
+    use SanitizesFieldData;
 
     protected function getDomain(): string
     {
@@ -276,12 +278,18 @@ class GlobalsRouter extends BaseRouter
             }
 
             if (! empty($data)) {
+                // Strip entry-level metadata and coerce values to expected types
+                $data = $this->sanitizeIncomingFieldData($blueprint, $data);
+
                 // Normalize date field values to the format Statamic expects
                 $data = $this->normalizeDateFields($blueprint, $data);
 
                 // Merge new data with existing for full blueprint validation
                 /** @var array<string, mixed> $mergedData */
                 $mergedData = array_merge($variables->data()->all(), $data);
+
+                // Sanitize merged data — existing values may be in legacy formats
+                $mergedData = $this->sanitizeStoredFieldDataForValidation($blueprint, $mergedData);
 
                 try {
                     $fieldsValidator = (new Validator)

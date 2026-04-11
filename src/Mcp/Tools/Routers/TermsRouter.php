@@ -7,6 +7,7 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\NormalizesDateFields;
+use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\SanitizesFieldData;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\Support\Facades\Validator;
@@ -25,6 +26,7 @@ class TermsRouter extends BaseRouter
 {
     use ClearsCaches;
     use NormalizesDateFields;
+    use SanitizesFieldData;
 
     protected function getDomain(): string
     {
@@ -337,6 +339,9 @@ class TermsRouter extends BaseRouter
             }
 
             if (! empty($data)) {
+                // Strip entry-level metadata and coerce values to expected types
+                $data = $this->sanitizeIncomingFieldData($blueprint, $data);
+
                 // Normalize date field values to the format Statamic expects
                 $data = $this->normalizeDateFields($blueprint, $data);
 
@@ -446,6 +451,9 @@ class TermsRouter extends BaseRouter
             $validatedData = is_array($data) ? $data : [];
 
             if (! empty($validatedData)) {
+                // Strip entry-level metadata and coerce values to expected types
+                $validatedData = $this->sanitizeIncomingFieldData($blueprint, $validatedData);
+
                 // Normalize date field values to the format Statamic expects
                 $validatedData = $this->normalizeDateFields($blueprint, $validatedData);
 
@@ -454,6 +462,9 @@ class TermsRouter extends BaseRouter
                 /** @var array<string, mixed> $mergedData */
                 $mergedData = array_merge($term->data()->all(), $validatedData);
                 $mergedData['slug'] = $term->slug();
+
+                // Sanitize merged data — existing values may be in legacy formats
+                $mergedData = $this->sanitizeStoredFieldDataForValidation($blueprint, $mergedData);
 
                 try {
                     $fieldsValidator = (new FieldsValidator)
@@ -472,7 +483,7 @@ class TermsRouter extends BaseRouter
                 }
             }
 
-            $term->merge($data)->save();
+            $term->merge($validatedData)->save();
 
             // Clear relevant caches
             $this->clearStatamicCaches(['stache', 'static']);
