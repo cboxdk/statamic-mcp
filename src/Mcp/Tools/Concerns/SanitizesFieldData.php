@@ -104,7 +104,7 @@ trait SanitizesFieldData
             'grid' => $this->sanitizeGridValue($field, $value, $allowLegacyCoercion, $path),
             'replicator' => $this->sanitizeReplicatorValue($field, $value, $allowLegacyCoercion, $path),
             'table' => $this->sanitizeArrayValue('table', $value, $allowLegacyCoercion, $path),
-            'terms', 'entries', 'users', 'assets' => $this->sanitizeRelationshipValue($value),
+            'terms', 'entries', 'users', 'assets', 'checkboxes' => $this->sanitizeRelationshipValue($value),
             default => $value,
         };
     }

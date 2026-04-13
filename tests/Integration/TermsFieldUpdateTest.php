@@ -6,8 +6,10 @@ namespace Cboxdk\StatamicMcp\Tests\Integration;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\EntriesRouter;
 use Cboxdk\StatamicMcp\Tests\TestCase;
+use Statamic\Facades\Blueprint;
 use Statamic\Facades\Blueprint as BlueprintFacade;
 use Statamic\Facades\Collection as CollectionFacade;
+use Statamic\Facades\Entry;
 use Statamic\Facades\Entry as EntryFacade;
 use Statamic\Facades\Taxonomy as TaxonomyFacade;
 use Statamic\Facades\Term as TermFacade;
@@ -239,5 +241,50 @@ class TermsFieldUpdateTest extends TestCase
         /** @var array<string, mixed> $data */
         $data = $result['data'];
         $this->assertTrue($data['created'] ?? false);
+    }
+
+    /**
+     * Checkboxes field should accept a bare string and normalize to array.
+     */
+    public function test_update_entry_with_checkboxes_string(): void
+    {
+        // Add a checkboxes field to blueprint
+        $blueprint = Blueprint::find("collections.{$this->collectionHandle}.{$this->collectionHandle}");
+        $this->assertNotNull($blueprint);
+
+        $contents = $blueprint->contents();
+        $contents['tabs']['main']['sections'][0]['fields'][] = [
+            'handle' => 'features',
+            'field' => [
+                'type' => 'checkboxes',
+                'display' => 'Features',
+                'options' => [
+                    'fast' => 'Fast',
+                    'secure' => 'Secure',
+                    'reliable' => 'Reliable',
+                ],
+            ],
+        ];
+        $blueprint->setContents($contents);
+        $blueprint->save();
+
+        $entry = Entry::make()
+            ->collection($this->collectionHandle)
+            ->slug('checkbox-test')
+            ->data(['title' => 'Checkbox Test']);
+        $entry->save();
+
+        // Send checkboxes as a bare string (common LLM mistake)
+        $result = $this->router->execute([
+            'action' => 'update',
+            'collection' => $this->collectionHandle,
+            'id' => $entry->id(),
+            'data' => ['features' => 'fast'],
+        ]);
+
+        $this->assertTrue($result['success'], 'Checkboxes string should be normalized to array: ' . json_encode($result));
+        /** @var array<string, mixed> $data */
+        $data = $result['data'];
+        $this->assertTrue($data['updated'] ?? false);
     }
 }

@@ -7,6 +7,7 @@ namespace Cboxdk\StatamicMcp\Tests\Feature\Routers;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\StructuresRouter;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Statamic\Facades\Collection;
+use Statamic\Facades\Nav;
 use Statamic\Facades\Site;
 use Statamic\Facades\Taxonomy;
 
@@ -193,6 +194,106 @@ class StructuresRouterTest extends TestCase
 
         $this->assertFalse($result['success']);
         $this->assertStringContainsString('Navigation not found: nonexistent_navigation', $result['errors'][0]);
+    }
+
+    /**
+     * Taxonomy update should persist preview_targets and default_status.
+     */
+    public function test_update_taxonomy_persists_config_fields(): void
+    {
+        $taxonomy = Taxonomy::make('categories')->title('Categories');
+        $taxonomy->save();
+
+        $result = $this->router->execute([
+            'action' => 'update',
+            'resource_type' => 'taxonomy',
+            'handle' => 'categories',
+            'data' => [
+                'title' => 'Updated Categories',
+            ],
+        ]);
+
+        $this->assertTrue($result['success'], 'Taxonomy update should succeed: ' . json_encode($result));
+
+        $updated = Taxonomy::find('categories');
+        $this->assertNotNull($updated);
+        $this->assertEquals('Updated Categories', $updated->title());
+    }
+
+    /**
+     * Taxonomy create should accept preview_targets and default_status.
+     */
+    public function test_create_taxonomy_with_config_fields(): void
+    {
+        $result = $this->router->execute([
+            'action' => 'create',
+            'resource_type' => 'taxonomy',
+            'handle' => 'topics',
+            'data' => [
+                'handle' => 'topics',
+                'title' => 'Topics',
+            ],
+        ]);
+
+        $this->assertTrue($result['success'], 'Taxonomy create should succeed: ' . json_encode($result));
+
+        $created = Taxonomy::find('topics');
+        $this->assertNotNull($created);
+        $this->assertEquals('Topics', $created->title());
+    }
+
+    /**
+     * Navigation update should persist collections.
+     */
+    public function test_update_navigation_persists_collections(): void
+    {
+        $collection = Collection::make('pages')->title('Pages');
+        $collection->save();
+
+        $nav = Nav::make('main_nav');
+        $nav->title('Main Nav');
+        $nav->save();
+
+        $result = $this->router->execute([
+            'action' => 'update',
+            'resource_type' => 'navigation',
+            'handle' => 'main_nav',
+            'data' => ['collections' => ['pages']],
+        ]);
+
+        $this->assertTrue($result['success'], 'Navigation update should succeed: ' . json_encode($result));
+
+        $updated = Nav::find('main_nav');
+        $this->assertNotNull($updated);
+        $collectionHandles = $updated->collections()->map->handle()->all();
+        $this->assertContains('pages', $collectionHandles, 'Collections should be persisted on navigation');
+    }
+
+    /**
+     * Navigation create should accept collections.
+     */
+    public function test_create_navigation_with_collections(): void
+    {
+        $collection = Collection::make('posts')->title('Posts');
+        $collection->save();
+
+        $result = $this->router->execute([
+            'action' => 'create',
+            'resource_type' => 'navigation',
+            'handle' => 'footer_nav',
+            'data' => [
+                'handle' => 'footer_nav',
+                'title' => 'Footer Nav',
+                'collections' => ['posts'],
+            ],
+        ]);
+
+        $this->assertTrue($result['success'], 'Navigation create should succeed: ' . json_encode($result));
+
+        $created = Nav::find('footer_nav');
+        $this->assertNotNull($created);
+        $collectionHandles = $created->collections()->map->handle()->all();
+        $this->assertContains('posts', $collectionHandles, 'Collections should be set on new navigation');
     }
 
     /**

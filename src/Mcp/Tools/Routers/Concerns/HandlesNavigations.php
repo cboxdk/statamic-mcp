@@ -137,6 +137,10 @@ trait HandlesNavigations
                 $navigation->maxDepth($data['max_depth']);
             }
 
+            if (isset($data['collections']) && is_array($data['collections'])) {
+                $navigation->collections($data['collections']);
+            }
+
             $navigation->save();
 
             // Clear caches
@@ -180,6 +184,10 @@ trait HandlesNavigations
 
             if (isset($data['max_depth'])) {
                 $navigation->maxDepth($data['max_depth']);
+            }
+
+            if (isset($data['collections']) && is_array($data['collections'])) {
+                $navigation->collections($data['collections']);
             }
 
             $navigation->save();
