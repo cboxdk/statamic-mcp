@@ -487,9 +487,11 @@ class EntriesRouter extends BaseRouter
                 $mergedData = array_merge($entry->data()->all(), $data);
                 $mergedData['slug'] = $entry->slug();
 
-                // Sanitize the merged data — existing entry values may be in
-                // legacy formats (e.g. plain strings for Bard fields) that
-                // crash Statamic's preProcessValidatable() pipeline.
+                // Backward compat: entries saved by MCP prior to v2.1 were stored
+                // without the fieldtype process() step, so structured fields
+                // (Bard, group, etc.) may contain raw strings instead of arrays.
+                // This normalizes them for validation. Safe to remove once all
+                // MCP-created content has been re-saved.
                 $mergedData = $this->sanitizeStoredFieldDataForValidation($blueprint, $mergedData);
 
                 try {

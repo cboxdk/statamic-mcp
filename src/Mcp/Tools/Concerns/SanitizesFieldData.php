@@ -42,15 +42,21 @@ trait SanitizesFieldData
     }
 
     /**
-     * Sanitize persisted field data only for validation.
+     * Sanitize persisted field data only for validation (backward compat).
      *
-     * Legacy content may contain invalid scalar values that crash Statamic's
-     * `preProcessValidatable()` pipeline. This method normalizes those values
-     * in-memory so unrelated updates can be validated without mutating storage.
+     * Content saved by this addon prior to v2.1 was stored without the
+     * fieldtype process() step, so structured fields may contain raw
+     * strings that crash Statamic's preProcessValidatable() pipeline.
+     * This normalizes them in-memory so validation can proceed.
+     *
+     * Safe to remove once all MCP-created content has been re-saved
+     * through a version that includes the process() pipeline fix.
      *
      * @param  array<string, mixed>  $data
      *
      * @return array<string, mixed>
+     *
+     * @deprecated Will be removed in a future major version.
      */
     protected function sanitizeStoredFieldDataForValidation(Blueprint $blueprint, array $data): array
     {

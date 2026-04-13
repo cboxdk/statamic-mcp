@@ -288,7 +288,9 @@ class GlobalsRouter extends BaseRouter
                 /** @var array<string, mixed> $mergedData */
                 $mergedData = array_merge($variables->data()->all(), $data);
 
-                // Sanitize merged data — existing values may be in legacy formats
+                // Backward compat: globals saved by MCP prior to v2.1 may have
+                // raw strings in structured fields. Safe to remove once all
+                // MCP-created content has been re-saved.
                 $mergedData = $this->sanitizeStoredFieldDataForValidation($blueprint, $mergedData);
 
                 try {
