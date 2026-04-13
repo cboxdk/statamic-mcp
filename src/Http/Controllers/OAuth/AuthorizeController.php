@@ -136,7 +136,7 @@ class AuthorizeController extends Controller
         // If no scopes requested, default to configured default scopes (not all)
         if ($requestedScopes === []) {
             /** @var array<int, string> $defaultScopeValues */
-            $defaultScopeValues = config('statamic.mcp.oauth.default_scopes', ['content:read']);
+            $defaultScopeValues = config('statamic.mcp.oauth.default_scopes', []);
 
             foreach ($defaultScopeValues as $scopeValue) {
                 $tokenScope = TokenScope::tryFrom($scopeValue);
@@ -180,7 +180,7 @@ class AuthorizeController extends Controller
         $state = $request->query('state', '');
 
         /** @var array<int, string> $defaultScopes */
-        $defaultScopes = config('statamic.mcp.oauth.default_scopes', ['*']);
+        $defaultScopes = config('statamic.mcp.oauth.default_scopes', []);
 
         /** @var view-string $viewName */
         $viewName = 'statamic-mcp::oauth.consent';
@@ -260,7 +260,7 @@ class AuthorizeController extends Controller
 
         if ($allowedScopes === []) {
             /** @var array<int, string> $defaultScopeValues */
-            $defaultScopeValues = config('statamic.mcp.oauth.default_scopes', ['content:read']);
+            $defaultScopeValues = config('statamic.mcp.oauth.default_scopes', []);
             $allowedScopes = $defaultScopeValues;
         }
 

@@ -404,6 +404,7 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
         ftruncate($handle, 0);
         rewind($handle);
         fwrite($handle, (string) json_encode($index, JSON_PRETTY_PRINT));
+        fflush($handle);
 
         flock($handle, LOCK_UN);
         fclose($handle);
@@ -446,6 +447,7 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
         ftruncate($handle, 0);
         rewind($handle);
         fwrite($handle, (string) json_encode($index, JSON_PRETTY_PRINT));
+        fflush($handle);
 
         flock($handle, LOCK_UN);
         fclose($handle);

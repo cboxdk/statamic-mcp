@@ -4,6 +4,7 @@ use Cboxdk\StatamicMcp\Http\Controllers\OAuth\DiscoveryController;
 use Cboxdk\StatamicMcp\Http\Controllers\OAuth\OAuthTokenController;
 use Cboxdk\StatamicMcp\Http\Controllers\OAuth\RegistrationController;
 use Cboxdk\StatamicMcp\Http\Controllers\OAuth\RevocationController;
+use Cboxdk\StatamicMcp\Http\Middleware\EnsureSecureTransport;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -20,14 +21,18 @@ use Illuminate\Support\Facades\Route;
 Route::get('/.well-known/oauth-protected-resource', [DiscoveryController::class, 'protectedResource'])->name('mcp.oauth.protected-resource');
 Route::get('/.well-known/oauth-authorization-server', [DiscoveryController::class, 'authorizationServer'])->name('mcp.oauth.authorization-server');
 
-// Dynamic Client Registration (RFC 7591)
-Route::post('/mcp/oauth/register', [RegistrationController::class, 'store'])->middleware('throttle:3,60');
+// OAuth mutation endpoints — enforce HTTPS in production to protect
+// authorization codes, tokens, and client credentials in transit.
+Route::middleware(EnsureSecureTransport::class)->group(function () {
+    // Dynamic Client Registration (RFC 7591)
+    Route::post('/mcp/oauth/register', [RegistrationController::class, 'store'])->middleware('throttle:3,60');
 
-// Token Exchange (OAuth 2.1 authorization_code grant with PKCE)
-Route::post('/mcp/oauth/token', [OAuthTokenController::class, 'store'])->middleware('throttle:20,1');
+    // Token Exchange (OAuth 2.1 authorization_code grant with PKCE)
+    Route::post('/mcp/oauth/token', [OAuthTokenController::class, 'store'])->middleware('throttle:20,1');
 
-// Token Revocation (RFC 7009)
-Route::post('/mcp/oauth/revoke', [RevocationController::class, 'revoke'])->middleware('throttle:20,1');
+    // Token Revocation (RFC 7009)
+    Route::post('/mcp/oauth/revoke', [RevocationController::class, 'revoke'])->middleware('throttle:20,1');
+});
 
 // Authorization endpoints are registered in ServiceProvider::registerOAuthAuthorizeRoutes()
 // under CP prefix with statamic.cp middleware (but without statamic.cp.authenticated)

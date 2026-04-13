@@ -134,6 +134,12 @@ trait HandlesTaxonomies
             if (isset($data['title'])) {
                 $taxonomy->title($data['title']);
             }
+            if (isset($data['preview_targets'])) {
+                $taxonomy->previewTargets($data['preview_targets']);
+            }
+            if (isset($data['default_status'])) {
+                $taxonomy->defaultStatus($data['default_status']);
+            }
 
             $taxonomy->save();
 
@@ -174,6 +180,12 @@ trait HandlesTaxonomies
 
             if (isset($data['title'])) {
                 $taxonomy->title($data['title']);
+            }
+            if (isset($data['preview_targets'])) {
+                $taxonomy->previewTargets($data['preview_targets']);
+            }
+            if (isset($data['default_status'])) {
+                $taxonomy->defaultStatus($data['default_status']);
             }
 
             $taxonomy->save();
@@ -277,9 +289,9 @@ trait HandlesTaxonomies
                 $taxonomy->defaultStatus($config['default_status']);
             }
 
-            if (isset($config['collections'])) {
-                $taxonomy->collections($config['collections']);
-            }
+            // Note: Taxonomy→Collection association is stored on the collection
+            // side ($collection->taxonomies()), not on the taxonomy. Use the
+            // statamic-structures collection update to associate taxonomies.
 
             // Save the taxonomy
             $taxonomy->save();

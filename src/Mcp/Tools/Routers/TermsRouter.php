@@ -7,6 +7,7 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\NormalizesDateFields;
+use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\SanitizesFieldData;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\Support\Facades\Validator;
@@ -25,6 +26,7 @@ class TermsRouter extends BaseRouter
 {
     use ClearsCaches;
     use NormalizesDateFields;
+    use SanitizesFieldData;
 
     protected function getDomain(): string
     {
@@ -337,6 +339,9 @@ class TermsRouter extends BaseRouter
             }
 
             if (! empty($data)) {
+                // Strip entry-level metadata and coerce values to expected types
+                $data = $this->sanitizeIncomingFieldData($blueprint, $data);
+
                 // Normalize date field values to the format Statamic expects
                 $data = $this->normalizeDateFields($blueprint, $data);
 
@@ -346,20 +351,24 @@ class TermsRouter extends BaseRouter
                     $dataWithSlug['slug'] = $term->slug();
                 }
 
-                // Use Statamic's Fields Validator for blueprint-based validation
+                // Use Statamic's Fields Validator for blueprint-based validation,
+                // then process through fieldtypes for storage format (matches CP pipeline).
                 try {
-                    $fieldsValidator = (new FieldsValidator)
-                        ->fields($blueprint->fields()->addValues($dataWithSlug))
+                    $fields = $blueprint->fields()->addValues($dataWithSlug);
+
+                    (new FieldsValidator)
+                        ->fields($fields)
                         ->withContext([
                             'term' => $term,
                             'taxonomy' => $taxonomy,
                             'site' => $site,
-                        ]);
+                        ])
+                        ->validate();
 
-                    $validatedData = $fieldsValidator->validate();
-                    // Remove slug from validated data since it's handled separately
-                    unset($validatedData['slug']);
-                    $term->data($validatedData);
+                    // Process through fieldtypes for storage format
+                    $term->data(
+                        $fields->process()->values()->except(['slug'])->all()
+                    );
                 } catch (ValidationException $e) {
                     return $this->formatValidationError($e);
                 } catch (\Throwable $e) {
@@ -446,6 +455,9 @@ class TermsRouter extends BaseRouter
             $validatedData = is_array($data) ? $data : [];
 
             if (! empty($validatedData)) {
+                // Strip entry-level metadata and coerce values to expected types
+                $validatedData = $this->sanitizeIncomingFieldData($blueprint, $validatedData);
+
                 // Normalize date field values to the format Statamic expects
                 $validatedData = $this->normalizeDateFields($blueprint, $validatedData);
 
@@ -455,24 +467,38 @@ class TermsRouter extends BaseRouter
                 $mergedData = array_merge($term->data()->all(), $validatedData);
                 $mergedData['slug'] = $term->slug();
 
+                // Backward compat: terms saved by MCP prior to v2.1 may have
+                // raw strings in structured fields. Safe to remove once all
+                // MCP-created content has been re-saved.
+                $mergedData = $this->sanitizeStoredFieldDataForValidation($blueprint, $mergedData);
+
                 try {
-                    $fieldsValidator = (new FieldsValidator)
+                    (new FieldsValidator)
                         ->fields($blueprint->fields()->addValues($mergedData))
                         ->withContext([
                             'term' => $term,
                             'taxonomy' => Taxonomy::find(is_string($taxonomy) ? $taxonomy : ''),
                             'site' => $site,
-                        ]);
-
-                    $fieldsValidator->validate();
+                        ])
+                        ->validate();
                 } catch (ValidationException $e) {
                     return $this->formatValidationError($e);
                 } catch (\Throwable $e) {
                     return $this->createErrorResponse('Failed to process term data: ' . $e->getMessage())->toArray();
                 }
+
+                // Process incoming data through fieldtypes for storage format
+                $incomingKeys = array_keys($validatedData);
+                /** @var array<string, mixed> $processedData */
+                $processedData = $blueprint->fields()->addValues($validatedData)
+                    ->process()->values()
+                    ->only($incomingKeys)
+                    ->all();
+
+                $validatedData = $processedData;
             }
 
-            $term->merge($data)->save();
+            $term->merge($validatedData)->save();
 
             // Clear relevant caches
             $this->clearStatamicCaches(['stache', 'static']);

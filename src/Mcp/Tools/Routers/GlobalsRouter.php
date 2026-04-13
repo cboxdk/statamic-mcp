@@ -7,6 +7,7 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\NormalizesDateFields;
+use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\SanitizesFieldData;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\Validation\ValidationException;
@@ -21,6 +22,7 @@ class GlobalsRouter extends BaseRouter
 {
     use ClearsCaches;
     use NormalizesDateFields;
+    use SanitizesFieldData;
 
     protected function getDomain(): string
     {
@@ -276,6 +278,9 @@ class GlobalsRouter extends BaseRouter
             }
 
             if (! empty($data)) {
+                // Strip entry-level metadata and coerce values to expected types
+                $data = $this->sanitizeIncomingFieldData($blueprint, $data);
+
                 // Normalize date field values to the format Statamic expects
                 $data = $this->normalizeDateFields($blueprint, $data);
 
@@ -283,20 +288,34 @@ class GlobalsRouter extends BaseRouter
                 /** @var array<string, mixed> $mergedData */
                 $mergedData = array_merge($variables->data()->all(), $data);
 
+                // Backward compat: globals saved by MCP prior to v2.1 may have
+                // raw strings in structured fields. Safe to remove once all
+                // MCP-created content has been re-saved.
+                $mergedData = $this->sanitizeStoredFieldDataForValidation($blueprint, $mergedData);
+
                 try {
-                    $fieldsValidator = (new Validator)
+                    (new Validator)
                         ->fields($blueprint->fields()->addValues($mergedData))
                         ->withContext([
                             'global_set' => $globalSet,
                             'site' => $site,
-                        ]);
-
-                    $fieldsValidator->validate();
+                        ])
+                        ->validate();
                 } catch (ValidationException $e) {
                     return $this->formatValidationError($e);
                 } catch (\Throwable $e) {
                     return $this->createErrorResponse('Failed to process global data: ' . $e->getMessage())->toArray();
                 }
+
+                // Process incoming data through fieldtypes for storage format
+                $incomingKeys = array_keys($data);
+                /** @var array<string, mixed> $processedData */
+                $processedData = $blueprint->fields()->addValues($data)
+                    ->process()->values()
+                    ->only($incomingKeys)
+                    ->all();
+
+                $data = $processedData;
             }
 
             $variables->merge($data)->save();

@@ -7,6 +7,7 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\NormalizesDateFields;
+use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\SanitizesFieldData;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\Support\Facades\Validator;
@@ -25,6 +26,7 @@ class EntriesRouter extends BaseRouter
 {
     use ClearsCaches;
     use NormalizesDateFields;
+    use SanitizesFieldData;
 
     protected function getDomain(): string
     {
@@ -352,6 +354,9 @@ class EntriesRouter extends BaseRouter
             }
 
             if (! empty($data)) {
+                // Strip entry-level metadata and coerce values to expected types
+                $data = $this->sanitizeIncomingFieldData($blueprint, $data);
+
                 // Normalize date field values to the format Statamic expects
                 $data = $this->normalizeDateFields($blueprint, $data);
 
@@ -361,20 +366,25 @@ class EntriesRouter extends BaseRouter
                     $dataWithSlug['slug'] = $entry->slug();
                 }
 
-                // Use Statamic's Fields Validator for blueprint-based validation
+                // Use Statamic's Fields Validator for blueprint-based validation,
+                // then process through fieldtypes for storage format (matches CP pipeline).
                 try {
-                    $fieldsValidator = (new FieldsValidator)
-                        ->fields($blueprint->fields()->addValues($dataWithSlug))
+                    $fields = $blueprint->fields()->addValues($dataWithSlug);
+
+                    (new FieldsValidator)
+                        ->fields($fields)
                         ->withContext([
                             'entry' => $entry,
                             'collection' => $collection,
                             'site' => $site,
-                        ]);
+                        ])
+                        ->validate();
 
-                    $validatedData = $fieldsValidator->validate();
-                    // Remove entry-level properties from validated data
-                    unset($validatedData['slug'], $validatedData['date']);
-                    $entry->data($validatedData);
+                    // Process through fieldtypes (Terms strips prefixes,
+                    // Bard normalizes nodes, Relationship wraps values, etc.)
+                    $entry->data(
+                        $fields->process()->values()->except(['slug', 'date'])->all()
+                    );
                 } catch (ValidationException $e) {
                     return $this->formatValidationError($e);
                 } catch (\Throwable $e) {
@@ -465,6 +475,9 @@ class EntriesRouter extends BaseRouter
             }
 
             if (! empty($data)) {
+                // Strip entry-level metadata and coerce values to expected types
+                $data = $this->sanitizeIncomingFieldData($blueprint, $data);
+
                 // Normalize date field values to the format Statamic expects
                 $data = $this->normalizeDateFields($blueprint, $data);
 
@@ -474,24 +487,40 @@ class EntriesRouter extends BaseRouter
                 $mergedData = array_merge($entry->data()->all(), $data);
                 $mergedData['slug'] = $entry->slug();
 
+                // Backward compat: entries saved by MCP prior to v2.1 were stored
+                // without the fieldtype process() step, so structured fields
+                // (Bard, group, etc.) may contain raw strings instead of arrays.
+                // This normalizes them for validation. Safe to remove once all
+                // MCP-created content has been re-saved.
+                $mergedData = $this->sanitizeStoredFieldDataForValidation($blueprint, $mergedData);
+
                 try {
-                    $fieldsValidator = (new FieldsValidator)
+                    (new FieldsValidator)
                         ->fields($blueprint->fields()->addValues($mergedData))
                         ->withContext([
                             'entry' => $entry,
                             'collection' => $entry->collection(),
                             'site' => $site,
-                        ]);
-
-                    $fieldsValidator->validate();
+                        ])
+                        ->validate();
                 } catch (ValidationException $e) {
                     return $this->formatValidationError($e);
                 } catch (\Throwable $e) {
                     return $this->createErrorResponse('Failed to process entry data: ' . $e->getMessage())->toArray();
                 }
 
-                // Remove date from merge data — it's already set on the entry
+                // Remove date — it's already set on the entry object
                 unset($data['date']);
+
+                // Process incoming data through fieldtypes for storage format
+                $incomingKeys = array_keys($data);
+                /** @var array<string, mixed> $processedData */
+                $processedData = $blueprint->fields()->addValues($data)
+                    ->process()->values()
+                    ->only($incomingKeys)
+                    ->all();
+
+                $data = $processedData;
             }
 
             $entry->merge($data)->save();
