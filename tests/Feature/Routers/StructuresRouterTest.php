@@ -194,4 +194,64 @@ class StructuresRouterTest extends TestCase
         $this->assertFalse($result['success']);
         $this->assertStringContainsString('Navigation not found: nonexistent_navigation', $result['errors'][0]);
     }
+
+    /**
+     * ENG-697 secondary issue: taxonomies should persist on collection update.
+     */
+    public function test_update_collection_persists_taxonomies(): void
+    {
+        // Create a taxonomy first
+        $taxonomy = Taxonomy::make('page_tags')->title('Page Tags');
+        $taxonomy->save();
+
+        // Create a collection
+        $collection = Collection::make('test_pages')->title('Test Pages');
+        $collection->save();
+
+        // Update collection with taxonomies
+        $result = $this->router->execute([
+            'action' => 'update',
+            'resource_type' => 'collection',
+            'handle' => 'test_pages',
+            'data' => ['taxonomies' => ['page_tags']],
+        ]);
+
+        $this->assertTrue($result['success'], 'Collection update should succeed: ' . json_encode($result));
+
+        // Verify the taxonomies actually persisted
+        $updated = Collection::find('test_pages');
+        $this->assertNotNull($updated);
+        $taxonomyHandles = $updated->taxonomies()->map->handle()->all();
+        $this->assertContains('page_tags', $taxonomyHandles, 'Taxonomy should be persisted on collection');
+    }
+
+    /**
+     * ENG-697 secondary issue: taxonomies should persist on collection create.
+     */
+    public function test_create_collection_with_taxonomies(): void
+    {
+        // Create a taxonomy first
+        $taxonomy = Taxonomy::make('tags')->title('Tags');
+        $taxonomy->save();
+
+        // Create a collection with taxonomies
+        $result = $this->router->execute([
+            'action' => 'create',
+            'resource_type' => 'collection',
+            'handle' => 'tagged_collection',
+            'data' => [
+                'handle' => 'tagged_collection',
+                'title' => 'Tagged Collection',
+                'taxonomies' => ['tags'],
+            ],
+        ]);
+
+        $this->assertTrue($result['success'], 'Collection create should succeed: ' . json_encode($result));
+
+        // Verify the taxonomies actually persisted
+        $created = Collection::find('tagged_collection');
+        $this->assertNotNull($created);
+        $taxonomyHandles = $created->taxonomies()->map->handle()->all();
+        $this->assertContains('tags', $taxonomyHandles, 'Taxonomy should be set on new collection');
+    }
 }

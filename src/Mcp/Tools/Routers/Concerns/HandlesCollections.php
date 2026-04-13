@@ -184,6 +184,9 @@ trait HandlesCollections
             if (isset($data['future_date_behavior'])) {
                 $collection->futureDateBehavior($data['future_date_behavior']);
             }
+            if (isset($data['taxonomies']) && is_array($data['taxonomies'])) {
+                $collection->taxonomies($data['taxonomies']);
+            }
 
             $collection->save();
 
@@ -236,6 +239,7 @@ trait HandlesCollections
                     'default_status' => $collection->defaultStatus($value),
                     'past_date_behavior' => $collection->pastDateBehavior($value),
                     'future_date_behavior' => $collection->futureDateBehavior($value),
+                    'taxonomies' => is_array($value) ? $collection->taxonomies($value) : null,
                     default => null, // Ignore unknown fields
                 };
             }

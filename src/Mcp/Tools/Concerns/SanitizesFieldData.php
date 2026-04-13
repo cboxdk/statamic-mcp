@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Concerns;
 
-use InvalidArgumentException;
 use Illuminate\Support\Collection;
+use InvalidArgumentException;
 use Statamic\Fields\Blueprint;
 use Statamic\Fields\Field;
 use Statamic\Fieldtypes\Bard;
@@ -92,9 +92,6 @@ trait SanitizesFieldData
         return $data;
     }
 
-    /**
-     * @return mixed
-     */
     private function sanitizeFieldValue(Field $field, mixed $value, bool $allowLegacyCoercion, string $path): mixed
     {
         if ($value === null) {
@@ -107,6 +104,7 @@ trait SanitizesFieldData
             'grid' => $this->sanitizeGridValue($field, $value, $allowLegacyCoercion, $path),
             'replicator' => $this->sanitizeReplicatorValue($field, $value, $allowLegacyCoercion, $path),
             'table' => $this->sanitizeArrayValue('table', $value, $allowLegacyCoercion, $path),
+            'terms', 'entries', 'users', 'assets' => $this->sanitizeRelationshipValue($value),
             default => $value,
         };
     }
@@ -167,7 +165,7 @@ trait SanitizesFieldData
                     continue;
                 }
 
-                throw new InvalidArgumentException("Field [{$path}.{$index}] references unknown Bard set [".(is_scalar($setType) ? (string) $setType : 'invalid').']');
+                throw new InvalidArgumentException("Field [{$path}.{$index}] references unknown Bard set [" . (is_scalar($setType) ? (string) $setType : 'invalid') . ']');
             }
 
             /** @var array<string, mixed> $bardSetValues */
@@ -272,7 +270,7 @@ trait SanitizesFieldData
                     continue;
                 }
 
-                throw new InvalidArgumentException("Field [{$path}.{$index}] references unknown replicator set [".(is_scalar($setType) ? (string) $setType : 'invalid').']');
+                throw new InvalidArgumentException("Field [{$path}.{$index}] references unknown replicator set [" . (is_scalar($setType) ? (string) $setType : 'invalid') . ']');
             }
 
             $sanitized[] = $this->sanitizeFieldCollection(
@@ -300,6 +298,26 @@ trait SanitizesFieldData
         }
 
         throw $this->invalidStructuredValue($path, $fieldType, $value);
+    }
+
+    /**
+     * Normalize relationship field values (terms, entries, users, assets).
+     *
+     * These fieldtypes expect arrays but LLMs may send a bare string.
+     *
+     * @return array<int, mixed>
+     */
+    private function sanitizeRelationshipValue(mixed $value): array
+    {
+        if (is_array($value)) {
+            return array_values($value);
+        }
+
+        if (is_string($value) && $value !== '') {
+            return [$value];
+        }
+
+        return [];
     }
 
     private function invalidStructuredValue(string $path, string $fieldType, mixed $value): InvalidArgumentException
