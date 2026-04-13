@@ -10,6 +10,22 @@ Copy-paste configurations for connecting AI assistants to your Statamic MCP endp
 
 ## Claude Desktop
 
+### Option A: OAuth Connectors (recommended)
+
+1. Open **Claude Desktop** and go to **Settings → Connectors**.
+2. Click **Add custom connector**.
+3. Enter a name (e.g. "Statamic") and your MCP server URL: `https://your-site.test/mcp/statamic`
+4. Click **Add** — Claude will start the OAuth flow automatically.
+5. Approve access in your Statamic Control Panel.
+
+Your server must be publicly accessible (use [ngrok](https://ngrok.com/) for local development).
+
+### Option B: Config file with mcp-remote bridge
+
+Claude Desktop's config file only supports stdio transport. Use `mcp-remote` as a bridge to connect to the streamable HTTP endpoint.
+
+Requires [Node.js](https://nodejs.org/) installed.
+
 Config file location:
 - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
@@ -18,16 +34,21 @@ Config file location:
 {
     "mcpServers": {
         "statamic": {
-            "url": "https://your-site.test/mcp/statamic",
-            "headers": {
-                "Authorization": "Bearer <your-token>"
-            }
+            "command": "npx",
+            "args": [
+                "mcp-remote",
+                "https://your-site.test/mcp/statamic",
+                "--header",
+                "Authorization: Bearer <your-token>"
+            ]
         }
     }
 }
 ```
 
 Restart Claude Desktop after editing the config file.
+
+> **Note:** The `url`-based config format does not work in Claude Desktop — it is only supported by Claude Code and other CLI-based clients.
 
 ## Claude Code
 
