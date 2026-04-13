@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-04-13
+
+### Fixed
+- **Critical:** Entry updates with `terms` field type no longer crash with "Cannot access offset of type string on string" (ENG-697)
+- **Critical:** Data saved via MCP now matches CP format — all routers (entries, terms, globals) call `$fields->process()->values()` after validation, running fieldtype transformations (Terms prefix stripping, Bard node normalization, Relationship wrapping)
+- **Critical:** OAuth auth code and refresh token double-spend prevented — added `fflush()` before lock release in `BuiltInOAuthDriver`
+- **Security:** OAuth `client_name` is now sanitized with `strip_tags()` on registration to prevent stored XSS from unauthenticated clients
+- **Security:** OAuth mutation endpoints (`/mcp/oauth/token`, `/register`, `/revoke`) now enforce HTTPS in production via `EnsureSecureTransport` middleware
+- **Security:** Removed inconsistent hardcoded scope fallbacks in `AuthorizeController` — config file is now the single source of truth
+- Collection `taxonomies` field now persists on create and update (previously silently ignored)
+- Taxonomy `preview_targets` and `default_status` now persist on create and update
+- Navigation `collections` now persists on create and update
+- Removed broken `$taxonomy->collections()` setter call from `configureTaxonomy()` — the association is stored on the collection side
+- File handle leak in `BlueprintsRouter` when `flock()` fails after `fopen()` succeeds
+- Missing `fflush()` before lock release in `FileTokenStore::updateIndex()` and `removeFromIndex()`
+- Relationship fields (`terms`, `entries`, `users`, `assets`) and `checkboxes` now normalize bare strings to arrays before validation
+
+### Changed
+- **OAuth default scopes** changed from `*` (all permissions) to read-only: `content:read`, `blueprints:read`, `structures:read`, `entries:read`, `terms:read`, `globals:read`, `assets:read`, `system:read`, `content-facade:read`. Override via `STATAMIC_MCP_OAUTH_DEFAULT_SCOPES` env var.
+- `sanitizeStoredFieldDataForValidation()` marked as `@deprecated` — exists only for backward compatibility with content saved by MCP prior to v2.1 without the `process()` step. Safe to remove once all MCP-created content has been re-saved.
+
+### Added
+- `SanitizesFieldData` trait for pre-validation input normalization across all content routers
+- 8 new integration tests for terms field updates (ENG-697 reproduction)
+- 6 new structure router tests for taxonomy and navigation field persistence
+
 ## [2.0.4] - 2026-04-10
 
 ### Fixed
