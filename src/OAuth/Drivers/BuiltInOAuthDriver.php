@@ -99,7 +99,7 @@ class BuiltInOAuthDriver implements OAuthDriver
         /** @var array<string, mixed> $data */
         $data = [
             'client_id' => $clientId,
-            'client_name' => $clientName,
+            'client_name' => strip_tags($clientName),
             'redirect_uris' => $redirectUris,
             'registered_ip' => $registeredIp,
             'created_at' => $now->toIso8601String(),
@@ -277,11 +277,13 @@ class BuiltInOAuthDriver implements OAuthDriver
                 throw new OAuthException('invalid_request', 'PKCE verification failed');
             }
 
-            // Mark as used
+            // Mark as used — fflush before releasing lock to prevent
+            // concurrent requests from reading stale 'used: false' from buffer.
             $data['used'] = true;
             ftruncate($handle, 0);
             rewind($handle);
             fwrite($handle, (string) json_encode($data, JSON_PRETTY_PRINT));
+            fflush($handle);
 
             /** @var array<int, string> $scopes */
             $scopes = is_array($data['scopes'] ?? null) ? $data['scopes'] : [];
@@ -380,11 +382,13 @@ class BuiltInOAuthDriver implements OAuthDriver
                 throw new OAuthException('invalid_client', 'Client ID mismatch');
             }
 
-            // Mark as used (rotation)
+            // Mark as used (rotation) — fflush before releasing lock to
+            // prevent concurrent requests from reading stale 'used: false'.
             $data['used'] = true;
             ftruncate($handle, 0);
             rewind($handle);
             fwrite($handle, (string) json_encode($data, JSON_PRETTY_PRINT));
+            fflush($handle);
 
             /** @var array<int, string> $scopes */
             $scopes = is_array($data['scopes'] ?? null) ? $data['scopes'] : [];
