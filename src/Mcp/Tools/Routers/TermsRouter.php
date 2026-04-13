@@ -351,20 +351,24 @@ class TermsRouter extends BaseRouter
                     $dataWithSlug['slug'] = $term->slug();
                 }
 
-                // Use Statamic's Fields Validator for blueprint-based validation
+                // Use Statamic's Fields Validator for blueprint-based validation,
+                // then process through fieldtypes for storage format (matches CP pipeline).
                 try {
-                    $fieldsValidator = (new FieldsValidator)
-                        ->fields($blueprint->fields()->addValues($dataWithSlug))
+                    $fields = $blueprint->fields()->addValues($dataWithSlug);
+
+                    (new FieldsValidator)
+                        ->fields($fields)
                         ->withContext([
                             'term' => $term,
                             'taxonomy' => $taxonomy,
                             'site' => $site,
-                        ]);
+                        ])
+                        ->validate();
 
-                    $validatedData = $fieldsValidator->validate();
-                    // Remove slug from validated data since it's handled separately
-                    unset($validatedData['slug']);
-                    $term->data($validatedData);
+                    // Process through fieldtypes for storage format
+                    $term->data(
+                        $fields->process()->values()->except(['slug'])->all()
+                    );
                 } catch (ValidationException $e) {
                     return $this->formatValidationError($e);
                 } catch (\Throwable $e) {
@@ -467,20 +471,29 @@ class TermsRouter extends BaseRouter
                 $mergedData = $this->sanitizeStoredFieldDataForValidation($blueprint, $mergedData);
 
                 try {
-                    $fieldsValidator = (new FieldsValidator)
+                    (new FieldsValidator)
                         ->fields($blueprint->fields()->addValues($mergedData))
                         ->withContext([
                             'term' => $term,
                             'taxonomy' => Taxonomy::find(is_string($taxonomy) ? $taxonomy : ''),
                             'site' => $site,
-                        ]);
-
-                    $fieldsValidator->validate();
+                        ])
+                        ->validate();
                 } catch (ValidationException $e) {
                     return $this->formatValidationError($e);
                 } catch (\Throwable $e) {
                     return $this->createErrorResponse('Failed to process term data: ' . $e->getMessage())->toArray();
                 }
+
+                // Process incoming data through fieldtypes for storage format
+                $incomingKeys = array_keys($validatedData);
+                /** @var array<string, mixed> $processedData */
+                $processedData = $blueprint->fields()->addValues($validatedData)
+                    ->process()->values()
+                    ->only($incomingKeys)
+                    ->all();
+
+                $validatedData = $processedData;
             }
 
             $term->merge($validatedData)->save();

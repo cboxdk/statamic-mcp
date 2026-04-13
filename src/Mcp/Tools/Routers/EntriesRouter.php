@@ -366,20 +366,25 @@ class EntriesRouter extends BaseRouter
                     $dataWithSlug['slug'] = $entry->slug();
                 }
 
-                // Use Statamic's Fields Validator for blueprint-based validation
+                // Use Statamic's Fields Validator for blueprint-based validation,
+                // then process through fieldtypes for storage format (matches CP pipeline).
                 try {
-                    $fieldsValidator = (new FieldsValidator)
-                        ->fields($blueprint->fields()->addValues($dataWithSlug))
+                    $fields = $blueprint->fields()->addValues($dataWithSlug);
+
+                    (new FieldsValidator)
+                        ->fields($fields)
                         ->withContext([
                             'entry' => $entry,
                             'collection' => $collection,
                             'site' => $site,
-                        ]);
+                        ])
+                        ->validate();
 
-                    $validatedData = $fieldsValidator->validate();
-                    // Remove entry-level properties from validated data
-                    unset($validatedData['slug'], $validatedData['date']);
-                    $entry->data($validatedData);
+                    // Process through fieldtypes (Terms strips prefixes,
+                    // Bard normalizes nodes, Relationship wraps values, etc.)
+                    $entry->data(
+                        $fields->process()->values()->except(['slug', 'date'])->all()
+                    );
                 } catch (ValidationException $e) {
                     return $this->formatValidationError($e);
                 } catch (\Throwable $e) {
@@ -488,23 +493,32 @@ class EntriesRouter extends BaseRouter
                 $mergedData = $this->sanitizeStoredFieldDataForValidation($blueprint, $mergedData);
 
                 try {
-                    $fieldsValidator = (new FieldsValidator)
+                    (new FieldsValidator)
                         ->fields($blueprint->fields()->addValues($mergedData))
                         ->withContext([
                             'entry' => $entry,
                             'collection' => $entry->collection(),
                             'site' => $site,
-                        ]);
-
-                    $fieldsValidator->validate();
+                        ])
+                        ->validate();
                 } catch (ValidationException $e) {
                     return $this->formatValidationError($e);
                 } catch (\Throwable $e) {
                     return $this->createErrorResponse('Failed to process entry data: ' . $e->getMessage())->toArray();
                 }
 
-                // Remove date from merge data — it's already set on the entry
+                // Remove date — it's already set on the entry object
                 unset($data['date']);
+
+                // Process incoming data through fieldtypes for storage format
+                $incomingKeys = array_keys($data);
+                /** @var array<string, mixed> $processedData */
+                $processedData = $blueprint->fields()->addValues($data)
+                    ->process()->values()
+                    ->only($incomingKeys)
+                    ->all();
+
+                $data = $processedData;
             }
 
             $entry->merge($data)->save();

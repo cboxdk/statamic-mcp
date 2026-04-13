@@ -292,19 +292,28 @@ class GlobalsRouter extends BaseRouter
                 $mergedData = $this->sanitizeStoredFieldDataForValidation($blueprint, $mergedData);
 
                 try {
-                    $fieldsValidator = (new Validator)
+                    (new Validator)
                         ->fields($blueprint->fields()->addValues($mergedData))
                         ->withContext([
                             'global_set' => $globalSet,
                             'site' => $site,
-                        ]);
-
-                    $fieldsValidator->validate();
+                        ])
+                        ->validate();
                 } catch (ValidationException $e) {
                     return $this->formatValidationError($e);
                 } catch (\Throwable $e) {
                     return $this->createErrorResponse('Failed to process global data: ' . $e->getMessage())->toArray();
                 }
+
+                // Process incoming data through fieldtypes for storage format
+                $incomingKeys = array_keys($data);
+                /** @var array<string, mixed> $processedData */
+                $processedData = $blueprint->fields()->addValues($data)
+                    ->process()->values()
+                    ->only($incomingKeys)
+                    ->all();
+
+                $data = $processedData;
             }
 
             $variables->merge($data)->save();
