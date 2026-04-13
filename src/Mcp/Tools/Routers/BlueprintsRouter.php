@@ -308,7 +308,12 @@ class BlueprintsRouter extends BaseRouter
             }
 
             $lockFile = fopen($lockPath, 'c');
-            if (! $lockFile || ! flock($lockFile, LOCK_EX)) {
+            if (! $lockFile) {
+                return $this->createErrorResponse('Could not acquire lock for blueprint creation')->toArray();
+            }
+            if (! flock($lockFile, LOCK_EX)) {
+                fclose($lockFile);
+
                 return $this->createErrorResponse('Could not acquire lock for blueprint creation')->toArray();
             }
 
