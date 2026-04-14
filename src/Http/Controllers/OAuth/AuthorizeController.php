@@ -338,7 +338,7 @@ class AuthorizeController extends Controller
             return null;
         }
 
-        if (config('statamic.mcp.oauth.cimd_enabled') !== true) {
+        if (! (bool) config('statamic.mcp.oauth.cimd_enabled')) {
             abort(400, 'CIMD client_id resolution is disabled.');
         }
 
