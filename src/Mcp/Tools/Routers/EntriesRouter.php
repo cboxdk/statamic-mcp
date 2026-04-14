@@ -486,7 +486,7 @@ class EntriesRouter extends BaseRouter
                 // unchanged fields, but if the full-merge validation throws a
                 // TypeError (common with third-party fieldtypes like SEO Pro
                 // whose preProcessValidatable can't handle stored data formats),
-                // we fall back to validating only the incoming fields (ENG-711).
+                // we fall back to validating only the incoming fields.
                 /** @var array<string, mixed> $mergedData */
                 $mergedData = array_merge($entry->data()->all(), $data);
                 $mergedData['slug'] = $entry->slug();

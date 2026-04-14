@@ -13,7 +13,7 @@ use Statamic\Facades\Stache;
 use Statamic\Fields\Fieldtype as StatamicFieldtype;
 
 /**
- * Reproduce ENG-711: update action crashes with
+ * Reproduce: update action crashes with
  * "Cannot access offset of type string on string"
  * on entries with replicator + bard fields.
  */
@@ -82,7 +82,7 @@ class UpdateEntryBugTest extends TestCase
 
         $blueprint->setHandle($handle)->setNamespace("collections.{$handle}")->save();
 
-        // Create entry with realistic bard+replicator data (mirroring Geocodio)
+        // Create entry with realistic bard+replicator data
         $entry = Entry::make()
             ->id('repro-entry-001')
             ->collection($handle)
@@ -464,7 +464,7 @@ class UpdateEntryBugTest extends TestCase
     }
 
     /**
-     * ENG-711: Simulates a third-party fieldtype that throws TypeError
+     * Simulates a third-party fieldtype that throws TypeError
      * during validation (like SEO Pro's preProcessValidatable).
      * The update should succeed by falling back to incoming-only validation.
      */

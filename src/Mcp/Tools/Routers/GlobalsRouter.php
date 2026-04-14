@@ -307,7 +307,7 @@ class GlobalsRouter extends BaseRouter
                     return $this->formatValidationError($e);
                 } catch (\TypeError $e) {
                     // Third-party fieldtype validation crash — fall back to
-                    // validating only the incoming fields (ENG-711).
+                    // validating only the incoming fields.
                     try {
                         (new Validator)
                             ->fields($blueprint->fields()->addValues($data))
