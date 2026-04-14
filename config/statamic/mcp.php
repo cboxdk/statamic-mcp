@@ -141,6 +141,13 @@ return [
         'default_scopes' => array_filter(explode(',', env('STATAMIC_MCP_OAUTH_DEFAULT_SCOPES', 'content:read,blueprints:read,structures:read,entries:read,terms:read,globals:read,assets:read,system:read,content-facade:read'))),
         'max_clients' => (int) env('STATAMIC_MCP_OAUTH_MAX_CLIENTS', 50),
         'max_clients_per_ip' => (int) env('STATAMIC_MCP_OAUTH_MAX_CLIENTS_PER_IP', 5),
+
+        // Client ID Metadata Document (CIMD) support
+        'cimd_enabled' => env('STATAMIC_MCP_OAUTH_CIMD_ENABLED', true),
+        'cimd_fetch_timeout' => (int) env('STATAMIC_MCP_OAUTH_CIMD_FETCH_TIMEOUT', 5),
+        'cimd_max_response_size' => (int) env('STATAMIC_MCP_OAUTH_CIMD_MAX_RESPONSE_SIZE', 5120),
+        'cimd_cache_ttl' => (int) env('STATAMIC_MCP_OAUTH_CIMD_CACHE_TTL', 3600),
+        'cimd_block_private_ips' => env('STATAMIC_MCP_OAUTH_CIMD_BLOCK_PRIVATE_IPS', true),
     ],
 
     /*

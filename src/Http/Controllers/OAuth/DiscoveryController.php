@@ -49,7 +49,7 @@ class DiscoveryController extends Controller
             TokenScope::cases(),
         );
 
-        return response()->json([
+        $metadata = [
             'issuer' => $baseUrl,
             'authorization_endpoint' => $baseUrl . '/' . trim((string) config('statamic.cp.route', 'cp'), '/') . '/mcp/oauth/authorize',
             'token_endpoint' => $baseUrl . '/mcp/oauth/token',
@@ -60,7 +60,13 @@ class DiscoveryController extends Controller
             'grant_types_supported' => ['authorization_code', 'refresh_token'],
             'code_challenge_methods_supported' => ['S256'],
             'token_endpoint_auth_methods_supported' => ['none'],
-        ]);
+        ];
+
+        if (config('statamic.mcp.oauth.cimd_enabled') === true) {
+            $metadata['client_id_metadata_document_supported'] = true;
+        }
+
+        return response()->json($metadata);
     }
 
     /**

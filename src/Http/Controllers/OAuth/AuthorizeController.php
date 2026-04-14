@@ -5,7 +5,13 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Http\Controllers\OAuth;
 
 use Cboxdk\StatamicMcp\Auth\TokenScope;
+use Cboxdk\StatamicMcp\OAuth\Cimd\CimdClientId;
+use Cboxdk\StatamicMcp\OAuth\Cimd\CimdFetchException;
+use Cboxdk\StatamicMcp\OAuth\Cimd\CimdResolver;
+use Cboxdk\StatamicMcp\OAuth\Cimd\CimdValidationException;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
+use Cboxdk\StatamicMcp\OAuth\Exceptions\OAuthException;
+use Cboxdk\StatamicMcp\OAuth\OAuthClient;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -16,6 +22,7 @@ class AuthorizeController extends Controller
 {
     public function __construct(
         private readonly OAuthDriver $oauthDriver,
+        private readonly CimdResolver $cimdResolver,
     ) {}
 
     /**
@@ -50,7 +57,19 @@ class AuthorizeController extends Controller
         // redirects to the unvalidated URI.
         /** @var string $clientId */
         $clientId = $request->query('client_id', '');
-        $client = $this->oauthDriver->findClient($clientId);
+
+        // findClient() may throw OAuthException for URL-format client_ids
+        // (BuiltInOAuthDriver rejects non-filename identifiers). Treat the
+        // exception as "not found" so the CIMD fallback can activate.
+        try {
+            $client = $this->oauthDriver->findClient($clientId);
+        } catch (OAuthException) {
+            $client = null;
+        }
+
+        if ($client === null) {
+            $client = $this->resolveClientViaCimd($clientId);
+        }
 
         if ($client === null) {
             /** @phpstan-ignore return.type (abort returns never but PHPStan doesn't know) */
@@ -221,7 +240,15 @@ class AuthorizeController extends Controller
 
         // Validate client and redirect_uri BEFORE checking deny/approve
         // to prevent open redirect via the deny path
-        $client = $this->oauthDriver->findClient($clientId);
+        try {
+            $client = $this->oauthDriver->findClient($clientId);
+        } catch (OAuthException) {
+            $client = null;
+        }
+
+        if ($client === null) {
+            $client = $this->resolveClientViaCimd($clientId);
+        }
 
         if ($client === null) {
             /** @phpstan-ignore return.type (abort returns never but PHPStan doesn't know) */
@@ -295,6 +322,35 @@ class AuthorizeController extends Controller
             'code' => $code,
             'state' => $state,
         ])));
+    }
+
+    /**
+     * Attempt to resolve a client_id via CIMD (Client ID Metadata Document).
+     *
+     * Returns null if CIMD is disabled, the client_id is not a valid CIMD URL,
+     * or if fetching/validation fails.
+     */
+    private function resolveClientViaCimd(string $clientId): ?OAuthClient
+    {
+        $cimdClientId = CimdClientId::tryFrom($clientId);
+
+        if ($cimdClientId === null) {
+            return null;
+        }
+
+        if (config('statamic.mcp.oauth.cimd_enabled') !== true) {
+            abort(400, 'CIMD client_id resolution is disabled.');
+        }
+
+        try {
+            $metadata = $this->cimdResolver->resolve($cimdClientId);
+        } catch (CimdFetchException $e) {
+            abort(400, 'Failed to fetch CIMD metadata: ' . $e->getMessage());
+        } catch (CimdValidationException $e) {
+            abort(400, 'Invalid CIMD metadata: ' . $e->getMessage());
+        }
+
+        return OAuthClient::fromCimdMetadata($metadata);
     }
 
     /**

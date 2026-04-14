@@ -17,6 +17,7 @@ use Cboxdk\StatamicMcp\Http\Middleware\EnsureSecureTransport;
 use Cboxdk\StatamicMcp\Http\Middleware\HandleMcpCors;
 use Cboxdk\StatamicMcp\Http\Middleware\RequireMcpPermission;
 use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
+use Cboxdk\StatamicMcp\OAuth\Cimd\CimdResolver;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
 use Cboxdk\StatamicMcp\OAuth\Drivers\BuiltInOAuthDriver;
 use Cboxdk\StatamicMcp\OAuth\Drivers\DatabaseOAuthDriver;
@@ -151,6 +152,9 @@ class ServiceProvider extends AddonServiceProvider
 
             return $instance;
         });
+
+        // Register CIMD resolver
+        $this->app->singleton(CimdResolver::class);
 
         // Register auth services
         $this->app->register(AuthServiceProvider::class);

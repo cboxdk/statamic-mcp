@@ -27,11 +27,24 @@
 </head>
 <body>
     <div class="card">
-        <div class="icon">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-        </div>
+        @if ($client->isCimd && $client->logoUri)
+            <div class="icon">
+                <img src="{{ $client->logoUri }}" alt="{{ $client->clientName }} logo" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover;">
+            </div>
+        @else
+            <div class="icon">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            </div>
+        @endif
         <h1>Authorize {{ $client->clientName }}</h1>
-        <p class="subtitle">This application wants access to your MCP server.</p>
+        @if ($client->isCimd)
+            <p class="subtitle">from {{ parse_url($client->clientId, PHP_URL_HOST) }}</p>
+        @else
+            <p class="subtitle">This application wants access to your MCP server.</p>
+        @endif
+        @if ($client->isCimd && collect($client->redirectUris)->every(fn($uri) => str_contains($uri, '://localhost') || str_contains($uri, '://127.0.0.1')))
+            <p style="font-size: .75rem; color: #9ca3af; text-align: center; margin-bottom: 1rem;">This client only uses localhost redirect URIs.</p>
+        @endif
 
         <form method="POST" action="{{ route('statamic.cp.statamic-mcp.oauth.approve') }}">
             @csrf
