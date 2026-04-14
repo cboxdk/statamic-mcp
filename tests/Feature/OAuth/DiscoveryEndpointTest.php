@@ -228,4 +228,161 @@ class DiscoveryEndpointTest extends TestCase
         $response->assertOk();
         $this->assertArrayHasKey('issuer', $response->json());
     }
+
+    // ------------------------------------------------------------------
+    // CP route configuration
+    // ------------------------------------------------------------------
+
+    public function test_authorization_endpoint_follows_custom_cp_route(): void
+    {
+        config()->set('statamic.cp.route', 'admin');
+
+        $response = $this->getJson('/.well-known/oauth-authorization-server');
+
+        $response->assertOk();
+        $this->assertStringEndsWith('/admin/mcp/oauth/authorize', $response->json('authorization_endpoint'));
+    }
+
+    public function test_authorization_endpoint_handles_cp_route_with_slashes(): void
+    {
+        config()->set('statamic.cp.route', '/dashboard/');
+
+        $response = $this->getJson('/.well-known/oauth-authorization-server');
+
+        $response->assertOk();
+        // trim() in the controller should strip leading/trailing slashes
+        $this->assertStringEndsWith('/dashboard/mcp/oauth/authorize', $response->json('authorization_endpoint'));
+        $this->assertStringNotContainsString('//mcp', $response->json('authorization_endpoint'));
+    }
+
+    // ------------------------------------------------------------------
+    // Revocation endpoint
+    // ------------------------------------------------------------------
+
+    public function test_authorization_server_includes_revocation_endpoint(): void
+    {
+        $response = $this->getJson('/.well-known/oauth-authorization-server');
+
+        $response->assertOk();
+        $this->assertArrayHasKey('revocation_endpoint', $response->json());
+        $this->assertStringEndsWith('/mcp/oauth/revoke', $response->json('revocation_endpoint'));
+    }
+
+    // ------------------------------------------------------------------
+    // Full client discovery flow (RFC 9728 → RFC 8414)
+    // Simulates what ChatGPT does: protected-resource → find AS →
+    // authorization-server metadata → check CIMD support
+    // ------------------------------------------------------------------
+
+    public function test_full_client_discovery_flow_finds_cimd_support(): void
+    {
+        config()->set('statamic.mcp.web.path', '/mcp/statamic');
+        config()->set('statamic.mcp.oauth.cimd_enabled', true);
+
+        // Step 1: Client fetches protected resource metadata (RFC 9728)
+        $prm = $this->getJson('/.well-known/oauth-protected-resource');
+        $prm->assertOk();
+
+        $resource = $prm->json('resource');
+        $authServers = $prm->json('authorization_servers');
+
+        $this->assertStringEndsWith('/mcp/statamic', $resource);
+        $this->assertNotEmpty($authServers);
+
+        // Step 2: Client extracts the path from the resource URL to build
+        // the path-suffixed discovery URL (RFC 8414 §3.1)
+        $resourcePath = parse_url($resource, PHP_URL_PATH);
+        $this->assertIsString($resourcePath);
+
+        $discoveryUrl = '/.well-known/oauth-authorization-server' . $resourcePath;
+        $this->assertEquals('/.well-known/oauth-authorization-server/mcp/statamic', $discoveryUrl);
+
+        // Step 3: Client fetches authorization server metadata via path-suffixed URL
+        $asm = $this->getJson($discoveryUrl);
+        $asm->assertOk();
+
+        // Step 4: Client checks CIMD support
+        $this->assertTrue($asm->json('client_id_metadata_document_supported'));
+
+        // Step 5: Client verifies required OAuth endpoints are present
+        $this->assertNotEmpty($asm->json('authorization_endpoint'));
+        $this->assertNotEmpty($asm->json('token_endpoint'));
+        $this->assertContains('S256', $asm->json('code_challenge_methods_supported'));
+    }
+
+    public function test_full_client_discovery_flow_with_custom_path(): void
+    {
+        config()->set('statamic.mcp.web.path', '/api/mcp/v2');
+        config()->set('statamic.mcp.oauth.cimd_enabled', true);
+
+        // Step 1: Protected resource metadata
+        $prm = $this->getJson('/.well-known/oauth-protected-resource');
+        $prm->assertOk();
+
+        $resource = $prm->json('resource');
+        $this->assertStringEndsWith('/api/mcp/v2', $resource);
+
+        // Step 2: Build path-suffixed discovery URL from resource path
+        $resourcePath = parse_url($resource, PHP_URL_PATH);
+        $discoveryUrl = '/.well-known/oauth-authorization-server' . $resourcePath;
+
+        // Step 3: Fetch AS metadata
+        $asm = $this->getJson($discoveryUrl);
+        $asm->assertOk();
+        $this->assertTrue($asm->json('client_id_metadata_document_supported'));
+    }
+
+    public function test_full_client_discovery_flow_cimd_disabled(): void
+    {
+        config()->set('statamic.mcp.web.path', '/mcp/statamic');
+        config()->set('statamic.mcp.oauth.cimd_enabled', false);
+
+        $prm = $this->getJson('/.well-known/oauth-protected-resource');
+        $prm->assertOk();
+
+        $resourcePath = parse_url($prm->json('resource'), PHP_URL_PATH);
+        $discoveryUrl = '/.well-known/oauth-authorization-server' . $resourcePath;
+
+        $asm = $this->getJson($discoveryUrl);
+        $asm->assertOk();
+
+        // CIMD is disabled — key should be absent, client falls back to DCR
+        $this->assertArrayNotHasKey('client_id_metadata_document_supported', $asm->json());
+        // DCR registration endpoint should still be present
+        $this->assertNotEmpty($asm->json('registration_endpoint'));
+    }
+
+    // ------------------------------------------------------------------
+    // Path-suffixed routes return identical content to root
+    // ------------------------------------------------------------------
+
+    public function test_all_authorization_server_fields_match_between_root_and_suffixed(): void
+    {
+        config()->set('statamic.mcp.oauth.cimd_enabled', true);
+
+        $root = $this->getJson('/.well-known/oauth-authorization-server')->json();
+        $suffixed = $this->getJson('/.well-known/oauth-authorization-server/mcp/statamic')->json();
+
+        // Every key in root must exist in suffixed with the same value
+        foreach ($root as $key => $value) {
+            $this->assertArrayHasKey($key, $suffixed, "Key '{$key}' missing from path-suffixed response");
+            $this->assertEquals($value, $suffixed[$key], "Value mismatch for key '{$key}'");
+        }
+
+        // And no extra keys in suffixed
+        $this->assertCount(count($root), $suffixed, 'Path-suffixed response has different number of keys');
+    }
+
+    public function test_all_protected_resource_fields_match_between_root_and_suffixed(): void
+    {
+        $root = $this->getJson('/.well-known/oauth-protected-resource')->json();
+        $suffixed = $this->getJson('/.well-known/oauth-protected-resource/mcp/statamic')->json();
+
+        foreach ($root as $key => $value) {
+            $this->assertArrayHasKey($key, $suffixed, "Key '{$key}' missing from path-suffixed response");
+            $this->assertEquals($value, $suffixed[$key], "Value mismatch for key '{$key}'");
+        }
+
+        $this->assertCount(count($root), $suffixed);
+    }
 }
