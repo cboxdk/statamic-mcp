@@ -5,10 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.2.0] - 2026-04-14
+## [2.2.3] - 2026-04-14
 
 ### Fixed
 - **Critical:** Update action on entries, terms, and globals no longer crashes with `Cannot access offset of type string on string` when blueprints include third-party fieldtypes (e.g., SEO Pro) — validation now falls back to incoming-only fields when a `TypeError` occurs in the full-merge validation pipeline
+- **OAuth CIMD discovery:** `cimd_enabled` config checks now use `(bool)` cast with `true` default — strict `=== true` comparison against env strings silently disabled CIMD, and published configs missing the key (due to `mergeConfigFrom` shallow merge) returned `null`
+- **OAuth path-suffixed discovery:** Added `/.well-known/oauth-authorization-server/{path}` and `/.well-known/oauth-protected-resource/{path}` routes per RFC 8414 §3.1 — MCP clients discovering metadata for a server at e.g. `/mcp/statamic` use path insertion and previously got 403
 
 ### Added
 - **OAuth 2.1 CIMD support:** Client ID Metadata Document (CIMD) resolution for OAuth authorization — MCP clients can now present verified application identity (name, logo, policy URLs) on the consent screen
@@ -16,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Consent screen shows verified client metadata when available (name, logo, redirect URIs)
 - `/.well-known/oauth-authorization-server` now advertises `client_id_metadata_document_supported`
 - 10 new update validation tests covering deep nested replicator/bard/grid/group blueprints, round-trip create→update, and simulated crashing third-party fieldtypes
+- 9 new discovery endpoint tests covering CIMD config edge cases (missing key, string "true"/"false", zero) and path-suffixed discovery with custom/nested paths
 - Comprehensive CIMD test suite (unit, feature, E2E)
 
 ## [2.1.0] - 2026-04-13
