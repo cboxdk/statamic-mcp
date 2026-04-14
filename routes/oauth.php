@@ -17,9 +17,16 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
-// Discovery endpoints (must be at root level per RFC 8414 / RFC 9728)
+// Discovery endpoints (RFC 8414 / RFC 9728)
+// Root-level discovery (issuer without path)
 Route::get('/.well-known/oauth-protected-resource', [DiscoveryController::class, 'protectedResource'])->name('mcp.oauth.protected-resource');
 Route::get('/.well-known/oauth-authorization-server', [DiscoveryController::class, 'authorizationServer'])->name('mcp.oauth.authorization-server');
+
+// Path-suffixed discovery (RFC 8414 §3.1 — issuer with path component)
+// Clients discovering metadata for e.g. /mcp/statamic will try
+// /.well-known/oauth-authorization-server/mcp/statamic first.
+Route::get('/.well-known/oauth-protected-resource/{path}', [DiscoveryController::class, 'protectedResource'])->where('path', '.*');
+Route::get('/.well-known/oauth-authorization-server/{path}', [DiscoveryController::class, 'authorizationServer'])->where('path', '.*');
 
 // OAuth mutation endpoints — enforce HTTPS in production to protect
 // authorization codes, tokens, and client credentials in transit.
