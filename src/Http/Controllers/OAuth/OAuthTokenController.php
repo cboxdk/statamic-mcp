@@ -186,7 +186,7 @@ class OAuthTokenController extends Controller
             return null;
         }
 
-        if (! (bool) config('statamic.mcp.oauth.cimd_enabled')) {
+        if (! (bool) config('statamic.mcp.oauth.cimd_enabled', true)) {
             return response()->json([
                 'error' => 'invalid_client',
                 'error_description' => 'CIMD client_id resolution is disabled.',

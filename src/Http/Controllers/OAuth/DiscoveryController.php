@@ -62,7 +62,7 @@ class DiscoveryController extends Controller
             'token_endpoint_auth_methods_supported' => ['none'],
         ];
 
-        if ((bool) config('statamic.mcp.oauth.cimd_enabled')) {
+        if ((bool) config('statamic.mcp.oauth.cimd_enabled', true)) {
             $metadata['client_id_metadata_document_supported'] = true;
         }
 
