@@ -481,30 +481,46 @@ class EntriesRouter extends BaseRouter
                 // Normalize date field values to the format Statamic expects
                 $data = $this->normalizeDateFields($blueprint, $data);
 
-                // Merge new data with existing for full blueprint validation
-                // Include slug since blueprint validates it as required
+                // Validate incoming data against blueprint.
+                // We merge with existing data so required-field rules pass for
+                // unchanged fields, but if the full-merge validation throws a
+                // TypeError (common with third-party fieldtypes like SEO Pro
+                // whose preProcessValidatable can't handle stored data formats),
+                // we fall back to validating only the incoming fields (ENG-711).
                 /** @var array<string, mixed> $mergedData */
                 $mergedData = array_merge($entry->data()->all(), $data);
                 $mergedData['slug'] = $entry->slug();
-
-                // Backward compat: entries saved by MCP prior to v2.1 were stored
-                // without the fieldtype process() step, so structured fields
-                // (Bard, group, etc.) may contain raw strings instead of arrays.
-                // This normalizes them for validation. Safe to remove once all
-                // MCP-created content has been re-saved.
                 $mergedData = $this->sanitizeStoredFieldDataForValidation($blueprint, $mergedData);
+
+                $validationContext = [
+                    'entry' => $entry,
+                    'collection' => $entry->collection(),
+                    'site' => $site,
+                ];
 
                 try {
                     (new FieldsValidator)
                         ->fields($blueprint->fields()->addValues($mergedData))
-                        ->withContext([
-                            'entry' => $entry,
-                            'collection' => $entry->collection(),
-                            'site' => $site,
-                        ])
+                        ->withContext($validationContext)
                         ->validate();
                 } catch (ValidationException $e) {
                     return $this->formatValidationError($e);
+                } catch (\TypeError $e) {
+                    // A TypeError in the validation pipeline typically means a
+                    // third-party fieldtype's preProcessValidatable or extraRules
+                    // cannot handle the stored data format.  Fall back to
+                    // validating only the incoming fields — the existing data was
+                    // already valid when it was saved.
+                    try {
+                        (new FieldsValidator)
+                            ->fields($blueprint->fields()->addValues($data))
+                            ->withContext($validationContext)
+                            ->validate();
+                    } catch (ValidationException $inner) {
+                        return $this->formatValidationError($inner);
+                    } catch (\Throwable $inner) {
+                        return $this->createErrorResponse('Failed to process entry data: ' . $inner->getMessage())->toArray();
+                    }
                 } catch (\Throwable $e) {
                     return $this->createErrorResponse('Failed to process entry data: ' . $e->getMessage())->toArray();
                 }
