@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-04-14
+
+### Fixed
+- **Critical:** Update action on entries, terms, and globals no longer crashes with `Cannot access offset of type string on string` when blueprints include third-party fieldtypes (e.g., SEO Pro) — validation now falls back to incoming-only fields when a `TypeError` occurs in the full-merge validation pipeline
+
+### Added
+- **OAuth 2.1 CIMD support:** Client ID Metadata Document (CIMD) resolution for OAuth authorization — MCP clients can now present verified application identity (name, logo, policy URLs) on the consent screen
+- CIMD resolver with SSRF protection, JSON-LD validation, and configurable caching
+- Consent screen shows verified client metadata when available (name, logo, redirect URIs)
+- `/.well-known/oauth-authorization-server` now advertises `client_id_metadata_document_supported`
+- 10 new update validation tests covering deep nested replicator/bard/grid/group blueprints, round-trip create→update, and simulated crashing third-party fieldtypes
+- Comprehensive CIMD test suite (unit, feature, E2E)
+
 ## [2.1.0] - 2026-04-13
 
 ### Fixed
