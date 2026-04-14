@@ -476,7 +476,6 @@ class UpdateEntryBugTest extends TestCase
             /** @var string */
             protected static $handle = 'crashing_fieldtype';
 
-            /** @return mixed */
             public function preProcessValidatable(mixed $value): mixed
             {
                 if ($value !== null) {
