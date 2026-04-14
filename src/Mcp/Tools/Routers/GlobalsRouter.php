@@ -293,16 +293,31 @@ class GlobalsRouter extends BaseRouter
                 // MCP-created content has been re-saved.
                 $mergedData = $this->sanitizeStoredFieldDataForValidation($blueprint, $mergedData);
 
+                $validationContext = [
+                    'global_set' => $globalSet,
+                    'site' => $site,
+                ];
+
                 try {
                     (new Validator)
                         ->fields($blueprint->fields()->addValues($mergedData))
-                        ->withContext([
-                            'global_set' => $globalSet,
-                            'site' => $site,
-                        ])
+                        ->withContext($validationContext)
                         ->validate();
                 } catch (ValidationException $e) {
                     return $this->formatValidationError($e);
+                } catch (\TypeError $e) {
+                    // Third-party fieldtype validation crash — fall back to
+                    // validating only the incoming fields.
+                    try {
+                        (new Validator)
+                            ->fields($blueprint->fields()->addValues($data))
+                            ->withContext($validationContext)
+                            ->validate();
+                    } catch (ValidationException $inner) {
+                        return $this->formatValidationError($inner);
+                    } catch (\Throwable $inner) {
+                        return $this->createErrorResponse('Failed to process global data: ' . $inner->getMessage())->toArray();
+                    }
                 } catch (\Throwable $e) {
                     return $this->createErrorResponse('Failed to process global data: ' . $e->getMessage())->toArray();
                 }

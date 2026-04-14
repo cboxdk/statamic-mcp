@@ -472,17 +472,32 @@ class TermsRouter extends BaseRouter
                 // MCP-created content has been re-saved.
                 $mergedData = $this->sanitizeStoredFieldDataForValidation($blueprint, $mergedData);
 
+                $validationContext = [
+                    'term' => $term,
+                    'taxonomy' => Taxonomy::find(is_string($taxonomy) ? $taxonomy : ''),
+                    'site' => $site,
+                ];
+
                 try {
                     (new FieldsValidator)
                         ->fields($blueprint->fields()->addValues($mergedData))
-                        ->withContext([
-                            'term' => $term,
-                            'taxonomy' => Taxonomy::find(is_string($taxonomy) ? $taxonomy : ''),
-                            'site' => $site,
-                        ])
+                        ->withContext($validationContext)
                         ->validate();
                 } catch (ValidationException $e) {
                     return $this->formatValidationError($e);
+                } catch (\TypeError $e) {
+                    // Third-party fieldtype validation crash — fall back to
+                    // validating only the incoming fields.
+                    try {
+                        (new FieldsValidator)
+                            ->fields($blueprint->fields()->addValues($validatedData))
+                            ->withContext($validationContext)
+                            ->validate();
+                    } catch (ValidationException $inner) {
+                        return $this->formatValidationError($inner);
+                    } catch (\Throwable $inner) {
+                        return $this->createErrorResponse('Failed to process term data: ' . $inner->getMessage())->toArray();
+                    }
                 } catch (\Throwable $e) {
                     return $this->createErrorResponse('Failed to process term data: ' . $e->getMessage())->toArray();
                 }
