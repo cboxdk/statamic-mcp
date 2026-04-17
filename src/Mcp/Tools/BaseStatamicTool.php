@@ -75,10 +75,13 @@ abstract class BaseStatamicTool extends Tool
         $arguments = $request->all();
         $result = $this->execute($arguments);
 
-        if ($result['success'] ?? false) {
+        // Use structured response for any well-formed standard envelope (has success + meta),
+        // regardless of success/failure. This preserves data payloads like confirmation tokens.
+        if (isset($result['success'], $result['meta'])) {
             return Response::structured($result);
         }
 
+        // Fallback for non-standard error shapes (e.g., from createSafeErrorResponse)
         $errors = $result['errors'] ?? null;
         $firstError = is_array($errors) ? ($errors[0] ?? null) : null;
         $errorRaw = $firstError ?? $result['error'] ?? 'Unknown error occurred';

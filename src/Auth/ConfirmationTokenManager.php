@@ -96,6 +96,10 @@ class ConfirmationTokenManager
 
         $canonical = json_encode($arguments, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 
+        if ($canonical === false) {
+            throw new \InvalidArgumentException('Cannot canonicalize arguments: ' . json_last_error_msg());
+        }
+
         return $tool . '|' . $canonical . '|' . $timestamp;
     }
 
