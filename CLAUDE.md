@@ -39,6 +39,30 @@ The addon provides scoped API tokens for fine-grained MCP access control:
 - `AuthenticateForMcp` — Bearer token + Basic Auth fallback
 - `RequireMcpPermission` — Validates token scopes and expiry
 
+### Confirmation Tokens
+Destructive MCP operations require a two-step confirmation flow in production:
+- **ConfirmationTokenManager** (`src/Auth/ConfirmationTokenManager.php`) — Stateless HMAC-SHA256 tokens bound to tool + arguments
+- **RequiresConfirmation trait** (`src/Mcp/Tools/Concerns/RequiresConfirmation.php`) — Integrated into BaseRouter
+- **Operations requiring confirmation:** All `delete` actions + blueprint `create`/`update`/`delete`
+- **Environment-aware:** Auto-enabled in production, disabled in local/dev/testing (configurable via `STATAMIC_MCP_CONFIRMATION_ENABLED`)
+- **CLI bypass:** Confirmation is skipped in CLI context
+
+### Resource Policy
+Granular resource-level access control configured in `config/statamic/mcp.php`:
+- **ResourcePolicy** (`src/Auth/ResourcePolicy.php`) — Glob-based resource allowlists + field deny lists
+- **EnforcesResourcePolicy trait** (`src/Mcp/Tools/Concerns/EnforcesResourcePolicy.php`) — Integrated into BaseRouter
+- **Per-domain config:** `resources.read`/`resources.write` (glob patterns) + `denied_fields` (field names to strip)
+- **Applies everywhere:** Resource policy is enforced in both CLI and web contexts (site-wide admin policy)
+- **Field filtering:** Denied fields silently stripped from both input and output
+
+### Authorization Evaluation Order (Web Context)
+1. Tool enabled? → `config: tools.{domain}.enabled`
+2. Token scope? → `TokenScope: {domain}:{read|write}`
+3. Resource allowed? → `ResourcePolicy::canAccess(domain, handle, mode)`
+4. Statamic permissions? → `User::hasPermission()`
+5. Confirmation required? → `ConfirmationTokenManager` (deletes + blueprint writes)
+6. Field filtering → `ResourcePolicy::filterFields()` on input + output
+
 ### OAuth 2.1 Authorization Server
 The addon includes a full OAuth 2.1 authorization server with PKCE for browser-based MCP clients:
 
