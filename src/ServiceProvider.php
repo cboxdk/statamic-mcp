@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp;
 
 use Cboxdk\StatamicMcp\Auth\AuthServiceProvider;
+use Cboxdk\StatamicMcp\Auth\ConfirmationTokenManager;
+use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Console\InstallCommand;
 use Cboxdk\StatamicMcp\Console\MigrateStoreCommand;
 use Cboxdk\StatamicMcp\Console\PruneAuditCommand;
@@ -155,6 +157,12 @@ class ServiceProvider extends AddonServiceProvider
 
         // Register CIMD resolver
         $this->app->singleton(CimdResolver::class);
+
+        // Register confirmation token manager
+        $this->app->singleton(ConfirmationTokenManager::class);
+
+        // Register resource policy
+        $this->app->singleton(ResourcePolicy::class);
 
         // Register auth services
         $this->app->register(AuthServiceProvider::class);
