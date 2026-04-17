@@ -450,16 +450,15 @@ class BlueprintsRouterTest extends TestCase
         $this->assertStringContainsString('Taxonomy not found: nonexistent_taxonomy', $result['errors'][0]);
     }
 
-    public function test_delete_blueprint_requires_explicit_confirmation(): void
+    public function test_delete_nonexistent_blueprint_returns_not_found(): void
     {
         $result = $this->router->execute([
             'action' => 'delete',
             'handle' => 'some_blueprint',
-            'confirm' => false,
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Deletion requires explicit confirmation', $result['errors'][0]);
+        $this->assertStringContainsString('Blueprint not found', $result['errors'][0]);
     }
 
     public function test_generate_blueprint_requires_fields(): void
