@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\BuildsPaginatedResponse;
+use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\EnforcesResourcePolicy;
+use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\RequiresConfirmation;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\RouterHelpers;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
@@ -15,6 +17,8 @@ use Illuminate\JsonSchema\JsonSchema;
 abstract class BaseRouter extends BaseStatamicTool
 {
     use BuildsPaginatedResponse;
+    use EnforcesResourcePolicy;
+    use RequiresConfirmation;
     use RouterHelpers;
 
     /**
@@ -90,14 +94,34 @@ abstract class BaseRouter extends BaseStatamicTool
             )->toArray();
         }
 
+        $action = is_string($arguments['action'] ?? null) ? $arguments['action'] : '';
+
         if ($this->isWebContext()) {
-            $action = is_string($arguments['action'] ?? null) ? $arguments['action'] : '';
             $permissionError = $this->checkWebPermissions($action, $arguments);
             if ($permissionError) {
                 return $permissionError;
             }
         }
 
-        return $this->executeAction($arguments);
+        // Resource policy check (applies in ALL contexts — site-wide admin policy)
+        $resourceError = $this->checkResourceAccess($action, $arguments);
+        if ($resourceError) {
+            return $resourceError;
+        }
+
+        // Confirmation check (skipped in CLI and when disabled)
+        $confirmationResponse = $this->handleConfirmation($action, $arguments);
+        if ($confirmationResponse) {
+            return $confirmationResponse;
+        }
+
+        // Filter denied fields from input
+        $arguments = $this->filterInputFields($arguments);
+
+        // Execute the action
+        $result = $this->executeAction($arguments);
+
+        // Filter denied fields from output
+        return $this->filterOutputFields($result);
     }
 }

@@ -691,11 +691,6 @@ class BlueprintsRouter extends BaseRouter
         try {
             $handle = is_string($arguments['handle']) ? $arguments['handle'] : '';
             $namespace = isset($arguments['namespace']) && is_string($arguments['namespace']) ? $arguments['namespace'] : null;
-            $confirm = $this->getBooleanArgument($arguments, 'confirm', false);
-
-            if (! $confirm) {
-                return $this->createErrorResponse('Deletion requires explicit confirmation (set confirm to true)')->toArray();
-            }
 
             // Find the blueprint
             $collectionHandle = isset($arguments['collection_handle']) && is_string($arguments['collection_handle']) ? $arguments['collection_handle'] : null;
