@@ -111,6 +111,24 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Confirmation Tokens
+    |--------------------------------------------------------------------------
+    |
+    | Require a two-step confirmation flow for destructive operations.
+    | Uses stateless HMAC-SHA256 tokens bound to the exact operation.
+    |
+    | When enabled is null (default), confirmation is auto-detected:
+    | enabled in production, disabled in local/development/testing/staging.
+    | Set to true/false to override.
+    |
+    */
+    'confirmation' => [
+        'enabled' => env('STATAMIC_MCP_CONFIRMATION_ENABLED', null),
+        'ttl' => (int) env('STATAMIC_MCP_CONFIRMATION_TTL', 300),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Rate Limiting
     |--------------------------------------------------------------------------
     |
@@ -162,24 +180,59 @@ return [
     'tools' => [
         'blueprints' => [
             'enabled' => env('STATAMIC_MCP_TOOL_BLUEPRINTS_ENABLED', true),
+            'resources' => [
+                'read' => ['*'],
+                'write' => ['*'],
+            ],
+            'denied_fields' => [],
         ],
         'entries' => [
             'enabled' => env('STATAMIC_MCP_TOOL_ENTRIES_ENABLED', true),
+            'resources' => [
+                'read' => ['*'],
+                'write' => ['*'],
+            ],
+            'denied_fields' => [],
         ],
         'terms' => [
             'enabled' => env('STATAMIC_MCP_TOOL_TERMS_ENABLED', true),
+            'resources' => [
+                'read' => ['*'],
+                'write' => ['*'],
+            ],
+            'denied_fields' => [],
         ],
         'globals' => [
             'enabled' => env('STATAMIC_MCP_TOOL_GLOBALS_ENABLED', true),
+            'resources' => [
+                'read' => ['*'],
+                'write' => ['*'],
+            ],
+            'denied_fields' => [],
         ],
         'structures' => [
             'enabled' => env('STATAMIC_MCP_TOOL_STRUCTURES_ENABLED', true),
+            'resources' => [
+                'read' => ['*'],
+                'write' => ['*'],
+            ],
+            'denied_fields' => [],
         ],
         'assets' => [
             'enabled' => env('STATAMIC_MCP_TOOL_ASSETS_ENABLED', true),
+            'resources' => [
+                'read' => ['*'],
+                'write' => ['*'],
+            ],
+            'denied_fields' => [],
         ],
         'users' => [
             'enabled' => env('STATAMIC_MCP_TOOL_USERS_ENABLED', true),
+            'resources' => [
+                'read' => ['*'],
+                'write' => ['*'],
+            ],
+            'denied_fields' => [],
         ],
         'system' => [
             'enabled' => env('STATAMIC_MCP_TOOL_SYSTEM_ENABLED', true),
