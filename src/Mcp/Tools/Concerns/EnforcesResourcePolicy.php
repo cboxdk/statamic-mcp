@@ -66,12 +66,16 @@ trait EnforcesResourcePolicy
 
         // Filter 'data' key if present (entries, terms, globals)
         if (isset($arguments['data']) && is_array($arguments['data'])) {
-            $arguments['data'] = $policy->filterFields($domain, $arguments['data']);
+            /** @var array<string, mixed> $data */
+            $data = $arguments['data'];
+            $arguments['data'] = $policy->filterFields($domain, $data);
         }
 
         // Filter 'fields' key if present (blueprints)
         if (isset($arguments['fields']) && is_array($arguments['fields'])) {
-            $arguments['fields'] = $policy->filterFields($domain, $arguments['fields']);
+            /** @var array<string, mixed> $fields */
+            $fields = $arguments['fields'];
+            $arguments['fields'] = $policy->filterFields($domain, $fields);
         }
 
         return $arguments;
@@ -97,7 +101,9 @@ trait EnforcesResourcePolicy
 
         // Filter the 'data' key in the result
         if (isset($result['data']) && is_array($result['data'])) {
-            $result['data'] = $policy->filterFields($domain, $result['data']);
+            /** @var array<string, mixed> $resultData */
+            $resultData = $result['data'];
+            $result['data'] = $policy->filterFields($domain, $resultData);
         }
 
         return $result;
