@@ -146,6 +146,77 @@ curl -X POST https://your-site.test/mcp/statamic \
   -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
 ```
 
+## Self-Signed Certificates (Laravel Herd / Valet)
+
+If you use **Laravel Herd** or **Laravel Valet** with HTTPS enabled on your local site, Node.js will not trust the self-signed certificate by default. This affects any client that uses `npx mcp-remote` as a bridge (e.g. Claude Desktop Option B) and may also affect other Node.js-based MCP clients.
+
+The fix is to tell Node.js where to find the certificate authority (CA) file by setting the `NODE_EXTRA_CA_CERTS` environment variable in your MCP config.
+
+### Laravel Herd (Windows)
+
+```json
+{
+    "mcpServers": {
+        "statamic": {
+            "command": "npx",
+            "args": [
+                "mcp-remote",
+                "https://your-site.test/mcp/statamic",
+                "--header",
+                "Authorization: Bearer <your-token>"
+            ],
+            "env": {
+                "NODE_EXTRA_CA_CERTS": "C:\\Users\\<your-username>\\.config\\herd\\config\\valet\\CA\\LaravelValetCASelfSigned.crt"
+            }
+        }
+    }
+}
+```
+
+### Laravel Herd (macOS)
+
+```json
+{
+    "mcpServers": {
+        "statamic": {
+            "command": "npx",
+            "args": [
+                "mcp-remote",
+                "https://your-site.test/mcp/statamic",
+                "--header",
+                "Authorization: Bearer <your-token>"
+            ],
+            "env": {
+                "NODE_EXTRA_CA_CERTS": "/Users/<your-username>/Library/Application Support/Herd/config/valet/CA/LaravelValetCASelfSigned.crt"
+            }
+        }
+    }
+}
+```
+
+### Laravel Valet (Linux)
+
+```json
+{
+    "mcpServers": {
+        "statamic": {
+            "command": "npx",
+            "args": [
+                "mcp-remote",
+                "https://your-site.test/mcp/statamic",
+                "--header",
+                "Authorization: Bearer <your-token>"
+            ],
+            "env": {
+                "NODE_EXTRA_CA_CERTS": "/home/<your-username>/.config/valet/CA/LaravelValetCASelfSigned.crt"
+            }
+        }
+    }
+}
+```
+
+> **Tip:** If you're unsure where the CA certificate is located, look for a file named `LaravelValetCASelfSigned.crt` in your Herd or Valet configuration directory. The `NODE_EXTRA_CA_CERTS` variable works with any self-signed CA — not just Herd/Valet.
+
 ## Troubleshooting
 
 | Problem | Solution |
@@ -155,5 +226,6 @@ curl -X POST https://your-site.test/mcp/statamic \
 | 403 Forbidden | Token scopes don't cover the requested action — update scopes in the CP |
 | 404 Not Found | Verify endpoint path matches `STATAMIC_MCP_WEB_PATH` — run `php artisan config:clear` |
 | 429 Too Many Requests | Increase `STATAMIC_MCP_RATE_LIMIT_MAX` in `.env` |
+| TLS / certificate error | Using Laravel Herd or Valet with HTTPS? See [Self-Signed Certificates](#self-signed-certificates-laravel-herd--valet) above |
 | Tools not appearing | Check that the tool domain is enabled in `config/statamic/mcp.php` |
 | Timeout | Ensure your site is reachable from the network where the AI client runs |
