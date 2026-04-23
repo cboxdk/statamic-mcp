@@ -72,10 +72,20 @@ Agent                           MCP Server
 'confirmation' => [
     'enabled' => env('STATAMIC_MCP_CONFIRMATION_ENABLED', null), // null = auto-detect
     'ttl' => env('STATAMIC_MCP_CONFIRMATION_TTL', 300),
+
+    // Per-domain gate list. Domains not listed fall back to 'default'.
+    // '*' gates every action; [] disables the gate for that domain.
+    'actions' => [
+        'default'    => ['delete'],
+        'blueprints' => ['create', 'update', 'delete'],
+        // e.g. 'entries' => ['create', 'update', 'delete', 'publish', 'unpublish'],
+    ],
 ],
 ```
 
 **Environment-aware default:** When `enabled` is `null` (the default), confirmation is automatically enabled in `production` and disabled in `local`, `development`, `testing`, and `staging`. This matches the existing pattern in `EnsureSecureTransport` middleware which skips HTTPS enforcement in non-production environments. Explicitly setting `true` or `false` overrides the auto-detection.
+
+**Configurable action list:** `confirmation.actions` maps domain handle → gated actions. Resolved by `ConfirmationActionGate::gates($domain, $action)` inside the `RequiresConfirmation` trait. Shipped defaults reproduce the original behaviour (delete everywhere + blueprint writes), so existing consumers see no change. Operators can widen the gate per domain (e.g. require confirmation on `entries.update`) without forking the package.
 
 ### Public API
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Concerns;
 
+use Cboxdk\StatamicMcp\Auth\ConfirmationActionGate;
 use Cboxdk\StatamicMcp\Auth\ConfirmationTokenManager;
 
 /**
@@ -17,20 +18,14 @@ trait RequiresConfirmation
 {
     /**
      * Check if the given action requires confirmation for this router.
+     *
+     * Gate list comes from `statamic.mcp.confirmation.actions`. A domain
+     * not listed falls back to `default`, which itself defaults to
+     * `['delete']`. The `*` wildcard gates every action in the domain.
      */
     protected function requiresConfirmation(string $action): bool
     {
-        // All routers: delete requires confirmation
-        if ($action === 'delete') {
-            return true;
-        }
-
-        // BlueprintsRouter: create and update also require confirmation
-        if ($this->getDomain() === 'blueprints' && in_array($action, ['create', 'update'], true)) {
-            return true;
-        }
-
-        return false;
+        return ConfirmationActionGate::gates($this->getDomain(), $action);
     }
 
     /**
