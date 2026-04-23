@@ -109,7 +109,7 @@ trait SanitizesFieldData
             'group' => $this->sanitizeGroupValue($field, $value, $allowLegacyCoercion, $path),
             'grid' => $this->sanitizeGridValue($field, $value, $allowLegacyCoercion, $path),
             'replicator' => $this->sanitizeReplicatorValue($field, $value, $allowLegacyCoercion, $path),
-            'table' => $this->sanitizeArrayValue('table', $value, $allowLegacyCoercion, $path),
+            'table' => $this->sanitizeTableValue($value, $allowLegacyCoercion, $path),
             'terms', 'entries', 'users', 'assets', 'checkboxes' => $this->sanitizeRelationshipValue($value),
             default => $value,
         };
@@ -288,6 +288,91 @@ trait SanitizesFieldData
         }
 
         return $sanitized;
+    }
+
+    /**
+     * Normalize Statamic table field storage: each row is ['cells' => [scalar|null, ...]].
+     *
+     * LLMs (and augmented template output) commonly wrap cells as ['value' => scalar].
+     * That form renders fine on the frontend but breaks the CP editor, which reads raw
+     * storage and stringifies objects to "[object Object]". Unwrap the common augmented
+     * form; reject anything else so the write fails loudly instead of corrupting content.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function sanitizeTableValue(mixed $value, bool $allowLegacyCoercion, string $path): array
+    {
+        $rows = $this->sanitizeArrayValue('table', $value, $allowLegacyCoercion, $path);
+
+        /** @var array<int, array<string, mixed>> $sanitized */
+        $sanitized = [];
+
+        foreach ($rows as $rowIndex => $row) {
+            if (! is_array($row)) {
+                if ($allowLegacyCoercion) {
+                    continue;
+                }
+
+                throw $this->invalidStructuredValue($path . '.' . $rowIndex, 'table row', $row);
+            }
+
+            $cells = $row['cells'] ?? null;
+            if (! is_array($cells)) {
+                if ($allowLegacyCoercion) {
+                    continue;
+                }
+
+                throw $this->invalidStructuredValue($path . '.' . $rowIndex . '.cells', 'table cells', $cells);
+            }
+
+            /** @var array<int, string|null> $normalizedCells */
+            $normalizedCells = [];
+            foreach (array_values($cells) as $cellIndex => $cell) {
+                $normalizedCells[] = $this->normalizeTableCell(
+                    $cell,
+                    $allowLegacyCoercion,
+                    $path . '.' . $rowIndex . '.cells.' . $cellIndex
+                );
+            }
+
+            $row['cells'] = $normalizedCells;
+
+            /** @var array<string, mixed> $sanitizedRow */
+            $sanitizedRow = $row;
+            $sanitized[] = $sanitizedRow;
+        }
+
+        return $sanitized;
+    }
+
+    /**
+     * Coerce a single table cell to string|null, unwrapping the augmented ['value' => x] form.
+     */
+    private function normalizeTableCell(mixed $cell, bool $allowLegacyCoercion, string $path): ?string
+    {
+        if ($cell === null) {
+            return null;
+        }
+
+        if (is_string($cell)) {
+            return $cell;
+        }
+
+        if (is_int($cell) || is_float($cell) || is_bool($cell)) {
+            return (string) $cell;
+        }
+
+        if (is_array($cell) && array_key_exists('value', $cell)) {
+            return $this->normalizeTableCell($cell['value'], $allowLegacyCoercion, $path);
+        }
+
+        if ($allowLegacyCoercion) {
+            return null;
+        }
+
+        throw new InvalidArgumentException(
+            "Field [{$path}] table cell must be a string or null, received " . get_debug_type($cell) . '.'
+        );
     }
 
     /**
