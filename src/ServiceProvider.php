@@ -18,6 +18,7 @@ use Cboxdk\StatamicMcp\Http\Middleware\AuthenticateForMcp;
 use Cboxdk\StatamicMcp\Http\Middleware\EnsureSecureTransport;
 use Cboxdk\StatamicMcp\Http\Middleware\HandleMcpCors;
 use Cboxdk\StatamicMcp\Http\Middleware\RequireMcpPermission;
+use Cboxdk\StatamicMcp\Http\Middleware\SetOAuthWwwAuthenticate;
 use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
 use Cboxdk\StatamicMcp\OAuth\Cimd\CimdResolver;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
@@ -33,6 +34,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Laravel\Mcp\Facades\Mcp;
+use Laravel\Mcp\Server\Middleware\AddWwwAuthenticateHeader;
 use Statamic\Facades\CP\Nav;
 use Statamic\Facades\Git;
 use Statamic\Facades\Permission;
@@ -124,6 +126,15 @@ class ServiceProvider extends AddonServiceProvider
         // Merge config file
         $this->mergeConfigFrom(
             __DIR__ . '/../config/statamic/mcp.php', 'statamic.mcp'
+        );
+
+        // Replace laravel/mcp's WWW-Authenticate middleware with our own so the
+        // `resource_metadata` pointer is always emitted with a URL we control,
+        // instead of depending on route-name resolution which can fall through
+        // to a generic fallback in some serving environments.
+        $this->app->bind(
+            AddWwwAuthenticateHeader::class,
+            SetOAuthWwwAuthenticate::class
         );
 
         // Register audit store from configured driver
