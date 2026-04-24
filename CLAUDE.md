@@ -42,8 +42,10 @@ The addon provides scoped API tokens for fine-grained MCP access control:
 ### Confirmation Tokens
 Destructive MCP operations require a two-step confirmation flow in production:
 - **ConfirmationTokenManager** (`src/Auth/ConfirmationTokenManager.php`) — Stateless HMAC-SHA256 tokens bound to tool + arguments
+- **ConfirmationActionGate** (`src/Auth/ConfirmationActionGate.php`) — Resolves `(domain, action)` → gated? from `confirmation.actions` config
 - **RequiresConfirmation trait** (`src/Mcp/Tools/Concerns/RequiresConfirmation.php`) — Integrated into BaseRouter
-- **Operations requiring confirmation:** All `delete` actions + blueprint `create`/`update`/`delete`
+- **Operations requiring confirmation (defaults):** `delete` on every domain + `create`/`update` on blueprints
+- **Per-domain configurable:** `confirmation.actions.<domain>` lists the actions that trigger the gate. Domains not listed fall back to `default`. `*` gates every action. `[]` disables the gate for that domain. Operators can widen the gate (e.g. `entries => [create, update, delete, publish, unpublish]`) without forking.
 - **Environment-aware:** Auto-enabled in production, disabled in local/dev/testing (configurable via `STATAMIC_MCP_CONFIRMATION_ENABLED`)
 - **CLI bypass:** Confirmation is skipped in CLI context
 
@@ -60,7 +62,7 @@ Granular resource-level access control configured in `config/statamic/mcp.php`:
 2. Token scope? → `TokenScope: {domain}:{read|write}`
 3. Resource allowed? → `ResourcePolicy::canAccess(domain, handle, mode)`
 4. Statamic permissions? → `User::hasPermission()`
-5. Confirmation required? → `ConfirmationTokenManager` (deletes + blueprint writes)
+5. Confirmation required? → `ConfirmationActionGate` (configurable per domain; defaults: deletes + blueprint writes) → `ConfirmationTokenManager`
 6. Field filtering → `ResourcePolicy::filterFields()` on input + output
 
 ### OAuth 2.1 Authorization Server

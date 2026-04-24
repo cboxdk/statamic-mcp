@@ -125,6 +125,26 @@ return [
     'confirmation' => [
         'enabled' => env('STATAMIC_MCP_CONFIRMATION_ENABLED', null),
         'ttl' => (int) env('STATAMIC_MCP_CONFIRMATION_TTL', 300),
+
+        /*
+        | Per-domain list of actions that require the confirmation-token flow.
+        | Domains not listed fall back to 'default'. An empty array disables
+        | the gate for that domain. The '*' wildcard gates every action.
+        |
+        | Defaults preserve historical behaviour: 'delete' everywhere plus
+        | create/update on blueprints. Operators can widen the gate per
+        | domain — e.g. require confirmation on entries.update — without
+        | forking the package.
+        */
+        'actions' => [
+            'default' => ['delete'],
+            'blueprints' => ['create', 'update', 'delete'],
+            // 'entries' => ['create', 'update', 'delete', 'publish', 'unpublish'],
+            // 'globals' => ['update'],
+            // 'terms'   => ['create', 'update', 'delete'],
+            // 'assets'  => ['upload', 'update', 'delete', 'move', 'copy'],
+            // 'users'   => ['create', 'update', 'delete', 'assign-role'],
+        ],
     ],
 
     /*
