@@ -455,6 +455,36 @@ class EntriesRouter extends BaseRouter
                 unset($data['published']);
             }
 
+            // Handle slug separately *before* blueprint validation so the
+            // FieldsValidator never sees the slug column. Letting the merged
+            // payload include the slug forces UniqueEntryValue to compare the
+            // current slug against the entry being updated and reject it as
+            // "already taken" — even when the caller never asked to change
+            // the slug. Mirrors the createEntry() flow but passes the
+            // entry's id as the $except argument so the rule excludes the
+            // current entry from the uniqueness check.
+            if (array_key_exists('slug', $data)) {
+                $newSlug = is_string($data['slug']) ? $data['slug'] : '';
+                $slugValidator = Validator::make(['slug' => $newSlug], [
+                    'slug' => [
+                        'required',
+                        'string',
+                        new UniqueEntryValue($entry->collectionHandle(), $entry->id(), $site),
+                    ],
+                ]);
+
+                if ($slugValidator->fails()) {
+                    $errors = $slugValidator->errors()->get('slug');
+                    /** @var array<string> $flatErrors */
+                    $flatErrors = array_map(fn ($error) => is_string($error) ? $error : implode(', ', (array) $error), $errors);
+
+                    return $this->createErrorResponse('Slug validation failed: ' . implode(', ', $flatErrors))->toArray();
+                }
+
+                $entry->slug($newSlug);
+                unset($data['slug']);
+            }
+
             // For dated collections, parse the date and set it on the entry.
             // Keep a normalized copy in data so the FieldsValidator sees the required field.
             if (array_key_exists('date', $data) && $entry->collection()->dated()) {
@@ -487,9 +517,14 @@ class EntriesRouter extends BaseRouter
                 // TypeError (common with third-party fieldtypes like SEO Pro
                 // whose preProcessValidatable can't handle stored data formats),
                 // we fall back to validating only the incoming fields.
+                // NOTE: do NOT inject slug into mergedData. Any slug change
+                // was already applied to the entry object above; the
+                // FieldsValidator does not need the slug column and including
+                // it forces UniqueEntryValue to reject the current entry's
+                // own slug. See the slug-handling block earlier in this
+                // method (issue #27).
                 /** @var array<string, mixed> $mergedData */
                 $mergedData = array_merge($entry->data()->all(), $data);
-                $mergedData['slug'] = $entry->slug();
                 $mergedData = $this->sanitizeStoredFieldDataForValidation($blueprint, $mergedData);
 
                 $validationContext = [

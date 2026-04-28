@@ -184,6 +184,143 @@ class EntriesRouterTest extends TestCase
         $this->assertEquals('auto-slug-generation-test', $result['data']['entry']['slug']);
     }
 
+    /**
+     * Regression for https://github.com/cboxdk/statamic-mcp/issues/27.
+     *
+     * The previous updateEntry() flow injected the entry's current
+     * slug into the FieldsValidator payload, which made
+     * UniqueEntryValue compare the slug against the entry being
+     * updated and reject it as "already taken" — even when the caller
+     * never passed a slug at all.
+     */
+    public function test_update_entry_without_slug_in_data_succeeds(): void
+    {
+        $entry = Entry::make()
+            ->collection($this->collectionHandle)
+            ->slug("update-no-slug-{$this->testId}")
+            ->data(['title' => 'Original Title']);
+        $entry->save();
+
+        $result = $this->router->execute([
+            'action' => 'update',
+            'collection' => $this->collectionHandle,
+            'id' => $entry->id(),
+            'data' => [
+                'title' => 'Updated Title',
+            ],
+        ]);
+
+        $this->assertTrue(
+            $result['success'],
+            'updating an entry without changing the slug must succeed; got: '
+            . json_encode($result['errors'] ?? []),
+        );
+
+        $reloaded = Entry::find($entry->id());
+        $this->assertSame('Updated Title', $reloaded->get('title'));
+        $this->assertSame("update-no-slug-{$this->testId}", $reloaded->slug());
+    }
+
+    /**
+     * Resending the entry's *current* slug as part of `data` is
+     * idempotent and must not trigger UniqueEntryValue against the
+     * entry itself.
+     */
+    public function test_update_entry_with_unchanged_slug_succeeds(): void
+    {
+        $slug = "update-same-slug-{$this->testId}";
+        $entry = Entry::make()
+            ->collection($this->collectionHandle)
+            ->slug($slug)
+            ->data(['title' => 'Original']);
+        $entry->save();
+
+        $result = $this->router->execute([
+            'action' => 'update',
+            'collection' => $this->collectionHandle,
+            'id' => $entry->id(),
+            'data' => [
+                'title' => 'Updated',
+                'slug' => $slug,
+            ],
+        ]);
+
+        $this->assertTrue(
+            $result['success'],
+            'resending the existing slug must be idempotent; got: '
+            . json_encode($result['errors'] ?? []),
+        );
+
+        $reloaded = Entry::find($entry->id());
+        $this->assertSame($slug, $reloaded->slug());
+        $this->assertSame('Updated', $reloaded->get('title'));
+    }
+
+    /**
+     * Renaming an entry to a slug that does not collide with any
+     * other entry in the collection succeeds.
+     */
+    public function test_update_entry_with_new_unique_slug_succeeds(): void
+    {
+        $entry = Entry::make()
+            ->collection($this->collectionHandle)
+            ->slug("update-rename-from-{$this->testId}")
+            ->data(['title' => 'Will Be Renamed']);
+        $entry->save();
+
+        $newSlug = "update-rename-to-{$this->testId}";
+        $result = $this->router->execute([
+            'action' => 'update',
+            'collection' => $this->collectionHandle,
+            'id' => $entry->id(),
+            'data' => [
+                'slug' => $newSlug,
+            ],
+        ]);
+
+        $this->assertTrue(
+            $result['success'],
+            'updating to a unique new slug must succeed; got: '
+            . json_encode($result['errors'] ?? []),
+        );
+
+        $reloaded = Entry::find($entry->id());
+        $this->assertSame($newSlug, $reloaded->slug());
+    }
+
+    /**
+     * Renaming an entry to a slug that another entry already owns
+     * must surface the validation error.
+     */
+    public function test_update_entry_to_existing_slug_returns_error(): void
+    {
+        $other = Entry::make()
+            ->collection($this->collectionHandle)
+            ->slug("update-collision-{$this->testId}")
+            ->data(['title' => 'Other']);
+        $other->save();
+
+        $entry = Entry::make()
+            ->collection($this->collectionHandle)
+            ->slug("update-target-{$this->testId}")
+            ->data(['title' => 'Target']);
+        $entry->save();
+
+        $result = $this->router->execute([
+            'action' => 'update',
+            'collection' => $this->collectionHandle,
+            'id' => $entry->id(),
+            'data' => [
+                'slug' => $other->slug(),
+            ],
+        ]);
+
+        $this->assertFalse(
+            $result['success'],
+            'updating to a slug already owned by another entry must fail',
+        );
+    }
+
     public function test_update_nonexistent_entry_returns_error(): void
     {
         $result = $this->router->execute([
