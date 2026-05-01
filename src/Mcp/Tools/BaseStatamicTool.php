@@ -7,15 +7,19 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools;
 use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorResponse;
 use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ResponseMeta;
 use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\SuccessResponse;
+use Cboxdk\StatamicMcp\Mcp\Exceptions\FieldFormatException;
 use Cboxdk\StatamicMcp\Mcp\Support\ToolLogger;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\ResponseFactory;
 use Laravel\Mcp\Server\Tool;
+use Statamic\Exceptions\BlueprintNotFoundException;
+use Statamic\Exceptions\FieldtypeNotFoundException;
 use Statamic\Statamic;
 
 abstract class BaseStatamicTool extends Tool
@@ -179,7 +183,7 @@ abstract class BaseStatamicTool extends Tool
             ]);
 
             $rawMessage = $this->sanitizeErrorMessage($e->getMessage());
-            $errorMessage = app()->environment('local', 'testing')
+            $errorMessage = ($this->isClientSafeException($e) || app()->environment('local', 'testing'))
                 ? "{$prefix} in {$toolName}: {$rawMessage}"
                 : "{$prefix} in {$toolName}: An error occurred. Check server logs for details.";
 
@@ -421,6 +425,23 @@ abstract class BaseStatamicTool extends Tool
         }
 
         return false;
+    }
+
+    /**
+     * Determine if an exception's message is curated and safe to expose to clients
+     * even outside local/testing environments.
+     *
+     * The default production handler genericises messages to avoid leaking internals.
+     * For these specific exception classes the message content is authored by us
+     * (or by trusted upstream code) with field paths / validation rules, so the
+     * message is more valuable than the generic placeholder.
+     */
+    protected function isClientSafeException(\Throwable $e): bool
+    {
+        return $e instanceof FieldFormatException
+            || $e instanceof ValidationException
+            || $e instanceof FieldtypeNotFoundException
+            || $e instanceof BlueprintNotFoundException;
     }
 
     /**
