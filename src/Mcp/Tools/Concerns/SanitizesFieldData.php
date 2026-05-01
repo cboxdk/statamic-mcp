@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Concerns;
 
+use Cboxdk\StatamicMcp\Mcp\Exceptions\FieldFormatException;
 use Illuminate\Support\Collection;
-use InvalidArgumentException;
 use Statamic\Fields\Blueprint;
 use Statamic\Fields\Field;
 use Statamic\Fieldtypes\Bard;
@@ -171,7 +171,7 @@ trait SanitizesFieldData
                     continue;
                 }
 
-                throw new InvalidArgumentException("Field [{$path}.{$index}] references unknown Bard set [" . (is_scalar($setType) ? (string) $setType : 'invalid') . ']');
+                throw new FieldFormatException("Field [{$path}.{$index}] references unknown Bard set [" . (is_scalar($setType) ? (string) $setType : 'invalid') . ']');
             }
 
             /** @var array<string, mixed> $bardSetValues */
@@ -276,7 +276,7 @@ trait SanitizesFieldData
                     continue;
                 }
 
-                throw new InvalidArgumentException("Field [{$path}.{$index}] references unknown replicator set [" . (is_scalar($setType) ? (string) $setType : 'invalid') . ']');
+                throw new FieldFormatException("Field [{$path}.{$index}] references unknown replicator set [" . (is_scalar($setType) ? (string) $setType : 'invalid') . ']');
             }
 
             $sanitized[] = $this->sanitizeFieldCollection(
@@ -370,7 +370,7 @@ trait SanitizesFieldData
             return null;
         }
 
-        throw new InvalidArgumentException(
+        throw new FieldFormatException(
             "Field [{$path}] table cell must be a string or null, received " . get_debug_type($cell) . '.'
         );
     }
@@ -411,10 +411,10 @@ trait SanitizesFieldData
         return [];
     }
 
-    private function invalidStructuredValue(string $path, string $fieldType, mixed $value): InvalidArgumentException
+    private function invalidStructuredValue(string $path, string $fieldType, mixed $value): FieldFormatException
     {
         $received = get_debug_type($value);
 
-        return new InvalidArgumentException("Field [{$path}] expects {$fieldType} data as an array, received {$received}.");
+        return new FieldFormatException("Field [{$path}] expects {$fieldType} data as an array, received {$received}.");
     }
 }

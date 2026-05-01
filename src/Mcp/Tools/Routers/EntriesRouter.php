@@ -414,6 +414,12 @@ class EntriesRouter extends BaseRouter
             ];
 
         } catch (\Exception $e) {
+            // FieldFormatException + ValidationException carry curated messages with
+            // field paths — they reach the client through this envelope.
+            // Other Throwables (e.g. TypeError from third-party fieldtype pipelines)
+            // fall through to BaseStatamicTool::execute() which logs them centrally
+            // and applies environment-aware sanitization before the message goes
+            // to the client.
             return $this->createErrorResponse("Failed to create entry: {$e->getMessage()}")->toArray();
         }
     }
@@ -558,6 +564,12 @@ class EntriesRouter extends BaseRouter
             ];
 
         } catch (\Exception $e) {
+            // FieldFormatException + ValidationException carry curated messages with
+            // field paths — they reach the client through this envelope.
+            // Other Throwables (e.g. TypeError from third-party fieldtype pipelines)
+            // fall through to BaseStatamicTool::execute() which logs them centrally
+            // and applies environment-aware sanitization before the message goes
+            // to the client.
             return $this->createErrorResponse("Failed to update entry: {$e->getMessage()}")->toArray();
         }
     }
