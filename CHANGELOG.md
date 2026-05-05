@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] - 2026-05-05
+
+### Added
+- **Per-field wire-format spec** — `BlueprintsRouter::get` now emits a `_format_spec` per field describing the exact wire format (shape, allowed node types, set handles, canonical examples). Covers bard (inline + full), replicator, grid, group, markdown, scalar, select/checkbox, relationship, asset, table, and date fields. Controllable via `include_format_spec` (default `true`) and `max_format_depth` (default 2, max 5) parameters (#29)
+- **`FieldFormatException`** — new exception class for malformed bard/replicator/grid/table input, with precise field-path error messages that survive production sanitization
+- **Client-safe exception allow-list** — `FieldFormatException`, `ValidationException`, `FieldtypeNotFoundException`, and `BlueprintNotFoundException` messages now reach the client in production instead of being replaced with a generic placeholder
+- **Configurable confirmation actions** — new `confirmation.actions` config block allows per-domain control over which actions require confirmation tokens. Domains not listed fall back to `default`. `*` gates every action; `[]` disables the gate. Shipped defaults preserve existing behaviour (#26)
+- **`ConfirmationActionGate`** — new helper that resolves `(domain, action)` → gated? from config, replacing the previous hardcoded logic in `RequiresConfirmation`
+
+### Fixed
+- **Entry slug self-collision on update** — `updateEntry()` no longer fails with "slug already taken" when updating an entry without changing its slug. The fix passes the current entry ID as exclusion to `UniqueEntryValue`, matching the pattern used in `createEntry()` (#28)
+- **Table cell normalization** — `SanitizesFieldData` now correctly normalizes `{value: …}` objects in table cells to plain strings, preventing `[object Object]` rendering in the CP
+- **Playwright login throttling in CI** — Browser tests now use a shared `globalSetup` + `storageState` pattern (single login per run) instead of per-test login, preventing Statamic's login throttle from failing the last test
+
 ## [2.2.4] - 2026-04-14
 
 ### Fixed
@@ -287,6 +301,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Laravel MCP v0.2.0 integration
 - Comprehensive test suite
 
+[2.4.0]: https://github.com/cboxdk/statamic-mcp/compare/v2.3.0...v2.4.0
 [2.0.0]: https://github.com/cboxdk/statamic-mcp/compare/v1.4.0...v2.0.0
 [1.4.0]: https://github.com/cboxdk/statamic-mcp/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/cboxdk/statamic-mcp/compare/v1.2.0...v1.3.0
