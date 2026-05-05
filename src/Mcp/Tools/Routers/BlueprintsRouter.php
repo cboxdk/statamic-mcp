@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
+use Cboxdk\StatamicMcp\Mcp\Support\FieldFormatSpec;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
@@ -19,7 +20,7 @@ use Statamic\Fields\Field;
 use Statamic\Fields\FieldtypeRepository;
 
 #[Name('statamic-blueprints')]
-#[Description('Manage Statamic blueprints — the schema definitions for all content types. Call get before creating/updating entries, terms, or globals to understand required fields. Actions: list, get, create, update, delete, scan, generate, types, validate.')]
+#[Description('Manage Statamic blueprints — the schema definitions for all content types. Call get before creating/updating entries, terms, or globals to understand required fields AND the _format_spec for each field (wire format, allowed types, common mistakes). Actions: list, get, create, update, delete, scan, generate, types, validate.')]
 class BlueprintsRouter extends BaseRouter
 {
     use ClearsCaches;
@@ -98,9 +99,13 @@ class BlueprintsRouter extends BaseRouter
             'include_details' => JsonSchema::boolean()
                 ->description('Include field type and configuration details in response. Default: false for list, true for get'),
             'include_fields' => JsonSchema::boolean()
-                ->description('Include field definitions in list response. Default: false (reduces response size)'),
+                ->description('Only applies to list. Include field handle/type/display in list response. Default: true.'),
             'include_config' => JsonSchema::boolean()
-                ->description('Include full field config in responses (default true for get, false for list)'),
+                ->description('Only applies to get. Include full field config in the response. Default: true.'),
+            'include_format_spec' => JsonSchema::boolean()
+                ->description('Only applies to get. Include _format_spec on each field describing the exact wire format (shape, allowed types, set definitions, common mistakes, example). Highly recommended before writing entries with bard, replicator, grid, or group fields. Default: true.'),
+            'max_format_depth' => JsonSchema::integer()
+                ->description('Only applies to get. Recursion depth for _format_spec into nested set fields. 0 = top-level only. Default: 2.'),
             'output_format' => JsonSchema::string()
                 ->description('Type generation output format. Choose based on your project\'s language')
                 ->enum(['typescript', 'php', 'json-schema', 'all']),
@@ -207,6 +212,8 @@ class BlueprintsRouter extends BaseRouter
             $collectionHandle = isset($arguments['collection_handle']) && is_string($arguments['collection_handle']) ? $arguments['collection_handle'] : null;
             $taxonomyHandle = isset($arguments['taxonomy_handle']) && is_string($arguments['taxonomy_handle']) ? $arguments['taxonomy_handle'] : null;
             $includeConfig = $this->getBooleanArgument($arguments, 'include_config', true);
+            $includeFormatSpec = $this->getBooleanArgument($arguments, 'include_format_spec', true);
+            $maxFormatDepth = $this->getIntegerArgument($arguments, 'max_format_depth', 2, 0, 5);
 
             $blueprint = $this->findBlueprint($handle, $namespace, $collectionHandle, $taxonomyHandle);
 
@@ -215,13 +222,15 @@ class BlueprintsRouter extends BaseRouter
                 return $notFound;
             }
 
+            $formatSpec = $includeFormatSpec ? new FieldFormatSpec($maxFormatDepth) : null;
+
             $data = [
                 'handle' => $blueprint->handle(),
                 'title' => $blueprint->title(),
                 'namespace' => $blueprint->namespace(),
                 'hidden' => $blueprint->hidden(),
                 'order' => $blueprint->order(),
-                'fields' => $blueprint->fields()->all()->map(function (mixed $field) use ($includeConfig): array {
+                'fields' => $blueprint->fields()->all()->map(function (mixed $field) use ($includeConfig, $formatSpec): array {
                     /** @var Field $field */
                     $fieldData = [
                         'handle' => $field->handle(),
@@ -231,6 +240,13 @@ class BlueprintsRouter extends BaseRouter
 
                     if ($includeConfig) {
                         $fieldData['config'] = $field->config();
+                    }
+
+                    if ($formatSpec !== null) {
+                        $spec = $formatSpec->for($field);
+                        if ($spec !== null) {
+                            $fieldData['_format_spec'] = $spec;
+                        }
                     }
 
                     return $fieldData;
