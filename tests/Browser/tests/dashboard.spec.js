@@ -1,26 +1,13 @@
 const { test, expect } = require('@playwright/test');
 
-const email = process.env.TEST_EMAIL || 'test@example.com';
-const password = process.env.TEST_PASSWORD || 'password';
-
-async function login(page) {
-    await page.goto('/cp/auth/login');
-    await page.locator('input[name="email"]').fill(email);
-    await page.locator('input[name="password"]').fill(password);
-    await page.getByRole('button', { name: /continue|sign in|log in/i }).click();
-    // Statamic's Vue login does window.location.href after success — wait for full navigation
-    await page.waitForURL((url) => !url.pathname.includes('/auth/'), { timeout: 15000 });
-    await page.waitForLoadState('networkidle');
-}
-
-test('CP login works', async ({ page }) => {
-    await login(page);
-    // After login, Statamic redirects away from the auth page
+test('CP login works (session is established via globalSetup)', async ({ page }) => {
+    // The storageState from globalSetup gives us an authenticated session.
+    // Verify we can access the CP without being redirected to login.
+    await page.goto('/cp');
     await expect(page).not.toHaveURL(/\/auth\//);
 });
 
 test('MCP user page loads', async ({ page }) => {
-    await login(page);
     await page.goto('/cp/mcp');
     await expect(page.locator('h1')).toContainText('MCP');
     await expect(page.getByRole('tab', { name: 'Connect' })).toBeVisible();
@@ -28,7 +15,6 @@ test('MCP user page loads', async ({ page }) => {
 });
 
 test('MCP admin page loads', async ({ page }) => {
-    await login(page);
     await page.goto('/cp/mcp/admin');
     await expect(page.locator('h1')).toContainText('MCP Admin');
     await expect(page.getByRole('tab', { name: 'All Tokens' })).toBeVisible();
@@ -78,7 +64,6 @@ test('MCP endpoint returns 401 with resource_metadata', async ({ request }) => {
 });
 
 test('Connect tab shows client selector', async ({ page }) => {
-    await login(page);
     await page.goto('/cp/mcp');
     // Client buttons should be visible
     await expect(page.getByRole('button', { name: 'Claude Desktop' })).toBeVisible();
@@ -86,7 +71,6 @@ test('Connect tab shows client selector', async ({ page }) => {
 });
 
 test('Claude Desktop guide shows OAuth steps', async ({ page }) => {
-    await login(page);
     await page.goto('/cp/mcp');
     await page.getByRole('button', { name: 'Claude Desktop' }).click();
     // Should mention Settings → Connectors

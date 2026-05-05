@@ -11,6 +11,7 @@ composer.lock
 *.jpg
 
 # Testing
+tests/Browser/.auth/
 .phpunit.cache
 .pest-mutate-cache
 # Test fixtures are generated dynamically, not committed
