@@ -139,7 +139,7 @@ return [
         'actions' => [
             'default' => ['delete'],
             'blueprints' => ['create', 'update', 'delete'],
-            // 'entries' => ['create', 'update', 'delete', 'publish', 'unpublish'],
+            // 'entries' => ['create', 'update', 'delete', 'publish', 'unpublish', 'restore_revision', 'publish_working_copy'],
             // 'globals' => ['update'],
             // 'terms'   => ['create', 'update', 'delete'],
             // 'assets'  => ['upload', 'update', 'delete', 'move', 'copy'],

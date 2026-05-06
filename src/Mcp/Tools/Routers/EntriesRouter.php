@@ -6,6 +6,7 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
+use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\HandlesRevisions;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\NormalizesDateFields;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\SanitizesFieldData;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
@@ -21,10 +22,11 @@ use Statamic\Rules\UniqueEntryValue;
 use Statamic\Support\Str;
 
 #[Name('statamic-entries')]
-#[Description('Manage Statamic collection entries. Use statamic-blueprints get first to understand field structure before create/update. Actions: list, get, create, update, delete, publish, unpublish.')]
+#[Description('Manage Statamic collection entries. Use statamic-blueprints get first to understand field structure before create/update. Actions: list, get, create, update, delete, publish, unpublish, list_revisions, get_revision, restore_revision, publish_working_copy.')]
 class EntriesRouter extends BaseRouter
 {
     use ClearsCaches;
+    use HandlesRevisions;
     use NormalizesDateFields;
     use SanitizesFieldData;
 
@@ -40,14 +42,18 @@ class EntriesRouter extends BaseRouter
                 ->description(
                     'Action to perform. Required params per action: '
                     . 'list (collection; optional: limit, offset, filters, include_unpublished), '
-                    . 'get (collection, id), '
+                    . 'get (collection, id; optional: version), '
                     . 'create (collection, data — use statamic-blueprints get to see field structure first), '
-                    . 'update (collection, id, data), '
+                    . 'update (collection, id, data; optional: revision_message), '
                     . 'delete (collection, id), '
-                    . 'publish (collection, id), '
-                    . 'unpublish (collection, id)'
+                    . 'publish (collection, id; optional: revision_message), '
+                    . 'unpublish (collection, id; optional: revision_message), '
+                    . 'list_revisions (collection, id), '
+                    . 'get_revision (collection, id, revision_id), '
+                    . 'restore_revision (collection, id, revision_id), '
+                    . 'publish_working_copy (collection, id; optional: revision_message)'
                 )
-                ->enum(['list', 'get', 'create', 'update', 'delete', 'publish', 'unpublish'])
+                ->enum(['list', 'get', 'create', 'update', 'delete', 'publish', 'unpublish', 'list_revisions', 'get_revision', 'restore_revision', 'publish_working_copy'])
                 ->required(),
 
             'collection' => JsonSchema::string()
@@ -55,7 +61,7 @@ class EntriesRouter extends BaseRouter
                 ->required(),
 
             'id' => JsonSchema::string()
-                ->description('Entry UUID. Required for get, update, delete, publish, unpublish actions'),
+                ->description('Entry UUID. Required for get, update, delete, publish, unpublish, list_revisions, get_revision, restore_revision, publish_working_copy actions'),
 
             'site' => JsonSchema::string()
                 ->description('Site handle for multi-site setups. Defaults to the default site. Example: "default", "en"'),
@@ -78,6 +84,16 @@ class EntriesRouter extends BaseRouter
 
             'offset' => JsonSchema::integer()
                 ->description('Number of results to skip for pagination. Use with limit for paging'),
+
+            'version' => JsonSchema::string()
+                ->description('Which version of the entry to return for get action. "published" (default): live published data, "working_copy": current working copy data, "latest": working copy if exists else published')
+                ->enum(['published', 'working_copy', 'latest']),
+
+            'revision_message' => JsonSchema::string()
+                ->description('Optional message to attach to a revision (for update, publish, unpublish, publish_working_copy actions)'),
+
+            'revision_id' => JsonSchema::string()
+                ->description('Timestamp-based revision ID (required for get_revision and restore_revision actions). Use list_revisions to discover available IDs'),
         ]);
     }
 
@@ -117,6 +133,10 @@ class EntriesRouter extends BaseRouter
             'delete' => $this->deleteEntry($arguments),
             'publish' => $this->publishEntry($arguments),
             'unpublish' => $this->unpublishEntry($arguments),
+            'list_revisions' => $this->listRevisionsAction($arguments),
+            'get_revision' => $this->getRevisionAction($arguments),
+            'restore_revision' => $this->restoreRevisionAction($arguments),
+            'publish_working_copy' => $this->publishWorkingCopyAction($arguments),
             default => $this->createErrorResponse("Action {$action} not supported for entries")->toArray(),
         };
     }
@@ -131,9 +151,16 @@ class EntriesRouter extends BaseRouter
     private function validateActionRequirements(string $action, array $arguments): ?array
     {
         // ID required for specific actions
-        if (in_array($action, ['get', 'update', 'delete', 'publish', 'unpublish'])) {
+        if (in_array($action, ['get', 'update', 'delete', 'publish', 'unpublish', 'list_revisions', 'get_revision', 'restore_revision', 'publish_working_copy'])) {
             if (empty($arguments['id'])) {
                 return $this->createErrorResponse("Entry ID is required for {$action} action")->toArray();
+            }
+        }
+
+        // Revision ID required for get_revision and restore_revision
+        if (in_array($action, ['get_revision', 'restore_revision'])) {
+            if (empty($arguments['revision_id'])) {
+                return $this->createErrorResponse("Revision ID is required for {$action} action")->toArray();
             }
         }
 
@@ -161,11 +188,11 @@ class EntriesRouter extends BaseRouter
         $collection = is_string($arguments['collection'] ?? '') ? ($arguments['collection'] ?? '') : '';
 
         return match ($action) {
-            'list', 'get' => ["view {$collection} entries"],
+            'list', 'get', 'list_revisions', 'get_revision' => ["view {$collection} entries"],
             'create' => ["create {$collection} entries"],
             'update' => ["edit {$collection} entries"],
             'delete' => ["delete {$collection} entries"],
-            'publish', 'unpublish' => ["publish {$collection} entries"],
+            'publish', 'unpublish', 'restore_revision', 'publish_working_copy' => ["publish {$collection} entries"],
             default => [],
         };
     }
@@ -243,6 +270,7 @@ class EntriesRouter extends BaseRouter
     {
         $id = is_string($arguments['id']) ? $arguments['id'] : '';
         $site = $this->resolveSiteHandle($arguments);
+        $version = is_string($arguments['version'] ?? null) ? $arguments['version'] : 'published';
 
         try {
             $entry = Entry::find($id);
@@ -260,7 +288,23 @@ class EntriesRouter extends BaseRouter
                 }
             }
 
-            return [
+            // Resolve data based on requested version
+            $data = $entry->data()->all();
+
+            if ($version === 'working_copy' || $version === 'latest') {
+                if ($this->entryRevisionsEnabled($entry) && $entry->hasWorkingCopy()) {
+                    $workingCopy = $entry->workingCopy();
+                    if ($workingCopy !== null) {
+                        /** @var array<string, mixed> $attributes */
+                        $attributes = $workingCopy->attributes();
+                        $data = is_array($attributes['data'] ?? null) ? $attributes['data'] : $data;
+                    }
+                } elseif ($version === 'working_copy') {
+                    return $this->createErrorResponse('No working copy exists for this entry')->toArray();
+                }
+            }
+
+            $response = [
                 'entry' => [
                     'id' => $entry->id(),
                     'collection' => $entry->collectionHandle(),
@@ -270,9 +314,16 @@ class EntriesRouter extends BaseRouter
                     'date' => $entry->date()?->toISOString(),
                     'last_modified' => $entry->lastModified()?->toISOString(),
                     'url' => $entry->url(),
-                    'data' => $entry->data()->all(),
+                    'data' => $data,
                 ],
             ];
+
+            // Include revision status metadata when revisions are enabled
+            if ($this->entryRevisionsEnabled($entry)) {
+                $response['revision_status'] = $this->getRevisionStatusMeta($entry);
+            }
+
+            return $response;
 
         } catch (\Exception $e) {
             return $this->createErrorResponse("Failed to get entry: {$e->getMessage()}")->toArray();
@@ -394,12 +445,20 @@ class EntriesRouter extends BaseRouter
                 $entry->data($data);
             }
 
-            $entry->save();
+            // Revision-aware create: use store() which saves as unpublished
+            // and creates an initial revision (matches CP behavior)
+            if ($this->entryRevisionsEnabled($entry)) {
+                $entry->store([
+                    'message' => is_string($arguments['revision_message'] ?? null) ? $arguments['revision_message'] : null,
+                ]);
+            } else {
+                $entry->save();
+            }
 
             // Clear relevant caches
             $this->clearStatamicCaches(['stache', 'static']);
 
-            return [
+            $response = [
                 'entry' => [
                     'id' => $entry->id(),
                     'slug' => $entry->slug(),
@@ -412,6 +471,12 @@ class EntriesRouter extends BaseRouter
                 ],
                 'created' => true,
             ];
+
+            if ($this->entryRevisionsEnabled($entry)) {
+                $response['revision_status'] = $this->getRevisionStatusMeta($entry);
+            }
+
+            return $response;
 
         } catch (\Exception $e) {
             // FieldFormatException + ValidationException carry curated messages with
@@ -580,12 +645,18 @@ class EntriesRouter extends BaseRouter
                 $data = $processedData;
             }
 
+            // Revision-aware save: if revisions enabled and entry is published,
+            // save to working copy instead of directly modifying the published entry
+            if ($this->entryRevisionsEnabled($entry) && $entry->published()) {
+                return $this->saveAsWorkingCopy($entry, $data, is_string($arguments['revision_message'] ?? null) ? $arguments['revision_message'] : null);
+            }
+
             $entry->merge($data)->save();
 
             // Clear relevant caches
             $this->clearStatamicCaches(['stache', 'static']);
 
-            return [
+            $response = [
                 'entry' => [
                     'id' => $entry->id(),
                     'slug' => $entry->slug(),
@@ -597,6 +668,12 @@ class EntriesRouter extends BaseRouter
                 ],
                 'updated' => true,
             ];
+
+            if ($this->entryRevisionsEnabled($entry)) {
+                $response['revision_status'] = $this->getRevisionStatusMeta($entry);
+            }
+
+            return $response;
 
         } catch (\Exception $e) {
             // FieldFormatException + ValidationException carry curated messages with
@@ -669,12 +746,19 @@ class EntriesRouter extends BaseRouter
                 return $notFound;
             }
 
-            $entry->published(true)->save();
+            /** @var \Statamic\Entries\Entry $entry */
+            // Use Statamic's built-in publish() which delegates to publishWorkingCopy()
+            // when revisions are enabled, or sets published(true)->save() otherwise
+            $options = array_filter([
+                'message' => is_string($arguments['revision_message'] ?? null) ? $arguments['revision_message'] : null,
+            ]);
+
+            $entry->publish($options);
 
             // Clear relevant caches
             $this->clearStatamicCaches(['stache', 'static']);
 
-            return [
+            $response = [
                 'entry' => [
                     'id' => $entry->id(),
                     'slug' => $entry->slug(),
@@ -683,6 +767,12 @@ class EntriesRouter extends BaseRouter
                 ],
                 'published' => true,
             ];
+
+            if ($this->entryRevisionsEnabled($entry)) {
+                $response['revision_status'] = $this->getRevisionStatusMeta($entry);
+            }
+
+            return $response;
 
         } catch (\Exception $e) {
             return $this->createErrorResponse("Failed to publish entry: {$e->getMessage()}")->toArray();
@@ -708,12 +798,19 @@ class EntriesRouter extends BaseRouter
                 return $notFound;
             }
 
-            $entry->published(false)->save();
+            /** @var \Statamic\Entries\Entry $entry */
+            // Use Statamic's built-in unpublish() which delegates to unpublishWorkingCopy()
+            // when revisions are enabled, or sets published(false)->save() otherwise
+            $options = array_filter([
+                'message' => is_string($arguments['revision_message'] ?? null) ? $arguments['revision_message'] : null,
+            ]);
+
+            $entry->unpublish($options);
 
             // Clear relevant caches
             $this->clearStatamicCaches(['stache', 'static']);
 
-            return [
+            $response = [
                 'entry' => [
                     'id' => $entry->id(),
                     'slug' => $entry->slug(),
@@ -721,6 +818,12 @@ class EntriesRouter extends BaseRouter
                 ],
                 'unpublished' => true,
             ];
+
+            if ($this->entryRevisionsEnabled($entry)) {
+                $response['revision_status'] = $this->getRevisionStatusMeta($entry);
+            }
+
+            return $response;
 
         } catch (\Exception $e) {
             return $this->createErrorResponse("Failed to unpublish entry: {$e->getMessage()}")->toArray();
@@ -731,12 +834,16 @@ class EntriesRouter extends BaseRouter
     {
         return [
             'list' => 'List entries with filtering and pagination',
-            'get' => 'Get specific entry with full data',
-            'create' => 'Create new entry',
-            'update' => 'Update existing entry',
+            'get' => 'Get specific entry with full data (supports version param for revision-aware reads)',
+            'create' => 'Create new entry (uses store() with initial revision when revisions enabled)',
+            'update' => 'Update existing entry (creates working copy when revisions enabled and entry is published)',
             'delete' => 'Delete entry',
-            'publish' => 'Publish entry',
-            'unpublish' => 'Unpublish entry',
+            'publish' => 'Publish entry (promotes working copy when revisions enabled)',
+            'unpublish' => 'Unpublish entry (creates revision snapshot when revisions enabled)',
+            'list_revisions' => 'List revision history for an entry (requires revisions enabled)',
+            'get_revision' => 'Get a specific revision by timestamp ID with full data snapshot',
+            'restore_revision' => 'Restore entry from a specific revision (creates working copy for published, updates directly for unpublished)',
+            'publish_working_copy' => 'Publish the current working copy (requires existing working copy)',
         ];
     }
 

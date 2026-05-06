@@ -165,6 +165,7 @@ trait RouterHelpers
             'activate', 'deactivate', 'assign_role', 'remove_role',
             'move', 'copy', 'upload', 'configure',
             'cache_clear', 'cache_warm', 'config_set',
+            'restore_revision', 'publish_working_copy',
         ]);
 
         return TokenScope::tryFrom("{$domain}:" . ($isWrite ? 'write' : 'read'));
