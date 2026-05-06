@@ -789,7 +789,11 @@ class BlueprintsRouter extends BaseRouter
                 return $existsError;
             }
 
-            // Build field definitions from user-provided input
+            // Build field definitions from user-provided input.
+            // The generate action accepts a simplified format where "type" is at the
+            // top level, so we normalize to the standard {handle, field} indexed array
+            // that Statamic's Blueprint::setContents() expects.
+            /** @var array<int, array{handle: string, field: array<string, mixed>}> $fieldDefinitions */
             $fieldDefinitions = [];
             foreach ($fields as $field) {
                 if (! is_array($field)) {
@@ -802,7 +806,10 @@ class BlueprintsRouter extends BaseRouter
                 }
                 $fieldConfig = $field;
                 unset($fieldConfig['handle']);
-                $fieldDefinitions[$fieldHandle] = $fieldConfig;
+                $fieldDefinitions[] = [
+                    'handle' => $fieldHandle,
+                    'field' => $fieldConfig,
+                ];
             }
 
             if (empty($fieldDefinitions)) {

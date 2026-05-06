@@ -119,7 +119,7 @@ class ServiceProvider extends AddonServiceProvider
     /**
      * Register any application services.
      */
-    public function register()
+    public function register(): void
     {
         parent::register();
 

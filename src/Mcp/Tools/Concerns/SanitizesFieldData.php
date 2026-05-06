@@ -98,6 +98,11 @@ trait SanitizesFieldData
         return $data;
     }
 
+    /**
+     * @param  array<string, mixed>|string|int|float|bool|null  $value
+     *
+     * @return array<mixed>|string|int|float|bool|null
+     */
     private function sanitizeFieldValue(Field $field, mixed $value, bool $allowLegacyCoercion, string $path): mixed
     {
         if ($value === null) {
@@ -363,7 +368,28 @@ trait SanitizesFieldData
         }
 
         if (is_array($cell) && array_key_exists('value', $cell)) {
-            return $this->normalizeTableCell($cell['value'], $allowLegacyCoercion, $path);
+            $inner = $cell['value'];
+
+            if ($inner === null) {
+                return null;
+            }
+
+            if (is_string($inner)) {
+                return $inner;
+            }
+
+            if (is_int($inner) || is_float($inner) || is_bool($inner)) {
+                return (string) $inner;
+            }
+
+            // Nested array — do not recurse further to prevent stack overflow
+            if ($allowLegacyCoercion) {
+                return null;
+            }
+
+            throw new FieldFormatException(
+                "Field [{$path}] table cell['value'] must be a scalar or null, received " . get_debug_type($inner) . '.'
+            );
         }
 
         if ($allowLegacyCoercion) {

@@ -99,11 +99,37 @@ trait EnforcesResourcePolicy
             return $result;
         }
 
-        // Filter the 'data' key in the result
+        // Filter the 'data' key in the result (single-item responses)
         if (isset($result['data']) && is_array($result['data'])) {
             /** @var array<string, mixed> $resultData */
             $resultData = $result['data'];
             $result['data'] = $policy->filterFields($domain, $resultData);
+        }
+
+        // Filter nested 'data' within domain-specific wrapper keys (e.g. entry.data, term.data)
+        foreach (['entry', 'term', 'global', 'asset', 'user'] as $wrapper) {
+            if (isset($result[$wrapper]['data']) && is_array($result[$wrapper]['data'])) {
+                /** @var array<string, mixed> $wrappedData */
+                $wrappedData = $result[$wrapper]['data'];
+                $result[$wrapper]['data'] = $policy->filterFields($domain, $wrappedData);
+            }
+        }
+
+        // Filter list responses where items live under domain-specific keys
+        foreach (['entries', 'terms', 'globals', 'assets', 'users'] as $listKey) {
+            if (isset($result[$listKey]) && is_array($result[$listKey])) {
+                /** @var array<int, array<string, mixed>> $items */
+                $items = $result[$listKey];
+                $result[$listKey] = array_map(function (array $item) use ($policy, $domain): array {
+                    if (isset($item['data']) && is_array($item['data'])) {
+                        /** @var array<string, mixed> $itemData */
+                        $itemData = $item['data'];
+                        $item['data'] = $policy->filterFields($domain, $itemData);
+                    }
+
+                    return $item;
+                }, $items);
+            }
         }
 
         return $result;

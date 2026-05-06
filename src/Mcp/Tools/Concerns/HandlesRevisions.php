@@ -62,8 +62,12 @@ trait HandlesRevisions
     {
         /** @var Entry $entry */
 
-        // Preserve original data so we don't mutate the published entry in memory
+        // Preserve the live entry state so we don't leak draft-only values back
+        // into the published entry object after creating the working copy.
         $originalData = $entry->data()->all();
+        $originalSlug = $entry->slug();
+        $originalPublished = $entry->published();
+        $originalDate = $entry->collection()->dated() ? $entry->date() : null;
 
         // Merge processed data onto the entry so makeWorkingCopy() captures the new state
         $entry->merge($processedData);
@@ -77,18 +81,26 @@ trait HandlesRevisions
 
         $workingCopy->save();
 
-        // Restore original data on the in-memory entry to prevent stache contamination
+        /** @var Entry $workingCopyEntry */
+        $workingCopyEntry = $entry->makeFromRevision($workingCopy);
+
+        // Restore the published entry state in-memory to prevent stache contamination.
         $entry->data($originalData);
+        $entry->slug($originalSlug);
+        $entry->published($originalPublished);
+        if ($entry->collection()->dated()) {
+            $entry->date($originalDate);
+        }
 
         return [
             'entry' => [
-                'id' => $entry->id(),
-                'slug' => $entry->slug(),
-                'collection' => $entry->collectionHandle(),
-                'site' => $entry->site()->handle(),
-                'published' => $entry->published(),
-                'last_modified' => $entry->lastModified()?->toISOString(),
-                'url' => $entry->url(),
+                'id' => $workingCopyEntry->id(),
+                'slug' => $workingCopyEntry->slug(),
+                'collection' => $workingCopyEntry->collectionHandle(),
+                'site' => $workingCopyEntry->site()->handle(),
+                'published' => $workingCopyEntry->published(),
+                'last_modified' => $workingCopyEntry->lastModified()?->toISOString(),
+                'url' => $workingCopyEntry->url(),
             ],
             'updated' => true,
             'working_copy' => true,
@@ -108,7 +120,7 @@ trait HandlesRevisions
         $id = is_string($arguments['id'] ?? null) ? $arguments['id'] : '';
 
         try {
-            $entry = \Statamic\Facades\Entry::find($id);
+            $entry = $this->resolveRevisionEntry($arguments);
 
             $notFound = $this->requireResource($entry, 'Entry', $id);
             if ($notFound) {
@@ -151,7 +163,7 @@ trait HandlesRevisions
         $revisionId = is_string($arguments['revision_id'] ?? null) ? $arguments['revision_id'] : '';
 
         try {
-            $entry = \Statamic\Facades\Entry::find($id);
+            $entry = $this->resolveRevisionEntry($arguments);
 
             $notFound = $this->requireResource($entry, 'Entry', $id);
             if ($notFound) {
@@ -199,7 +211,7 @@ trait HandlesRevisions
         $revisionId = is_string($arguments['revision_id'] ?? null) ? $arguments['revision_id'] : '';
 
         try {
-            $entry = \Statamic\Facades\Entry::find($id);
+            $entry = $this->resolveRevisionEntry($arguments);
 
             $notFound = $this->requireResource($entry, 'Entry', $id);
             if ($notFound) {
@@ -223,6 +235,7 @@ trait HandlesRevisions
                 $revision->toWorkingCopy()->date(now())->save();
             } else {
                 // Unpublished: directly update the entry from the revision
+                /** @var Entry $restoredEntry */
                 $restoredEntry = $entry->makeFromRevision($revision);
                 $restoredEntry->published(false)->save();
             }
@@ -230,11 +243,16 @@ trait HandlesRevisions
             // Clear relevant caches
             $this->clearStatamicCaches(['stache', 'static']);
 
+            // Re-fetch entry for fresh state (in-memory object is stale after restore)
+            $refreshed = $this->resolveRevisionEntry($arguments);
+
             return [
                 'entry_id' => $entry->id(),
                 'restored_from' => $revisionId,
-                'restored_as_working_copy' => $entry->published(),
-                'revision_status' => $this->getRevisionStatusMeta($entry),
+                'restored_as_working_copy' => $refreshed !== null ? $refreshed->published() : $entry->published(),
+                'revision_status' => $refreshed !== null
+                    ? $this->getRevisionStatusMeta($refreshed)
+                    : $this->getRevisionStatusMeta($entry),
             ];
         } catch (\Exception $e) {
             return $this->createErrorResponse("Failed to restore revision: {$e->getMessage()}")->toArray();
@@ -256,7 +274,7 @@ trait HandlesRevisions
         $id = is_string($arguments['id'] ?? null) ? $arguments['id'] : '';
 
         try {
-            $entry = \Statamic\Facades\Entry::find($id);
+            $entry = $this->resolveRevisionEntry($arguments);
 
             $notFound = $this->requireResource($entry, 'Entry', $id);
             if ($notFound) {
@@ -274,7 +292,7 @@ trait HandlesRevisions
             }
 
             $options = array_filter([
-                'message' => $arguments['revision_message'] ?? null,
+                'message' => is_string($arguments['revision_message'] ?? null) ? $arguments['revision_message'] : null,
             ]);
 
             $entry->publish($options);
@@ -282,8 +300,8 @@ trait HandlesRevisions
             // Clear relevant caches
             $this->clearStatamicCaches(['stache', 'static']);
 
-            // Re-fetch entry for fresh state
-            $refreshed = \Statamic\Facades\Entry::find($id);
+            // Re-fetch entry for fresh state with site context
+            $refreshed = $this->resolveRevisionEntry($arguments);
 
             if ($refreshed === null) {
                 return $this->createErrorResponse('Failed to re-fetch entry after publishing')->toArray();
@@ -304,6 +322,27 @@ trait HandlesRevisions
         } catch (\Exception $e) {
             return $this->createErrorResponse("Failed to publish working copy: {$e->getMessage()}")->toArray();
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $arguments
+     */
+    private function resolveRevisionEntry(array $arguments): ?EntryContract
+    {
+        $id = is_string($arguments['id'] ?? null) ? $arguments['id'] : '';
+        $entry = \Statamic\Facades\Entry::find($id);
+
+        if ($entry === null) {
+            return null;
+        }
+
+        $site = $this->resolveSiteHandle($arguments);
+
+        if ($entry->site()->handle() === $site) {
+            return $entry;
+        }
+
+        return $entry->in($site);
     }
 
     /**

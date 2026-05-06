@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Storage;
 use Statamic\Facades\Collection;
 use Statamic\Facades\Entry;
 use Statamic\Facades\Stache;
+use Statamic\Sites\Sites;
 
 /**
  * Tests for revision-aware behavior in EntriesRouter.
@@ -55,6 +56,30 @@ class EntriesRevisionTest extends TestCase
         /** @var \Statamic\Entries\Collection $collection */
         $collection = Collection::find($this->collectionHandle);
         $collection->revisionsEnabled(true)->save();
+
+        Stache::refresh();
+    }
+
+    private function enableMultisite(): void
+    {
+        config(['statamic.system.multisite' => true]);
+
+        app(Sites::class)->setSites([
+            'default' => [
+                'name' => 'Default',
+                'url' => '/',
+                'locale' => 'en_US',
+            ],
+            'fr' => [
+                'name' => 'French',
+                'url' => '/fr/',
+                'locale' => 'fr_FR',
+            ],
+        ]);
+
+        /** @var \Statamic\Entries\Collection $collection */
+        $collection = Collection::find($this->collectionHandle);
+        $collection->sites(['default', 'fr'])->save();
 
         Stache::refresh();
     }
@@ -240,6 +265,43 @@ class EntriesRevisionTest extends TestCase
 
         $this->assertTrue($result['success']);
         $this->assertSame('Working Copy Version', $result['data']['entry']['data']['title']);
+    }
+
+    public function test_get_with_version_working_copy_returns_working_copy_metadata(): void
+    {
+        $this->enableRevisions();
+
+        $entry = Entry::make()
+            ->collection($this->collectionHandle)
+            ->slug("get-wc-meta-{$this->testId}")
+            ->data(['title' => 'Published Version'])
+            ->published(true);
+        $entry->save();
+
+        $workingCopySlug = "working-copy-{$this->testId}";
+
+        $update = $this->router->execute([
+            'action' => 'update',
+            'collection' => $this->collectionHandle,
+            'id' => $entry->id(),
+            'data' => [
+                'title' => 'Working Copy Version',
+                'slug' => $workingCopySlug,
+            ],
+        ]);
+
+        $this->assertTrue($update['success']);
+
+        $result = $this->router->execute([
+            'action' => 'get',
+            'collection' => $this->collectionHandle,
+            'id' => $entry->id(),
+            'version' => 'working_copy',
+        ]);
+
+        $this->assertTrue($result['success']);
+        $this->assertSame('Working Copy Version', $result['data']['entry']['data']['title']);
+        $this->assertSame($workingCopySlug, $result['data']['entry']['slug']);
     }
 
     public function test_get_with_version_working_copy_errors_when_no_working_copy(): void
@@ -640,6 +702,64 @@ class EntriesRevisionTest extends TestCase
 
         $this->assertFalse($result['success']);
         $this->assertStringContainsString('No working copy exists', $result['errors'][0]);
+    }
+
+    public function test_update_rejects_published_flag_when_revisions_enabled(): void
+    {
+        $this->enableRevisions();
+
+        $entry = Entry::make()
+            ->collection($this->collectionHandle)
+            ->slug("reject-published-{$this->testId}")
+            ->data(['title' => 'Published Entry'])
+            ->published(true);
+        $entry->save();
+
+        $result = $this->router->execute([
+            'action' => 'update',
+            'collection' => $this->collectionHandle,
+            'id' => $entry->id(),
+            'data' => [
+                'published' => false,
+            ],
+        ]);
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('published flag cannot be changed via update', $result['errors'][0]);
+
+        $reloaded = Entry::find($entry->id());
+        $this->assertNotNull($reloaded);
+        $this->assertTrue($reloaded->published());
+        $this->assertFalse($reloaded->hasWorkingCopy());
+    }
+
+    public function test_list_revisions_honours_site_when_root_id_is_provided(): void
+    {
+        $this->enableMultisite();
+        $this->enableRevisions();
+
+        $entry = Entry::make()
+            ->collection($this->collectionHandle)
+            ->slug("multisite-root-{$this->testId}")
+            ->data(['title' => 'Default Entry'])
+            ->published(true);
+        $entry->save();
+
+        $frEntry = $entry->makeLocalization('fr');
+        $frEntry->data(['title' => 'Entree Francaise']);
+        $frEntry->save();
+        $frEntry->makeRevision()->message('French revision')->save();
+
+        $result = $this->router->execute([
+            'action' => 'list_revisions',
+            'collection' => $this->collectionHandle,
+            'id' => $entry->id(),
+            'site' => 'fr',
+        ]);
+
+        $this->assertTrue($result['success']);
+        $this->assertSame(1, $result['data']['total']);
+        $this->assertSame('French revision', $result['data']['revisions'][0]['message']);
     }
 
     // ========================================================================

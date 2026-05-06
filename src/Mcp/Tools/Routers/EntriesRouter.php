@@ -288,16 +288,14 @@ class EntriesRouter extends BaseRouter
                 }
             }
 
-            // Resolve data based on requested version
-            $data = $entry->data()->all();
+            $entryVersion = $entry;
 
             if ($version === 'working_copy' || $version === 'latest') {
                 if ($this->entryRevisionsEnabled($entry) && $entry->hasWorkingCopy()) {
                     $workingCopy = $entry->workingCopy();
                     if ($workingCopy !== null) {
-                        /** @var array<string, mixed> $attributes */
-                        $attributes = $workingCopy->attributes();
-                        $data = is_array($attributes['data'] ?? null) ? $attributes['data'] : $data;
+                        /** @var \Statamic\Entries\Entry $entryVersion */
+                        $entryVersion = $entry->makeFromRevision($workingCopy);
                     }
                 } elseif ($version === 'working_copy') {
                     return $this->createErrorResponse('No working copy exists for this entry')->toArray();
@@ -306,15 +304,15 @@ class EntriesRouter extends BaseRouter
 
             $response = [
                 'entry' => [
-                    'id' => $entry->id(),
-                    'collection' => $entry->collectionHandle(),
-                    'site' => $entry->site()->handle(),
-                    'slug' => $entry->slug(),
-                    'published' => $entry->published(),
-                    'date' => $entry->date()?->toISOString(),
-                    'last_modified' => $entry->lastModified()?->toISOString(),
-                    'url' => $entry->url(),
-                    'data' => $data,
+                    'id' => $entryVersion->id(),
+                    'collection' => $entryVersion->collectionHandle(),
+                    'site' => $entryVersion->site()->handle(),
+                    'slug' => $entryVersion->slug(),
+                    'published' => $entryVersion->published(),
+                    'date' => $entryVersion->date()?->toISOString(),
+                    'last_modified' => $entryVersion->lastModified()?->toISOString(),
+                    'url' => $entryVersion->url(),
+                    'data' => $entryVersion->data()->all(),
                 ],
             ];
 
@@ -522,6 +520,12 @@ class EntriesRouter extends BaseRouter
 
             // Extract published — it's a first-class entry property
             if (array_key_exists('published', $data)) {
+                if ($this->entryRevisionsEnabled($entry)) {
+                    return $this->createErrorResponse(
+                        'The published flag cannot be changed via update when revisions are enabled. Use the publish or unpublish action instead.'
+                    )->toArray();
+                }
+
                 $entry->published((bool) $data['published']);
                 unset($data['published']);
             }
@@ -753,7 +757,11 @@ class EntriesRouter extends BaseRouter
                 'message' => is_string($arguments['revision_message'] ?? null) ? $arguments['revision_message'] : null,
             ]);
 
-            $entry->publish($options);
+            $publishedEntry = $entry->publish($options);
+
+            if ($publishedEntry instanceof \Statamic\Entries\Entry) {
+                $entry = $publishedEntry;
+            }
 
             // Clear relevant caches
             $this->clearStatamicCaches(['stache', 'static']);
@@ -805,7 +813,11 @@ class EntriesRouter extends BaseRouter
                 'message' => is_string($arguments['revision_message'] ?? null) ? $arguments['revision_message'] : null,
             ]);
 
-            $entry->unpublish($options);
+            $unpublishedEntry = $entry->unpublish($options);
+
+            if ($unpublishedEntry instanceof \Statamic\Entries\Entry) {
+                $entry = $unpublishedEntry;
+            }
 
             // Clear relevant caches
             $this->clearStatamicCaches(['stache', 'static']);
@@ -830,6 +842,9 @@ class EntriesRouter extends BaseRouter
         }
     }
 
+    /**
+     * @return array<string, string>
+     */
     public function getActions(): array
     {
         return [
@@ -847,6 +862,9 @@ class EntriesRouter extends BaseRouter
         ];
     }
 
+    /**
+     * @return array<string, string>
+     */
     public function getTypes(): array
     {
         return [
