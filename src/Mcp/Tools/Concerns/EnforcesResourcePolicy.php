@@ -99,11 +99,51 @@ trait EnforcesResourcePolicy
             return $result;
         }
 
-        // Filter the 'data' key in the result
+        // Filter the 'data' key in the result (single-item responses)
         if (isset($result['data']) && is_array($result['data'])) {
             /** @var array<string, mixed> $resultData */
             $resultData = $result['data'];
             $result['data'] = $policy->filterFields($domain, $resultData);
+        }
+
+        // Filter nested 'data' within domain-specific wrapper keys (e.g. entry.data, term.data)
+        foreach (['entry', 'term', 'global', 'asset', 'user'] as $wrapper) {
+            if (! isset($result[$wrapper]) || ! is_array($result[$wrapper])) {
+                continue;
+            }
+
+            /** @var array<string, mixed> $wrappedItem */
+            $wrappedItem = $result[$wrapper];
+
+            if (isset($wrappedItem['data']) && is_array($wrappedItem['data'])) {
+                /** @var array<string, mixed> $wrappedData */
+                $wrappedData = $wrappedItem['data'];
+                $wrappedItem['data'] = $policy->filterFields($domain, $wrappedData);
+                $result[$wrapper] = $wrappedItem;
+            }
+        }
+
+        // Filter list responses where items live under domain-specific keys
+        foreach (['entries', 'terms', 'globals', 'assets', 'users'] as $listKey) {
+            if (! isset($result[$listKey]) || ! is_array($result[$listKey])) {
+                continue;
+            }
+
+            /** @var array<int, mixed> $items */
+            $items = $result[$listKey];
+            $result[$listKey] = array_map(function (mixed $item) use ($policy, $domain): mixed {
+                if (! is_array($item)) {
+                    return $item;
+                }
+
+                if (isset($item['data']) && is_array($item['data'])) {
+                    /** @var array<string, mixed> $itemData */
+                    $itemData = $item['data'];
+                    $item['data'] = $policy->filterFields($domain, $itemData);
+                }
+
+                return $item;
+            }, $items);
         }
 
         return $result;
@@ -139,6 +179,7 @@ trait EnforcesResourcePolicy
             'activate', 'deactivate', 'assign_role', 'remove_role',
             'move', 'copy', 'upload', 'configure',
             'cache_clear', 'cache_warm', 'config_set',
+            'restore_revision', 'publish_working_copy',
         ], true);
     }
 }
