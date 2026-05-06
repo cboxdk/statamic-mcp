@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] - 2026-05-06
+
+### Added
+- **Revision-aware entry workflows** — When a collection has revisions enabled, the MCP server now respects Statamic's editorial workflow instead of bypassing it with direct saves. Updates to published entries create a working copy (published content unchanged), creates use `store()` for draft + initial revision, and publish/unpublish delegate to Statamic's built-in revision-aware methods (#30)
+- **New entry actions**: `list_revisions`, `get_revision`, `restore_revision`, `publish_working_copy` — full revision lifecycle management via the `statamic-entries` router
+- **`version` parameter on entry get** — Retrieve `published`, `working_copy`, or `latest` version of an entry
+- **`HandlesRevisions` trait** — Encapsulates revision-aware save, list, get, and restore operations matching the Statamic CP's exact editorial workflow
+- **Confirmation gate defaults for revision actions** — `restore_revision` and `publish_working_copy` now require confirmation in production by default
+- **31 new tests** covering the full revision lifecycle (create → working copy → list revisions → restore → publish)
+
+### Fixed
+- **Multi-site response in `publishWorkingCopyAction`** — Re-fetches entry with site context to return correct localized data
+- **Stale revision metadata after restore** — `revision_status` and `restored_as_working_copy` now reflect actual state after `restoreRevisionAction`
+- **`normalizeTableCell` unbounded recursion** — Table cell normalization now unwraps one level only, preventing stack overflow on deeply nested structures
+- **`filterOutputFields` denied field stripping** — Denied fields are now correctly stripped from list responses and nested entry data, not just top-level get responses
+- **`generateBlueprint` field array shape** — Blueprint generation now produces the correct indexed handle/field format
+- **`revision_message` type safety** — `publishWorkingCopyAction` validates that revision message is a string before passing to Statamic
+- **PHPStan L8 compliance** — Resolved mixed offset access in `filterOutputFields` recursive field filtering
+
 ## [2.4.0] - 2026-05-05
 
 ### Added
