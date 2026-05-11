@@ -15,9 +15,9 @@ trait ResolvesUserId
     {
         $user = User::current();
 
-        /** @var string $userId */
-        $userId = $user ? $user->id() : '';
-
-        return $userId;
+        // Cast to string: Statamic's User->id() returns string under the file
+        // users driver but int under the Eloquent driver. The trait's return
+        // type contract (and downstream token storage) requires string.
+        return $user ? (string) $user->id() : '';
     }
 }
