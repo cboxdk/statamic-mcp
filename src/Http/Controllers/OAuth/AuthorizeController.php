@@ -12,6 +12,7 @@ use Cboxdk\StatamicMcp\OAuth\Cimd\CimdValidationException;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
 use Cboxdk\StatamicMcp\OAuth\Exceptions\OAuthException;
 use Cboxdk\StatamicMcp\OAuth\OAuthClient;
+use Cboxdk\StatamicMcp\Support\UserIds;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -277,8 +278,7 @@ class AuthorizeController extends Controller
             ])));
         }
 
-        /** @var string $userId */
-        $userId = $user->id();
+        $userId = UserIds::normalize($user->id());
 
         // Get originally requested scopes from the hidden form field (set by show())
         /** @var string $originalScope */
