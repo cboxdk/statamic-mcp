@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Http\Controllers\CP\Concerns;
 
+use Cboxdk\StatamicMcp\Support\UserIds;
 use Statamic\Facades\User;
 
 trait ResolvesUserId
@@ -15,9 +16,6 @@ trait ResolvesUserId
     {
         $user = User::current();
 
-        /** @var string $userId */
-        $userId = $user ? $user->id() : '';
-
-        return $userId;
+        return $user ? UserIds::normalize($user->id()) : '';
     }
 }
