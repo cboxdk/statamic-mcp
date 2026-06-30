@@ -15,6 +15,7 @@ beforeEach(function (): void {
     ]);
     Config::set('statamic.mcp.confirmation.enabled', true);
     Config::set('statamic.mcp.confirmation.ttl', 300);
+    Config::set('statamic.mcp.security.force_web_mode', false);
 });
 
 // ---------------------------------------------------------------------------
@@ -73,6 +74,122 @@ it('gates every action when the domain list contains the wildcard', function ():
     expect(ConfirmationActionGate::gates('entries', 'update'))->toBeTrue();
     expect(ConfirmationActionGate::gates('entries', 'delete'))->toBeTrue();
     expect(ConfirmationActionGate::gates('entries', 'publish'))->toBeTrue();
+});
+
+it('accepts a returned confirmation token on the next gated call', function (): void {
+    Config::set('statamic.mcp.security.force_web_mode', true);
+
+    $router = new class extends EntriesRouter
+    {
+        /**
+         * @param  array<string, mixed>  $arguments
+         *
+         * @return array<string, mixed>|null
+         */
+        public function callHandleConfirmation(string $action, array &$arguments): ?array
+        {
+            return $this->handleConfirmation($action, $arguments);
+        }
+    };
+
+    $arguments = [
+        'action' => 'delete',
+        'collection' => 'blog',
+        'id' => 'entry-123',
+    ];
+
+    $firstResponse = $router->callHandleConfirmation('delete', $arguments);
+
+    if (! is_array($firstResponse)) {
+        throw new RuntimeException('Expected confirmation response array.');
+    }
+
+    $responseData = $firstResponse['data'] ?? null;
+    if (! is_array($responseData)) {
+        throw new RuntimeException('Expected confirmation response data array.');
+    }
+
+    $confirmationToken = $responseData['confirmation_token'] ?? null;
+    if (! is_string($confirmationToken)) {
+        throw new RuntimeException('Expected confirmation token string.');
+    }
+    if ($confirmationToken === '') {
+        throw new RuntimeException('Expected non-empty confirmation token.');
+    }
+
+    expect($firstResponse['success'])->toBeFalse()
+        ->and($responseData['requires_confirmation'] ?? null)->toBeTrue();
+
+    $confirmedArguments = array_merge($arguments, [
+        'confirmation_token' => $confirmationToken,
+    ]);
+
+    expect($router->callHandleConfirmation('delete', $confirmedArguments))->toBeNull()
+        ->and($confirmedArguments)->toBe($arguments);
+});
+
+it('accepts reordered nested confirmation arguments but restores the confirmed payload', function (): void {
+    Config::set('statamic.mcp.security.force_web_mode', true);
+    Config::set('statamic.mcp.confirmation.actions.entries', ['update']);
+
+    $router = new class extends EntriesRouter
+    {
+        /**
+         * @param  array<string, mixed>  $arguments
+         *
+         * @return array<string, mixed>|null
+         */
+        public function callHandleConfirmation(string $action, array &$arguments): ?array
+        {
+            return $this->handleConfirmation($action, $arguments);
+        }
+    };
+
+    $arguments = [
+        'action' => 'update',
+        'collection' => 'blog',
+        'id' => 'entry-123',
+        'data' => [
+            'title' => 'About',
+            'seo' => [
+                'description' => 'About page',
+                'title' => 'About us',
+            ],
+        ],
+    ];
+
+    $firstResponse = $router->callHandleConfirmation('update', $arguments);
+
+    if (! is_array($firstResponse)) {
+        throw new RuntimeException('Expected confirmation response array.');
+    }
+
+    $responseData = $firstResponse['data'] ?? null;
+    if (! is_array($responseData)) {
+        throw new RuntimeException('Expected confirmation response data array.');
+    }
+
+    $confirmationToken = $responseData['confirmation_token'] ?? null;
+    if (! is_string($confirmationToken) || $confirmationToken === '') {
+        throw new RuntimeException('Expected non-empty confirmation token string.');
+    }
+
+    $confirmedArguments = [
+        'data' => [
+            'seo' => [
+                'title' => 'About us',
+                'description' => 'About page',
+            ],
+            'title' => 'About',
+        ],
+        'id' => 'entry-123',
+        'collection' => 'blog',
+        'action' => 'update',
+        'confirmation_token' => $confirmationToken,
+    ];
+
+    expect($router->callHandleConfirmation('update', $confirmedArguments))->toBeNull()
+        ->and($confirmedArguments)->toBe($arguments);
 });
 
 // ---------------------------------------------------------------------------

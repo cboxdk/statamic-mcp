@@ -14,7 +14,7 @@ beforeEach(function (): void {
 // Generation
 // ---------------------------------------------------------------------------
 
-it('generates a non-empty base64url token', function (): void {
+it('generates a non-empty encrypted token', function (): void {
     $manager = new ConfirmationTokenManager;
 
     $token = $manager->generate('statamic-entries', ['action' => 'delete', 'handle' => 'about']);
@@ -38,6 +38,58 @@ it('generates different tokens for different tools', function (): void {
     $token2 = $manager->generate('statamic-blueprints', ['action' => 'delete', 'handle' => 'about']);
 
     expect($token1)->not->toBe($token2);
+});
+
+it('generates different tokens for the same canonical arguments', function (): void {
+    $manager = new ConfirmationTokenManager;
+
+    $args1 = [
+        'action' => 'update',
+        'handle' => 'article',
+        'data' => [
+            'title' => 'About',
+            'seo' => [
+                'description' => 'About page',
+                'title' => 'About us',
+            ],
+        ],
+    ];
+    $args2 = [
+        'data' => [
+            'seo' => [
+                'title' => 'About us',
+                'description' => 'About page',
+            ],
+            'title' => 'About',
+        ],
+        'handle' => 'article',
+        'action' => 'update',
+    ];
+
+    $token1 = $manager->generate('statamic-entries', $args1);
+    $token2 = $manager->generate('statamic-entries', $args2);
+
+    expect($token1)->not->toBe($token2)
+        ->and($manager->validatedArguments($token1, 'statamic-entries', array_merge($args1, [
+            'confirmation_token' => $token1,
+        ])))->toBe($args1)
+        ->and($manager->validatedArguments($token2, 'statamic-entries', array_merge($args2, [
+            'confirmation_token' => $token2,
+        ])))->toBe($args2);
+});
+
+it('keeps large confirmation tokens compact enough for the response envelope', function (): void {
+    $manager = new ConfirmationTokenManager;
+
+    $token = $manager->generate('statamic-entries', [
+        'action' => 'update',
+        'handle' => 'article',
+        'data' => [
+            'body' => str_repeat('Long repeated content. ', 3000),
+        ],
+    ]);
+
+    expect(strlen($token))->toBeLessThan(100000);
 });
 
 // ---------------------------------------------------------------------------
@@ -75,6 +127,98 @@ it('validates with arguments in different key order', function (): void {
     $args2 = ['handle' => 'about', 'action' => 'delete'];
 
     expect($manager->validate($token, 'statamic-entries', $args2))->toBeTrue();
+});
+
+it('validates with nested associative arguments in different key order', function (): void {
+    $manager = new ConfirmationTokenManager;
+
+    $args1 = [
+        'action' => 'update',
+        'handle' => 'article',
+        'data' => [
+            'title' => 'About',
+            'seo' => [
+                'description' => 'About page',
+                'title' => 'About us',
+            ],
+        ],
+    ];
+    $token = $manager->generate('statamic-entries', $args1);
+
+    $args2 = [
+        'data' => [
+            'seo' => [
+                'title' => 'About us',
+                'description' => 'About page',
+            ],
+            'title' => 'About',
+        ],
+        'handle' => 'article',
+        'action' => 'update',
+    ];
+
+    expect($manager->validate($token, 'statamic-entries', $args2))->toBeTrue();
+});
+
+it('returns the originally confirmed arguments after nested associative reordering', function (): void {
+    $manager = new ConfirmationTokenManager;
+
+    $args1 = [
+        'action' => 'update',
+        'handle' => 'article',
+        'data' => [
+            'title' => 'About',
+            'seo' => [
+                'description' => 'About page',
+                'title' => 'About us',
+            ],
+        ],
+    ];
+    $token = $manager->generate('statamic-entries', $args1);
+
+    $args2 = [
+        'data' => [
+            'seo' => [
+                'title' => 'About us',
+                'description' => 'About page',
+            ],
+            'title' => 'About',
+        ],
+        'handle' => 'article',
+        'action' => 'update',
+        'confirmation_token' => $token,
+    ];
+
+    expect($manager->validatedArguments($token, 'statamic-entries', $args2))->toBe($args1);
+});
+
+it('rejects reordered list arguments', function (): void {
+    $manager = new ConfirmationTokenManager;
+
+    $args = [
+        'action' => 'update',
+        'handle' => 'article',
+        'data' => [
+            'sections' => [
+                ['type' => 'text', 'content' => 'First'],
+                ['type' => 'text', 'content' => 'Second'],
+            ],
+        ],
+    ];
+    $token = $manager->generate('statamic-entries', $args);
+
+    $reordered = [
+        'action' => 'update',
+        'handle' => 'article',
+        'data' => [
+            'sections' => [
+                ['type' => 'text', 'content' => 'Second'],
+                ['type' => 'text', 'content' => 'First'],
+            ],
+        ],
+    ];
+
+    expect($manager->validate($token, 'statamic-entries', $reordered))->toBeFalse();
 });
 
 // ---------------------------------------------------------------------------

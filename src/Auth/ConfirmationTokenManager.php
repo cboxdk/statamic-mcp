@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Auth;
 
+use Illuminate\Contracts\Encryption\DecryptException;
+use Illuminate\Support\Facades\Crypt;
+
 class ConfirmationTokenManager
 {
     /**
@@ -14,11 +17,29 @@ class ConfirmationTokenManager
     public function generate(string $tool, array $arguments): string
     {
         $timestamp = time();
-        $payload = $this->buildPayload($tool, $arguments, $timestamp);
+        $nonce = bin2hex(random_bytes(16));
+        $arguments = $this->stripConfirmationToken($arguments);
+        $payload = $this->buildPayload($tool, $arguments, $timestamp, $nonce);
 
         $signature = hash_hmac('sha256', $payload, $this->getKey());
 
-        return base64_encode($timestamp . '.' . $signature);
+        $encoded = json_encode([
+            'timestamp' => $timestamp,
+            'nonce' => $nonce,
+            'arguments' => $arguments,
+            'signature' => $signature,
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+        if ($encoded === false) {
+            throw new \InvalidArgumentException('Cannot encode confirmation token: ' . json_last_error_msg());
+        }
+
+        $compressed = gzdeflate($encoded, 9);
+        if ($compressed === false) {
+            throw new \InvalidArgumentException('Cannot compress confirmation token.');
+        }
+
+        return Crypt::encryptString(base64_encode($compressed));
     }
 
     /**
@@ -28,41 +49,37 @@ class ConfirmationTokenManager
      */
     public function validate(string $token, string $tool, array $arguments): bool
     {
-        if ($token === '') {
+        $parts = $this->parseToken($token);
+        if ($parts === null) {
             return false;
         }
 
-        $decoded = base64_decode($token, true);
-        if ($decoded === false) {
-            return false;
-        }
-
-        $dotPos = strpos($decoded, '.');
-        if ($dotPos === false) {
-            return false;
-        }
-
-        $timestampStr = substr($decoded, 0, $dotPos);
-        $signature = substr($decoded, $dotPos + 1);
-
-        if (! is_numeric($timestampStr) || $signature === '') {
-            return false;
-        }
-
-        $timestamp = (int) $timestampStr;
-
-        // Check expiry
-        /** @var int $ttl */
-        $ttl = config('statamic.mcp.confirmation.ttl', 300);
-        if ((time() - $timestamp) > $ttl) {
+        if ((time() - $parts['timestamp']) > $this->ttl()) {
             return false;
         }
 
         // Rebuild payload and compare signatures
-        $expectedPayload = $this->buildPayload($tool, $arguments, $timestamp);
+        $expectedPayload = $this->buildPayload($tool, $parts['arguments'], $parts['timestamp'], $parts['nonce']);
         $expectedSignature = hash_hmac('sha256', $expectedPayload, $this->getKey());
 
-        return hash_equals($expectedSignature, $signature);
+        return hash_equals($expectedSignature, $parts['signature'])
+            && $this->canonicalArgumentsMatch($arguments, $parts['arguments']);
+    }
+
+    /**
+     * Validate a confirmation token and return the originally confirmed arguments.
+     *
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string, mixed>|null
+     */
+    public function validatedArguments(string $token, string $tool, array $arguments): ?array
+    {
+        if (! $this->validate($token, $tool, $arguments)) {
+            return null;
+        }
+
+        return $this->parseToken($token)['arguments'] ?? null;
     }
 
     /**
@@ -86,21 +103,133 @@ class ConfirmationTokenManager
      *
      * @param  array<string, mixed>  $arguments
      */
-    private function buildPayload(string $tool, array $arguments, int $timestamp): string
+    private function buildPayload(string $tool, array $arguments, int $timestamp, string $nonce): string
     {
-        // Strip the confirmation_token from arguments before canonicalizing
-        unset($arguments['confirmation_token']);
+        $arguments = $this->stripConfirmationToken($arguments);
+        $exact = json_encode($arguments, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 
-        // Sort keys for canonical ordering
-        ksort($arguments);
+        $canonicalArguments = $this->canonicalize($arguments);
 
-        $canonical = json_encode($arguments, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $canonical = json_encode($canonicalArguments, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 
-        if ($canonical === false) {
+        if ($canonical === false || $exact === false) {
             throw new \InvalidArgumentException('Cannot canonicalize arguments: ' . json_last_error_msg());
         }
 
-        return $tool . '|' . $canonical . '|' . $timestamp;
+        return $tool . '|' . $canonical . '|' . $exact . '|' . $timestamp . '|' . $nonce;
+    }
+
+    /**
+     * Strip the confirmation token from arguments before signing.
+     *
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string, mixed>
+     */
+    private function stripConfirmationToken(array $arguments): array
+    {
+        unset($arguments['confirmation_token']);
+
+        return $arguments;
+    }
+
+    /**
+     * Recursively sort associative arrays while preserving list order.
+     *
+     * @param  array<array-key, mixed>  $value
+     *
+     * @return array<array-key, mixed>
+     */
+    private function canonicalize(array $value): array
+    {
+        foreach ($value as $key => $item) {
+            if (is_array($item)) {
+                $value[$key] = $this->canonicalize($item);
+            }
+        }
+
+        if (! array_is_list($value)) {
+            ksort($value);
+        }
+
+        return $value;
+    }
+
+    /**
+     * @param  array<string, mixed>  $provided
+     * @param  array<string, mixed>  $confirmed
+     */
+    private function canonicalArgumentsMatch(array $provided, array $confirmed): bool
+    {
+        $provided = $this->canonicalize($this->stripConfirmationToken($provided));
+        $confirmed = $this->canonicalize($this->stripConfirmationToken($confirmed));
+
+        return json_encode($provided, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+            === json_encode($confirmed, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    }
+
+    /**
+     * @return array{timestamp: int, nonce: string, arguments: array<string, mixed>, signature: string}|null
+     */
+    private function parseToken(string $token): ?array
+    {
+        if ($token === '') {
+            return null;
+        }
+
+        try {
+            $encryptedPayload = Crypt::decryptString($token);
+        } catch (DecryptException) {
+            return null;
+        }
+
+        $compressed = base64_decode($encryptedPayload, true);
+        if ($compressed === false) {
+            return null;
+        }
+
+        $decoded = gzinflate($compressed);
+        if ($decoded === false) {
+            return null;
+        }
+
+        $payload = json_decode($decoded, true);
+        if (! is_array($payload)) {
+            return null;
+        }
+
+        $timestamp = $payload['timestamp'] ?? null;
+        $nonce = $payload['nonce'] ?? null;
+        $arguments = $payload['arguments'] ?? null;
+        $signature = $payload['signature'] ?? null;
+
+        if (! is_int($timestamp) || ! is_string($nonce) || $nonce === '' || ! is_array($arguments) || ! is_string($signature) || $signature === '') {
+            return null;
+        }
+
+        $confirmedArguments = [];
+        foreach ($arguments as $key => $value) {
+            if (! is_string($key)) {
+                return null;
+            }
+
+            $confirmedArguments[$key] = $value;
+        }
+
+        return [
+            'timestamp' => $timestamp,
+            'nonce' => $nonce,
+            'arguments' => $confirmedArguments,
+            'signature' => $signature,
+        ];
+    }
+
+    private function ttl(): int
+    {
+        /** @var int $ttl */
+        $ttl = config('statamic.mcp.confirmation.ttl', 300);
+
+        return $ttl;
     }
 
     /**

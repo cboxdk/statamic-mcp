@@ -72,6 +72,8 @@ abstract class BaseRouter extends BaseStatamicTool
             'resource_type' => JsonSchema::string()
                 ->description('Resource subtype for routers that manage multiple resource kinds. See the specific tool description for valid values and required combinations with actions.')
                 ->enum($types),
+            'confirmation_token' => JsonSchema::string()
+                ->description('Optional token returned by a previous confirmation-required response. Provide it unchanged to confirm and execute gated actions.'),
         ];
     }
 

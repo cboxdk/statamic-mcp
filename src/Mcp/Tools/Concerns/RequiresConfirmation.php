@@ -38,7 +38,7 @@ trait RequiresConfirmation
      *
      * @return array<string, mixed>|null
      */
-    protected function handleConfirmation(string $action, array $arguments): ?array
+    protected function handleConfirmation(string $action, array &$arguments): ?array
     {
         // Skip if confirmation is not required for this action
         if (! $this->requiresConfirmation($action)) {
@@ -62,7 +62,10 @@ trait RequiresConfirmation
         $token = $arguments['confirmation_token'] ?? null;
         if (is_string($token) && $token !== '') {
             $toolName = $this->name();
-            if ($manager->validate($token, $toolName, $arguments)) {
+            $confirmedArguments = $manager->validatedArguments($token, $toolName, $arguments);
+            if ($confirmedArguments !== null) {
+                $arguments = $confirmedArguments;
+
                 return null; // Token valid, proceed
             }
 
