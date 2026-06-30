@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.1] - 2026-06-30
+
+### Fixed
+- **Confirmation token retry loop** — Router schemas now expose `confirmation_token` as an optional top-level argument, giving MCP clients a valid schema slot for the token returned by confirmation-required responses (#34)
+- **Confirmation payload drift on retry** — Confirmation tokens now preserve the originally confirmed arguments, tolerate associative key reordering, and restore the confirmed payload before executing the gated action while still rejecting changed payloads and reordered lists (#34)
+
+### Tests
+- Added regression coverage for schema exposure, two-step confirmation retries, nested associative argument reordering, and confirmed payload restoration
+
+## [2.6.0] - 2026-06-02
+
+### Fixed
+- **Eloquent user ID compatibility** — Normalizes Statamic user IDs before MCP token ownership checks so sites using the Eloquent users driver no longer hit strict type errors in the MCP dashboard or token flows (#31)
+- **OAuth authorization user IDs** — Applies the same user ID normalization when creating OAuth authorization codes for Eloquent-backed users
+- **Fresh install dependency compatibility** — Allows `laravel/mcp` `^0.7` alongside `^0.6` and updates installation docs/generated guidance to match (#31)
+
+### Tests
+- Added regression coverage for integer Eloquent user IDs, string user IDs, and missing current users in MCP dashboard user resolution
+
 ## [2.5.0] - 2026-05-06
 
 ### Added
@@ -320,6 +339,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Laravel MCP v0.2.0 integration
 - Comprehensive test suite
 
+[2.6.1]: https://github.com/cboxdk/statamic-mcp/compare/v2.6.0...v2.6.1
+[2.6.0]: https://github.com/cboxdk/statamic-mcp/compare/v2.5.0...v2.6.0
+[2.5.0]: https://github.com/cboxdk/statamic-mcp/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/cboxdk/statamic-mcp/compare/v2.3.0...v2.4.0
 [2.0.0]: https://github.com/cboxdk/statamic-mcp/compare/v1.4.0...v2.0.0
 [1.4.0]: https://github.com/cboxdk/statamic-mcp/compare/v1.3.0...v1.4.0
