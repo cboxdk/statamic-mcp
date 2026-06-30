@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
+use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Laravel\Mcp\Server\Contracts\Transport;
 use Mockery\MockInterface;
@@ -212,6 +213,43 @@ class McpJsonSchemaValidationTest extends TestCase
 
                 $this->assertArrayHasKey($requiredField, $properties, "Tool {$toolClass} required field '{$requiredField}' must exist in properties");
             }
+        }
+    }
+
+    public function test_router_tools_accept_confirmation_token_parameter(): void
+    {
+        $tools = $this->getServerTools();
+
+        foreach ($tools as $toolClass) {
+            $tool = app($toolClass);
+
+            if (! $tool instanceof BaseRouter) {
+                continue;
+            }
+
+            $toolArray = $tool->toArray();
+            $schema = $toolArray['inputSchema'] ?? null;
+            if (! is_array($schema)) {
+                throw new RuntimeException("Router tool {$toolClass} must expose an input schema array");
+            }
+
+            $properties = $schema['properties'] ?? null;
+            if (! is_array($properties)) {
+                throw new RuntimeException("Router tool {$toolClass} must expose schema properties");
+            }
+
+            $this->assertArrayHasKey(
+                'confirmation_token',
+                $properties,
+                "Router tool {$toolClass} must expose confirmation_token so MCP clients can resubmit gated actions",
+            );
+
+            $confirmationTokenSchema = $properties['confirmation_token'] ?? null;
+            if (! is_array($confirmationTokenSchema)) {
+                throw new RuntimeException("Router tool {$toolClass} confirmation_token schema must be an array");
+            }
+
+            $this->assertSame('string', $confirmationTokenSchema['type'] ?? null);
         }
     }
 
