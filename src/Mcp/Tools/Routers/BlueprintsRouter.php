@@ -882,7 +882,12 @@ class BlueprintsRouter extends BaseRouter
                     ];
                 })->toArray();
 
-                $types[$blueprint->handle()] = $fields;
+                $handle = $blueprint->handle();
+                if ($handle === null) {
+                    continue;
+                }
+
+                $types[$handle] = $fields;
             }
 
             return [

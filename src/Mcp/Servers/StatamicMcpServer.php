@@ -26,7 +26,7 @@ class StatamicMcpServer extends Server
 {
     protected string $name = 'Statamic MCP Server';
 
-    protected string $version = '2.6.1';
+    protected string $version = '2.7.0';
 
     protected string $instructions = <<<'MARKDOWN'
         You are connected to a Statamic CMS site via MCP. Use these tools to manage content, blueprints, assets, users, and system settings.
@@ -133,9 +133,9 @@ class StatamicMcpServer extends Server
             // Register shutdown function to clean up any remaining output
             register_shutdown_function(function () {
                 while (ob_get_level() > 0) {
-                    $output = ob_get_clean();
-                    if ($output !== false && ! empty(trim($output))) {
-                        $trimmed = trim($output);
+                    $output = (string) ob_get_clean();
+                    $trimmed = trim($output);
+                    if ($trimmed !== '') {
                         $isJsonRpc = str_starts_with($trimmed, '{"jsonrpc"') || str_starts_with($trimmed, '{"id"');
                         if (! $isJsonRpc) {
                             fwrite(STDERR, "Captured output: $output\n");

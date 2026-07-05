@@ -11,7 +11,7 @@ weight: 1
 - **PHP** 8.3 or higher
 - **Statamic CMS** v6.6+
 - **Laravel** 12.0+
-- **laravel/mcp** ^0.6 || ^0.7 (installed automatically as a dependency)
+- **laravel/mcp** ^0.6 || ^0.7 || ^0.8 (installed automatically as a dependency)
 
 ## Install via Composer
 

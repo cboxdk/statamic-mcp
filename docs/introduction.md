@@ -74,7 +74,7 @@ The server registers a set of domain routers — each handling a specific Statam
 - **PHP** 8.3+
 - **Statamic** v6.6+
 - **Laravel** 12.0+
-- **laravel/mcp** ^0.6 || ^0.7
+- **laravel/mcp** ^0.6 || ^0.7 || ^0.8
 
 ## Quick Links
 

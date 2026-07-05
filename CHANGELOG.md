@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.0] - 2026-07-05
+
+### Changed
+- **laravel/mcp ^0.8 support** — Widens the dependency constraint to `^0.6 || ^0.7 || ^0.8`, allowing the latest laravel/mcp release (v0.8.x) with MCP client support, MCP UI Apps, `ResourceLink` content type, and OAuth improvements. All patterns used by this addon are unchanged across 0.6–0.8
+
+### Fixed
+- **Blueprint `types` action null handles** — Blueprints without a handle are now skipped during type analysis instead of triggering a type error
+- **Output buffer cleanup type safety** — Shutdown output-buffer sweep in the MCP server no longer relies on an impossible `false` comparison flagged by stricter dependency types
+
 ## [2.6.1] - 2026-06-30
 
 ### Fixed

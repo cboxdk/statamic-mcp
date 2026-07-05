@@ -666,7 +666,7 @@ class InstallCommand extends Command
 # Statamic MCP Server v2.0 Integration
 
 This project uses Statamic MCP Server v2.0 for enhanced AI-assisted development.
-Requires Statamic v6+ and laravel/mcp ^0.6 or ^0.7.
+Requires Statamic v6+ and laravel/mcp ^0.6, ^0.7 or ^0.8.
 
 ## MCP Server Configuration
 - Command: php artisan mcp:start statamic
@@ -801,7 +801,7 @@ MARKDOWN;
 # Statamic MCP Guidelines (v2.0)
 
 This file provides AI assistants with comprehensive understanding of the Statamic MCP Server v2.0 capabilities.
-Requires Statamic v6+ and laravel/mcp ^0.6 or ^0.7.
+Requires Statamic v6+ and laravel/mcp ^0.6, ^0.7 or ^0.8.
 
 ## MCP Server Overview
 
