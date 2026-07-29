@@ -26,7 +26,7 @@ class StatamicMcpServer extends Server
 {
     protected string $name = 'Statamic MCP Server';
 
-    protected string $version = '2.7.0';
+    protected string $version = '2.8.0';
 
     protected string $instructions = <<<'MARKDOWN'
         You are connected to a Statamic CMS site via MCP. Use these tools to manage content, blueprints, assets, users, and system settings.
