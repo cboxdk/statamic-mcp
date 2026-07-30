@@ -9,6 +9,7 @@ on:
 jobs:
   code-quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     name: Code Quality
 
     steps:
@@ -49,10 +50,11 @@ jobs:
           branch: ${{ github.ref }}
 
       - name: Run static analysis
-        run: ./vendor/bin/phpstan analyse --error-format=github
+        run: ./vendor/bin/phpstan analyse --error-format=github --memory-limit=1G
 
   test-sqlite:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: code-quality
     strategy:
       fail-fast: false
@@ -90,6 +92,7 @@ jobs:
 
   test-mysql:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: code-quality
     strategy:
       fail-fast: false

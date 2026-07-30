@@ -149,6 +149,14 @@ composer test:coverage
 ./vendor/bin/pest --watch
 ```
 
+**Do not run the suite with `--parallel`.** It is not parallel-safe and there is no
+`test:parallel` script for that reason. `Statamic\Testing\AddonTestCase` hardcodes every
+Stache store directory — and `PreventsSavingStacheItemsToDisk`'s `dev-null` directory — to
+a single shared `tests/__fixtures__/…` path, so ParaTest workers delete and recreate each
+other's fixture directories mid-test. The result is ~34 spurious failures (`mkdir(): File
+exists`, missing collection YAML) and, when workers collide on the file-store `flock()`
+calls, a hang that never terminates. Always use the single-process `./vendor/bin/pest`.
+
 ### Code Quality
 ```bash
 # Format code with Laravel Pint
@@ -160,14 +168,15 @@ composer pint
 composer pint:test
 
 # Run static analysis with PHPStan/Larastan
-./vendor/bin/phpstan analyse
+# The memory limit is required — the default 128M crashes the parallel worker
+./vendor/bin/phpstan analyse --memory-limit=1G
 composer stan
 
 # Run all quality checks (format + analysis + tests)
 composer quality
 ```
 
-**IMPORTANT**: All code files MUST pass PHPStan Level 8 analysis with zero errors. This project maintains the highest code quality standards:
+**IMPORTANT**: All code files MUST pass PHPStan Level 9 analysis with zero errors. This project maintains the highest code quality standards:
 
 - **Type Safety**: All methods must have proper type annotations (`@param`, `@return`)
 - **Strict Types**: All PHP files must declare `strict_types=1`
@@ -802,11 +811,11 @@ This project maintains high code quality through automated tools:
 - **Run**: `composer pint` to format code, `composer pint:test` to check without fixing
 
 ### Larastan (PHPStan for Laravel)
-- **Configuration**: `phpstan.neon` (Level 8 analysis)
+- **Configuration**: `phpstan.neon` (Level 9 analysis)
 - **Purpose**: Static analysis for type safety and bug detection
 - **Features**: Statamic-specific stubs and Laravel integration
 - **Run**: `composer stan` to analyze code
-- **Status**: Zero errors — all files pass Level 8 analysis
+- **Status**: Zero errors — all files pass Level 9 analysis
 
 ### Quality Assurance Workflow
 ```bash

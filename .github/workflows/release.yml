@@ -8,9 +8,13 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
-    
+
     name: Create Release
-    
+
+    # Without this, a hanging step burns the 6h default job timeout before
+    # anyone finds out the release failed.
+    timeout-minutes: 30
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -46,27 +50,41 @@ jobs:
         if: steps.check_release.outputs.exists == 'false'
         run: echo "APP_KEY=base64:SGk1bGF2ZWw=" > .env
 
+      # Deliberately NOT --parallel: the suite is not parallel-safe, because
+      # Statamic's AddonTestCase points every Stache store at one shared
+      # tests/__fixtures__ directory that workers then delete out from under
+      # each other. This mirrors the Tests workflow that gates pull requests.
       - name: Run tests
         if: steps.check_release.outputs.exists == 'false'
-        run: ./vendor/bin/pest --parallel
+        run: ./vendor/bin/pest
+        env:
+          DB_CONNECTION: sqlite
 
-      - name: Fix code formatting
+      - name: Check code formatting
         if: steps.check_release.outputs.exists == 'false'
-        run: ./vendor/bin/pint
+        run: ./vendor/bin/pint --test
 
       - name: Run static analysis
         if: steps.check_release.outputs.exists == 'false'
-        run: ./vendor/bin/phpstan analyse
+        run: ./vendor/bin/phpstan analyse --memory-limit=1G
 
       - name: Generate changelog
         if: steps.check_release.outputs.exists == 'false'
         id: changelog
         run: |
+          # CHANGELOG.md headings carry no "v" prefix (## [2.8.0]), the tag does (v2.8.0).
+          version="${GITHUB_REF_NAME#v}"
+
           if [ -f CHANGELOG.md ]; then
-            # Extract changelog for this version
-            awk '/^## \[/{if(p) exit; if(/\[${{ github.ref_name }}\]/) p=1; next} p' CHANGELOG.md > release_notes.txt
-          else
-            echo "Automated release for ${{ github.ref_name }}" > release_notes.txt
+            awk -v version="$version" '
+              /^## \[/ { if (found) exit; if (index($0, "[" version "]")) found = 1; next }
+              found
+            ' CHANGELOG.md > release_notes.txt
+          fi
+
+          # Never publish an empty release body.
+          if [ ! -s release_notes.txt ]; then
+            echo "Automated release for ${GITHUB_REF_NAME}" > release_notes.txt
           fi
 
       - name: Create Release
