@@ -30,10 +30,9 @@
     "scripts": {
         "test": "pest",
         "test:coverage": "pest --coverage",
-        "test:parallel": "pest --parallel",
         "pint": "pint",
         "pint:test": "pint --test",
-        "stan": "phpstan analyse",
+        "stan": "phpstan analyse --memory-limit=1G",
         "quality": [
             "@pint",
             "@stan",

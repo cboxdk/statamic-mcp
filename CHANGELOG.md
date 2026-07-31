@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Release workflow no longer hangs** — The release job ran `pest --parallel`, which is not parallel-safe: `Statamic\Testing\AddonTestCase` points every Stache store, and `PreventsSavingStacheItemsToDisk`'s `dev-null` directory, at one shared `tests/__fixtures__` path, so ParaTest workers deleted each other's fixtures. This produced ~34 spurious failures or, when workers collided on the file-store `flock()` calls, a hang that burned the 6h job timeout (v2.6.1 and v2.8.0 both died this way, and both releases had to be published by hand). The release job now runs the same single-process `pest` that gates pull requests, and every job has an explicit `timeout-minutes` so a hang fails in minutes instead of hours
+- **Release notes are no longer empty** — The changelog extraction matched `[v2.8.0]` against headings written as `[2.8.0]`, so it never selected anything. The tag's `v` prefix is now stripped, with a fallback message if the section is missing
+- **Release workflow verifies formatting instead of rewriting it** — The `Fix code formatting` step ran Pint in fix mode and discarded the result; it now runs `pint --test` and fails on violations
+
+### Changed
+- **`composer stan` passes `--memory-limit=1G`** — PHPStan crashed its parallel worker at PHP's default 128M
+- **Removed the `composer test:parallel` script** — It could not work for the reason above; use `composer test`
+
 ## [2.8.0] - 2026-07-29
 
 ### Changed
