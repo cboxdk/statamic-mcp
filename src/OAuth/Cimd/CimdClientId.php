@@ -14,7 +14,7 @@ namespace Cboxdk\StatamicMcp\OAuth\Cimd;
  * - Does not contain a fragment (#)
  * - Does not contain username or password (userinfo)
  */
-final class CimdClientId
+class CimdClientId
 {
     private function __construct(
         private readonly string $url,

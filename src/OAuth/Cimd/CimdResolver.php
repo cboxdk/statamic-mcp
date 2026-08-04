@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\Http;
  * - Caching valid results
  * - Disabling redirect following
  */
-final class CimdResolver
+class CimdResolver
 {
     /**
      * Private and reserved IPv4 CIDR ranges to block.
