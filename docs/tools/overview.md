@@ -147,10 +147,47 @@ High-level analysis workflows that orchestrate multiple router calls.
 
 | Action | Description | Key Parameters |
 |--------|-------------|----------------|
-| `content_audit` | Scan all content for issues, missing references, and orphaned content | `filters` |
+| `content_audit` | Report content volume and coverage gaps across collections, taxonomies, and globals | `filters` |
+| `content_validate` | Validate stored content against its blueprints and report schema drift | `scope`, `collection`, `taxonomy`, `severity`, `limit`, `offset`, `max_findings` |
 | `cross_reference` | Analyze relationships and dependencies between content types | `filters` |
 
-Schema accepts `action` (required, enum: `content_audit`, `cross_reference`) and optional `filters` (object).
+Schema accepts `action` (required, enum: `content_audit`, `content_validate`, `cross_reference`) and the parameters listed above.
+
+#### `content_validate`
+
+Writes made through this addon are validated on the way in. `content_validate` is
+the read-side sweep for everything else — git merges, hand-edited YAML, and
+blueprints changed after the content was written.
+
+Each record gets two passes: the blueprint's own validation rules, evaluated the
+same way a Control Panel save evaluates them, plus structural checks the rule
+engine cannot express.
+
+| Finding type | Severity | What it means |
+|--------------|----------|---------------|
+| `rule_violation` | error | A blueprint validation rule fails against the stored value |
+| `unknown_set_type` | error | A replicator/bard block names a set that is no longer defined; it is dropped at render |
+| `unknown_field` | warning | A set or grid row stores a key that is no longer a field in its blueprint |
+| `invalid_option` | error | A `select`/`radio`/`button_group`/`checkboxes` value is outside the declared options |
+| `missing_asset` | error | An assets field references a file that no longer exists in its container |
+| `dangling_reference` | error | A navigation item links to an entry that was deleted |
+| `rule_engine_error` | warning | A stored value made a fieldtype's rule builder throw; the structural pass usually names the cause |
+
+Parameters:
+
+- `scope` — `all` (default), `entries`, `terms`, `globals`, or `navigations`
+- `collection` / `taxonomy` — restrict the entry or term sweep to one handle
+- `severity` — return only `error` or only `warning` findings
+- `limit` / `offset` — records scanned per call (default 100, max 500). Records are
+  walked in a fixed order (entries → terms → globals → navigations) and the offset
+  addresses that combined stream, so paging a large site means repeating the call
+  with a rising offset until `pagination.has_more` is false.
+- `max_findings` — cap on findings returned per call (default 200, max 2000).
+  `summary.findings` stays accurate when the list is truncated.
+
+Non-blueprint keys at the top level of an entry (`template`, `layout`, `parent`, …)
+are legitimate and never reported; the `unknown_field` check applies only inside
+sets and grid rows.
 
 ### `statamic-system-discover`
 
@@ -160,9 +197,32 @@ Intent-based tool discovery. Describe what you want to do and the tool suggests 
 
 Inspect the full JSON schema of any registered tool. Useful for AI agents to understand available parameters.
 
+## Resources
+
+Alongside tools, the server exposes MCP *resources* — read-only views a client can
+browse without spending a tool call.
+
+| URI | Contents |
+|-----|----------|
+| `statamic://blueprints` | Every readable blueprint, with its namespace, handle, title, and URI |
+| `statamic://blueprints/{namespace}/{handle}` | One blueprint's fields, including type, display, and validation rules |
+
+Read `statamic://blueprints` first to discover the URIs, then read the one you need.
+Namespaces include the per-collection and per-taxonomy forms Statamic uses for entry
+and term blueprints, so a URI often looks like
+`statamic://blueprints/collections.pages/article`.
+
+Resources enforce the same authorization as the equivalent tool call: the domain
+must be enabled, the token must carry `blueprints:read`, the resource policy must
+allow the handle, and the underlying Statamic user must have permission. A blueprint
+the resource policy hides does not appear in the index at all.
+
 ## Tool Annotations
 
 Tools declare behavior annotations:
 
 - **`#[IsReadOnly]`** — Tool only reads data and has no side effects
 - **`#[IsIdempotent]`** — Tool can be called multiple times safely with the same result
+
+Tools also declare a **`#[Title]`** — the human-readable name a client shows in its
+UI, distinct from the protocol name (`statamic-entries` → "Statamic Entries").

@@ -52,7 +52,7 @@ Create a token in the CP dashboard (Tools > MCP > Tokens), then configure your A
 }
 ```
 
-See [Getting Started](docs/getting-started/quickstart.md) for detailed setup or [AI Client Setup](docs/getting-started/ai-clients.md) for client-specific instructions (Claude, Cursor, ChatGPT, Windsurf).
+See [Getting Started](docs/quickstart.md) for detailed setup or [AI Client Setup](docs/getting-started/ai-clients.md) for client-specific instructions (Claude, Cursor, ChatGPT, Windsurf).
 
 ## Features
 
@@ -85,7 +85,7 @@ User CRUD, role assignment, group management with RBAC support.
 System info, health checks, cache management (clear/warm), and configuration access.
 
 ### Content Workflow Facade — `statamic-content-facade`
-High-level workflow operations: `content_audit` and `cross_reference`.
+High-level workflow operations: `content_audit`, `content_validate`, and `cross_reference`.
 
 ### Agent Education Tools
 - `statamic-system-discover` — Intent-based tool discovery

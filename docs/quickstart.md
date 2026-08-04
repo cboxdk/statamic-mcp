@@ -67,7 +67,7 @@ File: `.cursor/mcp.json` in your project root
 }
 ```
 
-See [AI Client Setup](ai-clients.md) for ChatGPT, Windsurf, Claude Code, and generic clients.
+See [AI Client Setup](getting-started/ai-clients.md) for ChatGPT, Windsurf, Claude Code, and generic clients.
 
 ## Test It
 
@@ -93,11 +93,11 @@ CLI access bypasses token authentication entirely. This is the default mode and 
 
 ## OAuth 2.1 (Browser-Based Clients)
 
-For MCP clients that support OAuth 2.1, the addon provides an authorization server with PKCE. Clients can register dynamically via `POST /mcp/oauth/register` and authenticate through the standard authorization code flow. OAuth is enabled by default. See [Web Authentication](../authentication/web-authentication.md) for details.
+For MCP clients that support OAuth 2.1, the addon provides an authorization server with PKCE. Clients can register dynamically via `POST /mcp/oauth/register` and authenticate through the standard authorization code flow. OAuth is enabled by default. See [Web Authentication](authentication/web-authentication.md) for details.
 
 ## What's Next
 
-- **[AI Client Setup](ai-clients.md)** — Full config examples for every supported client
-- **[Token Scopes](../authentication/token-scopes.md)** — Understand what each scope grants
-- **[Tool Reference](../tools/overview.md)** — See what your AI assistant can do
-- **[Configuration](../configuration/reference.md)** — Fine-tune rate limits, audit logging, and more
+- **[AI Client Setup](getting-started/ai-clients.md)** — Full config examples for every supported client
+- **[Token Scopes](authentication/token-scopes.md)** — Understand what each scope grants
+- **[Tool Reference](tools/overview.md)** — See what your AI assistant can do
+- **[Configuration](configuration/reference.md)** — Fine-tune rate limits, audit logging, and more
