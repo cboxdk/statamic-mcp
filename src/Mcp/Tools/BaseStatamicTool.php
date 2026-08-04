@@ -79,9 +79,20 @@ abstract class BaseStatamicTool extends Tool
         $arguments = $request->all();
         $result = $this->execute($arguments);
 
-        // Use structured response for any well-formed standard envelope (has success + meta),
-        // regardless of success/failure. This preserves data payloads like confirmation tokens.
+        // Any well-formed standard envelope (has success + meta) is returned as
+        // structured content regardless of outcome, so failures keep their data
+        // payload — a confirmation-required response carries its token in there.
+        //
+        // A failed envelope still has to set the protocol's isError flag, or
+        // clients read the call as successful and only a model reading the JSON
+        // body would notice. Response::structured() cannot do both, so failures
+        // are assembled from an error Response plus the same structured content.
         if (isset($result['success'], $result['meta'])) {
+            if ($result['success'] === false) {
+                return Response::make([Response::error($this->encodeEnvelope($result))])
+                    ->withStructuredContent($result);
+            }
+
             return Response::structured($result);
         }
 
@@ -97,6 +108,29 @@ abstract class BaseStatamicTool extends Tool
         }
 
         return Response::error($errorMessage);
+    }
+
+    /**
+     * Encode a response envelope the same way Response::structured() does, so the
+     * text content of a failure matches the text content of a success.
+     *
+     * @param  array<string, mixed>  $envelope
+     */
+    private function encodeEnvelope(array $envelope): string
+    {
+        try {
+            return json_encode(
+                $envelope,
+                JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+            );
+        } catch (\JsonException) {
+            // Unencodable payload — the structured content will carry whatever
+            // survives serialization; the text content falls back to the message.
+            $errors = $envelope['errors'] ?? null;
+            $first = is_array($errors) ? ($errors[0] ?? null) : null;
+
+            return is_string($first) ? $first : 'Unknown error occurred';
+        }
     }
 
     /**
