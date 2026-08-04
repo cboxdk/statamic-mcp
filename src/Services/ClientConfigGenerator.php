@@ -20,7 +20,7 @@ class ClientConfigGenerator
      *
      * @return array<string, mixed>
      */
-    public function forClaudeDesktop(string $baseUrl, string $token): array
+    public function forClaudeDesktop(string $baseUrl, #[\SensitiveParameter] string $token): array
     {
         $url = $this->normalizeUrl($baseUrl);
 
@@ -50,7 +50,7 @@ class ClientConfigGenerator
      *
      * @return array<string, mixed>
      */
-    public function forClaudeCode(string $baseUrl, string $token): array
+    public function forClaudeCode(string $baseUrl, #[\SensitiveParameter] string $token): array
     {
         return [
             'mcpServers' => [
@@ -67,7 +67,7 @@ class ClientConfigGenerator
     /**
      * Generate CLI command for Claude Code.
      */
-    public function cliForClaudeCode(string $baseUrl, string $token): string
+    public function cliForClaudeCode(string $baseUrl, #[\SensitiveParameter] string $token): string
     {
         $url = $this->normalizeUrl($baseUrl);
 
@@ -79,7 +79,7 @@ class ClientConfigGenerator
      *
      * @return array<string, mixed>
      */
-    public function forCursor(string $baseUrl, string $token): array
+    public function forCursor(string $baseUrl, #[\SensitiveParameter] string $token): array
     {
         return [
             'mcpServers' => [
@@ -102,7 +102,7 @@ class ClientConfigGenerator
      *
      * @return array<string, mixed>
      */
-    public function forChatGpt(string $baseUrl, string $token): array
+    public function forChatGpt(string $baseUrl, #[\SensitiveParameter] string $token): array
     {
         return [
             'note' => 'ChatGPT requires OAuth 2.0 — Bearer tokens are not supported.',
@@ -116,7 +116,7 @@ class ClientConfigGenerator
      *
      * @return array<string, mixed>
      */
-    public function forWindsurf(string $baseUrl, string $token): array
+    public function forWindsurf(string $baseUrl, #[\SensitiveParameter] string $token): array
     {
         return [
             'mcpServers' => [
@@ -135,7 +135,7 @@ class ClientConfigGenerator
      *
      * @return array<string, mixed>
      */
-    public function forGeneric(string $baseUrl, string $token): array
+    public function forGeneric(string $baseUrl, #[\SensitiveParameter] string $token): array
     {
         return [
             'mcpServers' => [
