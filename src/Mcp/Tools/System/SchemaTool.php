@@ -9,6 +9,7 @@ use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
+use Laravel\Mcp\Server\Attributes\Title;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
 /**
@@ -20,6 +21,7 @@ use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
  */
 #[IsReadOnly]
 #[Name('statamic-system-schema')]
+#[Title('Statamic Tool Schemas')]
 #[Description('Quick reference of all Statamic MCP tools, their actions, and key parameters.')]
 class SchemaTool extends BaseStatamicTool
 {
@@ -117,8 +119,8 @@ class SchemaTool extends BaseStatamicTool
             ],
             'statamic-content-facade' => [
                 'domain' => 'workflow',
-                'actions' => ['content_audit', 'cross_reference'],
-                'key_params' => ['filters'],
+                'actions' => ['content_audit', 'content_validate', 'cross_reference'],
+                'key_params' => ['filters', 'scope', 'collection', 'taxonomy', 'severity', 'limit', 'offset'],
                 'write' => false,
             ],
             'statamic-system-discover' => [

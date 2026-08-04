@@ -13,8 +13,10 @@ use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
+use Laravel\Mcp\Server\Attributes\Title;
 
 #[Name('statamic-users')]
+#[Title('Statamic Users & Roles')]
 #[Description('Manage Statamic users, roles, and user groups. Set resource_type first, then choose an action. Actions: list, get, search, create, update, delete, activate, deactivate, assign_role, remove_role.')]
 class UsersRouter extends BaseRouter
 {

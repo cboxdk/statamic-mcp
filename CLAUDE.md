@@ -169,14 +169,24 @@ composer pint:test
 
 # Run static analysis with PHPStan/Larastan
 # The memory limit is required — the default 128M crashes the parallel worker
-./vendor/bin/phpstan analyse --memory-limit=1G
+./vendor/bin/phpstan analyse --memory-limit=2G
 composer stan
+
+# Supply chain: licenses must be permissive, SBOM must be current
+composer license-check
+composer sbom && git diff --exit-code sbom.json
+composer audit --no-dev
 
 # Run all quality checks (format + analysis + tests)
 composer quality
 ```
 
-**IMPORTANT**: All code files MUST pass PHPStan Level 9 analysis with zero errors. This project maintains the highest code quality standards:
+**IMPORTANT**: All code files MUST pass PHPStan Level 9 analysis with zero errors —
+and with no `@phpstan-ignore`, no baseline entries, and no blanket `ignoreErrors`
+patterns. The config keeps only Statamic-facade-specific suppressions; blanket
+patterns like `#Method .* should return .* but returns mixed#` were removed
+because they silently disabled level 9 across the whole codebase. Fix the
+underlying cause instead. This project maintains the highest code quality standards:
 
 - **Type Safety**: All methods must have proper type annotations (`@param`, `@return`)
 - **Strict Types**: All PHP files must declare `strict_types=1`
@@ -737,11 +747,46 @@ class StatamicExportStrategy extends BaseStatamicTool
 
 **`statamic-system`** — system info, health checks, cache management, config access (via `type` param)
 
-**`statamic-content-facade`** — high-level analysis workflows: content_audit, cross_reference
+**`statamic-content-facade`** — high-level analysis workflows: content_audit, content_validate, cross_reference
+
+`content_validate` is the read-side counterpart to the write-time validation in the
+content routers. Routers validate on the way in; `content_validate` sweeps content
+that is already stored and reports drift from its blueprint. The two-pass logic lives
+in the `ValidatesContentRecords` concern (`src/Mcp/Tools/Concerns/ValidatesContentRecords.php`)
+so other routers can reuse it: pass one runs the blueprint's own validation rules,
+pass two covers the structural breakage rules cannot express (unknown set types,
+keys the blueprint dropped, undeclared option values, missing assets). Navigation
+trees are additionally checked for menu items pointing at deleted entries.
 
 **`statamic-system-discover`** — intent-based tool and action discovery
 
 **`statamic-system-schema`** — inspect full JSON schema of any registered tool
+
+## MCP Resources
+
+Beyond tools, the server exposes read-only resources (`src/Mcp/Resources/`):
+
+- `statamic://blueprints` — index of every readable blueprint and its URI
+- `statamic://blueprints/{namespace}/{handle}` — one blueprint's fields
+
+Resources are a second read surface. `RequireMcpPermission` only authenticates and
+defers scope checks "to the tool level", so every resource must run its own gates via
+the `AuthorizesResourceAccess` concern: tool enablement, token scope, resource policy,
+and Statamic permissions. **Any new resource must use that concern** — without it the
+resource hands out data the equivalent tool call would refuse.
+
+Note: `ResourceLink` content is rejected inside a resource body (it is only valid in
+tool results), so resources that reference other resources emit plain URI strings.
+
+## Testing the MCP protocol surface
+
+`tests/Feature/McpProtocolSurfaceTest.php` drives tools through
+`StatamicMcpServer::tool()` rather than `execute()`, covering JSON-RPC argument
+delivery, response serialization, and the `isError` flag. This works only because
+`TestCase::getPackageProviders()` registers `Laravel\Mcp\Server\McpServiceProvider` —
+Testbench does not run package auto-discovery, and without that provider
+`Laravel\Mcp\Request` receives no arguments, so protocol tests pass while asserting
+nothing. Do not remove it.
 
 ## Production-Ready Features
 
@@ -820,7 +865,8 @@ This project maintains high code quality through automated tools:
 ### Quality Assurance Workflow
 ```bash
 # Complete quality check pipeline
-composer quality  # Runs: pint + stan + test
+composer quality  # Runs: pint (fix) + stan + test
+composer qa       # The full gate: pint --test + stan + test + license-check + audit
 ```
 
 ### Pre-commit Recommendations
