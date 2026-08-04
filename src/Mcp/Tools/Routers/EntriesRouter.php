@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
+use Laravel\Mcp\Server\Attributes\Title;
 use Statamic\Facades\Collection;
 use Statamic\Facades\Entry;
 use Statamic\Fields\Validator as FieldsValidator;
@@ -22,6 +23,7 @@ use Statamic\Rules\UniqueEntryValue;
 use Statamic\Support\Str;
 
 #[Name('statamic-entries')]
+#[Title('Statamic Entries')]
 #[Description('Manage Statamic collection entries. Use statamic-blueprints get first to understand field structure before create/update. Actions: list, get, create, update, delete, publish, unpublish, list_revisions, get_revision, restore_revision, publish_working_copy.')]
 class EntriesRouter extends BaseRouter
 {
@@ -275,9 +277,8 @@ class EntriesRouter extends BaseRouter
         try {
             $entry = Entry::find($id);
 
-            $notFound = $this->requireResource($entry, 'Entry', $id);
-            if ($notFound) {
-                return $notFound;
+            if ($entry === null) {
+                return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
             }
 
             // Get entry for specific site if needed
@@ -503,9 +504,8 @@ class EntriesRouter extends BaseRouter
         try {
             $entry = Entry::find($id);
 
-            $notFound = $this->requireResource($entry, 'Entry', $id);
-            if ($notFound) {
-                return $notFound;
+            if ($entry === null) {
+                return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
             }
 
             // Get entry for specific site
@@ -704,9 +704,8 @@ class EntriesRouter extends BaseRouter
         try {
             $entry = Entry::find($id);
 
-            $notFound = $this->requireResource($entry, 'Entry', $id);
-            if ($notFound) {
-                return $notFound;
+            if ($entry === null) {
+                return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
             }
 
             $entryData = [
@@ -745,9 +744,8 @@ class EntriesRouter extends BaseRouter
         try {
             $entry = Entry::find($id);
 
-            $notFound = $this->requireResource($entry, 'Entry', $id);
-            if ($notFound) {
-                return $notFound;
+            if ($entry === null) {
+                return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
             }
 
             /** @var \Statamic\Entries\Entry $entry */
@@ -801,9 +799,8 @@ class EntriesRouter extends BaseRouter
         try {
             $entry = Entry::find($id);
 
-            $notFound = $this->requireResource($entry, 'Entry', $id);
-            if ($notFound) {
-                return $notFound;
+            if ($entry === null) {
+                return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
             }
 
             /** @var \Statamic\Entries\Entry $entry */

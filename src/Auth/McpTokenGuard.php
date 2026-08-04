@@ -72,9 +72,9 @@ class McpTokenGuard implements Guard
      */
     public function id(): int|string|null
     {
-        $user = $this->user();
+        $identifier = $this->user()?->getAuthIdentifier();
 
-        return $user?->getAuthIdentifier();
+        return is_int($identifier) || is_string($identifier) ? $identifier : null;
     }
 
     /**

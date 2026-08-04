@@ -91,7 +91,9 @@ class DatabaseTokenStore extends BaseTokenStore implements TokenStore
 
     public function deleteForUser(string $userId): int
     {
-        return McpToken::where('user_id', $userId)->delete();
+        $deleted = McpToken::where('user_id', $userId)->delete();
+
+        return is_int($deleted) ? $deleted : 0;
     }
 
     /**
@@ -139,7 +141,9 @@ class DatabaseTokenStore extends BaseTokenStore implements TokenStore
 
     public function pruneExpired(): int
     {
-        return McpToken::where('expires_at', '<=', now())->delete();
+        $deleted = McpToken::where('expires_at', '<=', now())->delete();
+
+        return is_int($deleted) ? $deleted : 0;
     }
 
     public function markAsUsed(string $id): void

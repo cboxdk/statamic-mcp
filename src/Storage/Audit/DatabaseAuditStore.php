@@ -108,6 +108,8 @@ class DatabaseAuditStore implements AuditStore
             return $count;
         }
 
-        return McpAuditEntry::where('logged_at', '<', $before)->delete();
+        $deleted = McpAuditEntry::where('logged_at', '<', $before)->delete();
+
+        return is_int($deleted) ? $deleted : 0;
     }
 }

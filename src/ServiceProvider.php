@@ -35,6 +35,7 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Laravel\Mcp\Facades\Mcp;
 use Laravel\Mcp\Server\Middleware\AddWwwAuthenticateHeader;
+use Statamic\CP\Navigation\NavItem;
 use Statamic\Facades\CP\Nav;
 use Statamic\Facades\Git;
 use Statamic\Facades\Permission;
@@ -240,12 +241,7 @@ class ServiceProvider extends AddonServiceProvider
                 ->route('statamic-mcp.dashboard')
                 ->icon('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><circle cx="12" cy="16" r="1"/></svg>')
                 ->can('view mcp dashboard')
-                ->children([
-                    /** @phpstan-ignore method.nonObject (Nav::item returns NavItem) */
-                    Nav::item('Admin')
-                        ->route('statamic-mcp.admin')
-                        ->can('manage all mcp tokens'),
-                ]);
+                ->children($this->adminNavChildren());
         });
     }
 
@@ -350,5 +346,30 @@ class ServiceProvider extends AddonServiceProvider
         if (is_string($driver) && is_a($driver, $databaseClass, true)) {
             $this->loadMigrationsFrom(__DIR__ . '/../database/migrations/' . $migrationPath);
         }
+    }
+
+    /**
+     * The dashboard's child nav items.
+     *
+     * Statamic's Nav facade is untyped, so the item is narrowed here rather than
+     * chained inline where the analyser only sees `mixed`.
+     *
+     * @return array<int, NavItem>
+     */
+    private function adminNavChildren(): array
+    {
+        $admin = Nav::item('Admin');
+
+        // NavItem's fluent setters come from FluentlyGetsAndSets and are untyped,
+        // so each step is narrowed instead of chained past the analyser.
+        $routed = $admin->route('statamic-mcp.admin');
+
+        if (! $routed instanceof NavItem) {
+            return [$admin];
+        }
+
+        $gated = $routed->can('manage all mcp tokens');
+
+        return [$gated instanceof NavItem ? $gated : $routed];
     }
 }

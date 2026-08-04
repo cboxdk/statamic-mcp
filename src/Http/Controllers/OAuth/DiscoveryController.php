@@ -51,7 +51,7 @@ class DiscoveryController extends Controller
 
         $metadata = [
             'issuer' => $baseUrl,
-            'authorization_endpoint' => $baseUrl . '/' . trim((string) config('statamic.cp.route', 'cp'), '/') . '/mcp/oauth/authorize',
+            'authorization_endpoint' => $baseUrl . '/' . trim($this->cpRoute(), '/') . '/mcp/oauth/authorize',
             'token_endpoint' => $baseUrl . '/mcp/oauth/token',
             'registration_endpoint' => $baseUrl . '/mcp/oauth/register',
             'revocation_endpoint' => $baseUrl . '/mcp/oauth/revoke',
@@ -87,5 +87,15 @@ class DiscoveryController extends Controller
         }
 
         return $base;
+    }
+
+    /**
+     * The Control Panel route prefix, as a string regardless of what config holds.
+     */
+    private function cpRoute(): string
+    {
+        $route = config('statamic.cp.route', 'cp');
+
+        return is_string($route) ? $route : 'cp';
     }
 }

@@ -6,6 +6,9 @@ parameters:
     level: 9
     paths:
         - src
+        # Composition sites for the shipped Testing traits, so the analyser
+        # sees them used. The suite itself is not analysed at this level.
+        - tests/Fixtures
     excludePaths:
         - src/Console/InstallCommand.php
     ignoreErrors:
@@ -17,24 +20,14 @@ parameters:
         - '#Class [\\A-Za-z0-9_]+\\Statamic[\\A-Za-z0-9_]+ not found#'
         # Allow undefined classes in match expressions for optional features
         - '#Undefined class \\Statamic\\.*#'
-        # Allow reflection-based calls
-        - '#Parameter .* of method .* expects .*, mixed given#'
-        # Allow array access on potentially undefined arrays
-        - '#Offset .* does not exist on array.*#'
         # Allow config() helper with dynamic keys
         - '#Function config invoked with .* parameters, 0-2 required#'
         # Allow Laravel helper functions
         - '#Function app invoked with .* parameters, 0-1 required#'
-        # Allow method chaining on potentially null values for Statamic models
-        - '#Cannot call method .* on .*\|null#'
         # Allow dynamic calls for MCP tool registration
         - '#Call to an undefined static method Laravel\\Mcp\\.*#'
         # Allow MCP prompt class extensions  
         - '#Class Cboxdk\\StatamicMcp\\Mcp\\Prompts\\PageBuilderFieldsetsPrompt extends unknown class Laravel\\Mcp\\Server\\Prompts\\Prompt#'
-        # Allow mixed types in tool results
-        - '#Method .* should return .* but returns mixed#'
-        # Allow isset() on potentially undefined array keys
-        - '#Offset string does not exist on array.*#'
         # Allow Statamic form contract comparisons to null
         - '#Strict comparison using === between Statamic\\Contracts\\Forms\\.*Form and null will always evaluate to false#'
         - '#Strict comparison using === between Statamic\\Contracts\\Forms\\.*Submission and null will always evaluate to false#'
@@ -45,10 +38,6 @@ parameters:
         - '#Unable to resolve the template type .* in call to method.*#'
         # Allow validation array comparisons in entry tools
         - '#Strict comparison using === between array\{\} and array\{\} will always evaluate to true#'
-        # Allow can() calls on auth user (Statamic User extends Authorizable in implementation)
-        - '#Cannot call method can\(\) on mixed#'
-        # Allow string cast on mixed (auth guard returns vary by Statamic version)
-        - '#Cannot cast mixed to string#'
 
     reportUnmatchedIgnoredErrors: false
 

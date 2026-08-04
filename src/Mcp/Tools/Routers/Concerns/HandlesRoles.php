@@ -134,7 +134,7 @@ trait HandlesRoles
 
             $role = Role::make($handle);
 
-            if (isset($data['title'])) {
+            if (is_scalar($data['title'] ?? null)) {
                 $role->title((string) $data['title']);
             }
 

@@ -13,10 +13,12 @@ use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\Validation\ValidationException;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
+use Laravel\Mcp\Server\Attributes\Title;
 use Statamic\Facades\GlobalSet;
 use Statamic\Fields\Validator;
 
 #[Name('statamic-globals')]
+#[Title('Statamic Global Sets')]
 #[Description('Manage Statamic global sets and their values. Use statamic-blueprints get to see field structure before updating. Actions: list, get, update.')]
 class GlobalsRouter extends BaseRouter
 {
@@ -210,9 +212,8 @@ class GlobalsRouter extends BaseRouter
             /** @var \Statamic\Contracts\Globals\GlobalSet|null $globalSet */
             $globalSet = GlobalSet::find($globalSetHandle);
 
-            $notFound = $this->requireResource($globalSet, 'Global set', $globalSetHandle);
-            if ($notFound) {
-                return $notFound;
+            if ($globalSet === null) {
+                return $this->createErrorResponse('Global set not found: ' . $globalSetHandle)->toArray();
             }
 
             $variables = $globalSet->in($site);
@@ -259,9 +260,8 @@ class GlobalsRouter extends BaseRouter
             /** @var \Statamic\Contracts\Globals\GlobalSet|null $globalSet */
             $globalSet = GlobalSet::find($globalSetHandle);
 
-            $notFound = $this->requireResource($globalSet, 'Global set', $globalSetHandle);
-            if ($notFound) {
-                return $notFound;
+            if ($globalSet === null) {
+                return $this->createErrorResponse('Global set not found: ' . $globalSetHandle)->toArray();
             }
 
             $variables = $globalSet->in($site);

@@ -99,9 +99,11 @@ trait SanitizesFieldData
     }
 
     /**
-     * @param  array<string, mixed>|string|int|float|bool|null  $value
+     * Coerce one stored value into the shape its fieldtype expects.
      *
-     * @return array<mixed>|string|int|float|bool|null
+     * Both the input and the result are genuinely `mixed`: the value comes from
+     * stored YAML or a client payload, and a fieldtype may hand back any shape
+     * it considers valid. It is narrowed by the caller at the storage boundary.
      */
     private function sanitizeFieldValue(Field $field, mixed $value, bool $allowLegacyCoercion, string $path): mixed
     {
