@@ -7,7 +7,7 @@ namespace Cboxdk\StatamicMcp\OAuth\Cimd;
 /**
  * Exception thrown when a CIMD metadata document fails validation.
  */
-final class CimdValidationException extends \RuntimeException
+class CimdValidationException extends \RuntimeException
 {
     public function __construct(
         public readonly string $errorCode,

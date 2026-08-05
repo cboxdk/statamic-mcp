@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
+use Laravel\Mcp\Server\Attributes\Title;
 use Statamic\Facades\Taxonomy;
 use Statamic\Facades\Term;
 use Statamic\Fields\Validator as FieldsValidator;
@@ -21,6 +22,7 @@ use Statamic\Rules\UniqueTermValue;
 use Statamic\Support\Str;
 
 #[Name('statamic-terms')]
+#[Title('Statamic Taxonomy Terms')]
 #[Description('Manage Statamic taxonomy terms. Use statamic-blueprints get first to understand field structure before create/update. Actions: list, get, create, update, delete.')]
 class TermsRouter extends BaseRouter
 {

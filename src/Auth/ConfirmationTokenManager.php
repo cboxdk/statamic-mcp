@@ -47,7 +47,7 @@ class ConfirmationTokenManager
      *
      * @param  array<string, mixed>  $arguments
      */
-    public function validate(string $token, string $tool, array $arguments): bool
+    public function validate(#[\SensitiveParameter] string $token, string $tool, array $arguments): bool
     {
         $parts = $this->parseToken($token);
         if ($parts === null) {
@@ -73,7 +73,7 @@ class ConfirmationTokenManager
      *
      * @return array<string, mixed>|null
      */
-    public function validatedArguments(string $token, string $tool, array $arguments): ?array
+    public function validatedArguments(#[\SensitiveParameter] string $token, string $tool, array $arguments): ?array
     {
         if (! $this->validate($token, $tool, $arguments)) {
             return null;
@@ -171,7 +171,7 @@ class ConfirmationTokenManager
     /**
      * @return array{timestamp: int, nonce: string, arguments: array<string, mixed>, signature: string}|null
      */
-    private function parseToken(string $token): ?array
+    private function parseToken(#[\SensitiveParameter] string $token): ?array
     {
         if ($token === '') {
             return null;

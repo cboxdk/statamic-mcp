@@ -6,7 +6,7 @@ namespace Cboxdk\StatamicMcp\Mcp\DataTransferObjects;
 
 use JsonSerializable;
 
-final readonly class ResponseMeta implements JsonSerializable
+readonly class ResponseMeta implements JsonSerializable
 {
     public function __construct(
         public string $tool,

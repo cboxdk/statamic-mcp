@@ -11,5 +11,5 @@ This section walks you through installing the package, enabling the web endpoint
 ## Guides
 
 - **[Installation](installation.md)** — Install via Composer and run the setup command
-- **[Quick Start](quickstart.md)** — Connect your first AI assistant in 2 minutes
+- **[Quick Start](../quickstart.md)** — Connect your first AI assistant in 2 minutes
 - **[AI Client Setup](ai-clients.md)** — Copy-paste configurations for Claude, Cursor, ChatGPT, Windsurf

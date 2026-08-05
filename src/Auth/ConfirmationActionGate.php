@@ -11,7 +11,7 @@ namespace Cboxdk\StatamicMcp\Auth;
  * Domains not listed fall back to `default`, which itself defaults to
  * `['delete']`. The `*` wildcard gates every action in the domain.
  */
-final class ConfirmationActionGate
+class ConfirmationActionGate
 {
     public static function gates(string $domain, string $action): bool
     {

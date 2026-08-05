@@ -96,5 +96,5 @@ composer require laravel/boost --dev
 
 ## Next Steps
 
-- **[Quick Start](quickstart.md)** — Create a token and connect your first AI assistant
+- **[Quick Start](../quickstart.md)** — Create a token and connect your first AI assistant
 - **[AI Client Setup](ai-clients.md)** — Copy-paste config for your specific client

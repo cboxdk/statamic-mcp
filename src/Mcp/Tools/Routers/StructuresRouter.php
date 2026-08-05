@@ -15,8 +15,10 @@ use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
+use Laravel\Mcp\Server\Attributes\Title;
 
 #[Name('statamic-structures')]
+#[Title('Statamic Structures')]
 #[Description('Manage Statamic structural resources: collections, taxonomies, navigations, sites, and global sets. Use resource_type to select the kind, then action for the operation. Actions: list, get, create, update, delete, configure.')]
 class StructuresRouter extends BaseRouter
 {

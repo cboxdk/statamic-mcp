@@ -5,23 +5,39 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ValidatesContentRecords;
+use Cboxdk\StatamicMcp\Mcp\Validation\Finding;
+use Cboxdk\StatamicMcp\Mcp\Validation\FindingType;
+use Cboxdk\StatamicMcp\Mcp\Validation\RecordRef;
+use Cboxdk\StatamicMcp\Mcp\Validation\RecordType;
+use Cboxdk\StatamicMcp\Mcp\Validation\Severity;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
+use Laravel\Mcp\Server\Attributes\Title;
+use Statamic\Contracts\Entries\QueryBuilder as EntryQueryBuilder;
+use Statamic\Contracts\Globals\Variables;
+use Statamic\Contracts\Structures\Nav as NavContract;
+use Statamic\Contracts\Structures\Tree;
 use Statamic\Facades\Collection;
 use Statamic\Facades\Entry;
 use Statamic\Facades\GlobalSet;
+use Statamic\Facades\Nav;
 use Statamic\Facades\Site;
 use Statamic\Facades\Taxonomy;
 use Statamic\Facades\Term;
 use Statamic\Fields\Blueprint;
 use Statamic\Fields\Field;
+use Statamic\Stache\Query\TermQueryBuilder;
 
 #[Name('statamic-content-facade')]
-#[Description('High-level content analysis workflows spanning all content types. Workflows: content_audit scans for issues across collections/taxonomies/globals; cross_reference analyzes relationships and dependencies between content types.')]
+#[Title('Statamic Content Analysis')]
+#[Description('High-level content analysis workflows spanning all content types. Workflows: content_audit reports content volume and coverage gaps; content_validate checks stored content against its blueprints and reports schema drift; cross_reference analyzes relationships and dependencies between content types.')]
 class ContentFacadeRouter extends BaseRouter
 {
+    use ValidatesContentRecords;
+
     protected function getDomain(): string
     {
         return 'content-facade';
@@ -31,6 +47,7 @@ class ContentFacadeRouter extends BaseRouter
     {
         return [
             'content_audit' => 'Scan all content for issues across collections, taxonomies, and globals',
+            'content_validate' => 'Validate stored content against its blueprints and report schema drift',
             'cross_reference' => 'Analyze relationships and dependencies between content types',
         ];
     }
@@ -39,6 +56,7 @@ class ContentFacadeRouter extends BaseRouter
     {
         return [
             'ContentAudit' => 'Result of content audit workflow',
+            'ContentValidation' => 'Result of content validation sweep',
             'CrossReference' => 'Result of cross-reference analysis',
         ];
     }
@@ -48,6 +66,22 @@ class ContentFacadeRouter extends BaseRouter
         return array_merge(parent::defineSchema($schema), [
             'filters' => JsonSchema::object()
                 ->description('Optional filter conditions to narrow the workflow scope'),
+            'scope' => JsonSchema::string()
+                ->description('content_validate: which record types to sweep. Defaults to all.')
+                ->enum(['all', ...RecordType::scopes()]),
+            'collection' => JsonSchema::string()
+                ->description('content_validate: restrict the entry sweep to one collection handle'),
+            'taxonomy' => JsonSchema::string()
+                ->description('content_validate: restrict the term sweep to one taxonomy handle'),
+            'limit' => JsonSchema::integer()
+                ->description('content_validate: how many records to scan in this call (default 100, max 500)'),
+            'offset' => JsonSchema::integer()
+                ->description('content_validate: record offset, for paging through a large site'),
+            'max_findings' => JsonSchema::integer()
+                ->description('content_validate: cap on findings returned per call (default 200, max 2000). Counts stay accurate when findings are truncated.'),
+            'severity' => JsonSchema::string()
+                ->description('content_validate: only return findings at this severity')
+                ->enum(['error', 'warning']),
         ]);
     }
 
@@ -64,6 +98,7 @@ class ContentFacadeRouter extends BaseRouter
 
         return match ($action) {
             'content_audit' => $this->executeContentAudit($arguments),
+            'content_validate' => $this->executeContentValidate($arguments),
             'cross_reference' => $this->executeCrossReference($arguments),
             default => $this->createErrorResponse("Unknown action: {$action}")->toArray(),
         };
@@ -372,5 +407,350 @@ class ContentFacadeRouter extends BaseRouter
         } catch (\Exception $e) {
             return $this->createErrorResponse("Cross reference workflow failed: {$e->getMessage()}")->toArray();
         }
+    }
+
+    /**
+     * Validate stored content against its blueprints.
+     *
+     * Writes made through this addon are already validated on the way in. This
+     * sweep is for everything else — git merges, hand-edited YAML, and blueprints
+     * that changed after the content was written.
+     *
+     * Records are walked in a fixed order (entries, terms, globals, navigations)
+     * and `offset`/`limit` address that combined stream, so paging through a
+     * large site is a matter of repeating the call with a rising offset.
+     *
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string, mixed>
+     */
+    private function executeContentValidate(array $arguments): array
+    {
+        $scope = $this->getStringArgument($arguments, 'scope', 'all');
+
+        if ($scope !== 'all' && RecordType::fromScope($scope) === null) {
+            return $this->createErrorResponse(
+                "Unknown scope: {$scope}. Valid scopes are: all, " . implode(', ', RecordType::scopes())
+            )->toArray();
+        }
+
+        $severityArgument = $this->getStringArgument($arguments, 'severity');
+        $severity = $severityArgument === '' ? null : Severity::tryFrom($severityArgument);
+
+        if ($severityArgument !== '' && $severity === null) {
+            return $this->createErrorResponse(
+                "Unknown severity: {$severityArgument}. Valid severities are: error, warning"
+            )->toArray();
+        }
+
+        $collection = $this->getStringArgument($arguments, 'collection');
+        $taxonomy = $this->getStringArgument($arguments, 'taxonomy');
+
+        ['limit' => $limit, 'offset' => $offset] = $this->getPaginationArgs($arguments, 100, 500);
+        $maxFindings = $this->getIntegerArgument($arguments, 'max_findings', 200, 1, 2000);
+
+        /** @var list<RecordType> $recordTypes */
+        $recordTypes = $scope === 'all'
+            ? RecordType::cases()
+            : array_filter([RecordType::fromScope($scope)]);
+
+        try {
+            /** @var list<Finding> $findings */
+            $findings = [];
+            $scanned = 0;
+            $recordsWithIssues = 0;
+            $segmentStart = 0;
+
+            foreach ($recordTypes as $recordType) {
+                $total = $this->validationUnitCount($recordType, $collection, $taxonomy);
+                $window = $this->segmentWindow($segmentStart, $total, $offset, $limit);
+                $segmentStart += $total;
+
+                if ($window === null) {
+                    continue;
+                }
+
+                foreach ($this->validationUnits($recordType, $collection, $taxonomy, $window[0], $window[1]) as $unit) {
+                    $scanned++;
+                    $unitFindings = $unit();
+
+                    if ($unitFindings !== []) {
+                        $recordsWithIssues++;
+                        $findings = [...$findings, ...$unitFindings];
+                    }
+                }
+            }
+
+            if ($severity !== null) {
+                $findings = array_values(array_filter(
+                    $findings,
+                    fn (Finding $finding): bool => $finding->severity() === $severity
+                ));
+            }
+
+            $totalFindings = count($findings);
+
+            // Findings become arrays only here, at the MCP response boundary.
+            $returned = array_map(
+                fn (Finding $finding): array => $finding->toArray(),
+                array_slice($findings, 0, $maxFindings)
+            );
+
+            return [
+                'workflow' => 'content_validate',
+                'validated_at' => now()->toISOString(),
+                'scope' => [
+                    'record_types' => array_map(fn (RecordType $type): string => $type->scope(), $recordTypes),
+                    'collection' => $collection !== '' ? $collection : null,
+                    'taxonomy' => $taxonomy !== '' ? $taxonomy : null,
+                    'severity' => $severity?->value,
+                ],
+                'summary' => [
+                    'records_scanned' => $scanned,
+                    'records_with_issues' => $recordsWithIssues,
+                    'findings' => $totalFindings,
+                    'by_severity' => $this->tally($findings, fn (Finding $f): string => $f->severity()->value),
+                    'by_type' => $this->tally($findings, fn (Finding $f): string => $f->type->value),
+                ],
+                'findings' => $returned,
+                'findings_truncated' => $totalFindings > count($returned),
+                'pagination' => $this->buildPaginationMeta($segmentStart, $limit, $offset),
+                'completed' => true,
+                'message' => $totalFindings === 0
+                    ? "Validated {$scanned} record(s); no problems found."
+                    : "Validated {$scanned} record(s); found {$totalFindings} problem(s) in {$recordsWithIssues} record(s).",
+            ];
+        } catch (\Exception $e) {
+            return $this->createErrorResponse("Content validation workflow failed: {$e->getMessage()}")->toArray();
+        }
+    }
+
+    /**
+     * How many records a scope holds, so the caller can map the requested window
+     * onto it without loading anything.
+     */
+    private function validationUnitCount(RecordType $recordType, string $collection, string $taxonomy): int
+    {
+        return match ($recordType) {
+            RecordType::Entry => $this->entryQuery($collection)->count(),
+            RecordType::Term => $this->termQuery($taxonomy)->count(),
+            // Globals and navigations are bounded by configuration rather than
+            // content volume, so materializing them to count is cheap.
+            RecordType::Global => count($this->globalValidationUnits()),
+            RecordType::Navigation => count($this->navigationValidationUnits()),
+        };
+    }
+
+    /**
+     * Build the records to validate for one scope's slice of the window.
+     *
+     * Each unit is a closure returning that record's findings, so nothing is
+     * validated until the caller actually walks it.
+     *
+     * @return list<callable(): list<Finding>>
+     */
+    private function validationUnits(RecordType $recordType, string $collection, string $taxonomy, int $offset, int $limit): array
+    {
+        return match ($recordType) {
+            RecordType::Entry => $this->entryValidationUnits($collection, $offset, $limit),
+            RecordType::Term => $this->termValidationUnits($taxonomy, $offset, $limit),
+            RecordType::Global => array_slice($this->globalValidationUnits(), $offset, $limit),
+            RecordType::Navigation => array_slice($this->navigationValidationUnits(), $offset, $limit),
+        };
+    }
+
+    private function entryQuery(string $collection): EntryQueryBuilder
+    {
+        $query = Entry::query();
+
+        if ($collection !== '') {
+            $query->where('collection', $collection);
+        }
+
+        return $query;
+    }
+
+    private function termQuery(string $taxonomy): TermQueryBuilder
+    {
+        $query = Term::query();
+
+        if ($taxonomy !== '') {
+            $query->where('taxonomy', $taxonomy);
+        }
+
+        return $query;
+    }
+
+    /**
+     * @return list<callable(): list<Finding>>
+     */
+    private function entryValidationUnits(string $collection, int $offset, int $limit): array
+    {
+        $units = [];
+
+        foreach ($this->entryQuery($collection)->offset($offset)->limit($limit)->get() as $entry) {
+            /** @var \Statamic\Contracts\Entries\Entry $entry */
+            $units[] = function () use ($entry): array {
+                $blueprint = $entry->blueprint();
+
+                if (! $blueprint instanceof Blueprint) {
+                    return [];
+                }
+
+                return $this->validateRecord(
+                    $blueprint->fields(),
+                    // The slug lives outside data() but blueprints routinely mark
+                    // it required, so fold it in or every entry looks like it is
+                    // missing a required slug.
+                    ['slug' => $entry->slug(), ...$entry->data()->all()],
+                    new RecordRef(RecordType::Entry, (string) $entry->id(), $entry->locale())
+                );
+            };
+        }
+
+        return $units;
+    }
+
+    /**
+     * @return list<callable(): list<Finding>>
+     */
+    private function termValidationUnits(string $taxonomy, int $offset, int $limit): array
+    {
+        $units = [];
+
+        foreach ($this->termQuery($taxonomy)->offset($offset)->limit($limit)->get() as $term) {
+            /** @var \Statamic\Contracts\Taxonomies\Term $term */
+            $units[] = function () use ($term): array {
+                $blueprint = $term->blueprint();
+
+                if (! $blueprint instanceof Blueprint) {
+                    return [];
+                }
+
+                return $this->validateRecord(
+                    $blueprint->fields(),
+                    ['slug' => $term->slug(), ...$term->data()->all()],
+                    new RecordRef(RecordType::Term, (string) $term->id(), $term->locale())
+                );
+            };
+        }
+
+        return $units;
+    }
+
+    /**
+     * One unit per global set localization — a set can be valid in one site and
+     * broken in another.
+     *
+     * @return list<callable(): list<Finding>>
+     */
+    private function globalValidationUnits(): array
+    {
+        $units = [];
+
+        /** @var \Illuminate\Support\Collection<int, \Statamic\Contracts\Globals\GlobalSet> $globalSets */
+        $globalSets = GlobalSet::all();
+
+        foreach ($globalSets as $globalSet) {
+            /** @var \Statamic\Contracts\Globals\GlobalSet $globalSet */
+            $blueprint = $globalSet->blueprint();
+
+            if (! $blueprint instanceof Blueprint) {
+                continue;
+            }
+
+            foreach ($globalSet->localizations() as $locale => $localization) {
+                /** @var Variables $localization */
+                $units[] = fn (): array => $this->validateRecord(
+                    $blueprint->fields(),
+                    $localization->data()->all(),
+                    new RecordRef(RecordType::Global, $globalSet->handle(), (string) $locale)
+                );
+            }
+        }
+
+        return $units;
+    }
+
+    /**
+     * One unit per navigation tree. Every menu item that links to an entry must
+     * point at one that still exists — a dangling reference makes the item
+     * silently vanish, which nothing on the front end flags.
+     *
+     * @return list<callable(): list<Finding>>
+     */
+    private function navigationValidationUnits(): array
+    {
+        $units = [];
+
+        /** @var iterable<NavContract> $navs */
+        $navs = Nav::all();
+
+        foreach ($navs as $nav) {
+            foreach ($nav->trees() as $locale => $tree) {
+                /** @var Tree $tree */
+                $units[] = function () use ($nav, $tree, $locale): array {
+                    $findings = [];
+
+                    foreach ($tree->flattenedPages() as $page) {
+                        $reference = $page->reference();
+
+                        if ($reference === null || $page->referenceExists()) {
+                            continue;
+                        }
+
+                        $findings[] = new Finding(
+                            FindingType::DanglingReference,
+                            new RecordRef(RecordType::Navigation, $nav->handle(), (string) $locale),
+                            "Menu item links to entry '{$reference}', which no longer exists.",
+                        );
+                    }
+
+                    return $findings;
+                };
+            }
+        }
+
+        return $units;
+    }
+
+    /**
+     * Map the requested [offset, offset + limit) window onto one segment of the
+     * combined record stream.
+     *
+     * @return array{0: int, 1: int}|null Local offset and limit, or null when the segment falls outside the window
+     */
+    private function segmentWindow(int $segmentStart, int $segmentTotal, int $offset, int $limit): ?array
+    {
+        $from = max($offset, $segmentStart);
+        $to = min($offset + $limit, $segmentStart + $segmentTotal);
+
+        if ($from >= $to) {
+            return null;
+        }
+
+        return [$from - $segmentStart, $to - $from];
+    }
+
+    /**
+     * Count findings by some string facet, for the summary block.
+     *
+     * @param  list<Finding>  $findings
+     * @param  callable(Finding): string  $facet
+     *
+     * @return array<string, int>
+     */
+    private function tally(array $findings, callable $facet): array
+    {
+        $counts = [];
+
+        foreach ($findings as $finding) {
+            $key = $facet($finding);
+            $counts[$key] = ($counts[$key] ?? 0) + 1;
+        }
+
+        ksort($counts);
+
+        return $counts;
     }
 }

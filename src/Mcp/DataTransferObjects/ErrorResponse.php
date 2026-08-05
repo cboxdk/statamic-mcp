@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\DataTransferObjects;
 
-final class ErrorResponse extends BaseResponse
+class ErrorResponse extends BaseResponse
 {
     public function __construct(
         string|array $errors,

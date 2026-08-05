@@ -12,7 +12,7 @@ use Cboxdk\StatamicMcp\OAuth\Concerns\ValidatesRedirectUris;
  * Parses and validates a CIMD JSON document per the MCP CIMD specification.
  * Rejects documents with prohibited fields or invalid values.
  */
-final class CimdMetadata
+class CimdMetadata
 {
     use ValidatesRedirectUris;
 

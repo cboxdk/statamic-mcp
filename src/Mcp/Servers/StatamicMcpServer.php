@@ -6,6 +6,8 @@ namespace Cboxdk\StatamicMcp\Mcp\Servers;
 
 use Cboxdk\StatamicMcp\Mcp\Prompts\AgentEducationPrompt;
 use Cboxdk\StatamicMcp\Mcp\Prompts\ToolUsageContractPrompt;
+use Cboxdk\StatamicMcp\Mcp\Resources\BlueprintIndexResource;
+use Cboxdk\StatamicMcp\Mcp\Resources\BlueprintResource;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\AssetsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\BlueprintsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\ContentFacadeRouter;
@@ -17,16 +19,27 @@ use Cboxdk\StatamicMcp\Mcp\Tools\Routers\TermsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\UsersRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\System\DiscoveryTool;
 use Cboxdk\StatamicMcp\Mcp\Tools\System\SchemaTool;
+use Composer\InstalledVersions;
 use Illuminate\Support\Facades\Log;
 use Laravel\Mcp\Server;
 use Laravel\Mcp\Server\Prompt;
+use Laravel\Mcp\Server\Resource;
 use Laravel\Mcp\Server\Tool;
 
 class StatamicMcpServer extends Server
 {
     protected string $name = 'Statamic MCP Server';
 
-    protected string $version = '2.8.0';
+    /**
+     * Reported to clients in the initialize handshake. Read from the installed
+     * package rather than hardcoded, so it cannot drift at the next release.
+     */
+    protected string $version = self::FALLBACK_VERSION;
+
+    /** Used when the package metadata cannot be read (e.g. a non-Composer checkout). */
+    private const FALLBACK_VERSION = '0.0.0';
+
+    private const PACKAGE_NAME = 'cboxdk/statamic-mcp';
 
     protected string $instructions = <<<'MARKDOWN'
         You are connected to a Statamic CMS site via MCP. Use these tools to manage content, blueprints, assets, users, and system settings.
@@ -85,14 +98,50 @@ class StatamicMcpServer extends Server
     ];
 
     /**
+     * The resources that the server exposes.
+     *
+     * Read-only views of the site's schema, so a client can look up field
+     * structure without spending a tool call. They enforce the same token
+     * scopes, resource policy, and Statamic permissions the tools do.
+     *
+     * @var array<int, class-string<Server\Resource>>
+     */
+    protected array $resources = [
+        BlueprintIndexResource::class,
+        BlueprintResource::class,
+    ];
+
+    /**
      * Boot the MCP server with proper error handling.
      */
     public function boot(): void
     {
+        $this->version = $this->resolvePackageVersion();
+
         parent::boot();
 
         // Redirect Laravel error output to stderr to prevent JSON contamination
         $this->setupErrorHandling();
+    }
+
+    /**
+     * Resolve the addon's version from Composer's installed-package metadata.
+     */
+    private function resolvePackageVersion(): string
+    {
+        if (! class_exists(InstalledVersions::class)) {
+            return self::FALLBACK_VERSION;
+        }
+
+        try {
+            $version = InstalledVersions::getPrettyVersion(self::PACKAGE_NAME);
+        } catch (\OutOfBoundsException) {
+            // Package not installed under this name — a path repository or a
+            // consumer that renamed it. Neither is worth failing the handshake.
+            return self::FALLBACK_VERSION;
+        }
+
+        return $version ?? self::FALLBACK_VERSION;
     }
 
     /**

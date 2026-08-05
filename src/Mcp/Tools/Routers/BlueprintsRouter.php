@@ -12,6 +12,7 @@ use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\Support\Str;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
+use Laravel\Mcp\Server\Attributes\Title;
 use Statamic\Exceptions\FieldtypeNotFoundException;
 use Statamic\Facades\Blueprint;
 use Statamic\Facades\Collection;
@@ -20,6 +21,7 @@ use Statamic\Fields\Field;
 use Statamic\Fields\FieldtypeRepository;
 
 #[Name('statamic-blueprints')]
+#[Title('Statamic Blueprints')]
 #[Description('Manage Statamic blueprints — the schema definitions for all content types. Call get before creating/updating entries, terms, or globals to understand required fields AND the _format_spec for each field (wire format, allowed types, common mistakes). Actions: list, get, create, update, delete, scan, generate, types, validate.')]
 class BlueprintsRouter extends BaseRouter
 {
@@ -217,9 +219,8 @@ class BlueprintsRouter extends BaseRouter
 
             $blueprint = $this->findBlueprint($handle, $namespace, $collectionHandle, $taxonomyHandle);
 
-            $notFound = $this->requireResource($blueprint, 'Blueprint', $handle);
-            if ($notFound) {
-                return $notFound;
+            if ($blueprint === null) {
+                return $this->createErrorResponse('Blueprint not found: ' . $handle)->toArray();
             }
 
             $formatSpec = $includeFormatSpec ? new FieldFormatSpec($maxFormatDepth) : null;
@@ -408,7 +409,7 @@ class BlueprintsRouter extends BaseRouter
             if ($namespace === 'collections' && $collectionHandle) {
                 try {
                     $blueprint = collect(Blueprint::in("collections.{$collectionHandle}")->all())->firstWhere('handle', $handle);
-                    if ($blueprint) {
+                    if ($blueprint instanceof \Statamic\Fields\Blueprint) {
                         return $blueprint;
                     }
                 } catch (\Exception $e) {
@@ -420,7 +421,7 @@ class BlueprintsRouter extends BaseRouter
             if ($namespace === 'taxonomies' && $taxonomyHandle) {
                 try {
                     $blueprint = collect(Blueprint::in("taxonomies.{$taxonomyHandle}")->all())->firstWhere('handle', $handle);
-                    if ($blueprint) {
+                    if ($blueprint instanceof \Statamic\Fields\Blueprint) {
                         return $blueprint;
                     }
                 } catch (\Exception $e) {
@@ -431,7 +432,8 @@ class BlueprintsRouter extends BaseRouter
             // Try the exact namespace
             $blueprint = collect(Blueprint::in($namespace)->all())->firstWhere('handle', $handle);
 
-            if ($blueprint) {
+            if ($blueprint instanceof \Statamic\Fields\Blueprint) {
+
                 return $blueprint;
             }
 
@@ -444,7 +446,7 @@ class BlueprintsRouter extends BaseRouter
         foreach ($standardNamespaces as $searchNamespace) {
             try {
                 $blueprint = collect(Blueprint::in($searchNamespace)->all())->firstWhere('handle', $handle);
-                if ($blueprint) {
+                if ($blueprint instanceof \Statamic\Fields\Blueprint) {
                     return $blueprint;
                 }
             } catch (\Exception $e) {
@@ -455,7 +457,7 @@ class BlueprintsRouter extends BaseRouter
         // Try collection-specific namespace (e.g., collections.pages)
         try {
             $blueprint = collect(Blueprint::in("collections.{$handle}")->all())->firstWhere('handle', $handle);
-            if ($blueprint) {
+            if ($blueprint instanceof \Statamic\Fields\Blueprint) {
                 return $blueprint;
             }
         } catch (\Exception $e) {
@@ -638,9 +640,8 @@ class BlueprintsRouter extends BaseRouter
 
             $blueprint = $this->findBlueprint($handle, $namespace, $collectionHandle, $taxonomyHandle);
 
-            $notFound = $this->requireResource($blueprint, 'Blueprint', $handle);
-            if ($notFound) {
-                return $notFound;
+            if ($blueprint === null) {
+                return $this->createErrorResponse('Blueprint not found: ' . $handle)->toArray();
             }
 
             // Update the blueprint contents
@@ -714,9 +715,8 @@ class BlueprintsRouter extends BaseRouter
 
             $blueprint = $this->findBlueprint($handle, $namespace, $collectionHandle, $taxonomyHandle);
 
-            $notFound = $this->requireResource($blueprint, 'Blueprint', $handle);
-            if ($notFound) {
-                return $notFound;
+            if ($blueprint === null) {
+                return $this->createErrorResponse('Blueprint not found: ' . $handle)->toArray();
             }
 
             // Store blueprint info before deletion
@@ -917,9 +917,8 @@ class BlueprintsRouter extends BaseRouter
 
             $blueprint = $this->findBlueprint($handle, $namespace, $collectionHandle, $taxonomyHandle);
 
-            $notFound = $this->requireResource($blueprint, 'Blueprint', $handle);
-            if ($notFound) {
-                return $notFound;
+            if ($blueprint === null) {
+                return $this->createErrorResponse('Blueprint not found: ' . $handle)->toArray();
             }
 
             // Basic validation - check if fields are valid

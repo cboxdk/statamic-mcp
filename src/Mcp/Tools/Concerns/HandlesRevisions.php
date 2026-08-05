@@ -122,9 +122,8 @@ trait HandlesRevisions
         try {
             $entry = $this->resolveRevisionEntry($arguments);
 
-            $notFound = $this->requireResource($entry, 'Entry', $id);
-            if ($notFound) {
-                return $notFound;
+            if ($entry === null) {
+                return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
             }
 
             /** @var Entry $entry */
@@ -165,9 +164,8 @@ trait HandlesRevisions
         try {
             $entry = $this->resolveRevisionEntry($arguments);
 
-            $notFound = $this->requireResource($entry, 'Entry', $id);
-            if ($notFound) {
-                return $notFound;
+            if ($entry === null) {
+                return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
             }
 
             /** @var Entry $entry */
@@ -213,9 +211,8 @@ trait HandlesRevisions
         try {
             $entry = $this->resolveRevisionEntry($arguments);
 
-            $notFound = $this->requireResource($entry, 'Entry', $id);
-            if ($notFound) {
-                return $notFound;
+            if ($entry === null) {
+                return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
             }
 
             /** @var Entry $entry */
@@ -276,9 +273,8 @@ trait HandlesRevisions
         try {
             $entry = $this->resolveRevisionEntry($arguments);
 
-            $notFound = $this->requireResource($entry, 'Entry', $id);
-            if ($notFound) {
-                return $notFound;
+            if ($entry === null) {
+                return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
             }
 
             /** @var Entry $entry */

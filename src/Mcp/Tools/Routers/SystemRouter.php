@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
+use Laravel\Mcp\Server\Attributes\Title;
 use Statamic\Facades\AssetContainer;
 use Statamic\Facades\Blueprint;
 use Statamic\Facades\Form;
@@ -23,6 +24,7 @@ use Statamic\Facades\User;
 use Statamic\Sites\Site;
 
 #[Name('statamic-system')]
+#[Title('Statamic System')]
 #[Description('Statamic system operations: environment info, health checks, cache management, and configuration. Actions: info, health, cache_status, cache_clear, cache_warm, config_get, config_set.')]
 class SystemRouter extends BaseRouter
 {

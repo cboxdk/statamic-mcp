@@ -65,7 +65,7 @@ The server registers a set of domain routers — each handling a specific Statam
 | `statamic-assets` | list, get, create, update, delete, upload, move, copy | Asset container and file operations |
 | `statamic-users` | list, get, create, update, delete, assign-role | User CRUD with role and group management |
 | `statamic-system` | info, health, cache_status, cache_clear, cache_warm, config_get, config_set | System info, health checks, cache management |
-| `statamic-content-facade` | content_audit, cross_reference | High-level workflow orchestration |
+| `statamic-content-facade` | content_audit, content_validate, cross_reference | High-level workflow orchestration |
 | `statamic-system-discover` | — | Intent-based tool discovery for AI agents |
 | `statamic-system-schema` | — | Tool schema inspection |
 
@@ -79,7 +79,7 @@ The server registers a set of domain routers — each handling a specific Statam
 ## Quick Links
 
 - [Installation](getting-started/installation.md) — Install and configure the package
-- [Quick Start](getting-started/quickstart.md) — Connect your first AI assistant in 2 minutes
+- [Quick Start](quickstart.md) — Connect your first AI assistant in 2 minutes
 - [Token Scopes](authentication/token-scopes.md) — All 21 scopes explained
 - [AI Client Setup](getting-started/ai-clients.md) — Config for Claude, Cursor, ChatGPT, Windsurf
 - [Configuration Reference](configuration/reference.md) — All config options and env variables

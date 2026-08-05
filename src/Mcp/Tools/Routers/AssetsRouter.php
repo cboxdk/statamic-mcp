@@ -12,12 +12,14 @@ use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\Support\Facades\Log;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
+use Laravel\Mcp\Server\Attributes\Title;
 use Statamic\Contracts\Assets\Asset as AssetContract;
 use Statamic\Contracts\Assets\AssetContainer as AssetContainerContract;
 use Statamic\Facades\Asset;
 use Statamic\Facades\AssetContainer;
 
 #[Name('statamic-assets')]
+#[Title('Statamic Assets')]
 #[Description('Manage Statamic assets and asset containers. Set resource_type to "container" or "asset", then choose an action. Actions: list, get, create, update, delete, move, copy, upload.')]
 class AssetsRouter extends BaseRouter
 {

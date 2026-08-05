@@ -129,7 +129,7 @@ class AuthenticateForMcp
     /**
      * Authenticate user with email and password using Statamic's auth system.
      */
-    private function authenticateWithCredentials(string $email, string $password): ?\Statamic\Contracts\Auth\User
+    private function authenticateWithCredentials(string $email, #[\SensitiveParameter] string $password): ?\Statamic\Contracts\Auth\User
     {
         // Dummy hash used to ensure constant-time response when user doesn't exist,
         // preventing account enumeration via timing analysis.

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\DataTransferObjects;
 
-final class SuccessResponse extends BaseResponse
+class SuccessResponse extends BaseResponse
 {
     public function __construct(
         mixed $data,

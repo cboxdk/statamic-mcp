@@ -1,3 +1,9 @@
+---
+title: "Confirmation Tokens and Resource Policy Design"
+description: "Design specification for the confirmation-token gate and resource policy"
+weight: 2
+---
+
 # Confirmation Tokens & Granular Resource Authorization
 
 **Date:** 2026-04-17

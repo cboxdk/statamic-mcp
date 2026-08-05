@@ -64,7 +64,7 @@ class TokenService
     /**
      * Validate a plain-text token and return the data if valid.
      */
-    public function validateToken(string $token): ?McpTokenData
+    public function validateToken(#[\SensitiveParameter] string $token): ?McpTokenData
     {
         $hashedToken = hash('sha256', $token);
 
@@ -171,7 +171,7 @@ class TokenService
      * Find a token by its plain-text value without marking it as used.
      * Used by the revocation endpoint to look up tokens without polluting last_used_at.
      */
-    public function findByPlainText(string $token): ?McpTokenData
+    public function findByPlainText(#[\SensitiveParameter] string $token): ?McpTokenData
     {
         $hashedToken = hash('sha256', $token);
         $tokenData = $this->tokenStore->findByHash($hashedToken);

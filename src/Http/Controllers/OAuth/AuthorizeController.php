@@ -73,16 +73,14 @@ class AuthorizeController extends Controller
         }
 
         if ($client === null) {
-            /** @phpstan-ignore return.type (abort returns never but PHPStan doesn't know) */
-            return abort(400, 'Unknown client_id.');
+            abort(400, 'Unknown client_id.');
         }
 
         /** @var string $redirectUri */
         $redirectUri = $request->query('redirect_uri', '');
 
         if ($redirectUri === '' || ! in_array($redirectUri, $client->redirectUris, true)) {
-            /** @phpstan-ignore return.type (abort returns never but PHPStan doesn't know) */
-            return abort(400, 'Invalid redirect_uri.');
+            abort(400, 'Invalid redirect_uri.');
         }
 
         // Now safe to use redirect-based errors — redirect_uri is validated
@@ -252,13 +250,11 @@ class AuthorizeController extends Controller
         }
 
         if ($client === null) {
-            /** @phpstan-ignore return.type (abort returns never but PHPStan doesn't know) */
-            return abort(400, 'Unknown client_id.');
+            abort(400, 'Unknown client_id.');
         }
 
         if (! in_array($redirectUri, $client->redirectUris, true)) {
-            /** @phpstan-ignore return.type (abort returns never but PHPStan doesn't know) */
-            return abort(400, 'Invalid redirect_uri.');
+            abort(400, 'Invalid redirect_uri.');
         }
 
         if ($decision !== 'approve') {

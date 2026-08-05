@@ -239,20 +239,6 @@ trait RouterHelpers
     }
 
     /**
-     * Find a resource by handle or return an error response.
-     *
-     * @return array<string, mixed>|null Error response if not found, null if found
-     */
-    protected function requireResource(mixed $resource, string $resourceType, string $handle): ?array
-    {
-        if ($resource === null) {
-            return $this->createErrorResponse("{$resourceType} not found: {$handle}")->toArray();
-        }
-
-        return null;
-    }
-
-    /**
      * Format a ValidationException into a standardized error response.
      *
      * @return array<string, mixed>

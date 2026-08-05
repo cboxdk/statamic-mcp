@@ -12,6 +12,7 @@ use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
+use Laravel\Mcp\Server\Attributes\Title;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 use Statamic\Facades\AssetContainer;
 use Statamic\Facades\Collection;
@@ -28,6 +29,7 @@ use Statamic\Facades\Taxonomy;
  */
 #[IsReadOnly]
 #[Name('statamic-system-discover')]
+#[Title('Statamic Tool Discovery')]
 #[Description('Discover Statamic MCP tools based on intent and get current system state for context-aware guidance.')]
 class DiscoveryTool extends BaseStatamicTool
 {
@@ -94,7 +96,7 @@ class DiscoveryTool extends BaseStatamicTool
             'statamic-assets' => ['asset', 'file', 'image', 'media', 'upload', 'container', 'storage'],
             'statamic-users' => ['user', 'role', 'permission', 'auth', 'group', 'access'],
             'statamic-system' => ['cache', 'health', 'system', 'info', 'performance', 'maintenance', 'config'],
-            'statamic-content-facade' => ['workflow', 'bulk', 'import', 'audit', 'setup collection'],
+            'statamic-content-facade' => ['workflow', 'bulk', 'import', 'audit', 'setup collection', 'validate content', 'schema drift', 'broken', 'orphan'],
         ];
 
         $toolDescriptions = [
@@ -106,7 +108,7 @@ class DiscoveryTool extends BaseStatamicTool
             'statamic-assets' => 'Manage asset containers and files (list, get, upload, move, copy, delete)',
             'statamic-users' => 'Manage users, roles, and groups with permission assignment',
             'statamic-system' => 'System info, health checks, cache management, and configuration',
-            'statamic-content-facade' => 'High-level workflows: setup_collection, bulk_import, content_audit',
+            'statamic-content-facade' => 'High-level workflows: content_audit, content_validate, cross_reference',
         ];
 
         $matches = [];

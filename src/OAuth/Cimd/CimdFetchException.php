@@ -9,7 +9,7 @@ namespace Cboxdk\StatamicMcp\OAuth\Cimd;
  *
  * Covers network errors, HTTP failures, SSRF blocks, size limit violations, and timeouts.
  */
-final class CimdFetchException extends \RuntimeException
+class CimdFetchException extends \RuntimeException
 {
     public function __construct(
         public readonly string $errorCode,
