@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.9.0] - 2026-08-27
 
 ### Added
 - **`content_validate` action on `statamic-content-facade`** — Validates content that is *already stored* against its blueprints. Writes through this addon are validated on the way in; content that arrives another way (git merges, hand-edited YAML, blueprints changed after the content was written) was previously invisible. Each record gets two passes: the blueprint's own validation rules, evaluated the same way a Control Panel save evaluates them, plus structural checks the rule engine cannot express — replicator/bard blocks naming a set that no longer exists, sets and grid rows storing keys the blueprint dropped, `select`/`radio`/`button_group`/`checkboxes` values outside the declared options, assets fields pointing at missing files, and navigation items linking to deleted entries. All of these pass rule validation silently while breaking at render time. Supports `scope`, `collection`/`taxonomy` filters, `severity` filtering, offset/limit paging across the combined record stream, and a `max_findings` cap that keeps summary counts accurate when the list is truncated
@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`SECURITY.md`** — Private vulnerability reporting via GitHub, an explicit split between what this addon secures and what the operator does, and a limitations section stating plainly that the audit log is append-only by convention with no hash chain (neither tamper-proof nor tamper-evident), that confirmation tokens are replayable within their window, and that `require_https` falls back to off when the published config predates the key
 
 ### Fixed
+- **The MIT license text actually ships** — `composer.json` has always declared MIT, but the repository never contained a `LICENSE` file, so the grant existed only as metadata. The standard MIT text is now included
 - **Entry updates no longer fail on blueprints with a required slug** (#39) — The #27 fix removed the slug from the validated payload entirely, so Statamic's default slug field (`validate: [required, UniqueEntryValue…]`) could never be satisfied: every update failed with "The Slug field is required", whether the caller omitted the slug or resent the current one. The entry's effective slug is now injected back into the validation payload, and both `FieldsValidator` invocations (including the `TypeError` fallback) resolve the `UniqueEntryValue({collection}, {id}, {site})` placeholders via `withReplacements()`, so the rule excludes the entry being updated — the false positive #27 was about — while a slug owned by another entry is still rejected
 - **`date` no longer has to be resent on every update of a dated collection** — Like the slug, the date is an entry property absent from the merged data payload, so a blueprint with a required date field failed any update that did not repeat a date the caller never meant to change. The entry's current date now satisfies the rule when the payload omits it
 - **Explicit slug on create actually works** — `createEntry()` read `$arguments['slug']`, but the tool schema never declared the parameter, so no client could send it and the slug was always derived from the title. The schema now declares `slug`, and create also accepts it as `data.slug` — the shape update uses — storing it as an entry property in both cases, never as a data key
@@ -388,6 +389,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Laravel MCP v0.2.0 integration
 - Comprehensive test suite
 
+[2.9.0]: https://github.com/cboxdk/statamic-mcp/compare/v2.8.0...v2.9.0
 [2.8.0]: https://github.com/cboxdk/statamic-mcp/compare/v2.7.0...v2.8.0
 [2.7.0]: https://github.com/cboxdk/statamic-mcp/compare/v2.6.1...v2.7.0
 [2.6.1]: https://github.com/cboxdk/statamic-mcp/compare/v2.6.0...v2.6.1
