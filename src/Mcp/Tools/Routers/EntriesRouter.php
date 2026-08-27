@@ -75,6 +75,9 @@ class EntriesRouter extends BaseRouter
                     . 'blueprint handle to see required fields, types, and nesting before sending data.'
                 ),
 
+            'slug' => JsonSchema::string()
+                ->description('Entry slug for the create action. Defaults to a slug generated from the title. For update, pass "slug" inside data instead'),
+
             'filters' => JsonSchema::object()
                 ->description('Filter conditions as key-value pairs. Keys are field handles from the blueprint. Example: {"status": "published"}'),
 
@@ -350,9 +353,13 @@ class EntriesRouter extends BaseRouter
                 ->collection($collection)
                 ->locale($site);
 
-            // Set slug from arguments or generate from title
-            if (! empty($arguments['slug'])) {
-                $requestedSlug = $arguments['slug'];
+            // Set slug from arguments (or data, for callers that send it as a
+            // field value) or generate from title. Slug is an entry property,
+            // not a data key, so it never stays in $data.
+            $requestedSlug = $arguments['slug'] ?? $data['slug'] ?? null;
+            unset($data['slug']);
+
+            if (! empty($requestedSlug)) {
                 $requestedSlug = is_string($requestedSlug) ? $requestedSlug : '';
 
                 // Use Statamic's built-in validation for unique slugs
@@ -421,11 +428,20 @@ class EntriesRouter extends BaseRouter
                 try {
                     $fields = $blueprint->fields()->addValues($dataWithSlug);
 
+                    // Resolve blueprint-level rule placeholders — Statamic's
+                    // default slug field carries
+                    // `new UniqueEntryValue({collection}, {id}, {site})`,
+                    // which needs {collection} and {site} filled in ({id}
+                    // resolves to null: nothing to exclude on create).
                     (new FieldsValidator)
                         ->fields($fields)
                         ->withContext([
                             'entry' => $entry,
                             'collection' => $collection,
+                            'site' => $site,
+                        ])
+                        ->withReplacements([
+                            'collection' => $collection->handle(),
                             'site' => $site,
                         ])
                         ->validate();
@@ -530,14 +546,14 @@ class EntriesRouter extends BaseRouter
                 unset($data['published']);
             }
 
-            // Handle slug separately *before* blueprint validation so the
-            // FieldsValidator never sees the slug column. Letting the merged
-            // payload include the slug forces UniqueEntryValue to compare the
-            // current slug against the entry being updated and reject it as
-            // "already taken" — even when the caller never asked to change
-            // the slug. Mirrors the createEntry() flow but passes the
-            // entry's id as the $except argument so the rule excludes the
-            // current entry from the uniqueness check.
+            // Handle slug separately *before* blueprint validation. Slug is
+            // an entry property, not a data key, so a requested change is
+            // applied to the entry object and removed from $data. This
+            // dedicated check passes the entry's id as the $except argument,
+            // so it gives a precise error without rejecting the entry's own
+            // slug as "already taken" (issue #27). The blueprint validation
+            // below re-validates the applied slug with resolved rule
+            // placeholders.
             if (array_key_exists('slug', $data)) {
                 $newSlug = is_string($data['slug']) ? $data['slug'] : '';
                 $slugValidator = Validator::make(['slug' => $newSlug], [
@@ -592,15 +608,29 @@ class EntriesRouter extends BaseRouter
                 // TypeError (common with third-party fieldtypes like SEO Pro
                 // whose preProcessValidatable can't handle stored data formats),
                 // we fall back to validating only the incoming fields.
-                // NOTE: do NOT inject slug into mergedData. Any slug change
-                // was already applied to the entry object above; the
-                // FieldsValidator does not need the slug column and including
-                // it forces UniqueEntryValue to reject the current entry's
-                // own slug. See the slug-handling block earlier in this
-                // method (issue #27).
                 /** @var array<string, mixed> $mergedData */
                 $mergedData = array_merge($entry->data()->all(), $data);
                 $mergedData = $this->sanitizeStoredFieldDataForValidation($blueprint, $mergedData);
+
+                // Slug and date are entry properties, not data keys, so the
+                // merged payload never contains them on its own. Statamic's
+                // default blueprint declares slug as `required`, so validation
+                // must see the entry's effective values or every update fails
+                // with "The Slug field is required" (issue #39). Safe to
+                // re-validate the slug: withReplacements() below resolves
+                // `UniqueEntryValue({collection}, {id}, {site})` with this
+                // entry's id, excluding it from the uniqueness check — the
+                // exact false positive #27 was about.
+                $entryPropertyValues = [];
+                $entrySlug = $entry->slug();
+                if (is_string($entrySlug) && $entrySlug !== '') {
+                    $entryPropertyValues['slug'] = $entrySlug;
+                }
+                $entryDate = $entry->date();
+                if (! array_key_exists('date', $data) && $entry->collection()->dated() && $entryDate !== null) {
+                    $entryPropertyValues['date'] = $entryDate->format('Y-m-d\TH:i:s.v\Z');
+                }
+                $mergedData = array_merge($mergedData, $entryPropertyValues);
 
                 $validationContext = [
                     'entry' => $entry,
@@ -608,10 +638,17 @@ class EntriesRouter extends BaseRouter
                     'site' => $site,
                 ];
 
+                $ruleReplacements = [
+                    'id' => $entry->id(),
+                    'collection' => $entry->collectionHandle(),
+                    'site' => $site,
+                ];
+
                 try {
                     (new FieldsValidator)
                         ->fields($blueprint->fields()->addValues($mergedData))
                         ->withContext($validationContext)
+                        ->withReplacements($ruleReplacements)
                         ->validate();
                 } catch (ValidationException $e) {
                     return $this->formatValidationError($e);
@@ -623,8 +660,9 @@ class EntriesRouter extends BaseRouter
                     // already valid when it was saved.
                     try {
                         (new FieldsValidator)
-                            ->fields($blueprint->fields()->addValues($data))
+                            ->fields($blueprint->fields()->addValues(array_merge($data, $entryPropertyValues)))
                             ->withContext($validationContext)
+                            ->withReplacements($ruleReplacements)
                             ->validate();
                     } catch (ValidationException $inner) {
                         return $this->formatValidationError($inner);

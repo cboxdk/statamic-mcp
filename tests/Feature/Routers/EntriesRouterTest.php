@@ -6,7 +6,9 @@ namespace Cboxdk\StatamicMcp\Tests\Feature\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\EntriesRouter;
 use Cboxdk\StatamicMcp\Tests\TestCase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
+use Statamic\Facades\Blueprint;
 use Statamic\Facades\Collection;
 use Statamic\Facades\Entry;
 use Statamic\Facades\Stache;
@@ -319,6 +321,285 @@ class EntriesRouterTest extends TestCase
             $result['success'],
             'updating to a slug already owned by another entry must fail',
         );
+    }
+
+    /**
+     * Give the test collection the blueprint Statamic scaffolds by default:
+     * a slug field that is `required` and unique via placeholder-based
+     * UniqueEntryValue. Issue #39 only reproduces against this blueprint.
+     */
+    private function createBlueprintWithRequiredSlug(): void
+    {
+        Blueprint::make($this->collectionHandle)
+            ->setNamespace("collections.{$this->collectionHandle}")
+            ->setContents([
+                'tabs' => [
+                    'main' => [
+                        'sections' => [
+                            [
+                                'fields' => [
+                                    ['handle' => 'title', 'field' => ['type' => 'text', 'validate' => ['required']]],
+                                    ['handle' => 'slug', 'field' => [
+                                        'type' => 'slug',
+                                        'localizable' => true,
+                                        'validate' => [
+                                            'required',
+                                            'new \Statamic\Rules\UniqueEntryValue({collection}, {id}, {site})',
+                                        ],
+                                    ]],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ])
+            ->save();
+    }
+
+    /**
+     * Regression for https://github.com/cboxdk/statamic-mcp/issues/39.
+     *
+     * The #27 fix removed the slug from the validated payload entirely,
+     * so a blueprint whose slug field is `required` (Statamic's default)
+     * could never be satisfied — every update failed with
+     * "The Slug field is required" no matter what the caller sent.
+     */
+    public function test_update_with_required_slug_blueprint_succeeds_without_slug(): void
+    {
+        $this->createBlueprintWithRequiredSlug();
+
+        $entry = Entry::make()
+            ->collection($this->collectionHandle)
+            ->slug("required-slug-omitted-{$this->testId}")
+            ->data(['title' => 'Original Title']);
+        $entry->save();
+
+        $result = $this->router->execute([
+            'action' => 'update',
+            'collection' => $this->collectionHandle,
+            'id' => $entry->id(),
+            'data' => [
+                'title' => 'Updated Title',
+            ],
+        ]);
+
+        $this->assertTrue(
+            $result['success'],
+            'update must satisfy a required slug rule from the entry\'s current slug; got: '
+            . json_encode($result['errors'] ?? []),
+        );
+
+        $reloaded = Entry::find($entry->id());
+        $this->assertSame('Updated Title', $reloaded->get('title'));
+        $this->assertSame("required-slug-omitted-{$this->testId}", $reloaded->slug());
+    }
+
+    /**
+     * Companion regression for issue #39: resending the current slug must
+     * not re-trigger the #27 false positive. The blueprint-level
+     * UniqueEntryValue({collection}, {id}, {site}) placeholders must be
+     * resolved so the rule excludes the entry being updated.
+     */
+    public function test_update_with_required_slug_blueprint_succeeds_with_unchanged_slug(): void
+    {
+        $this->createBlueprintWithRequiredSlug();
+
+        $slug = "required-slug-resent-{$this->testId}";
+        $entry = Entry::make()
+            ->collection($this->collectionHandle)
+            ->slug($slug)
+            ->data(['title' => 'Original']);
+        $entry->save();
+
+        $result = $this->router->execute([
+            'action' => 'update',
+            'collection' => $this->collectionHandle,
+            'id' => $entry->id(),
+            'data' => [
+                'title' => 'Updated',
+                'slug' => $slug,
+            ],
+        ]);
+
+        $this->assertTrue(
+            $result['success'],
+            'resending the current slug must pass the blueprint uniqueness rule; got: '
+            . json_encode($result['errors'] ?? []),
+        );
+
+        $reloaded = Entry::find($entry->id());
+        $this->assertSame($slug, $reloaded->slug());
+        $this->assertSame('Updated', $reloaded->get('title'));
+    }
+
+    /**
+     * Resolving the uniqueness placeholders must not weaken the rule:
+     * a slug owned by another entry is still rejected.
+     */
+    public function test_update_with_required_slug_blueprint_rejects_colliding_slug(): void
+    {
+        $this->createBlueprintWithRequiredSlug();
+
+        $other = Entry::make()
+            ->collection($this->collectionHandle)
+            ->slug("required-slug-owner-{$this->testId}")
+            ->data(['title' => 'Other']);
+        $other->save();
+
+        $entry = Entry::make()
+            ->collection($this->collectionHandle)
+            ->slug("required-slug-victim-{$this->testId}")
+            ->data(['title' => 'Target']);
+        $entry->save();
+
+        $result = $this->router->execute([
+            'action' => 'update',
+            'collection' => $this->collectionHandle,
+            'id' => $entry->id(),
+            'data' => [
+                'slug' => $other->slug(),
+            ],
+        ]);
+
+        $this->assertFalse(
+            $result['success'],
+            'a slug owned by another entry must still be rejected',
+        );
+    }
+
+    /**
+     * Issue #39, date facet: on dated collections the date is an entry
+     * property, so it is absent from the merged data payload. A blueprint
+     * with a required date field failed every update that did not resend
+     * the date the caller never meant to change.
+     */
+    public function test_update_dated_collection_without_date_succeeds(): void
+    {
+        $datedHandle = "dated-{$this->testId}";
+        Collection::make($datedHandle)
+            ->title('Dated Posts')
+            ->dated(true)
+            ->save();
+
+        Blueprint::make($datedHandle)
+            ->setNamespace("collections.{$datedHandle}")
+            ->setContents([
+                'tabs' => [
+                    'main' => [
+                        'sections' => [
+                            [
+                                'fields' => [
+                                    ['handle' => 'title', 'field' => ['type' => 'text', 'validate' => ['required']]],
+                                    ['handle' => 'date', 'field' => ['type' => 'date', 'validate' => ['required']]],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ])
+            ->save();
+
+        $entry = Entry::make()
+            ->collection($datedHandle)
+            ->slug("dated-entry-{$this->testId}")
+            ->date(Carbon::parse('2025-01-15'))
+            ->data(['title' => 'Dated Original']);
+        $entry->save();
+
+        $result = $this->router->execute([
+            'action' => 'update',
+            'collection' => $datedHandle,
+            'id' => $entry->id(),
+            'data' => [
+                'title' => 'Dated Updated',
+            ],
+        ]);
+
+        $this->assertTrue(
+            $result['success'],
+            'update must satisfy a required date rule from the entry\'s current date; got: '
+            . json_encode($result['errors'] ?? []),
+        );
+
+        $reloaded = Entry::find($entry->id());
+        $this->assertSame('Dated Updated', $reloaded->get('title'));
+        $this->assertSame('2025-01-15', $reloaded->date()->format('Y-m-d'));
+    }
+
+    /**
+     * Issue #39, create facet: the slug argument was read by createEntry()
+     * but never declared in the tool schema, so an explicit slug on create
+     * was impossible.
+     */
+    public function test_create_entry_with_explicit_slug_argument(): void
+    {
+        $result = $this->router->execute([
+            'action' => 'create',
+            'collection' => $this->collectionHandle,
+            'slug' => "explicit-slug-{$this->testId}",
+            'data' => [
+                'title' => 'Explicit Slug Test',
+            ],
+        ]);
+
+        $this->assertTrue(
+            $result['success'],
+            'create with an explicit slug must succeed; got: '
+            . json_encode($result['errors'] ?? []),
+        );
+        $this->assertSame("explicit-slug-{$this->testId}", $result['data']['entry']['slug']);
+    }
+
+    /**
+     * Callers that send the slug as a data field (the shape update uses)
+     * get the same result on create — and the slug is stored as an entry
+     * property, never as a data key.
+     */
+    public function test_create_entry_with_slug_in_data(): void
+    {
+        $result = $this->router->execute([
+            'action' => 'create',
+            'collection' => $this->collectionHandle,
+            'data' => [
+                'title' => 'Data Slug Test',
+                'slug' => "data-slug-{$this->testId}",
+            ],
+        ]);
+
+        $this->assertTrue(
+            $result['success'],
+            'create with slug inside data must succeed; got: '
+            . json_encode($result['errors'] ?? []),
+        );
+        $this->assertSame("data-slug-{$this->testId}", $result['data']['entry']['slug']);
+
+        $reloaded = Entry::find($result['data']['entry']['id']);
+        $this->assertArrayNotHasKey('slug', $reloaded->data()->all());
+    }
+
+    /**
+     * Creating against the default required-slug blueprint exercises the
+     * blueprint-level UniqueEntryValue placeholders on the create path.
+     */
+    public function test_create_with_required_slug_blueprint_succeeds(): void
+    {
+        $this->createBlueprintWithRequiredSlug();
+
+        $result = $this->router->execute([
+            'action' => 'create',
+            'collection' => $this->collectionHandle,
+            'slug' => "required-create-{$this->testId}",
+            'data' => [
+                'title' => 'Required Blueprint Create',
+            ],
+        ]);
+
+        $this->assertTrue(
+            $result['success'],
+            'create must pass the default required+unique slug rules; got: '
+            . json_encode($result['errors'] ?? []),
+        );
+        $this->assertSame("required-create-{$this->testId}", $result['data']['entry']['slug']);
     }
 
     public function test_update_nonexistent_entry_returns_error(): void
