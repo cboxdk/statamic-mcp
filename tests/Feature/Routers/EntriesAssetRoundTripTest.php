@@ -59,6 +59,36 @@ class EntriesAssetRoundTripTest extends TestCase
                     'container' => 'assets',
                     'validate' => ['mimes:svg'],
                 ]],
+                ['handle' => 'rows', 'field' => [
+                    'type' => 'grid',
+                    'fields' => [
+                        ['handle' => 'row_icon', 'field' => [
+                            'type' => 'assets',
+                            'container' => 'assets',
+                            'max_files' => 1,
+                            'validate' => ['required', 'mimes:svg'],
+                        ]],
+                    ],
+                ]],
+                ['handle' => 'story', 'field' => [
+                    'type' => 'bard',
+                    'sets' => [
+                        'main' => [
+                            'sets' => [
+                                'figure' => [
+                                    'fields' => [
+                                        ['handle' => 'figure_icon', 'field' => [
+                                            'type' => 'assets',
+                                            'container' => 'assets',
+                                            'max_files' => 1,
+                                            'validate' => ['required', 'mimes:svg'],
+                                        ]],
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                ]],
                 ['handle' => 'page_builder', 'field' => [
                     'type' => 'replicator',
                     'sets' => [
@@ -108,6 +138,18 @@ class EntriesAssetRoundTripTest extends TestCase
                 'page_builder' => [
                     ['id' => 'set-1', 'type' => 'icon_cards', 'enabled' => true, 'card_icon' => 'icons/heart.svg'],
                 ],
+                'rows' => [
+                    ['id' => 'row-1', 'row_icon' => 'icons/star.svg'],
+                ],
+                'story' => [
+                    [
+                        'type' => 'set',
+                        'attrs' => [
+                            'id' => 'node-1',
+                            'values' => ['type' => 'figure', 'figure_icon' => 'icons/star.svg'],
+                        ],
+                    ],
+                ],
             ],
         ]);
 
@@ -118,6 +160,8 @@ class EntriesAssetRoundTripTest extends TestCase
         $this->assertSame('icons/heart.svg', $entry->get('icon'));
         $this->assertSame(['icons/heart.svg', 'icons/star.svg'], $entry->get('gallery'));
         $this->assertSame('icons/heart.svg', $entry->get('page_builder')[0]['card_icon']);
+        $this->assertSame('icons/star.svg', $entry->get('rows')[0]['row_icon']);
+        $this->assertSame('icons/star.svg', $entry->get('story')[0]['attrs']['values']['figure_icon']);
     }
 
     public function test_update_still_accepts_canonical_asset_ids(): void

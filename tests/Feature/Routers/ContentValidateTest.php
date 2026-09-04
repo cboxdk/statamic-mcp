@@ -192,6 +192,60 @@ class ContentValidateTest extends TestCase
         $this->assertCount(1, $this->findingsOfType($this->validate(), 'invalid_option'));
     }
 
+    public function test_does_not_report_stored_asset_paths_as_rule_violations(): void
+    {
+        config(['filesystems.disks.assets' => [
+            'driver' => 'local',
+            'root' => storage_path('framework/testing/disks/assets'),
+        ]]);
+        Storage::fake('assets');
+        Storage::disk('assets')->put('icons/heart.svg', '<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+
+        AssetContainer::make('media')->title('Media')->disk('assets')->save();
+
+        Blueprint::make('validated-assets')
+            ->setNamespace("collections.{$this->collectionHandle}")
+            ->setContents([
+                'title' => 'Validated Assets',
+                'tabs' => ['main' => ['sections' => [['fields' => [
+                    ['handle' => 'title', 'field' => ['type' => 'text']],
+                    ['handle' => 'icon', 'field' => [
+                        'type' => 'assets',
+                        'container' => 'media',
+                        'max_files' => 1,
+                        'validate' => ['required', 'mimes:svg'],
+                    ]],
+                    ['handle' => 'blocks', 'field' => [
+                        'type' => 'replicator',
+                        'sets' => ['content' => ['sets' => ['card' => ['fields' => [
+                            ['handle' => 'card_icon', 'field' => [
+                                'type' => 'assets',
+                                'container' => 'media',
+                                'max_files' => 1,
+                                'validate' => ['required', 'mimes:svg'],
+                            ]],
+                        ]]]]],
+                    ]],
+                ]]]]],
+            ])
+            ->save();
+
+        Entry::make()
+            ->collection($this->collectionHandle)
+            ->slug('valid-icons')
+            ->blueprint('validated-assets')
+            ->data([
+                'title' => 'Valid Icons',
+                'icon' => 'icons/heart.svg',
+                'blocks' => [
+                    ['type' => 'card', 'id' => 'block-1', 'card_icon' => 'icons/heart.svg'],
+                ],
+            ])
+            ->save();
+
+        $this->assertSame([], $this->findingsOfType($this->validate(), 'rule_violation'));
+    }
+
     public function test_reports_asset_references_that_no_longer_resolve(): void
     {
         config(['filesystems.disks.assets' => [

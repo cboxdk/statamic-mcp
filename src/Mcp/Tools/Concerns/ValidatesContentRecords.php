@@ -38,6 +38,8 @@ use Statamic\Fields\Fieldtype;
  */
 trait ValidatesContentRecords
 {
+    use ResolvesAssetIds;
+
     /** Keys a replicator/bard/grid row carries that are not blueprint fields. */
     private const SET_META_KEYS = ['id', 'type', 'enabled'];
 
@@ -54,7 +56,10 @@ trait ValidatesContentRecords
     protected function validateRecord(Fields $fields, array $data, RecordRef $record): array
     {
         return [
-            ...$this->ruleFindings($fields, $data, $record),
+            // The rule pass sees asset references bridged to the form the rules
+            // expect; the structural pass sees the stored values verbatim, so a
+            // finding still quotes what is actually on disk.
+            ...$this->ruleFindings($fields, $this->withResolvedAssetIds($fields, $data), $record),
             ...$this->structuralFindings($fields, $data, '', $record),
         ];
     }
@@ -376,11 +381,11 @@ trait ValidatesContentRecords
      */
     private function assetFindings(Field $field, mixed $value, string $path, RecordRef $record): array
     {
-        $container = $field->get('container');
+        $container = $this->assetFieldContainer($field);
 
         // Without a container we cannot resolve the reference at all; that is a
         // blueprint problem, which statamic-blueprints validate already reports.
-        if (! is_string($container) || $container === '') {
+        if ($container === null) {
             return [];
         }
 
@@ -406,6 +411,136 @@ trait ValidatesContentRecords
         }
 
         return $findings;
+    }
+
+    /**
+     * Return a copy of the stored values with every assets reference rewritten
+     * to the canonical ID the validation rules expect.
+     *
+     * Statamic's validator recurses into nested fields on its own, but it does
+     * so over whatever values it was handed, so the bridge has to be applied to
+     * the whole tree up front. Nothing but assets values is touched.
+     *
+     * @param  array<string, mixed>  $data
+     *
+     * @return array<string, mixed>
+     */
+    private function withResolvedAssetIds(Fields $fields, array $data): array
+    {
+        foreach ($fields->all() as $handle => $field) {
+            if (! is_string($handle) || ! $field instanceof Field || ! array_key_exists($handle, $data)) {
+                continue;
+            }
+
+            $value = $data[$handle];
+
+            $data[$handle] = match ($field->type()) {
+                'assets' => $this->normalizeAssetFieldValue($field, $value),
+                'replicator' => $this->withResolvedAssetIdsInSets($field, $value),
+                'bard' => $this->withResolvedAssetIdsInBard($field, $value),
+                'grid' => $this->withResolvedAssetIdsInRows($field, $value),
+                'group' => is_array($value)
+                    ? $this->withResolvedAssetIds($this->nestedFields($field), $this->stringKeyed($value))
+                    : $value,
+                default => $value,
+            };
+        }
+
+        return $data;
+    }
+
+    private function withResolvedAssetIdsInSets(Field $field, mixed $value): mixed
+    {
+        if (! is_array($value)) {
+            return $value;
+        }
+
+        $sets = $this->flattenedSets($field);
+
+        return array_map(function (mixed $block) use ($sets): mixed {
+            if (! is_array($block) || ! is_string($type = $block['type'] ?? null) || ! isset($sets[$type])) {
+                return $block;
+            }
+
+            return $this->withResolvedAssetIds(new Fields($sets[$type]), $this->stringKeyed($block));
+        }, $value);
+    }
+
+    /**
+     * Bard keeps a set's own values under `attrs.values`; the rest of the tree
+     * is rich-text nodes with nothing to resolve.
+     */
+    private function withResolvedAssetIdsInBard(Field $field, mixed $value): mixed
+    {
+        if (! is_array($value)) {
+            return $value;
+        }
+
+        $sets = $this->flattenedSets($field);
+
+        return array_map(function (mixed $node) use ($sets): mixed {
+            if (! is_array($node) || ($node['type'] ?? null) !== 'set') {
+                return $node;
+            }
+
+            $attrs = $node['attrs'] ?? null;
+            $values = is_array($attrs) ? ($attrs['values'] ?? null) : null;
+
+            if (! is_array($values) || ! is_string($type = $values['type'] ?? null) || ! isset($sets[$type])) {
+                return $node;
+            }
+
+            $attrs['values'] = $this->withResolvedAssetIds(new Fields($sets[$type]), $this->stringKeyed($values));
+            $node['attrs'] = $attrs;
+
+            return $node;
+        }, $value);
+    }
+
+    private function withResolvedAssetIdsInRows(Field $field, mixed $value): mixed
+    {
+        if (! is_array($value)) {
+            return $value;
+        }
+
+        $fields = $this->nestedFields($field);
+
+        return array_map(
+            fn (mixed $row): mixed => is_array($row)
+                ? $this->withResolvedAssetIds($fields, $this->stringKeyed($row))
+                : $row,
+            $value
+        );
+    }
+
+    /**
+     * Resolve the child fields of a grid or group field.
+     */
+    private function nestedFields(Field $field): Fields
+    {
+        $config = $field->get('fields');
+
+        return new Fields(is_array($config) ? array_values($config) : []);
+    }
+
+    /**
+     * Re-key a nested block or row so it carries the handle-keyed shape the
+     * walk expects. YAML can hand back numeric-looking keys, which PHP casts
+     * to integers on the way in.
+     *
+     * @param  array<mixed>  $value
+     *
+     * @return array<string, mixed>
+     */
+    private function stringKeyed(array $value): array
+    {
+        $keyed = [];
+
+        foreach ($value as $key => $item) {
+            $keyed[(string) $key] = $item;
+        }
+
+        return $keyed;
     }
 
     /**
