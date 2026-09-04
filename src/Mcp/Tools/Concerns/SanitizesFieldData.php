@@ -15,6 +15,8 @@ use Statamic\Fieldtypes\Replicator;
 
 trait SanitizesFieldData
 {
+    use ResolvesAssetIds;
+
     /**
      * Keys that are entry-level properties, not blueprint data fields.
      *
@@ -117,7 +119,8 @@ trait SanitizesFieldData
             'grid' => $this->sanitizeGridValue($field, $value, $allowLegacyCoercion, $path),
             'replicator' => $this->sanitizeReplicatorValue($field, $value, $allowLegacyCoercion, $path),
             'table' => $this->sanitizeTableValue($value, $allowLegacyCoercion, $path),
-            'terms', 'entries', 'users', 'assets', 'checkboxes' => $this->sanitizeRelationshipValue($value),
+            'assets' => $this->normalizeAssetFieldValue($field, $value),
+            'terms', 'entries', 'users', 'checkboxes' => $this->sanitizeRelationshipValue($value),
             default => $value,
         };
     }
