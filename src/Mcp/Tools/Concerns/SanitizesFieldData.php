@@ -6,6 +6,9 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Concerns;
 
 use Cboxdk\StatamicMcp\Mcp\Exceptions\FieldFormatException;
 use Illuminate\Support\Collection;
+use Statamic\Contracts\Assets\AssetContainer as AssetContainerContract;
+use Statamic\Facades\Asset;
+use Statamic\Facades\AssetContainer;
 use Statamic\Fields\Blueprint;
 use Statamic\Fields\Field;
 use Statamic\Fieldtypes\Bard;
@@ -117,7 +120,8 @@ trait SanitizesFieldData
             'grid' => $this->sanitizeGridValue($field, $value, $allowLegacyCoercion, $path),
             'replicator' => $this->sanitizeReplicatorValue($field, $value, $allowLegacyCoercion, $path),
             'table' => $this->sanitizeTableValue($value, $allowLegacyCoercion, $path),
-            'terms', 'entries', 'users', 'assets', 'checkboxes' => $this->sanitizeRelationshipValue($value),
+            'assets' => $this->sanitizeAssetsValue($field, $value),
+            'terms', 'entries', 'users', 'checkboxes' => $this->sanitizeRelationshipValue($value),
             default => $value,
         };
     }
@@ -437,6 +441,68 @@ trait SanitizesFieldData
         }
 
         return [];
+    }
+
+    /**
+     * Normalize asset values to the canonical `container::path` asset ID.
+     *
+     * Statamic stores an assets field as container-relative paths, and that is
+     * what `get` hands back. Both the validation rules and the process pipeline
+     * expect the form the CP submits — the asset ID. Round-tripping a stored
+     * path therefore fails file rules like `mimes` (whose MimesRule does an
+     * Asset::find() on the value) and would later break Assets::process(),
+     * which calls Asset::findOrFail(). Resolve paths to IDs so a value returned
+     * by `get` can be sent straight back to `update`.
+     *
+     * Values that cannot be resolved are left untouched so validation reports
+     * the real problem instead of silently dropping content.
+     *
+     * @return array<int, mixed>
+     */
+    private function sanitizeAssetsValue(Field $field, mixed $value): array
+    {
+        $values = $this->sanitizeRelationshipValue($value);
+
+        if ($values === [] || ($container = $this->assetContainerHandle($field)) === null) {
+            return $values;
+        }
+
+        return array_map(function (mixed $item) use ($container): mixed {
+            if (! is_string($item) || $item === '' || str_contains($item, '::')) {
+                return $item;
+            }
+
+            $id = $container . '::' . ltrim($item, '/');
+
+            return Asset::find($id) ? $id : $item;
+        }, $values);
+    }
+
+    /**
+     * Resolve the container an assets field points at, mirroring the fieldtype's
+     * own resolution: the configured container, or the only one that exists.
+     */
+    private function assetContainerHandle(Field $field): ?string
+    {
+        $configured = $field->get('container');
+
+        if (is_string($configured) && $configured !== '') {
+            return $configured;
+        }
+
+        $containers = AssetContainer::all();
+
+        if ($containers->count() !== 1) {
+            return null;
+        }
+
+        $only = $containers->first();
+
+        if (! $only instanceof AssetContainerContract) {
+            return null;
+        }
+
+        return $only->handle();
     }
 
     private function invalidStructuredValue(string $path, string $fieldType, mixed $value): FieldFormatException

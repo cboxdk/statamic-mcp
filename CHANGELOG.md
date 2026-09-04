@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Asset field values are round-trip safe** (#41) — `get` returns an assets field the way Statamic stores it, as a container-relative path (`icons/heart.svg`), but both the validation rules and the fieldtype pipeline expect the form the Control Panel submits, the asset ID (`assets::icons/heart.svg`). Sending a value straight back to `create`/`update` therefore failed file rules such as `mimes` — `MimesRule` does an `Asset::find()` on the value and a bare path finds nothing — and on rule-free fields it would have broken later in `Assets::process()`, which calls `Asset::findOrFail()`. Incoming asset paths are now resolved to canonical IDs before validation, in nested replicator, grid, group and bard set fields as well as top-level ones, and in the entry's stored data that an update merges in — so an unchanged asset field elsewhere in the blueprint no longer fails an update that never touched it. Values that resolve to no asset are left alone so validation still reports the real problem instead of silently dropping content
+
 ## [2.9.0] - 2026-08-27
 
 ### Added
