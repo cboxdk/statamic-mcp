@@ -107,6 +107,12 @@ return [
         'max_token_lifetime_days' => env('STATAMIC_MCP_MAX_TOKEN_LIFETIME', 365),
 
         'tool_timeout_seconds' => env('STATAMIC_MCP_TOOL_TIMEOUT', 30),
+
+        // Reject writes carrying keys that are not field handles. Statamic
+        // discards them at the top level and stores them as inert data inside
+        // replicator, grid and bard sets, so an invented handle otherwise
+        // reports success while producing content that does not match.
+        'reject_unknown_fields' => env('STATAMIC_MCP_REJECT_UNKNOWN_FIELDS', true),
     ],
 
     /*

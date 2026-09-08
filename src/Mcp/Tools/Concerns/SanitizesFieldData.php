@@ -25,6 +25,31 @@ trait SanitizesFieldData
     private static array $entryMetaKeys = ['blueprint', 'fieldset', 'id'];
 
     /**
+     * Record properties a caller may send alongside field data: the routers
+     * consume some before sanitising, and a payload round-tripped from a read
+     * carries the rest.
+     *
+     * @var array<int, string>
+     */
+    private const RECORD_PROPERTY_KEYS = [
+        'id', 'blueprint', 'fieldset', 'slug', 'published', 'date',
+        'created_at', 'created_by', 'updated_at', 'updated_by',
+        'origin', 'locale', 'site', 'collection', 'taxonomy', '_id',
+    ];
+
+    /** Structural keys on a replicator item (see FieldFormatSpec: id, type, enabled). */
+    private const REPLICATOR_ITEM_KEYS = ['id', '_id', 'type', 'enabled'];
+
+    /** Structural keys on a grid row. */
+    private const GRID_ROW_KEYS = ['id', '_id'];
+
+    /** `type` inside a bard set's values names the set, it is not a field handle. */
+    private const BARD_SET_VALUE_KEYS = ['type'];
+
+    /** Cap on handles listed back in an unknown-field error, so the message stays readable. */
+    private const MAX_LISTED_HANDLES = 60;
+
+    /**
      * Sanitize client-provided field data before passing it to validation.
      *
      * This strips reserved entry metadata keys only when they are not real
@@ -71,17 +96,30 @@ trait SanitizesFieldData
     /**
      * @param  Collection<string, Field>  $fields
      * @param  array<string, mixed>  $data
+     * @param  array<int, string>  $structuralKeys
      *
      * @return array<string, mixed>
      */
-    private function sanitizeFieldCollection(Collection $fields, array $data, bool $allowLegacyCoercion, bool $stripEntryMeta): array
-    {
+    private function sanitizeFieldCollection(
+        Collection $fields,
+        array $data,
+        bool $allowLegacyCoercion,
+        bool $stripEntryMeta,
+        string $path = '',
+        array $structuralKeys = self::RECORD_PROPERTY_KEYS
+    ): array {
         if ($stripEntryMeta) {
             foreach (self::$entryMetaKeys as $key) {
                 if (! $fields->has($key)) {
                     unset($data[$key]);
                 }
             }
+        }
+
+        // Stored data being re-validated may carry handles from an older
+        // blueprint; only incoming payloads are held to the current one.
+        if (! $allowLegacyCoercion) {
+            $this->assertKnownHandles($fields, $data, $path, $structuralKeys);
         }
 
         foreach ($fields as $handle => $field) {
@@ -98,6 +136,52 @@ trait SanitizesFieldData
         }
 
         return $data;
+    }
+
+    /**
+     * Reject keys that are not field handles at this level.
+     *
+     * Statamic stays quiet two different ways: Fields::addValues() reads only
+     * handles it knows, discarding stray top-level keys, while Replicator and
+     * Grid processRow() merge the raw row back over the processed one, storing
+     * stray keys inside a set as inert data. Both report success.
+     *
+     * @param  Collection<string, Field>  $fields
+     * @param  array<string, mixed>  $data
+     * @param  array<int, string>  $structuralKeys
+     *
+     * @throws FieldFormatException
+     */
+    private function assertKnownHandles(Collection $fields, array $data, string $path, array $structuralKeys): void
+    {
+        if (! config('statamic.mcp.security.reject_unknown_fields', true)) {
+            return;
+        }
+
+        /** @var array<int, string> $known */
+        $known = $fields->keys()->all();
+
+        $unknown = array_values(array_diff(array_keys($data), $known, $structuralKeys));
+
+        if ($unknown === []) {
+            return;
+        }
+
+        sort($known);
+        $listed = array_slice($known, 0, self::MAX_LISTED_HANDLES);
+        $suffix = count($known) > self::MAX_LISTED_HANDLES
+            ? ' (+' . (count($known) - self::MAX_LISTED_HANDLES) . ' more)'
+            : '';
+
+        throw new FieldFormatException(sprintf(
+            '%s %s not %s in %s. Statamic does not error on unrecognised keys — it discards them at the top level and stores them as inert data inside replicator, grid and bard sets — so this write would have reported success while silently not producing the requested content. Valid handles here: %s%s.',
+            count($unknown) === 1 ? 'Field' : 'Fields',
+            implode(', ', array_map(static fn (string $key): string => "[{$key}]", $unknown)),
+            count($unknown) === 1 ? 'a field' : 'fields',
+            $path === '' ? 'this blueprint' : "[{$path}]",
+            $listed === [] ? '(none)' : implode(', ', $listed),
+            $suffix
+        ));
     }
 
     /**
@@ -193,7 +277,9 @@ trait SanitizesFieldData
                 $fieldtype->fields($setType, (int) $index)->all(),
                 $bardSetValues,
                 $allowLegacyCoercion,
-                false
+                false,
+                $path . '.' . $index . '.attrs.values',
+                self::BARD_SET_VALUE_KEYS
             );
             $node['attrs'] = $bardSetAttrs;
 
@@ -215,7 +301,7 @@ trait SanitizesFieldData
             return [];
         }
 
-        return $this->sanitizeFieldCollection($fieldtype->fields()->all(), $group, $allowLegacyCoercion, false);
+        return $this->sanitizeFieldCollection($fieldtype->fields()->all(), $group, $allowLegacyCoercion, false, $path, []);
     }
 
     /**
@@ -249,7 +335,9 @@ trait SanitizesFieldData
                 $fieldtype->fields((int) $index)->all(),
                 $gridRow,
                 $allowLegacyCoercion,
-                false
+                false,
+                $path . '.' . $index,
+                self::GRID_ROW_KEYS
             );
         }
 
@@ -293,7 +381,9 @@ trait SanitizesFieldData
                 $fieldtype->fields($setType, (int) $index)->all(),
                 $row,
                 $allowLegacyCoercion,
-                false
+                false,
+                $path . '.' . $index,
+                self::REPLICATOR_ITEM_KEYS
             );
         }
 
