@@ -199,3 +199,52 @@ it('returns null for unknown fieldtypes so the response stays small', function (
 
     expect($spec)->toBeNull();
 });
+
+it('reads options written as a list of key/value maps', function (): void {
+    // What the Control Panel writes, and what selectSpec used to drop entirely.
+    $spec = (new FieldFormatSpec)->for(makeField('select', ['options' => [
+        ['key' => 'solid', 'value' => 'Solid Header'],
+        ['key' => 'transparent', 'value' => 'Transparent Header'],
+    ]]));
+
+    expect($spec['allowed_values'])->toBe(['solid', 'transparent']);
+});
+
+it('reads options written as a key to label map', function (): void {
+    $spec = (new FieldFormatSpec)->for(makeField('button_group', ['options' => [
+        'grid' => 'Grid',
+        'carousel' => 'Carousel',
+    ]]));
+
+    expect($spec['allowed_values'])->toBe(['grid', 'carousel']);
+});
+
+it('reads options written as a flat list', function (): void {
+    $spec = (new FieldFormatSpec)->for(makeField('radio', ['options' => ['left', 'center']]));
+
+    expect($spec['allowed_values'])->toBe(['left', 'center']);
+});
+
+it('casts non-string option keys to strings', function (): void {
+    $spec = (new FieldFormatSpec)->for(makeField('select', ['options' => [
+        ['key' => 1, 'value' => 'One'],
+        ['key' => 2, 'value' => 'Two'],
+    ]]));
+
+    expect($spec['allowed_values'])->toBe(['1', '2']);
+});
+
+it('returns no allowed values when a select has no options', function (): void {
+    expect((new FieldFormatSpec)->for(makeField('select'))['allowed_values'])->toBe([]);
+});
+
+it('still reports enum_array for a multiple select', function (): void {
+    $spec = (new FieldFormatSpec)->for(makeField('select', [
+        'multiple' => true,
+        'options' => [['key' => 'a', 'value' => 'A']],
+    ]));
+
+    expect($spec['wire_format'])->toBe('array');
+    expect($spec['shape'])->toBe('enum_array');
+    expect($spec['allowed_values'])->toBe(['a']);
+});
