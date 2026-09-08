@@ -84,7 +84,7 @@ class FieldFormatSpec
                 'shape' => 'url_or_entry_reference',
                 'rules' => ['URL string OR statamic://entry/<uuid> reference.'],
             ],
-            default => null,
+            default => FieldtypeExtensions::resolveSpec($field),
         };
     }
 
