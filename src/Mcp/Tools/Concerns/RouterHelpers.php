@@ -161,7 +161,7 @@ trait RouterHelpers
     {
         $domain = $this->getDomain();
         $isWrite = in_array($action, [
-            'create', 'update', 'delete', 'publish', 'unpublish',
+            'create', 'update', 'delete', 'publish', 'unpublish', 'localize',
             'activate', 'deactivate', 'assign_role', 'remove_role',
             'move', 'copy', 'upload', 'configure',
             'cache_clear', 'cache_warm', 'config_set',

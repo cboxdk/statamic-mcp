@@ -47,6 +47,7 @@ class EntriesRouter extends BaseRouter
                     . 'get (collection, id; optional: version), '
                     . 'create (collection, data — use statamic-blueprints get to see field structure first), '
                     . 'update (collection, id, data; optional: revision_message), '
+                    . 'localize (collection, id, site — creates the entry\'s localization in that site; optional: data, revision_message), '
                     . 'delete (collection, id), '
                     . 'publish (collection, id; optional: revision_message), '
                     . 'unpublish (collection, id; optional: revision_message), '
@@ -55,7 +56,7 @@ class EntriesRouter extends BaseRouter
                     . 'restore_revision (collection, id, revision_id), '
                     . 'publish_working_copy (collection, id; optional: revision_message)'
                 )
-                ->enum(['list', 'get', 'create', 'update', 'delete', 'publish', 'unpublish', 'list_revisions', 'get_revision', 'restore_revision', 'publish_working_copy'])
+                ->enum(['list', 'get', 'create', 'update', 'delete', 'localize', 'publish', 'unpublish', 'list_revisions', 'get_revision', 'restore_revision', 'publish_working_copy'])
                 ->required(),
 
             'collection' => JsonSchema::string()
@@ -66,7 +67,10 @@ class EntriesRouter extends BaseRouter
                 ->description('Entry UUID. Required for get, update, delete, publish, unpublish, list_revisions, get_revision, restore_revision, publish_working_copy actions'),
 
             'site' => JsonSchema::string()
-                ->description('Site handle for multi-site setups. Defaults to the default site. Example: "default", "en"'),
+                ->description(
+                    'Site handle for multi-site setups. Defaults to the default site. Example: "default", "en". '
+                    . 'For the localize action this is the target site the localization is created in.'
+                ),
 
             'data' => JsonSchema::object()
                 ->description(
@@ -134,6 +138,7 @@ class EntriesRouter extends BaseRouter
             'list' => $this->listEntries($arguments),
             'get' => $this->getEntry($arguments),
             'create' => $this->createEntry($arguments),
+            'localize' => $this->localizeEntry($arguments),
             'update' => $this->updateEntry($arguments),
             'delete' => $this->deleteEntry($arguments),
             'publish' => $this->publishEntry($arguments),
@@ -197,6 +202,7 @@ class EntriesRouter extends BaseRouter
             'create' => ["create {$collection} entries"],
             'update' => ["edit {$collection} entries"],
             'delete' => ["delete {$collection} entries"],
+            'localize' => ["create {$collection} entries"],
             'publish', 'unpublish', 'restore_revision', 'publish_working_copy' => ["publish {$collection} entries"],
             default => [],
         };
@@ -501,6 +507,149 @@ class EntriesRouter extends BaseRouter
             // and applies environment-aware sanitization before the message goes
             // to the client.
             return $this->createErrorResponse("Failed to create entry: {$e->getMessage()}")->toArray();
+        }
+    }
+
+    /**
+     * Create an entry's localization in another site.
+     *
+     * Uses Statamic's makeLocalization() rather than an assembled entry, so
+     * the origin is set — untranslated fields keep falling back — and a
+     * structured collection places it in the target site's tree.
+     *
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string, mixed>
+     */
+    private function localizeEntry(array $arguments): array
+    {
+        $id = is_string($arguments['id'] ?? null) ? $arguments['id'] : '';
+        $site = $this->resolveSiteHandle($arguments);
+        /** @var array<string, mixed> $data */
+        $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
+
+        try {
+            $entry = Entry::find($id);
+
+            if ($entry === null) {
+                return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
+            }
+
+            $collection = $entry->collection();
+
+            if (! in_array($site, $collection->sites()->all(), true)) {
+                return $this->createErrorResponse(
+                    "Collection [{$collection->handle()}] is not available in site [{$site}]. Available: "
+                    . $collection->sites()->join(', ') . '.'
+                )->toArray();
+            }
+
+            if ($entry->site()->handle() === $site) {
+                return $this->createErrorResponse(
+                    "Entry [{$id}] already originates in site [{$site}]. Use the update action instead."
+                )->toArray();
+            }
+
+            if ($entry->in($site) !== null) {
+                return $this->createErrorResponse(
+                    "Entry [{$id}] already has a localization in site [{$site}]. Use the update action with site [{$site}] to edit it."
+                )->toArray();
+            }
+
+            $localization = $entry->makeLocalization($site);
+
+            $blueprint = $localization->blueprint();
+
+            if (! $blueprint) {
+                return $this->createErrorResponse('Cannot localize entry: Blueprint not found. A blueprint is required for data validation.')->toArray();
+            }
+
+            // An empty localization inherits everything from the origin, which
+            // is the normal starting point for a translator.
+            if ($data !== []) {
+                if (array_key_exists('slug', $data)) {
+                    $requestedSlug = is_string($data['slug']) ? $data['slug'] : '';
+                    unset($data['slug']);
+
+                    if ($requestedSlug !== '') {
+                        $localization->slug($requestedSlug);
+                    }
+                }
+
+                try {
+                    $data = $this->sanitizeIncomingFieldData($blueprint, $data);
+                    $data = $this->normalizeDateFields($blueprint, $data);
+
+                    // Slug is an entry property, not a data key, so it is absent
+                    // from the payload. Statamic's default blueprint marks it
+                    // required, so validation has to see the localization's own
+                    // value or every localize fails (cf. #39). The id replacement
+                    // excludes this entry from UniqueEntryValue, which the origin
+                    // would otherwise trip.
+                    $dataWithSlug = $data;
+                    $localizationSlug = $localization->slug();
+                    if (is_string($localizationSlug) && $localizationSlug !== '') {
+                        $dataWithSlug['slug'] = $localizationSlug;
+                    }
+
+                    $fields = $blueprint->fields()->addValues($dataWithSlug);
+
+                    (new FieldsValidator)
+                        ->fields($fields)
+                        ->withContext([
+                            'entry' => $localization,
+                            'collection' => $collection,
+                            'site' => $site,
+                        ])
+                        ->withReplacements([
+                            'collection' => $collection->handle(),
+                            'id' => $localization->id(),
+                            'site' => $site,
+                        ])
+                        ->validate();
+
+                    $localization->data(
+                        $fields->process()->values()->except(['slug', 'date'])->all()
+                    );
+                } catch (ValidationException $e) {
+                    return $this->formatValidationError($e);
+                } catch (\Throwable $e) {
+                    return $this->createErrorResponse('Failed to process localization data: ' . $e->getMessage())->toArray();
+                }
+            }
+
+            if ($this->entryRevisionsEnabled($localization)) {
+                $localization->store([
+                    'message' => is_string($arguments['revision_message'] ?? null) ? $arguments['revision_message'] : null,
+                ]);
+            } else {
+                $localization->save();
+            }
+
+            $this->clearStatamicCaches(['stache', 'static']);
+
+            $response = [
+                'entry' => [
+                    'id' => $localization->id(),
+                    'slug' => $localization->slug(),
+                    'collection' => $localization->collectionHandle(),
+                    'site' => $localization->site()->handle(),
+                    'origin_site' => $entry->site()->handle(),
+                    'published' => $localization->published(),
+                    'url' => $localization->url(),
+                    'title' => $localization->get('title'),
+                    'data' => $localization->data()->all(),
+                ],
+                'localized' => true,
+            ];
+
+            if ($this->entryRevisionsEnabled($localization)) {
+                $response['revision_status'] = $this->getRevisionStatusMeta($localization);
+            }
+
+            return $response;
+        } catch (\Exception $e) {
+            return $this->createErrorResponse("Failed to localize entry: {$e->getMessage()}")->toArray();
         }
     }
 
