@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
+use Cboxdk\StatamicMcp\Mcp\Exceptions\FieldFormatException;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\HandlesRevisions;
@@ -11,13 +12,17 @@ use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\NormalizesDateFields;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\SanitizesFieldData;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
+use Illuminate\Support\Collection as SupportCollection;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Attributes\Title;
+use Statamic\Contracts\Entries\Entry as EntryContract;
 use Statamic\Facades\Collection;
 use Statamic\Facades\Entry;
+use Statamic\Fields\Blueprint;
+use Statamic\Fields\Field;
 use Statamic\Fields\Validator as FieldsValidator;
 use Statamic\Rules\UniqueEntryValue;
 use Statamic\Support\Str;
@@ -46,7 +51,7 @@ class EntriesRouter extends BaseRouter
                     . 'list (collection; optional: limit, offset, filters, include_unpublished), '
                     . 'get (collection, id; optional: version), '
                     . 'create (collection, data — use statamic-blueprints get to see field structure first), '
-                    . 'update (collection, id, data; optional: revision_message), '
+                    . 'update (collection, id, data; optional: revision_message, merge_sets), '
                     . 'delete (collection, id), '
                     . 'publish (collection, id; optional: revision_message), '
                     . 'unpublish (collection, id; optional: revision_message), '
@@ -93,6 +98,17 @@ class EntriesRouter extends BaseRouter
             'version' => JsonSchema::string()
                 ->description('Which version of the entry to return for get action. "published" (default): live published data, "working_copy": current working copy data, "latest": working copy if exists else published')
                 ->enum(['published', 'working_copy', 'latest']),
+
+            'merge_sets' => JsonSchema::boolean()
+                ->description(
+                    'Update action only. When true, a replicator field in "data" is merged into the stored '
+                    . 'array by item id instead of replacing it: items whose id already exists are replaced in '
+                    . 'place, new ids are appended, and stored items you did not send are left untouched. Use it '
+                    . 'to change one section of a page builder without resending the whole array. Every item sent '
+                    . 'must carry an "id". Removing or reordering items still requires sending the full array with '
+                    . 'merge_sets off. Applies to top-level replicator fields only — not bard, whose nodes are not '
+                    . 'all addressable by id.'
+                ),
 
             'revision_message' => JsonSchema::string()
                 ->description('Optional message to attach to a revision (for update, publish, unpublish, publish_working_copy actions)'),
@@ -505,6 +521,85 @@ class EntriesRouter extends BaseRouter
     }
 
     /**
+     * Merge replicator items into the entry's stored array, addressed by the
+     * `id` every item already carries: an existing id is replaced in place, a
+     * new one appended, and unsent items left alone.
+     *
+     * Top-level replicators only, and replace-or-append only. Removing and
+     * reordering stay with a full-array write, where the intent is
+     * unambiguous. Bard is excluded because most of its nodes carry no id.
+     *
+     * @param  array<string, mixed>  $data
+     *
+     * @return array<string, mixed>
+     *
+     * @throws FieldFormatException
+     */
+    private function mergeReplicatorSets(Blueprint $blueprint, EntryContract $entry, array $data): array
+    {
+        /** @var SupportCollection<string, Field> $fields */
+        $fields = $blueprint->fields()->all();
+
+        foreach ($data as $handle => $incoming) {
+            $field = $fields->get($handle);
+
+            if (! $field instanceof Field || $field->type() !== 'replicator') {
+                continue;
+            }
+
+            if (! is_array($incoming)) {
+                throw new FieldFormatException("Field [{$handle}] must be an array of replicator items to merge.");
+            }
+
+            $stored = $entry->get($handle);
+            $stored = is_array($stored) ? array_values($stored) : [];
+
+            $positions = [];
+            foreach ($stored as $index => $item) {
+                if (is_array($item) && is_string($item['id'] ?? null)) {
+                    $positions[$item['id']] = $index;
+                }
+            }
+
+            $merged = $stored;
+            $seen = [];
+
+            foreach (array_values($incoming) as $index => $item) {
+                if (! is_array($item)) {
+                    throw new FieldFormatException("Field [{$handle}.{$index}] must be a replicator item object when merge_sets is on.");
+                }
+
+                $id = $item['id'] ?? null;
+
+                if (! is_string($id) || $id === '') {
+                    throw new FieldFormatException(
+                        "Field [{$handle}.{$index}] needs an \"id\" when merge_sets is on — that is how the item to replace is found. "
+                        . 'Read the entry to get the ids, or turn merge_sets off to replace the whole array.'
+                    );
+                }
+
+                if (isset($seen[$id])) {
+                    throw new FieldFormatException("Field [{$handle}] sends id \"{$id}\" more than once; ids must be unique within the array.");
+                }
+
+                $seen[$id] = true;
+
+                if (isset($positions[$id])) {
+                    $merged[$positions[$id]] = $item;
+
+                    continue;
+                }
+
+                $merged[] = $item;
+            }
+
+            $data[$handle] = array_values($merged);
+        }
+
+        return $data;
+    }
+
+    /**
      * Update an existing entry.
      *
      * @param  array<string, mixed>  $arguments
@@ -596,6 +691,14 @@ class EntriesRouter extends BaseRouter
             }
 
             if (! empty($data)) {
+                if (($arguments['merge_sets'] ?? false) === true) {
+                    try {
+                        $data = $this->mergeReplicatorSets($blueprint, $entry, $data);
+                    } catch (FieldFormatException $e) {
+                        return $this->createErrorResponse($e->getMessage())->toArray();
+                    }
+                }
+
                 // Strip entry-level metadata and coerce values to expected types
                 $data = $this->sanitizeIncomingFieldData($blueprint, $data);
 
