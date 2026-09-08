@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Cboxdk\StatamicMcp\Mcp\Support\FieldFormatSpec;
+use Statamic\Facades\Icon;
 use Statamic\Fields\Field;
 
 function makeField(string $type, array $config = []): Field
@@ -198,4 +199,42 @@ it('returns null for unknown fieldtypes so the response stays small', function (
     $spec = (new FieldFormatSpec)->for(makeField('some_unknown_addon_fieldtype'));
 
     expect($spec)->toBeNull();
+});
+
+it('lists the icon names a client cannot otherwise discover', function (): void {
+    $dir = sys_get_temp_dir() . '/mcp-icons-' . uniqid();
+    mkdir($dir, 0777, true);
+    foreach (['users', 'location', 'move'] as $name) {
+        file_put_contents("{$dir}/{$name}.svg", '<svg></svg>');
+    }
+    Icon::register('testset', $dir);
+
+    $spec = (new FieldFormatSpec)->for(makeField('icon', ['set' => 'testset']));
+
+    expect($spec['shape'])->toBe('icon_name');
+    expect($spec['icon_set'])->toBe('testset');
+    expect($spec['options'])->toEqualCanonicalizing(['users', 'location', 'move']);
+    expect($spec['option_count'])->toBe(3);
+    expect($spec)->not->toHaveKey('options_truncated');
+
+    array_map('unlink', glob("{$dir}/*.svg") ?: []);
+    rmdir($dir);
+});
+
+it('degrades to a plain string spec when the icon set is not registered', function (): void {
+    $spec = (new FieldFormatSpec)->for(makeField('icon', ['set' => 'nope-not-registered']));
+
+    expect($spec['shape'])->toBe('icon_name');
+    expect($spec['icon_set'])->toBe('nope-not-registered');
+    expect($spec)->not->toHaveKey('options');
+    expect(implode(' ', $spec['rules']))->toContain('not registered');
+});
+
+it('does not treat an icon field as an opaque string', function (): void {
+    // Regression guard: icon used to fall through to stringSpec(), which told
+    // a client nothing about which names are valid.
+    $spec = (new FieldFormatSpec)->for(makeField('icon'));
+
+    expect($spec['shape'])->not->toBe('string');
+    expect($spec['icon_set'])->toBe('default');
 });

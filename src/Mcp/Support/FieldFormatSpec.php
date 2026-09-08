@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Support;
 
 use Illuminate\Support\Collection;
+use Statamic\Facades\Icon as Icons;
 use Statamic\Fields\Field;
 use Statamic\Fieldtypes\Bard;
 use Statamic\Fieldtypes\Grid;
@@ -24,6 +25,9 @@ use Statamic\Fieldtypes\Replicator;
  */
 class FieldFormatSpec
 {
+    /** Upper bound on icon names inlined per field, so a large set cannot dominate a blueprint response. */
+    private const MAX_ICON_NAMES = 500;
+
     public function __construct(
         private int $maxDepth = 2,
     ) {}
@@ -51,7 +55,8 @@ class FieldFormatSpec
             'grid' => $this->gridSpec($field, $depth),
             'group' => $this->groupSpec($field, $depth),
             'markdown' => $this->markdownSpec(),
-            'text', 'textarea', 'slug', 'code', 'yaml', 'html', 'video', 'color', 'icon' => $this->stringSpec(),
+            'text', 'textarea', 'slug', 'code', 'yaml', 'html', 'video', 'color' => $this->stringSpec(),
+            'icon' => $this->iconSpec($field),
             'integer' => ['wire_format' => 'integer', 'shape' => 'integer'],
             'float' => ['wire_format' => 'number', 'shape' => 'number'],
             'toggle' => ['wire_format' => 'boolean', 'shape' => 'boolean'],
@@ -359,6 +364,65 @@ class FieldFormatSpec
     private function stringSpec(): array
     {
         return ['wire_format' => 'string', 'shape' => 'string'];
+    }
+
+    /**
+     * Icon names live in the set's directory on disk, so they appear nowhere
+     * in the blueprint and an invalid one renders nothing rather than
+     * erroring. Resolution mirrors the fieldtype's own; Icon::get() throws
+     * for an unregistered set, so that degrades to a named string spec.
+     *
+     * @return array<string, mixed>
+     */
+    private function iconSpec(Field $field): array
+    {
+        $configured = $field->get('set');
+        $setName = is_string($configured) && $configured !== '' ? $configured : 'default';
+
+        try {
+            $names = Icons::get($setName)->names()->all();
+        } catch (\Throwable) {
+            return [
+                'wire_format' => 'string',
+                'shape' => 'icon_name',
+                'icon_set' => $setName,
+                'rules' => [
+                    "Icon name from the \"{$setName}\" set, but that set is not registered on this site, so its names cannot be listed.",
+                ],
+            ];
+        }
+
+        /** @var list<string> $names */
+        $names = array_values(array_filter($names, 'is_string'));
+        $total = count($names);
+        $truncated = $total > self::MAX_ICON_NAMES;
+
+        $spec = [
+            'wire_format' => 'string',
+            'shape' => 'icon_name',
+            'icon_set' => $setName,
+            'rules' => [
+                "Bare icon name from the \"{$setName}\" set — no directory, no \".svg\" suffix, no inline SVG markup.",
+                'Must match one of the listed names exactly. An unlisted name is stored without error and renders nothing.',
+            ],
+            'options' => $truncated ? array_slice($names, 0, self::MAX_ICON_NAMES) : $names,
+            'option_count' => $total,
+            'common_mistakes' => [
+                'Sending a filename ("users.svg") or a path ("icons/users.svg") instead of the name ("users").',
+                'Inventing a plausible name — icon sets vary per site, so guessing produces an empty icon rather than an error.',
+            ],
+        ];
+
+        if ($truncated) {
+            $spec['options_truncated'] = true;
+            $spec['rules'][] = sprintf(
+                'Only the first %d of %d names are listed here.',
+                self::MAX_ICON_NAMES,
+                $total
+            );
+        }
+
+        return $spec;
     }
 
     /**
