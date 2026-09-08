@@ -199,3 +199,27 @@ it('returns null for unknown fieldtypes so the response stays small', function (
 
     expect($spec)->toBeNull();
 });
+
+it('describes the link fieldtype using the references ResolveRedirect actually understands', function (): void {
+    $spec = (new FieldFormatSpec)->for(makeField('link'));
+
+    expect($spec['wire_format'])->toBe('string');
+    expect($spec['shape'])->toBe('url_or_reference');
+
+    $rules = implode(' ', $spec['rules']);
+    expect($rules)->toContain('entry::<entry-id>');
+    expect($rules)->toContain('asset::<container>::<path>');
+    expect($rules)->toContain('@child');
+
+    expect($spec['examples'])->toContain('entry::3f2b1a44-0c6e-4c3a-9f1e-8b5d6c7a2e10');
+    expect($spec['examples'])->toContain('asset::images::brochures/2026.pdf');
+});
+
+it('warns against the statamic:// scheme in a link field', function (): void {
+    $spec = (new FieldFormatSpec)->for(makeField('link'));
+
+    // Bard link marks use statamic://; ResolveRedirect (the link fieldtype)
+    // does not, and stores an unresolvable value verbatim.
+    expect(implode(' ', $spec['rules']))->toContain('statamic://');
+    expect(implode(' ', $spec['common_mistakes']))->toContain('statamic://entry/<uuid>');
+});

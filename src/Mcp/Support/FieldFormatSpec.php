@@ -79,11 +79,7 @@ class FieldFormatSpec
                 'rules' => ['Time string in HH:MM or HH:MM:SS (24-hour).'],
             ],
             'table' => $this->tableSpec(),
-            'link' => [
-                'wire_format' => 'string',
-                'shape' => 'url_or_entry_reference',
-                'rules' => ['URL string OR statamic://entry/<uuid> reference.'],
-            ],
+            'link' => $this->linkSpec(),
             default => null,
         };
     }
@@ -359,6 +355,41 @@ class FieldFormatSpec
     private function stringSpec(): array
     {
         return ['wire_format' => 'string', 'shape' => 'string'];
+    }
+
+    /**
+     * ResolveRedirect, which backs the link fieldtype, understands
+     * `entry::<id>`, `asset::<container>::<path>`, `@child` and plain URLs.
+     * `statamic://` is Bard link-mark syntax and is stored verbatim here,
+     * rendering a dead link.
+     *
+     * @return array<string, mixed>
+     */
+    private function linkSpec(): array
+    {
+        return [
+            'wire_format' => 'string',
+            'shape' => 'url_or_reference',
+            'rules' => [
+                'Plain URL — absolute ("https://example.com/page") or site-relative ("/contact") — stored and resolved as-is.',
+                'Entry reference: "entry::<entry-id>" (the entry UUID, not its slug or URL).',
+                'Asset reference: "asset::<container>::<path>" (the same id an assets field reports, prefixed with "asset::").',
+                'First-child shorthand: "@child" — only resolves when the field\'s parent is an entry.',
+                'Do NOT use the "statamic://" scheme here. That is Bard link-mark syntax; ResolveRedirect does not understand it and the value is stored verbatim as a broken link.',
+            ],
+            'examples' => [
+                '/contact',
+                'https://example.com/page',
+                'entry::3f2b1a44-0c6e-4c3a-9f1e-8b5d6c7a2e10',
+                'asset::images::brochures/2026.pdf',
+                '@child',
+            ],
+            'common_mistakes' => [
+                'Using "statamic://entry/<uuid>" or "statamic://entry::<uuid>" — neither resolves in a link field.',
+                'Passing an entry slug or URL where an entry id is required.',
+                'Wrapping the value in an array; the link fieldtype stores a plain string.',
+            ],
+        ];
     }
 
     /**
