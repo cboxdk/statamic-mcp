@@ -25,8 +25,13 @@ use Statamic\Fieldtypes\Replicator;
  */
 class FieldFormatSpec
 {
-    /** Upper bound on icon names inlined per field, so a large set cannot dominate a blueprint response. */
-    private const MAX_ICON_NAMES = 500;
+    /**
+     * Icon sets encountered while building specs, so their names can be listed
+     * once per response instead of on every field that uses them.
+     *
+     * @var array<string, list<string>>
+     */
+    private array $iconSets = [];
 
     public function __construct(
         private int $maxDepth = 2,
@@ -379,50 +384,50 @@ class FieldFormatSpec
         $configured = $field->get('set');
         $setName = is_string($configured) && $configured !== '' ? $configured : 'default';
 
-        try {
-            $names = Icons::get($setName)->names()->all();
-        } catch (\Throwable) {
-            return [
-                'wire_format' => 'string',
-                'shape' => 'icon_name',
-                'icon_set' => $setName,
-                'rules' => [
-                    "Icon name from the \"{$setName}\" set, but that set is not registered on this site, so its names cannot be listed.",
-                ],
-            ];
-        }
-
-        /** @var list<string> $names */
-        $names = array_values(array_filter($names, 'is_string'));
-        $total = count($names);
-        $truncated = $total > self::MAX_ICON_NAMES;
-
         $spec = [
             'wire_format' => 'string',
             'shape' => 'icon_name',
             'icon_set' => $setName,
             'rules' => [
                 "Bare icon name from the \"{$setName}\" set — no directory, no \".svg\" suffix, no inline SVG markup.",
-                'Must match one of the listed names exactly. An unlisted name is stored without error and renders nothing.',
+                'Must match one of the names exactly. An unlisted name is stored without error and renders nothing.',
             ],
-            'options' => $truncated ? array_slice($names, 0, self::MAX_ICON_NAMES) : $names,
-            'option_count' => $total,
             'common_mistakes' => [
                 'Sending a filename ("users.svg") or a path ("icons/users.svg") instead of the name ("users").',
                 'Inventing a plausible name — icon sets vary per site, so guessing produces an empty icon rather than an error.',
             ],
         ];
 
-        if ($truncated) {
-            $spec['options_truncated'] = true;
-            $spec['rules'][] = sprintf(
-                'Only the first %d of %d names are listed here.',
-                self::MAX_ICON_NAMES,
-                $total
-            );
+        if (! array_key_exists($setName, $this->iconSets)) {
+            try {
+                /** @var list<string> $names */
+                $names = array_values(array_filter(Icons::get($setName)->names()->all(), 'is_string'));
+                $this->iconSets[$setName] = $names;
+            } catch (\Throwable) {
+                $spec['rules'][] = "The \"{$setName}\" set is not registered on this site, so its names cannot be listed.";
+
+                return $spec;
+            }
         }
 
+        $spec['option_count'] = count($this->iconSets[$setName]);
+        $spec['rules'][] = "Names are listed once per response under icon_sets[\"{$setName}\"].";
+
         return $spec;
+    }
+
+    /**
+     * Icon sets referenced by the fields specced so far, keyed by set name.
+     *
+     * Listing them once keeps a blueprint response proportional to the number
+     * of sets rather than the number of icon fields: a page builder can reach
+     * dozens of icon fields that all point at the same set.
+     *
+     * @return array<string, list<string>>
+     */
+    public function collectedIconSets(): array
+    {
+        return $this->iconSets;
     }
 
     /**

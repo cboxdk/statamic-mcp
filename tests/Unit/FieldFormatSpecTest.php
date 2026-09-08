@@ -209,13 +209,15 @@ it('lists the icon names a client cannot otherwise discover', function (): void 
     }
     Icon::register('testset', $dir);
 
-    $spec = (new FieldFormatSpec)->for(makeField('icon', ['set' => 'testset']));
+    $formatSpec = new FieldFormatSpec;
+    $spec = $formatSpec->for(makeField('icon', ['set' => 'testset']));
 
     expect($spec['shape'])->toBe('icon_name');
     expect($spec['icon_set'])->toBe('testset');
-    expect($spec['options'])->toEqualCanonicalizing(['users', 'location', 'move']);
     expect($spec['option_count'])->toBe(3);
-    expect($spec)->not->toHaveKey('options_truncated');
+    // Names live once per response, not on every field that uses the set.
+    expect($spec)->not->toHaveKey('options');
+    expect($formatSpec->collectedIconSets()['testset'])->toEqualCanonicalizing(['users', 'location', 'move']);
 
     array_map('unlink', glob("{$dir}/*.svg") ?: []);
     rmdir($dir);
@@ -226,7 +228,7 @@ it('degrades to a plain string spec when the icon set is not registered', functi
 
     expect($spec['shape'])->toBe('icon_name');
     expect($spec['icon_set'])->toBe('nope-not-registered');
-    expect($spec)->not->toHaveKey('options');
+    expect($spec)->not->toHaveKey('option_count');
     expect(implode(' ', $spec['rules']))->toContain('not registered');
 });
 
@@ -237,4 +239,24 @@ it('does not treat an icon field as an opaque string', function (): void {
 
     expect($spec['shape'])->not->toBe('string');
     expect($spec['icon_set'])->toBe('default');
+});
+
+it('collects an icon set once however many fields use it', function (): void {
+    $dir = sys_get_temp_dir() . '/mcp-icons-' . uniqid();
+    mkdir($dir, 0777, true);
+    foreach (['users', 'location'] as $name) {
+        file_put_contents("{$dir}/{$name}.svg", '<svg></svg>');
+    }
+    Icon::register('sharedset', $dir);
+
+    $formatSpec = new FieldFormatSpec;
+    foreach (range(1, 5) as $i) {
+        $formatSpec->for(makeField('icon', ['set' => 'sharedset']));
+    }
+
+    expect($formatSpec->collectedIconSets())->toHaveCount(1);
+    expect($formatSpec->collectedIconSets()['sharedset'])->toHaveCount(2);
+
+    array_map('unlink', glob("{$dir}/*.svg") ?: []);
+    rmdir($dir);
 });
