@@ -258,9 +258,14 @@ abstract class BaseStatamicTool extends Tool
             $wrapped = $this->createSuccessResponse($result)->toArray();
         }
 
-        // Guard against oversized responses that would overflow LLM token budgets
+        // Guard against oversized responses that would overflow LLM token budgets.
+        // Configurable because the ceiling that matters is the client's context
+        // window, which differs per client and grows over time.
+        $configuredMax = config('statamic.mcp.security.max_response_size', 100000);
+        $maxBytes = is_numeric($configuredMax) ? (int) $configuredMax : 100000;
+
         $encoded = json_encode($wrapped);
-        if ($encoded !== false && strlen($encoded) > 100000) {
+        if ($encoded !== false && $maxBytes > 0 && strlen($encoded) > $maxBytes) {
             return $this->createErrorResponse(
                 'Response too large (' . round(strlen($encoded) / 1024) . 'KB). Use pagination or filters to reduce the result set.',
                 ['response_size_bytes' => strlen($encoded)],

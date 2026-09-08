@@ -107,6 +107,11 @@ return [
         'max_token_lifetime_days' => env('STATAMIC_MCP_MAX_TOKEN_LIFETIME', 365),
 
         'tool_timeout_seconds' => env('STATAMIC_MCP_TOOL_TIMEOUT', 30),
+
+        // Largest tool response, in bytes, before it is refused as too large.
+        // The limit exists to protect the client's context window, so the right
+        // value depends on the client; 0 disables the guard entirely.
+        'max_response_size' => (int) env('STATAMIC_MCP_MAX_RESPONSE_SIZE', 100000),
     ],
 
     /*
