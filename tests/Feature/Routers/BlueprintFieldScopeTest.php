@@ -45,6 +45,13 @@ class BlueprintFieldScopeTest extends TestCase
                                     ]],
                                 ]],
                                 'cta' => ['fields' => [['handle' => 'label', 'field' => ['type' => 'text']]]],
+                                // A set carrying a field of its own name: the
+                                // segment 'gallery' is ambiguous unless the walk
+                                // decides by the parent's fieldtype.
+                                'gallery' => ['fields' => [
+                                    ['handle' => 'gallery', 'field' => ['type' => 'assets']],
+                                    ['handle' => 'caption', 'field' => ['type' => 'text']],
+                                ]],
                             ],
                         ],
                     ],
@@ -68,6 +75,31 @@ class BlueprintFieldScopeTest extends TestCase
             'collection_handle' => $this->collectionHandle,
             'handle' => 'pages',
         ], $extra));
+    }
+
+    public function test_a_set_is_not_mistaken_for_a_field_of_the_same_handle(): void
+    {
+        // Under a replicator the segment names a set, so it must resolve to that
+        // set's whole field collection — even when the set contains a field of
+        // the same handle. Reading the segment back off the resolved collection
+        // would return the single 'gallery' assets field and hide 'caption'.
+        $data = $this->fetch(['field' => 'page_builder.gallery'])['data']['blueprint'];
+
+        $this->assertSame('page_builder.gallery', $data['field_path']);
+        $this->assertArrayHasKey('fields', $data);
+        $this->assertArrayNotHasKey('field', $data);
+        $this->assertArrayHasKey('gallery', $data['fields']);
+        $this->assertArrayHasKey('caption', $data['fields']);
+    }
+
+    public function test_a_group_segment_still_resolves_to_the_single_field(): void
+    {
+        // Under a group or grid the segment names one inner field, so it must
+        // resolve to that field rather than the whole collection.
+        $data = $this->fetch(['field' => 'page_builder.hero.media.source'])['data']['blueprint'];
+
+        $this->assertArrayHasKey('field', $data);
+        $this->assertSame('source', $data['field']['handle']);
     }
 
     public function test_without_the_parameter_the_whole_blueprint_comes_back(): void

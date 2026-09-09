@@ -10,6 +10,18 @@ use PHPUnit\Framework\TestCase;
 
 class LargeDatasetTest extends TestCase
 {
+    /**
+     * Runs per measurement. The fastest is kept: a benchmark can only be made
+     * slower by interference (a busy CI runner, a competing process), never
+     * faster, so the minimum is the closest estimate of the real cost and is
+     * far steadier than a single sample. Timing these on shared runners is
+     * what made this file flaky before.
+     */
+    private const REPETITIONS = 3;
+
+    /** 10x the data, so anything close to linear lands near 10x the time. */
+    private const TOLERANCE = 20;
+
     private string $tempDir;
 
     protected function setUp(): void
@@ -29,38 +41,57 @@ class LargeDatasetTest extends TestCase
 
     public function test_list_all_scaling_is_roughly_linear(): void
     {
-        $small = $this->benchmarkListAll(50);
-        $large = $this->benchmarkListAll(500);
+        $small = $this->fastestOf('benchmarkListAll', 50);
+        $large = $this->fastestOf('benchmarkListAll', 500);
 
-        // 10x data should take less than 15x time (linear, not quadratic)
-        // Floor of 0.01s avoids flakiness when small benchmark is sub-millisecond
-        $this->assertLessThan(max($small, 0.01) * 20, $large);
+        // Floor of 0.01s avoids a false failure when the small run is
+        // sub-millisecond and the ratio becomes meaningless.
+        $this->assertLessThan(max($small, 0.01) * self::TOLERANCE, $large);
     }
 
     public function test_search_by_user_scaling_is_roughly_linear(): void
     {
-        $small = $this->benchmarkSearchByUser(50);
-        $large = $this->benchmarkSearchByUser(500);
+        $small = $this->fastestOf('benchmarkSearchByUser', 50);
+        $large = $this->fastestOf('benchmarkSearchByUser', 500);
 
-        // Floor of 0.01s avoids flakiness when small benchmark is sub-millisecond
-        $this->assertLessThan(max($small, 0.01) * 20, $large);
+        // Floor of 0.01s avoids a false failure when the small run is
+        // sub-millisecond and the ratio becomes meaningless.
+        $this->assertLessThan(max($small, 0.01) * self::TOLERANCE, $large);
     }
 
     public function test_prune_scaling_is_roughly_linear(): void
     {
-        $small = $this->benchmarkPrune(50);
-        $large = $this->benchmarkPrune(500);
+        $small = $this->fastestOf('benchmarkPrune', 50);
+        $large = $this->fastestOf('benchmarkPrune', 500);
 
-        // Floor of 0.01s avoids flakiness when small benchmark is sub-millisecond
-        $this->assertLessThan(max($small, 0.01) * 20, $large);
+        // Floor of 0.01s avoids a false failure when the small run is
+        // sub-millisecond and the ratio becomes meaningless.
+        $this->assertLessThan(max($small, 0.01) * self::TOLERANCE, $large);
+    }
+
+    /**
+     * Fastest of REPETITIONS runs of one benchmark, each on its own directory.
+     *
+     * @param  'benchmarkListAll'|'benchmarkSearchByUser'|'benchmarkPrune'  $benchmark
+     */
+    private function fastestOf(string $benchmark, int $count): float
+    {
+        $best = null;
+
+        for ($run = 0; $run < self::REPETITIONS; $run++) {
+            $elapsed = $this->{$benchmark}($count, $run);
+            $best = $best === null ? $elapsed : min($best, $elapsed);
+        }
+
+        return $best ?? 0.0;
     }
 
     /**
      * Create N tokens and measure listAll time.
      */
-    private function benchmarkListAll(int $count): float
+    private function benchmarkListAll(int $count, int $run = 0): float
     {
-        $dir = $this->tempDir . '/list-' . $count;
+        $dir = $this->tempDir . '/list-' . $count . '-' . $run;
         mkdir($dir, 0755, true);
         $store = new FileTokenStore($dir);
 
@@ -78,9 +109,9 @@ class LargeDatasetTest extends TestCase
     /**
      * Create N tokens and measure listForUser time.
      */
-    private function benchmarkSearchByUser(int $count): float
+    private function benchmarkSearchByUser(int $count, int $run = 0): float
     {
-        $dir = $this->tempDir . '/search-' . $count;
+        $dir = $this->tempDir . '/search-' . $count . '-' . $run;
         mkdir($dir, 0755, true);
         $store = new FileTokenStore($dir);
 
@@ -99,9 +130,9 @@ class LargeDatasetTest extends TestCase
     /**
      * Create N expired tokens and measure prune time.
      */
-    private function benchmarkPrune(int $count): float
+    private function benchmarkPrune(int $count, int $run = 0): float
     {
-        $dir = $this->tempDir . '/prune-' . $count;
+        $dir = $this->tempDir . '/prune-' . $count . '-' . $run;
         mkdir($dir, 0755, true);
         $store = new FileTokenStore($dir);
 

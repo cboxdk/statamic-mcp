@@ -223,6 +223,45 @@ trait TokenStoreContractTests
         $this->assertNotNull($store->findByHash('hash_for'));
     }
 
+    public function test_prune_expired_removes_every_expired_token_and_keeps_the_rest_findable(): void
+    {
+        // The single-token case above cannot catch a batched index write that
+        // drops the wrong entries, or that writes the index once and forgets
+        // the removals after the first. Prune several at once, interleaved
+        // with survivors, and check both halves.
+        $store = $this->createStore();
+
+        for ($i = 0; $i < 12; $i++) {
+            $store->create('user-1', "Expired {$i}", "hash_batch_exp_{$i}", ['*'], Carbon::now()->subDay());
+            $store->create('user-1', "Valid {$i}", "hash_batch_val_{$i}", ['*'], Carbon::now()->addDay());
+        }
+
+        $this->assertSame(12, $store->pruneExpired());
+        $this->assertCount(12, $store->listAll());
+
+        for ($i = 0; $i < 12; $i++) {
+            $this->assertNull($store->findByHash("hash_batch_exp_{$i}"), "expired token {$i} still resolves");
+            $this->assertNotNull($store->findByHash("hash_batch_val_{$i}"), "valid token {$i} lost from the index");
+        }
+    }
+
+    public function test_delete_for_user_keeps_other_users_findable(): void
+    {
+        $store = $this->createStore();
+
+        for ($i = 0; $i < 8; $i++) {
+            $store->create('user-doomed', "Doomed {$i}", "hash_del_doomed_{$i}", ['*'], null);
+            $store->create('user-kept', "Kept {$i}", "hash_del_kept_{$i}", ['*'], null);
+        }
+
+        $this->assertSame(8, $store->deleteForUser('user-doomed'));
+
+        for ($i = 0; $i < 8; $i++) {
+            $this->assertNull($store->findByHash("hash_del_doomed_{$i}"));
+            $this->assertNotNull($store->findByHash("hash_del_kept_{$i}"), "kept token {$i} lost from the index");
+        }
+    }
+
     public function test_mark_as_used(): void
     {
         $store = $this->createStore();

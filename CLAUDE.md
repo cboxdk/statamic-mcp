@@ -733,7 +733,25 @@ class StatamicExportStrategy extends BaseStatamicTool
 
 **`statamic-blueprints`** — list, get, create, update, delete, scan, generate, types, validate
 
-**`statamic-entries`** — list, get, create, update, delete, publish, unpublish
+`get` accepts a `field` dot path (`page_builder.ContentSection.media`) that scopes the
+response to one field or set. A page builder's format spec is proportional to every set
+it can hold, so the full response on a real blueprint can exceed the response size limit
+at any useful depth; scoping is how a client reaches a deep spec at all. An unresolvable
+path lists the valid segments at the level it failed.
+
+**`statamic-entries`** — list, get, create, update, localize, delete, publish, unpublish,
+list_revisions, get_revision, restore_revision, publish_working_copy
+
+`update` accepts `merge_sets`: when true, a top-level replicator field in `data` is merged
+into the stored array by item `id` rather than replacing it, so one section of a page
+builder can change without resending the rest. Every item sent must carry an `id`;
+removing and reordering still require a full-array write.
+
+`localize` creates an entry's localization in another site via Statamic's
+`makeLocalization()`, so the origin is set and untranslated fields keep falling back. It
+is a **write** action — it appears in the write lists in both `EnforcesResourcePolicy`
+and `RouterHelpers`, which is what makes it require `entries:write` and a write-mode
+resource policy check. Any new write action must be added to both.
 
 **`statamic-terms`** — list, get, create, update, delete
 
@@ -761,6 +779,23 @@ trees are additionally checked for menu items pointing at deleted entries.
 **`statamic-system-discover`** — intent-based tool and action discovery
 
 **`statamic-system-schema`** — inspect full JSON schema of any registered tool
+
+## Extending fieldtypes
+
+`src/Mcp/Support/FieldtypeExtensions.php` is a static registry letting a site or addon
+teach the server about a fieldtype this package does not ship support for. An unknown
+fieldtype otherwise gets no wire-format guidance and no input coercion, so a client
+guesses at the shape and the guess reaches a `process()` written for Control Panel input.
+
+- `FieldtypeExtensions::spec($handle, fn (Field $field) => [...])` supplies the
+  `_format_spec` a blueprint `get` reports for that fieldtype.
+- `FieldtypeExtensions::sanitizer($handle, fn (mixed $v, Field $f, string $path) => ...)`
+  coerces or rejects an incoming value before validation and before the fieldtype's own
+  `process()`. Throw `FieldFormatException` to reject, and include `$path` in the message.
+
+Both are keyed by fieldtype handle; a later registration replaces an earlier one. The
+registry is static, so tests that register must `flush()` in setUp and tearDown. Register
+from a service provider's `boot()`. Documented for users in `docs/extending/fieldtypes.md`.
 
 ## MCP Resources
 
@@ -1110,3 +1145,13 @@ The addon supports configuration via `config/statamic/mcp.php` for:
 - Storage paths for tokens, audit, and OAuth data
 - Tool env toggles (`STATAMIC_MCP_TOOL_{NAME}_ENABLED`)
 - Git automation events for token operations
+- `security.max_response_size` — response ceiling in bytes (default 100000, `0` disables).
+  Guards the client's context window, not the server; the response is already built when
+  it is measured.
+- `security.reject_unknown_fields` — refuse writes carrying keys that are not field
+  handles **inside a replicator set, grid row, bard set or group** (default true).
+  Deliberately not applied at the top level of a record: an entry legitimately carries
+  keys that are not blueprint fields (`template` and `layout` are read back by
+  `Entry::template()`/`Entry::layout()`, `parent` backs structures), and no allowlist can
+  enumerate what every addon adds. `ValidatesContentRecords` scopes its equivalent check
+  the same way, for the same reason.

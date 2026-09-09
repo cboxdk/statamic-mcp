@@ -51,14 +51,14 @@ The server registers a set of domain routers — each handling a specific Statam
 - Audit logging for all operations
 - Per-domain tool enablement
 - Path traversal protection
-- PHPStan Level 8 strict typing
+- PHPStan Level 9 strict typing, with no baseline and no suppressions
 
 ## Available Tools
 
 | Tool | Actions | Description |
 |------|---------|-------------|
-| `statamic-blueprints` | list, get, create, update, delete, scan, generate, types, validate | Blueprint management and type generation |
-| `statamic-entries` | list, get, create, update, delete, publish, unpublish | Entry operations with filtering and search |
+| `statamic-blueprints` | list, get, create, update, delete, scan, generate, types, validate | Blueprint management and type generation; `get` can be scoped to one field or set |
+| `statamic-entries` | list, get, create, update, localize, delete, publish, unpublish, list_revisions, get_revision, restore_revision, publish_working_copy | Entry operations with filtering, localization, and revisions |
 | `statamic-terms` | list, get, create, update, delete | Taxonomy term operations with slug conflict prevention |
 | `statamic-globals` | list, get, update | Global set structure and values with multi-site support |
 | `statamic-structures` | list, get, create, update, delete, configure | Collections, taxonomies, navigations, sites |
@@ -84,3 +84,4 @@ The server registers a set of domain routers — each handling a specific Statam
 - [AI Client Setup](getting-started/ai-clients.md) — Config for Claude, Cursor, ChatGPT, Windsurf
 - [Configuration Reference](configuration/reference.md) — All config options and env variables
 - [Tool Reference](tools/overview.md) — Detailed documentation for each tool
+- [Extending Fieldtypes](extending/fieldtypes.md) — Teach the server about a fieldtype an addon provides

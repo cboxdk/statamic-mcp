@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **`localize` action on `statamic-entries`** (#48) — Creates an entry's localization in another site through Statamic's `makeLocalization()`, so the origin is set and untranslated fields keep falling back to it, and a structured collection places the new entry in the target site's tree. Only the fields actually sent are stored: taking everything `Fields::addValues()` populates would write an explicit null for each field a translator left alone, which both defeats the fallback and poisons later updates, since `update` validates stored data merged with incoming. It is a write action in every sense the authorization stack cares about — it carries `entries:write`, a write-mode resource policy check, and the `create {collection} entries` permission
+- **`merge_sets` on `statamic-entries update`** (#47) — A top-level replicator field in `data` is merged into the stored array by item `id` instead of replacing it: an existing id is replaced in place, a new one appended, and stored items the caller did not send are left untouched. Changing one section of a page builder no longer means reading and resending every other section. Opt-in and off by default; removing and reordering still take a full-array write, where the intent is unambiguous
+- **`field` path on `statamic-blueprints get`** (#51) — Scopes the response to one field or set via a dot path (`page_builder.ContentSection.media`). A page builder's format spec is proportional to every set it can hold, so the full response on a real blueprint runs to hundreds of kilobytes and cannot be returned at any useful depth; almost always the caller wants one component. An unresolvable path lists the valid segments at the level it failed, so a client can walk down without guessing
+- **`FieldtypeExtensions` registry** (#46) — Statamic's fieldtype set is open but this package's is closed, so a fieldtype an addon provides got no wire-format guidance and no input coercion — the client guessed at the shape and the guess reached a `process()` written for Control Panel input. A site or addon can now register a spec resolver and an input sanitizer per fieldtype handle from a service provider. Without a registration nothing changes. See `docs/extending/fieldtypes.md`
+- **Configurable response size limit** (#49) — `security.max_response_size` (`STATAMIC_MCP_MAX_RESPONSE_SIZE`), default unchanged at 100000 bytes, `0` to disable. The ceiling that matters is the client's context window, which differs per client and grows over time
+- **Icon field format spec** (#43) — An icon field stores a bare name from a registered icon set, and those names live in the set's directory on disk rather than in the blueprint, so `icon` previously fell through to "this is a string". The spec now reports the resolved set and its names, listed once per response under `blueprint.icon_sets` rather than inlined on every field that uses the set — on a page builder with 24 icon fields sharing one 454-name set that is ~19KB instead of ~160KB. An unregistered set degrades to a named string spec rather than breaking the whole blueprint response
+- **`reject_unknown_fields`** (#45) — Refuses a write carrying a key that is not a field handle inside a replicator set, grid row, bard set or group. `Replicator::processRow()` and `Grid::processRow()` merge the raw row back over the processed one, so such a key is written to the content file as inert data no template reads, and the write reports success — undiagnosable for a client that cannot read the blueprint from the repository. The error names the valid handles at that level. Not applied at the top level of a record, where non-blueprint keys such as `template`, `layout` and `parent` are legitimate
+
+### Fixed
+- **Select options are read in every shape Statamic accepts** (#50) — `selectSpec()` handled a flat list and a key => label map, but not the list of `['key' => ..., 'value' => ...]` maps that the Control Panel actually writes, which it dropped entirely: any `select`, `radio`, `button_group` or `checkboxes` field configured through the CP reported `allowed_values: []`, telling a client nothing about what it was allowed to send. All three shapes `Fieldtypes\HasSelectOptions::getOptions()` accepts are now read
+- **The link fieldtype spec described references that do not resolve** (#44) — It advertised `statamic://entry/<uuid>`, which is Bard link-mark syntax. `ResolveRedirect`, which backs the link fieldtype, does not understand it and stores the value verbatim as a dead link. The spec now describes what actually resolves — plain URLs, `entry::<id>`, `asset::<container>::<path>` and `@child` — and warns against the scheme it used to recommend
+- **`pruneExpired()` and `deleteForUser()` on the file token store were quadratic** — Both removed tokens from the hash index one at a time, and each removal re-read, re-decoded, re-encoded and rewrote the whole index under an exclusive lock. Pruning n tokens therefore wrote on the order of n² bytes; at 500 tokens that was ~12MB of index writes to delete a 50KB file's worth of entries. The removals are now batched into a single locked read-modify-write, which roughly halves prune time at 500 tokens and makes the cost genuinely linear. This is also what made `LargeDatasetTest` fail intermittently on CI: the quadratic term stayed invisible on a fast local disk and dominated on a contended runner
+
+### Changed
+- **Scaling stress tests take the fastest of several runs** — `LargeDatasetTest` timed a single run of each operation and compared 50 tokens against 500. A benchmark can only be made slower by interference, never faster, so the minimum of several runs is both the closest estimate of real cost and far steadier than one sample. Combined with the prune fix above, this ends a flakiness that had failed CI on three separate pushes
+
 ## [2.9.1] - 2026-09-04
 
 ### Fixed
@@ -396,6 +415,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Laravel MCP v0.2.0 integration
 - Comprehensive test suite
 
+[Unreleased]: https://github.com/cboxdk/statamic-mcp/compare/v2.9.1...HEAD
 [2.9.1]: https://github.com/cboxdk/statamic-mcp/compare/v2.9.0...v2.9.1
 [2.9.0]: https://github.com/cboxdk/statamic-mcp/compare/v2.8.0...v2.9.0
 [2.8.0]: https://github.com/cboxdk/statamic-mcp/compare/v2.7.0...v2.8.0

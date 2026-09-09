@@ -237,6 +237,7 @@ class BlueprintsRouter extends BaseRouter
 
         foreach (explode('.', $path) as $segment) {
             if ($field !== null) {
+                $parentIsSetHolder = $field->fieldtype() instanceof Replicator;
                 $next = $this->childFields($field, $segment);
 
                 if ($next === null) {
@@ -244,12 +245,14 @@ class BlueprintsRouter extends BaseRouter
                 }
 
                 $fields = $next;
-                $field = $fields->count() === 1 && $fields->has($segment) ? $fields->get($segment) : null;
 
-                // A set handle resolves to a collection of fields, not a field.
-                if ($field === null && $fields->has($segment)) {
-                    $field = $fields->get($segment);
-                }
+                // What the segment named depends on the parent. On a replicator
+                // or bard it is a set handle, which resolves to that set's whole
+                // field collection; on a group or grid it is one inner field.
+                // Reading it off the resolved collection instead would mistake a
+                // set for a field whenever a set contains a field of the same
+                // handle.
+                $field = $parentIsSetHolder ? null : $fields->get($segment);
 
                 $walked[] = $segment;
 

@@ -36,7 +36,7 @@ Manage blueprint definitions, field schemas, and type generation.
 | Action | Description | Key Parameters |
 |--------|-------------|----------------|
 | `list` | List blueprints | `namespace`, `include_details`, `include_fields` |
-| `get` | Get a specific blueprint | `handle`, `namespace` |
+| `get` | Get a specific blueprint | `handle`, `namespace`, `field`, `include_config`, `include_format_spec`, `max_format_depth` |
 | `create` | Create a blueprint | `handle`, `namespace`, `fields` |
 | `update` | Update a blueprint | `handle`, `namespace`, `fields` |
 | `delete` | Delete a blueprint | `handle`, `namespace`, `confirm` |
@@ -51,13 +51,47 @@ Dedicated entry operations with advanced filtering, search, and pagination.
 
 | Action | Description | Key Parameters |
 |--------|-------------|----------------|
-| `list` | List with filtering | `collection`, `filter`, `search`, `status`, `page`, `per_page` |
-| `get` | Get entry | `collection`, `id` |
+| `list` | List with filtering | `collection`, `filters`, `include_unpublished`, `limit`, `offset` |
+| `get` | Get entry | `collection`, `id`, `version` |
 | `create` | Create entry | `collection`, `slug`, `data` |
-| `update` | Update entry | `collection`, `id`, `data`, `merge_strategy` |
+| `update` | Update entry | `collection`, `id`, `data`, `merge_sets`, `revision_message` |
+| `localize` | Create the entry's localization in another site | `collection`, `id`, `site`, `data` |
 | `delete` | Delete entry | `collection`, `id` |
-| `publish` | Publish entry | `collection`, `id` |
-| `unpublish` | Unpublish entry | `collection`, `id` |
+| `publish` | Publish entry | `collection`, `id`, `revision_message` |
+| `unpublish` | Unpublish entry | `collection`, `id`, `revision_message` |
+| `list_revisions` | List an entry's revisions | `collection`, `id` |
+| `get_revision` | Read one revision | `collection`, `id`, `revision_id` |
+| `restore_revision` | Restore a revision | `collection`, `id`, `revision_id` |
+| `publish_working_copy` | Publish the working copy | `collection`, `id`, `revision_message` |
+
+#### Narrowing a blueprint response
+
+A page builder's format spec is proportional to every set it can hold, so the
+full response for a large blueprint can exceed the response size limit at any
+useful depth. Pass `field` to `statamic-blueprints get` with a dot path to scope
+the response to one field or set:
+
+```json
+{ "action": "get", "namespace": "collections", "collection_handle": "pages",
+  "handle": "pages", "field": "page_builder.ContentSection.media" }
+```
+
+Segments are the handles the spec already reports — `allowed_set_types` for a
+set, `group_fields` for a group. An unresolvable path lists the valid segments
+at the level it failed, so a client can walk down without guessing.
+
+#### Updating one section of a page builder
+
+By default a replicator field in `data` replaces the stored array outright, so
+changing one section means resending every other. With `merge_sets: true` the
+incoming items are merged into the stored array by their `id`: an id that
+already exists is replaced in place, a new one is appended, and stored items
+you did not send are left untouched.
+
+Every item sent must carry an `id`. Removing or reordering items still requires
+sending the full array with `merge_sets` off, where the intent is unambiguous.
+Applies to top-level replicator fields only — not bard, whose nodes are not all
+addressable by id.
 
 ### `statamic-terms`
 

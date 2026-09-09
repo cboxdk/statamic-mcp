@@ -54,6 +54,8 @@ Controls authentication enforcement, audit logging, and system hardening.
 | `security.expose_versions` | `STATAMIC_MCP_EXPOSE_VERSIONS` | `false` | Include Statamic/Laravel versions in responses |
 | `security.max_token_lifetime_days` | `STATAMIC_MCP_MAX_TOKEN_LIFETIME` | `365` | Maximum token lifetime in days |
 | `security.tool_timeout_seconds` | `STATAMIC_MCP_TOOL_TIMEOUT` | `30` | Maximum execution time per tool call |
+| `security.max_response_size` | `STATAMIC_MCP_MAX_RESPONSE_SIZE` | `100000` | Largest tool response in bytes before it is refused; `0` disables the guard |
+| `security.reject_unknown_fields` | `STATAMIC_MCP_REJECT_UNKNOWN_FIELDS` | `true` | Refuse writes carrying keys that are not field handles inside a set, grid row or group |
 
 ```php
 'security' => [
@@ -63,8 +65,33 @@ Controls authentication enforcement, audit logging, and system hardening.
     'expose_versions' => env('STATAMIC_MCP_EXPOSE_VERSIONS', false),
     'max_token_lifetime_days' => env('STATAMIC_MCP_MAX_TOKEN_LIFETIME', 365),
     'tool_timeout_seconds' => env('STATAMIC_MCP_TOOL_TIMEOUT', 30),
+    'max_response_size' => (int) env('STATAMIC_MCP_MAX_RESPONSE_SIZE', 100000),
+    'reject_unknown_fields' => env('STATAMIC_MCP_REJECT_UNKNOWN_FIELDS', true),
 ],
 ```
+
+### `max_response_size`
+
+The limit exists to protect the client's context window, not the server: the
+response has already been built by the time it is measured. The right ceiling
+therefore depends on the client, which is why it is configurable. Setting it to
+`0` disables the guard entirely — reasonable for a client with a large context,
+but a tool call can then return an arbitrarily large payload.
+
+### `reject_unknown_fields`
+
+Inside a replicator set, grid row, bard set or group, a key that is not a field
+handle is not an error to Statamic. `Replicator::processRow()` and
+`Grid::processRow()` merge the raw row back over the processed one, so the key
+is written to the content file as inert data that no template reads — and the
+write reports success. For a client that cannot read the blueprint from the
+repository, that is undiagnosable, so this refuses the write instead and names
+the valid handles at that level.
+
+The check does not apply at the top level of a record. An entry legitimately
+carries keys that are not blueprint fields — `template` and `layout` are read
+back by `Entry::template()` and `Entry::layout()`, `parent` backs structures —
+and no allowlist can enumerate what every addon adds.
 
 ## Rate Limiting
 
@@ -195,6 +222,8 @@ STATAMIC_MCP_EXPOSE_VERSIONS=false
 STATAMIC_MCP_MAX_UPLOAD_SIZE=10485760
 STATAMIC_MCP_MAX_TOKEN_LIFETIME=365
 STATAMIC_MCP_TOOL_TIMEOUT=30
+STATAMIC_MCP_MAX_RESPONSE_SIZE=100000
+STATAMIC_MCP_REJECT_UNKNOWN_FIELDS=true
 
 # Rate limiting
 STATAMIC_MCP_RATE_LIMIT_MAX=60
