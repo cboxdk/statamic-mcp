@@ -9,6 +9,7 @@ use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
+use Illuminate\Support\Collection as SupportCollection;
 use Illuminate\Support\Str;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
@@ -17,8 +18,12 @@ use Statamic\Exceptions\FieldtypeNotFoundException;
 use Statamic\Facades\Blueprint;
 use Statamic\Facades\Collection;
 use Statamic\Facades\Taxonomy;
+use Statamic\Fields\Blueprint as BlueprintContract;
 use Statamic\Fields\Field;
 use Statamic\Fields\FieldtypeRepository;
+use Statamic\Fieldtypes\Grid;
+use Statamic\Fieldtypes\Group;
+use Statamic\Fieldtypes\Replicator;
 
 #[Name('statamic-blueprints')]
 #[Title('Statamic Blueprints')]
@@ -102,6 +107,17 @@ class BlueprintsRouter extends BaseRouter
                 ->description('Include field type and configuration details in response. Default: false for list, true for get'),
             'include_fields' => JsonSchema::boolean()
                 ->description('Only applies to list. Include field handle/type/display in list response. Default: true.'),
+            'field' => JsonSchema::string()
+                ->description(
+                    'Only applies to get. Dot path narrowing the response to one field or set instead of the '
+                    . 'whole blueprint, so a deep spec fits in a reply: "page_builder" for a field, '
+                    . '"page_builder.ContentSection" for one replicator or bard set, '
+                    . '"page_builder.ContentSection.media" to go deeper. Segments are the handles the spec '
+                    . 'already reports — allowed_set_types for a set, group_fields for a group. Both '
+                    . 'include_config and include_format_spec are scoped to the subtree. An unresolvable path '
+                    . 'lists the valid segments at the level it failed.'
+                ),
+
             'include_config' => JsonSchema::boolean()
                 ->description('Only applies to get. Include full field config in the response. Default: true.'),
             'include_format_spec' => JsonSchema::boolean()
@@ -165,7 +181,7 @@ class BlueprintsRouter extends BaseRouter
 
             $data = $blueprints->values()->skip($offset)->take($limit)
                 ->map(function (mixed $blueprint) use ($includeDetails, $includeFields): array {
-                    /** @var \Statamic\Fields\Blueprint $blueprint */
+                    /** @var BlueprintContract $blueprint */
                     $result = [
                         'handle' => $blueprint->handle(),
                         'title' => $blueprint->title(),
@@ -202,6 +218,173 @@ class BlueprintsRouter extends BaseRouter
     }
 
     /**
+     * Narrow the response to one field or set.
+     *
+     * A page builder's spec is proportional to every set it can hold, so on a
+     * real blueprint the full response runs to hundreds of kilobytes and a
+     * client cannot take it at any useful depth. Almost always the caller
+     * wants one component, and asking for it by path keeps both the depth and
+     * the payload under control.
+     *
+     * @return array<string, mixed>
+     */
+    private function getBlueprintSubtree(BlueprintContract $blueprint, string $path, bool $includeConfig, ?FieldFormatSpec $formatSpec): array
+    {
+        /** @var SupportCollection<string, Field> $fields */
+        $fields = $blueprint->fields()->all();
+        $walked = [];
+        $field = null;
+
+        foreach (explode('.', $path) as $segment) {
+            if ($field !== null) {
+                $next = $this->childFields($field, $segment);
+
+                if ($next === null) {
+                    return $this->unresolvableSegment($path, $segment, $walked, $this->childSegments($field));
+                }
+
+                $fields = $next;
+                $field = $fields->count() === 1 && $fields->has($segment) ? $fields->get($segment) : null;
+
+                // A set handle resolves to a collection of fields, not a field.
+                if ($field === null && $fields->has($segment)) {
+                    $field = $fields->get($segment);
+                }
+
+                $walked[] = $segment;
+
+                continue;
+            }
+
+            if (! $fields->has($segment)) {
+                return $this->unresolvableSegment($path, $segment, $walked, $fields->keys()->all());
+            }
+
+            $field = $fields->get($segment);
+            $walked[] = $segment;
+        }
+
+        $data = [
+            'handle' => $blueprint->handle(),
+            'title' => $blueprint->title(),
+            'namespace' => $blueprint->namespace(),
+            'field_path' => $path,
+        ];
+
+        if ($field instanceof Field) {
+            $data['field'] = $this->describeField($field, $includeConfig, $formatSpec);
+        } else {
+            $data['fields'] = $fields
+                ->map(fn (mixed $f): array => $this->describeField($f, $includeConfig, $formatSpec))
+                ->toArray();
+        }
+
+        return ['blueprint' => $data];
+    }
+
+    /**
+     * Fields reachable one segment below a field: a replicator or bard set, or
+     * the inner fields of a group or grid.
+     *
+     * @return SupportCollection<string, Field>|null
+     */
+    private function childFields(Field $field, string $segment): ?SupportCollection
+    {
+        $fieldtype = $field->fieldtype();
+
+        // Bard extends Replicator, so this covers both.
+        if ($fieldtype instanceof Replicator) {
+            if (! $fieldtype->flattenedSetsConfig()->has($segment)) {
+                return null;
+            }
+
+            /** @var SupportCollection<string, Field> $setFields */
+            $setFields = $fieldtype->fields($segment)->all();
+
+            return $setFields;
+        }
+
+        if ($fieldtype instanceof Group || $fieldtype instanceof Grid) {
+            /** @var SupportCollection<string, Field> $inner */
+            $inner = $fieldtype->fields()->all();
+
+            return $inner->has($segment) ? $inner : null;
+        }
+
+        return null;
+    }
+
+    /**
+     * The segments that would resolve below a field, for the error message.
+     *
+     * @return array<int, string>
+     */
+    private function childSegments(Field $field): array
+    {
+        $fieldtype = $field->fieldtype();
+
+        // Bard extends Replicator, so this covers both.
+        if ($fieldtype instanceof Replicator) {
+            /** @var array<int, string> $setHandles */
+            $setHandles = array_map('strval', array_keys($fieldtype->flattenedSetsConfig()->all()));
+
+            return $setHandles;
+        }
+
+        if ($fieldtype instanceof Group || $fieldtype instanceof Grid) {
+            /** @var array<int, string> $handles */
+            $handles = array_map('strval', $fieldtype->fields()->all()->keys()->all());
+
+            return $handles;
+        }
+
+        return [];
+    }
+
+    /**
+     * @param  array<int, string>  $walked
+     * @param  array<int, string>  $valid
+     *
+     * @return array<string, mixed>
+     */
+    private function unresolvableSegment(string $path, string $segment, array $walked, array $valid): array
+    {
+        sort($valid);
+        $at = $walked === [] ? 'the top level' : '[' . implode('.', $walked) . ']';
+
+        return $this->createErrorResponse(sprintf(
+            'Field path [%s] does not resolve: [%s] is not a field or set at %s. Valid segments there: %s.',
+            $path,
+            $segment,
+            $at,
+            $valid === [] ? '(none — this field has no children)' : implode(', ', $valid)
+        ))->toArray();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function describeField(mixed $field, bool $includeConfig, ?FieldFormatSpec $formatSpec): array
+    {
+        /** @var Field $field */
+        $data = [
+            'handle' => $field->handle(),
+            'type' => $field->type(),
+            'display' => $field->display(),
+        ];
+
+        if ($includeConfig) {
+            $data['config'] = $field->config();
+        }
+
+        if ($formatSpec !== null && ($spec = $formatSpec->for($field)) !== null) {
+            $data['_format_spec'] = $spec;
+        }
+
+        return $data;
+    }
+
+    /**
      * @param  array<string, mixed>  $arguments
      *
      * @return array<string, mixed>
@@ -224,6 +407,14 @@ class BlueprintsRouter extends BaseRouter
             }
 
             $formatSpec = $includeFormatSpec ? new FieldFormatSpec($maxFormatDepth) : null;
+
+            $fieldPath = isset($arguments['field']) && is_string($arguments['field']) && $arguments['field'] !== ''
+                ? $arguments['field']
+                : null;
+
+            if ($fieldPath !== null) {
+                return $this->getBlueprintSubtree($blueprint, $fieldPath, $includeConfig, $formatSpec);
+            }
 
             $data = [
                 'handle' => $blueprint->handle(),
@@ -402,14 +593,14 @@ class BlueprintsRouter extends BaseRouter
      * @param  string|null  $collectionHandle  Collection handle for collection blueprints
      * @param  string|null  $taxonomyHandle  Taxonomy handle for taxonomy blueprints
      */
-    private function findBlueprint(string $handle, ?string $namespace = null, ?string $collectionHandle = null, ?string $taxonomyHandle = null): ?\Statamic\Fields\Blueprint
+    private function findBlueprint(string $handle, ?string $namespace = null, ?string $collectionHandle = null, ?string $taxonomyHandle = null): ?BlueprintContract
     {
         if ($namespace) {
             // For collections, use collection_handle to build correct namespace
             if ($namespace === 'collections' && $collectionHandle) {
                 try {
                     $blueprint = collect(Blueprint::in("collections.{$collectionHandle}")->all())->firstWhere('handle', $handle);
-                    if ($blueprint instanceof \Statamic\Fields\Blueprint) {
+                    if ($blueprint instanceof BlueprintContract) {
                         return $blueprint;
                     }
                 } catch (\Exception $e) {
@@ -421,7 +612,7 @@ class BlueprintsRouter extends BaseRouter
             if ($namespace === 'taxonomies' && $taxonomyHandle) {
                 try {
                     $blueprint = collect(Blueprint::in("taxonomies.{$taxonomyHandle}")->all())->firstWhere('handle', $handle);
-                    if ($blueprint instanceof \Statamic\Fields\Blueprint) {
+                    if ($blueprint instanceof BlueprintContract) {
                         return $blueprint;
                     }
                 } catch (\Exception $e) {
@@ -432,7 +623,7 @@ class BlueprintsRouter extends BaseRouter
             // Try the exact namespace
             $blueprint = collect(Blueprint::in($namespace)->all())->firstWhere('handle', $handle);
 
-            if ($blueprint instanceof \Statamic\Fields\Blueprint) {
+            if ($blueprint instanceof BlueprintContract) {
 
                 return $blueprint;
             }
@@ -446,7 +637,7 @@ class BlueprintsRouter extends BaseRouter
         foreach ($standardNamespaces as $searchNamespace) {
             try {
                 $blueprint = collect(Blueprint::in($searchNamespace)->all())->firstWhere('handle', $handle);
-                if ($blueprint instanceof \Statamic\Fields\Blueprint) {
+                if ($blueprint instanceof BlueprintContract) {
                     return $blueprint;
                 }
             } catch (\Exception $e) {
@@ -457,7 +648,7 @@ class BlueprintsRouter extends BaseRouter
         // Try collection-specific namespace (e.g., collections.pages)
         try {
             $blueprint = collect(Blueprint::in("collections.{$handle}")->all())->firstWhere('handle', $handle);
-            if ($blueprint instanceof \Statamic\Fields\Blueprint) {
+            if ($blueprint instanceof BlueprintContract) {
                 return $blueprint;
             }
         } catch (\Exception $e) {
@@ -572,7 +763,7 @@ class BlueprintsRouter extends BaseRouter
             try {
                 $fieldtypeRepo->find($type);
             } catch (FieldtypeNotFoundException) {
-                /** @var \Illuminate\Support\Collection<string, string> $handles */
+                /** @var SupportCollection<string, string> $handles */
                 $handles = $fieldtypeRepo->handles();
                 $available = $handles->values()->sort()->implode(', ');
 
@@ -872,7 +1063,7 @@ class BlueprintsRouter extends BaseRouter
 
             $types = [];
             foreach ($paged as $blueprint) {
-                /** @var \Statamic\Fields\Blueprint $blueprint */
+                /** @var BlueprintContract $blueprint */
                 $fields = $blueprint->fields()->all()->map(function (mixed $field): array {
                     /** @var Field $field */
                     return [
@@ -957,9 +1148,9 @@ class BlueprintsRouter extends BaseRouter
      *
      * @param  string|null  $namespace  Filter to a specific namespace
      *
-     * @return \Illuminate\Support\Collection<int|string, mixed>
+     * @return SupportCollection<int|string, mixed>
      */
-    private function collectAllBlueprints(?string $namespace = null): \Illuminate\Support\Collection
+    private function collectAllBlueprints(?string $namespace = null): SupportCollection
     {
         $blueprints = collect(Blueprint::in('collections')->all())
             ->merge(Blueprint::in('taxonomies')->all())
@@ -984,7 +1175,7 @@ class BlueprintsRouter extends BaseRouter
 
         if ($namespace) {
             $blueprints = $blueprints->filter(function (mixed $blueprint) use ($namespace): bool {
-                /** @var \Statamic\Fields\Blueprint $blueprint */
+                /** @var BlueprintContract $blueprint */
                 return $blueprint->namespace() === $namespace ||
                        ($namespace === 'collections' && str_starts_with($blueprint->namespace() ?? '', 'collections.'));
             });
