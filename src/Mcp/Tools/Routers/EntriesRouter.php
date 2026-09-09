@@ -608,9 +608,16 @@ class EntriesRouter extends BaseRouter
                         ])
                         ->validate();
 
-                    $localization->data(
-                        $fields->process()->values()->except(['slug', 'date'])->all()
-                    );
+                    // Store only what the caller actually sent. addValues()
+                    // populates every field in the blueprint, so taking all of
+                    // values() would write an explicit null for each field the
+                    // translator left alone — which both defeats the fallback
+                    // to the origin and poisons later updates, since update
+                    // validates the stored data merged with the incoming and
+                    // those nulls fail rules the field would otherwise skip.
+                    $processed = $fields->process()->values()->except(['slug', 'date'])->all();
+
+                    $localization->data(array_intersect_key($processed, $data));
                 } catch (ValidationException $e) {
                     return $this->formatValidationError($e);
                 } catch (\Throwable $e) {

@@ -177,6 +177,63 @@ class EntriesLocalizeTest extends TestCase
         $this->assertSame('thuis', Entry::find('home')->in('en')->slug());
     }
 
+    public function test_stores_only_the_fields_that_were_sent(): void
+    {
+        $this->router->execute([
+            'action' => 'localize',
+            'collection' => $this->collectionHandle,
+            'id' => 'home',
+            'site' => 'en',
+            'data' => ['title' => 'Home'],
+        ]);
+
+        $stored = Entry::find('home')->in('en')->data()->all();
+
+        $this->assertSame(['title' => 'Home'], $stored);
+        // An explicit null would override the origin rather than fall back to it.
+        $this->assertArrayNotHasKey('intro', $stored);
+    }
+
+    public function test_a_partial_localization_still_falls_back_for_the_rest(): void
+    {
+        $this->router->execute([
+            'action' => 'localize',
+            'collection' => $this->collectionHandle,
+            'id' => 'home',
+            'site' => 'en',
+            'data' => ['title' => 'Home'],
+        ]);
+
+        $localized = Entry::find('home')->in('en');
+
+        $this->assertSame('Home', $localized->value('title'));
+        $this->assertSame('Welkom', $localized->value('intro'));
+    }
+
+    public function test_the_localization_can_be_updated_after_a_partial_localize(): void
+    {
+        // Regression: storing a null for every untouched field made the next
+        // update fail on rules those fields would otherwise have skipped.
+        $this->router->execute([
+            'action' => 'localize',
+            'collection' => $this->collectionHandle,
+            'id' => 'home',
+            'site' => 'en',
+            'data' => ['title' => 'Home'],
+        ]);
+
+        $result = $this->router->execute([
+            'action' => 'update',
+            'collection' => $this->collectionHandle,
+            'id' => 'home',
+            'site' => 'en',
+            'data' => ['intro' => 'Welcome'],
+        ]);
+
+        $this->assertTrue($result['success'], json_encode($result['errors'] ?? []));
+        $this->assertSame('Welcome', Entry::find('home')->in('en')->get('intro'));
+    }
+
     public function test_update_can_edit_the_localization_afterwards(): void
     {
         $this->router->execute([
