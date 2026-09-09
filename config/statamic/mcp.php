@@ -112,6 +112,12 @@ return [
         // The limit exists to protect the client's context window, so the right
         // value depends on the client; 0 disables the guard entirely.
         'max_response_size' => (int) env('STATAMIC_MCP_MAX_RESPONSE_SIZE', 100000),
+
+        // Reject writes carrying keys that are not field handles. Statamic
+        // discards them at the top level and stores them as inert data inside
+        // replicator, grid and bard sets, so an invented handle otherwise
+        // reports success while producing content that does not match.
+        'reject_unknown_fields' => env('STATAMIC_MCP_REJECT_UNKNOWN_FIELDS', true),
     ],
 
     /*
