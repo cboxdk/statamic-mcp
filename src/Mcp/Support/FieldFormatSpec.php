@@ -368,19 +368,53 @@ class FieldFormatSpec
     {
         $config = $field->config();
         $multiple = (bool) ($config['multiple'] ?? false);
-        $rawOptions = $config['options'] ?? [];
-        $options = [];
-        if (is_array($rawOptions)) {
-            // Statamic options can be either a flat list or a key=>label map.
-            $isAssoc = array_keys($rawOptions) !== range(0, count($rawOptions) - 1);
-            $options = $isAssoc ? array_keys($rawOptions) : array_values(array_filter($rawOptions, 'is_scalar'));
-        }
 
         return [
             'wire_format' => $multiple ? 'array' : 'string',
             'shape' => $multiple ? 'enum_array' : 'enum',
-            'allowed_values' => array_map(static fn ($v): string => (string) $v, $options),
+            'allowed_values' => $this->optionValues($config['options'] ?? []),
         ];
+    }
+
+    /**
+     * The writable value of each option, across the three shapes Statamic
+     * accepts (see Fieldtypes\HasSelectOptions::getOptions()): a key => label
+     * map, a flat list of scalars, and a list of ['key' => ..., 'value' => ...]
+     * maps. The last is what the Control Panel writes, so it is the common one
+     * in practice.
+     *
+     * @return list<string>
+     */
+    private function optionValues(mixed $options): array
+    {
+        if ($options instanceof Collection) {
+            $options = $options->all();
+        }
+
+        if (! is_array($options)) {
+            return [];
+        }
+
+        $values = [];
+
+        foreach ($options as $key => $option) {
+            if (is_array($option)) {
+                if (array_key_exists('key', $option) && is_scalar($option['key'])) {
+                    $values[] = $option['key'];
+                }
+
+                continue;
+            }
+
+            // A string key means a key => label map; otherwise it is a flat list.
+            $candidate = is_string($key) ? $key : $option;
+
+            if (is_scalar($candidate)) {
+                $values[] = $candidate;
+            }
+        }
+
+        return array_map(static fn (mixed $v): string => (string) $v, $values);
     }
 
     /**
