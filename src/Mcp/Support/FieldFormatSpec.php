@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Support;
 
 use Illuminate\Support\Collection;
+use Statamic\Facades\Icon as Icons;
 use Statamic\Fields\Field;
 use Statamic\Fieldtypes\Bard;
 use Statamic\Fieldtypes\Grid;
@@ -24,6 +25,14 @@ use Statamic\Fieldtypes\Replicator;
  */
 class FieldFormatSpec
 {
+    /**
+     * Icon sets encountered while building specs, so their names can be listed
+     * once per response instead of on every field that uses them.
+     *
+     * @var array<string, list<string>>
+     */
+    private array $iconSets = [];
+
     public function __construct(
         private int $maxDepth = 2,
     ) {}
@@ -51,7 +60,8 @@ class FieldFormatSpec
             'grid' => $this->gridSpec($field, $depth),
             'group' => $this->groupSpec($field, $depth),
             'markdown' => $this->markdownSpec(),
-            'text', 'textarea', 'slug', 'code', 'yaml', 'html', 'video', 'color', 'icon' => $this->stringSpec(),
+            'text', 'textarea', 'slug', 'code', 'yaml', 'html', 'video', 'color' => $this->stringSpec(),
+            'icon' => $this->iconSpec($field),
             'integer' => ['wire_format' => 'integer', 'shape' => 'integer'],
             'float' => ['wire_format' => 'number', 'shape' => 'number'],
             'toggle' => ['wire_format' => 'boolean', 'shape' => 'boolean'],
@@ -359,6 +369,65 @@ class FieldFormatSpec
     private function stringSpec(): array
     {
         return ['wire_format' => 'string', 'shape' => 'string'];
+    }
+
+    /**
+     * Icon names live in the set's directory on disk, so they appear nowhere
+     * in the blueprint and an invalid one renders nothing rather than
+     * erroring. Resolution mirrors the fieldtype's own; Icon::get() throws
+     * for an unregistered set, so that degrades to a named string spec.
+     *
+     * @return array<string, mixed>
+     */
+    private function iconSpec(Field $field): array
+    {
+        $configured = $field->get('set');
+        $setName = is_string($configured) && $configured !== '' ? $configured : 'default';
+
+        $spec = [
+            'wire_format' => 'string',
+            'shape' => 'icon_name',
+            'icon_set' => $setName,
+            'rules' => [
+                "Bare icon name from the \"{$setName}\" set — no directory, no \".svg\" suffix, no inline SVG markup.",
+                'Must match one of the names exactly. An unlisted name is stored without error and renders nothing.',
+            ],
+            'common_mistakes' => [
+                'Sending a filename ("users.svg") or a path ("icons/users.svg") instead of the name ("users").',
+                'Inventing a plausible name — icon sets vary per site, so guessing produces an empty icon rather than an error.',
+            ],
+        ];
+
+        if (! array_key_exists($setName, $this->iconSets)) {
+            try {
+                /** @var list<string> $names */
+                $names = array_values(array_filter(Icons::get($setName)->names()->all(), 'is_string'));
+                $this->iconSets[$setName] = $names;
+            } catch (\Throwable) {
+                $spec['rules'][] = "The \"{$setName}\" set is not registered on this site, so its names cannot be listed.";
+
+                return $spec;
+            }
+        }
+
+        $spec['option_count'] = count($this->iconSets[$setName]);
+        $spec['rules'][] = "Names are listed once per response under icon_sets[\"{$setName}\"].";
+
+        return $spec;
+    }
+
+    /**
+     * Icon sets referenced by the fields specced so far, keyed by set name.
+     *
+     * Listing them once keeps a blueprint response proportional to the number
+     * of sets rather than the number of icon fields: a page builder can reach
+     * dozens of icon fields that all point at the same set.
+     *
+     * @return array<string, list<string>>
+     */
+    public function collectedIconSets(): array
+    {
+        return $this->iconSets;
     }
 
     /**
