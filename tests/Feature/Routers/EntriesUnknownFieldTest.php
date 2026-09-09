@@ -12,15 +12,18 @@ use Statamic\Facades\Entry;
 use Statamic\Facades\Stache;
 
 /**
- * A key that is not a field handle must fail loudly.
+ * A key that is not a field handle inside a set, grid row or group must fail
+ * loudly.
  *
- * Statamic swallows them in two different ways, both invisible to the caller:
- * Fields::addValues() only reads handles it knows, so a stray key at the top
- * level is discarded, while Replicator::processRow() and Grid::processRow()
- * merge the raw row back over the processed one, so a stray key inside a set
- * is written to the content file as inert data. Either way the write reports
- * success and the content does not match the request — undiagnosable for a
- * client that cannot read the blueprint from the repository.
+ * Replicator::processRow() and Grid::processRow() merge the raw row back over
+ * the processed one, so a stray key inside a set is written to the content file
+ * as inert data. The write reports success and the content does not match the
+ * request — undiagnosable for a client that cannot read the blueprint from the
+ * repository.
+ *
+ * The top level of a record is deliberately exempt: an entry legitimately
+ * carries keys that are not blueprint fields and that Statamic reads back
+ * itself, so checking there would reject valid writes.
  */
 class EntriesUnknownFieldTest extends TestCase
 {
@@ -90,18 +93,43 @@ class EntriesUnknownFieldTest extends TestCase
             ->save();
     }
 
-    public function test_rejects_an_unknown_top_level_handle(): void
+    public function test_does_not_refuse_entry_properties_statamic_reads_outside_the_blueprint(): void
     {
+        // template and layout are not blueprint fields, but Entry::template()
+        // and Entry::layout() read them straight off entry data, so a caller
+        // sending them is not making a mistake and must not be refused.
+        //
+        // They are not persisted either: the write pipeline runs values through
+        // Fields::addValues()->process()->values(), which only knows blueprint
+        // handles, so a non-blueprint key is dropped on the way to storage.
+        // That predates this check and is tracked separately — the point here
+        // is that the request is accepted rather than rejected.
+        $this->makeEntry('templated');
+
+        $result = $this->router->execute([
+            'action' => 'update',
+            'collection' => $this->collectionHandle,
+            'id' => 'templated',
+            'data' => ['title' => 'Templated', 'template' => 'pages/landing', 'layout' => 'layouts/wide'],
+        ]);
+
+        $this->assertTrue($result['success'], json_encode($result['errors'] ?? []));
+        $this->assertSame('Templated', Entry::find('templated')->get('title'));
+    }
+
+    public function test_does_not_check_unknown_handles_at_the_top_level(): void
+    {
+        // The top level is not checked: an entry carries legitimate keys that
+        // are not blueprint fields, and no allowlist can enumerate what every
+        // addon adds. Statamic discards a genuinely stray one, as it always has.
         $result = $this->router->execute([
             'action' => 'create',
             'collection' => $this->collectionHandle,
             'slug' => 'about',
-            'data' => ['title' => 'About', 'subtitle' => 'silently dropped today'],
+            'data' => ['title' => 'About', 'subtitle' => 'dropped by Statamic, as before'],
         ]);
 
-        $this->assertFalse($result['success']);
-        $this->assertStringContainsString('[subtitle]', implode(' ', $result['errors']));
-        $this->assertNull(Entry::query()->where('slug', 'about')->first());
+        $this->assertTrue($result['success'], json_encode($result['errors'] ?? []));
     }
 
     public function test_rejects_an_unknown_handle_inside_a_replicator_set(): void
@@ -227,7 +255,15 @@ class EntriesUnknownFieldTest extends TestCase
             'action' => 'update',
             'collection' => $this->collectionHandle,
             'id' => 'lenient',
-            'data' => ['title' => 'Lenient', 'subtitle' => 'tolerated'],
+            'data' => [
+                'page_builder' => [[
+                    'id' => 'set-1',
+                    'type' => 'content_section',
+                    'enabled' => true,
+                    'body' => 'Kept',
+                    'cards' => [['id' => 'c1', 'label' => 'tolerated']],
+                ]],
+            ],
         ]);
 
         $this->assertTrue($result['success'], json_encode($result['errors'] ?? []));

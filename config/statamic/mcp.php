@@ -113,10 +113,12 @@ return [
         // value depends on the client; 0 disables the guard entirely.
         'max_response_size' => (int) env('STATAMIC_MCP_MAX_RESPONSE_SIZE', 100000),
 
-        // Reject writes carrying keys that are not field handles. Statamic
-        // discards them at the top level and stores them as inert data inside
-        // replicator, grid and bard sets, so an invented handle otherwise
-        // reports success while producing content that does not match.
+        // Reject writes carrying keys that are not field handles inside a
+        // replicator set, grid row, bard set or group. Statamic stores them as
+        // inert data no template reads, so an invented handle otherwise reports
+        // success while producing content that does not match. Not applied at
+        // the top level of a record, where non-blueprint keys such as template,
+        // layout and parent are legitimate.
         'reject_unknown_fields' => env('STATAMIC_MCP_REJECT_UNKNOWN_FIELDS', true),
     ],
 

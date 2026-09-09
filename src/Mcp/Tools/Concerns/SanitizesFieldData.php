@@ -25,19 +25,6 @@ trait SanitizesFieldData
      */
     private static array $entryMetaKeys = ['blueprint', 'fieldset', 'id'];
 
-    /**
-     * Record properties a caller may send alongside field data: the routers
-     * consume some before sanitising, and a payload round-tripped from a read
-     * carries the rest.
-     *
-     * @var array<int, string>
-     */
-    private const RECORD_PROPERTY_KEYS = [
-        'id', 'blueprint', 'fieldset', 'slug', 'published', 'date',
-        'created_at', 'created_by', 'updated_at', 'updated_by',
-        'origin', 'locale', 'site', 'collection', 'taxonomy', '_id',
-    ];
-
     /** Structural keys on a replicator item (see FieldFormatSpec: id, type, enabled). */
     private const REPLICATOR_ITEM_KEYS = ['id', '_id', 'type', 'enabled'];
 
@@ -97,7 +84,10 @@ trait SanitizesFieldData
     /**
      * @param  Collection<string, Field>  $fields
      * @param  array<string, mixed>  $data
-     * @param  array<int, string>  $structuralKeys
+     * @param  array<int, string>|null  $structuralKeys  Keys that are structural rather than
+     *                                                   field handles at this level; null at the
+     *                                                   top level of a record, where the
+     *                                                   unknown-handle check does not apply.
      *
      * @return array<string, mixed>
      */
@@ -107,7 +97,7 @@ trait SanitizesFieldData
         bool $allowLegacyCoercion,
         bool $stripEntryMeta,
         string $path = '',
-        array $structuralKeys = self::RECORD_PROPERTY_KEYS
+        ?array $structuralKeys = null
     ): array {
         if ($stripEntryMeta) {
             foreach (self::$entryMetaKeys as $key) {
@@ -119,7 +109,7 @@ trait SanitizesFieldData
 
         // Stored data being re-validated may carry handles from an older
         // blueprint; only incoming payloads are held to the current one.
-        if (! $allowLegacyCoercion) {
+        if (! $allowLegacyCoercion && $structuralKeys !== null) {
             $this->assertKnownHandles($fields, $data, $path, $structuralKeys);
         }
 
@@ -140,12 +130,18 @@ trait SanitizesFieldData
     }
 
     /**
-     * Reject keys that are not field handles at this level.
+     * Reject keys that are not field handles inside a set, grid row or group.
      *
-     * Statamic stays quiet two different ways: Fields::addValues() reads only
-     * handles it knows, discarding stray top-level keys, while Replicator and
-     * Grid processRow() merge the raw row back over the processed one, storing
-     * stray keys inside a set as inert data. Both report success.
+     * Replicator::processRow() and Grid::processRow() merge the raw row back
+     * over the processed one, so a key that is not a field is written to the
+     * content file as inert data that no template reads — and the write still
+     * reports success.
+     *
+     * Deliberately not applied at the top level of a record. An entry legitimately
+     * carries keys that are not blueprint fields and that Statamic itself reads
+     * back — `template` and `layout` via Entry::get(), `parent` for structures —
+     * so checking there rejects valid writes. ValidatesContentRecords scopes its
+     * equivalent check the same way, for the same reason.
      *
      * @param  Collection<string, Field>  $fields
      * @param  array<string, mixed>  $data
@@ -175,11 +171,11 @@ trait SanitizesFieldData
             : '';
 
         throw new FieldFormatException(sprintf(
-            '%s %s not %s in %s. Statamic does not error on unrecognised keys — it discards them at the top level and stores them as inert data inside replicator, grid and bard sets — so this write would have reported success while silently not producing the requested content. Valid handles here: %s%s.',
+            '%s %s not %s in %s. Statamic does not error on unrecognised keys inside a set, grid row or group — it stores them in the content file as inert data no template reads — so this write would have reported success while silently not producing the requested content. Valid handles here: %s%s.',
             count($unknown) === 1 ? 'Field' : 'Fields',
             implode(', ', array_map(static fn (string $key): string => "[{$key}]", $unknown)),
             count($unknown) === 1 ? 'a field' : 'fields',
-            $path === '' ? 'this blueprint' : "[{$path}]",
+            "[{$path}]",
             $listed === [] ? '(none)' : implode(', ', $listed),
             $suffix
         ));
