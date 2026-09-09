@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Concerns;
 
 use Cboxdk\StatamicMcp\Mcp\Exceptions\FieldFormatException;
+use Cboxdk\StatamicMcp\Mcp\Support\FieldtypeExtensions;
 use Illuminate\Support\Collection;
 use Statamic\Fields\Blueprint;
 use Statamic\Fields\Field;
@@ -121,7 +122,8 @@ trait SanitizesFieldData
             'table' => $this->sanitizeTableValue($value, $allowLegacyCoercion, $path),
             'assets' => $this->normalizeAssetFieldValue($field, $value),
             'terms', 'entries', 'users', 'checkboxes' => $this->sanitizeRelationshipValue($value),
-            default => $value,
+            // Untouched unless a sanitizer is registered for the fieldtype.
+            default => FieldtypeExtensions::applySanitizer($field, $value, $path),
         };
     }
 
