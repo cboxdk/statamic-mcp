@@ -747,6 +747,24 @@ into the stored array by item `id` rather than replacing it, so one section of a
 builder can change without resending the rest. Every item sent must carry an `id`;
 removing and reordering still require a full-array write.
 
+**Resolving a blueprint from an unsaved object.** Statamic memoizes resolved
+blueprints in Blink, keyed by the object's identity — `entry-{$id}-blueprint`,
+`term-{$id}-blueprint`, `globals-blueprint-{$handle}-{$locale}`,
+`nav-blueprint-{$handle}`. An **unsaved entry has no id**, so every new entry
+shares the key `entry--blueprint`. A web request creates at most one entry and
+never notices; this server is long-lived, so a second `create` in a different
+collection was handed the first collection's blueprint and silently dropped every
+field the two did not share (#52).
+
+`createEntry()` therefore pins the handle — `$entry->blueprint($handle)` — before
+reading it. Go through the fluent setter, which calls `Blink::forget($key)`;
+resolving straight from the collection would skip the getter and with it the
+`EntryBlueprintFound` event, so addon-injected fields would be filtered out
+instead — the same bug one layer down. **Any new code path that resolves a
+blueprint from an object that is not yet saved needs the same treatment.** Terms,
+globals and navs are safe today only because their keys carry a handle that is
+already set.
+
 `template` and `layout` are entry **data**, not entry properties: `Entry::template()`
 and `Entry::layout()` fall back to `$this->get(...)`, and `fileData()` persists only
 `data()`. They need not be blueprint fields, so `EntriesRouter::PASSTHROUGH_DATA_KEYS`
