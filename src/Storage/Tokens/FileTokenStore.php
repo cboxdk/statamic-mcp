@@ -432,6 +432,13 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
      * operation, and it is what made the prune scaling test intermittently
      * exceed its linear-ish budget on slower disks.
      *
+     * Callers unlink the token files first and remove the hashes once at the
+     * end, so a failure part-way through can leave index entries whose file is
+     * already gone. That is benign: findByHash() resolves an entry through
+     * find(), which requires the file, so a deleted token can never be
+     * authenticated by a stale entry, and rebuildIndex() drops it on the next
+     * miss.
+     *
      * @param  list<string>  $hashes
      */
     private function removeManyFromIndex(array $hashes): void

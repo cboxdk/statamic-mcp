@@ -61,10 +61,12 @@ The MCP server organizes Statamic's capabilities into domain routers with action
 ### Blueprint Management — `statamic-blueprints`
 Actions: `list`, `get`, `create`, `update`, `delete`, `scan`, `generate`, `types`, `validate`
 
-List, inspect, create, and modify blueprints. Generate TypeScript/PHP types from field definitions. Validate blueprints for conflicts and structural integrity.
+List, inspect, create, and modify blueprints. Generate TypeScript/PHP types from field definitions. Validate blueprints for conflicts and structural integrity. `get` accepts a `field` dot path that scopes the response to one field or set, so a deep format spec fits in a reply.
 
 ### Entry Management — `statamic-entries`
-Dedicated entry operations with filtering, search, pagination, status filtering, merge strategies, and bulk operations.
+Actions: `list`, `get`, `create`, `update`, `localize`, `delete`, `publish`, `unpublish`, `list_revisions`, `get_revision`, `restore_revision`, `publish_working_copy`
+
+Entry operations with filtering and pagination, revision workflows, and localization into other sites. `update` can merge replicator items by id instead of replacing the whole array.
 
 ### Term Management — `statamic-terms`
 Taxonomy term operations with slug conflict prevention, dependency validation, and relationship mapping.
@@ -106,7 +108,7 @@ High-level workflow operations: `content_audit`, `content_validate`, and `cross_
 - Rate limiting per token
 - Audit logging for all operations
 - Path traversal protection
-- PHPStan Level 8 strict typing
+- PHPStan Level 9 strict typing
 
 ### CP Dashboard
 Vue 3 dashboard in the Statamic CP (Tools > MCP) with:
@@ -124,7 +126,7 @@ php artisan vendor:publish --tag=statamic-mcp-config
 Key settings in `config/statamic/mcp.php`:
 - Web endpoint (enabled, path, HTTPS enforcement)
 - Authentication (scoped tokens, token lifetime, audit logging)
-- Security (force web mode, audit logging)
+- Security (force web mode, audit logging, response size limit, unknown-field rejection)
 - Rate limiting (max attempts per minute)
 - Per-domain tool enablement
 
@@ -139,8 +141,9 @@ composer test
 ./vendor/bin/pint
 composer pint
 
-# Static analysis (Level 8)
-./vendor/bin/phpstan analyse
+# Static analysis (Level 9)
+# The memory limit is required — the default crashes the parallel worker
+./vendor/bin/phpstan analyse --memory-limit=2G
 composer stan
 
 # Full quality check
@@ -148,7 +151,7 @@ composer quality
 ```
 
 ### Quality Standards
-- PHPStan Level 8 with zero errors
+- PHPStan Level 9 with zero errors, no baseline and no suppressions
 - Laravel Pint formatting
 - Strict types on all PHP files
 - Comprehensive test suite
