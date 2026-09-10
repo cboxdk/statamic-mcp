@@ -425,6 +425,26 @@ class EntriesRouter extends BaseRouter
                 }
             }
 
+            // Pin the blueprint to this collection before resolving it.
+            //
+            // Entry::blueprint() memoizes into Blink under
+            // "entry-{$this->id()}-blueprint", and an unsaved entry has no id,
+            // so every new entry shares the key "entry--blueprint". A web
+            // request creates at most one entry and never notices; this server
+            // is long-lived, so the second create in a different collection was
+            // handed the first collection's blueprint, and every field the two
+            // did not share was dropped from a write that reported success (#52).
+            //
+            // Assigning the handle goes through Statamic's fluent setter, which
+            // forgets that key. The getter below then runs the normal resolution
+            // path, so EntryBlueprintFound listeners still fire and addons that
+            // inject fields keep working.
+            $collectionBlueprint = $collection->entryBlueprint();
+
+            if ($collectionBlueprint !== null) {
+                $entry->blueprint($collectionBlueprint->handle());
+            }
+
             // Get blueprint and validate field data
             $blueprint = $entry->blueprint();
 
