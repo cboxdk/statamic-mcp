@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.10.0] - 2026-09-10
 
 ### Added
 - **`localize` action on `statamic-entries`** (#48) — Creates an entry's localization in another site through Statamic's `makeLocalization()`, so the origin is set and untranslated fields keep falling back to it, and a structured collection places the new entry in the target site's tree. Only the fields actually sent are stored: taking everything `Fields::addValues()` populates would write an explicit null for each field a translator left alone, which both defeats the fallback and poisons later updates, since `update` validates stored data merged with incoming. It is a write action in every sense the authorization stack cares about — it carries `entries:write`, a write-mode resource policy check, and the `create {collection} entries` permission
@@ -417,7 +417,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Laravel MCP v0.2.0 integration
 - Comprehensive test suite
 
-[Unreleased]: https://github.com/cboxdk/statamic-mcp/compare/v2.9.1...HEAD
+[2.10.0]: https://github.com/cboxdk/statamic-mcp/compare/v2.9.1...v2.10.0
 [2.9.1]: https://github.com/cboxdk/statamic-mcp/compare/v2.9.0...v2.9.1
 [2.9.0]: https://github.com/cboxdk/statamic-mcp/compare/v2.8.0...v2.9.0
 [2.8.0]: https://github.com/cboxdk/statamic-mcp/compare/v2.7.0...v2.8.0
