@@ -80,6 +80,22 @@ Segments are the handles the spec already reports — `allowed_set_types` for a
 set, `group_fields` for a group. An unresolvable path lists the valid segments
 at the level it failed, so a client can walk down without guessing.
 
+#### Setting a template or layout per entry
+
+`template` and `layout` are entry data that Statamic reads back itself
+(`Entry::template()` falls back to `$this->get('template')`), but neither has to
+be a blueprint field. Send either in `data` on `create`, `update` or `localize`
+and it is stored:
+
+```json
+{ "action": "update", "collection": "pages", "id": "home",
+  "data": { "template": "pages/landing" } }
+```
+
+Send `null` to clear it and fall back to the collection's template. A non-string
+value is refused. `parent` is not writable this way — an entry's parent comes
+from the structure tree, not its data.
+
 #### Updating one section of a page builder
 
 By default a replicator field in `data` replaces the stored array outright, so

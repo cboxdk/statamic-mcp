@@ -747,6 +747,14 @@ into the stored array by item `id` rather than replacing it, so one section of a
 builder can change without resending the rest. Every item sent must carry an `id`;
 removing and reordering still require a full-array write.
 
+`template` and `layout` are entry **data**, not entry properties: `Entry::template()`
+and `Entry::layout()` fall back to `$this->get(...)`, and `fileData()` persists only
+`data()`. They need not be blueprint fields, so `EntriesRouter::PASSTHROUGH_DATA_KEYS`
+carries them through the `process()->values()` step, which would otherwise drop them.
+Keep that list closed — carrying every unrecognised key back would reintroduce the
+silent junk writes `reject_unknown_fields` prevents. `parent` is deliberately excluded:
+`Entry::parent()` derives from the structure tree, so storing it as data is inert.
+
 `localize` creates an entry's localization in another site via Statamic's
 `makeLocalization()`, so the origin is set and untranslated fields keep falling back. It
 is a **write** action — it appears in the write lists in both `EnforcesResourcePolicy`

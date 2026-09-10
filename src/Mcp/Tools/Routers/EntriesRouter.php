@@ -470,9 +470,10 @@ class EntriesRouter extends BaseRouter
 
                     // Process through fieldtypes (Terms strips prefixes,
                     // Bard normalizes nodes, Relationship wraps values, etc.)
-                    $entry->data(
-                        $fields->process()->values()->except(['slug', 'date'])->all()
-                    );
+                    /** @var array<string, mixed> $processed */
+                    $processed = $fields->process()->values()->except(['slug', 'date'])->all();
+
+                    $entry->data($this->withPassthroughKeys($processed, $data, $blueprint));
                 } catch (ValidationException $e) {
                     return $this->formatValidationError($e);
                 } catch (\Throwable $e) {
@@ -524,6 +525,60 @@ class EntriesRouter extends BaseRouter
             // to the client.
             return $this->createErrorResponse("Failed to create entry: {$e->getMessage()}")->toArray();
         }
+    }
+
+    /**
+     * Entry data keys Statamic reads back itself, outside the blueprint.
+     *
+     * `Entry::template()` and `Entry::layout()` both fall back to
+     * `$this->get(...)`, so a per-entry template is stored as ordinary entry
+     * data — but a blueprint need not declare a field for it, and most do not.
+     * The write pipeline runs values through
+     * `Fields::addValues()->process()->values()`, which only knows blueprint
+     * handles, so without this these keys are dropped and the write reports
+     * success having changed nothing.
+     *
+     * Deliberately a closed list: merging back every unrecognised key would
+     * reintroduce exactly the silent junk writes `reject_unknown_fields`
+     * exists to stop. `parent` is not in it — `Entry::parent()` derives from
+     * the structure tree rather than entry data, so storing it would be inert.
+     *
+     * @var array<int, string>
+     */
+    private const PASSTHROUGH_DATA_KEYS = ['template', 'layout'];
+
+    /**
+     * Carry the passthrough keys from the incoming payload into processed data.
+     *
+     * A blueprint that declares the field has already handled it through the
+     * normal pipeline, so it is left alone.
+     *
+     * @param  array<string, mixed>  $processed
+     * @param  array<string, mixed>  $incoming
+     *
+     * @return array<string, mixed>
+     *
+     * @throws FieldFormatException
+     */
+    private function withPassthroughKeys(array $processed, array $incoming, Blueprint $blueprint): array
+    {
+        foreach (self::PASSTHROUGH_DATA_KEYS as $key) {
+            if (! array_key_exists($key, $incoming) || $blueprint->hasField($key)) {
+                continue;
+            }
+
+            $value = $incoming[$key];
+
+            if ($value !== null && ! is_string($value)) {
+                throw new FieldFormatException(
+                    "Field [{$key}] must be a string or null, received " . get_debug_type($value) . '.'
+                );
+            }
+
+            $processed[$key] = $value;
+        }
+
+        return $processed;
     }
 
     /**
@@ -712,7 +767,9 @@ class EntriesRouter extends BaseRouter
                     // those nulls fail rules the field would otherwise skip.
                     $processed = $fields->process()->values()->except(['slug', 'date'])->all();
 
-                    $localization->data(array_intersect_key($processed, $data));
+                    $localization->data(
+                        $this->withPassthroughKeys(array_intersect_key($processed, $data), $data, $blueprint)
+                    );
                 } catch (ValidationException $e) {
                     return $this->formatValidationError($e);
                 } catch (\Throwable $e) {
@@ -943,7 +1000,7 @@ class EntriesRouter extends BaseRouter
                     ->only($incomingKeys)
                     ->all();
 
-                $data = $processedData;
+                $data = $this->withPassthroughKeys($processedData, $data, $blueprint);
             }
 
             // Revision-aware save: if revisions enabled and entry is published,

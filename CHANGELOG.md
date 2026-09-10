@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **`template` and `layout` can be written on an entry** — Both are ordinary entry data — `Entry::template()` and `Entry::layout()` fall back to `$this->get(...)` — but neither has to be a blueprint field, and most blueprints do not declare one. The write pipeline runs values through `Fields::addValues()->process()->values()`, which only knows blueprint handles, so a caller setting a per-entry template got a successful response and an unchanged entry. Both keys are now carried through `create`, `update` and `localize`, and a non-string value is refused rather than stored. A blueprint that does declare the field is untouched and keeps going through the normal pipeline. The list is closed at these two: carrying every unrecognised key back would reintroduce exactly the silent junk writes `reject_unknown_fields` exists to stop, and `parent` is excluded on purpose because `Entry::parent()` derives from the structure tree rather than entry data, so storing it would be inert
+
 ## [2.10.0] - 2026-09-10
 
 ### Added
@@ -417,6 +422,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Laravel MCP v0.2.0 integration
 - Comprehensive test suite
 
+[Unreleased]: https://github.com/cboxdk/statamic-mcp/compare/v2.10.0...HEAD
 [2.10.0]: https://github.com/cboxdk/statamic-mcp/compare/v2.9.1...v2.10.0
 [2.9.1]: https://github.com/cboxdk/statamic-mcp/compare/v2.9.0...v2.9.1
 [2.9.0]: https://github.com/cboxdk/statamic-mcp/compare/v2.8.0...v2.9.0

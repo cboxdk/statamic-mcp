@@ -93,17 +93,12 @@ class EntriesUnknownFieldTest extends TestCase
             ->save();
     }
 
-    public function test_does_not_refuse_entry_properties_statamic_reads_outside_the_blueprint(): void
+    public function test_accepts_entry_properties_statamic_reads_outside_the_blueprint(): void
     {
         // template and layout are not blueprint fields, but Entry::template()
         // and Entry::layout() read them straight off entry data, so a caller
-        // sending them is not making a mistake and must not be refused.
-        //
-        // They are not persisted either: the write pipeline runs values through
-        // Fields::addValues()->process()->values(), which only knows blueprint
-        // handles, so a non-blueprint key is dropped on the way to storage.
-        // That predates this check and is tracked separately — the point here
-        // is that the request is accepted rather than rejected.
+        // sending them is not making a mistake. They are carried through the
+        // write pipeline explicitly; see EntriesTemplateLayoutTest.
         $this->makeEntry('templated');
 
         $result = $this->router->execute([
@@ -114,7 +109,10 @@ class EntriesUnknownFieldTest extends TestCase
         ]);
 
         $this->assertTrue($result['success'], json_encode($result['errors'] ?? []));
-        $this->assertSame('Templated', Entry::find('templated')->get('title'));
+
+        $entry = Entry::find('templated');
+        $this->assertSame('pages/landing', $entry->template());
+        $this->assertSame('layouts/wide', $entry->layout());
     }
 
     public function test_does_not_check_unknown_handles_at_the_top_level(): void
