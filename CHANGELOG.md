@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.10.1] - 2026-09-12
 
 ### Fixed
 - **`create` no longer drops fields for every collection after the first** (#52) — `Entry::blueprint()` memoizes the resolved blueprint in Blink under `entry-{$this->id()}-blueprint`, and an unsaved entry has no id, so every new entry shared the key `entry--blueprint`. A web request creates at most one entry and never notices; this server is long-lived, so the second `create` in a different collection was handed the *first* collection's blueprint. `sanitizeIncomingFieldData()` then filtered the payload against it and every field the two blueprints did not share was silently discarded — from a write that returned `"success": true` and echoed back data already stripped, so a client could not detect it. The blueprint is now pinned to the collection before it is resolved, through Statamic's own fluent setter, which clears that key while leaving the normal resolution path — and any `EntryBlueprintFound` listener that injects fields — intact. `update` was never affected: it resolves from a saved entry, which has a real id. Terms are not affected either, since `Term::id()` is `{taxonomy}::{slug}` rather than null, and there is now a test holding that true. Reported by @idotter with a complete root-cause analysis
@@ -423,7 +423,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Laravel MCP v0.2.0 integration
 - Comprehensive test suite
 
-[Unreleased]: https://github.com/cboxdk/statamic-mcp/compare/v2.10.0...HEAD
+[2.10.1]: https://github.com/cboxdk/statamic-mcp/compare/v2.10.0...v2.10.1
 [2.10.0]: https://github.com/cboxdk/statamic-mcp/compare/v2.9.1...v2.10.0
 [2.9.1]: https://github.com/cboxdk/statamic-mcp/compare/v2.9.0...v2.9.1
 [2.9.0]: https://github.com/cboxdk/statamic-mcp/compare/v2.8.0...v2.9.0
