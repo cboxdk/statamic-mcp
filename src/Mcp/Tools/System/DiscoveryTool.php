@@ -163,6 +163,11 @@ class DiscoveryTool extends BaseStatamicTool
     /**
      * The names of the tools a client already has in its catalog.
      *
+     * Follows the same config the server follows when it builds the catalog.
+     * When an operator turns the searchable catalog off, every tool is listed
+     * and execute_tools does not exist — pointing a client at it there would
+     * send it to call a tool that is not registered.
+     *
      * @return list<string>
      */
     private function catalogToolNames(): array
@@ -171,9 +176,13 @@ class DiscoveryTool extends BaseStatamicTool
             return $this->catalogToolNames;
         }
 
+        $classes = config('statamic.mcp.catalog.searchable', true)
+            ? StatamicMcpServer::CORE_TOOLS
+            : [...StatamicMcpServer::CORE_TOOLS, ...StatamicMcpServer::SEARCHABLE_TOOLS];
+
         $names = [];
 
-        foreach (StatamicMcpServer::CORE_TOOLS as $class) {
+        foreach ($classes as $class) {
             try {
                 $names[] = app($class)->name();
             } catch (\Throwable) {

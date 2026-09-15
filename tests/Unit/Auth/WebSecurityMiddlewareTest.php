@@ -157,7 +157,10 @@ describe('HandleMcpCors', function () {
         expect($response->getStatusCode())->toBe(204);
         expect($response->headers->get('Access-Control-Allow-Origin'))->toBe('https://client.example.com');
         expect($response->headers->get('Access-Control-Allow-Methods'))->toBe('GET, POST, OPTIONS');
-        expect($response->headers->get('Access-Control-Allow-Headers'))->toBe('Authorization, Content-Type, Accept');
+        // The MCP-* headers are mandatory on protocol 2026-07-28: a browser
+        // client blocked from sending them cannot connect at all.
+        expect($response->headers->get('Access-Control-Allow-Headers'))
+            ->toBe('Authorization, Content-Type, Accept, MCP-Protocol-Version, Mcp-Method, Mcp-Name');
         expect($response->headers->get('Access-Control-Max-Age'))->toBe('86400');
     });
 

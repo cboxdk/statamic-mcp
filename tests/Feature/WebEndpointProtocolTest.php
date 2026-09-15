@@ -6,6 +6,7 @@ namespace Cboxdk\StatamicMcp\Tests\Feature;
 
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
+use Cboxdk\StatamicMcp\ServiceProvider;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Illuminate\Testing\TestResponse;
 use Statamic\Facades\User;
@@ -85,6 +86,18 @@ class WebEndpointProtocolTest extends TestCase
         $this->assertContains('statamic-users', $names);
         $this->assertNotContains('search_tools', $names);
 
+        // Discovery must follow the same switch: telling a client to reach
+        // statamic-assets via execute_tools here points it at a tool that is
+        // not registered.
+        $recommended = $this->rpc('tools/call', [
+            'name' => 'statamic-system-discover',
+            'arguments' => ['intent' => 'upload image'],
+        ])->json('result.structuredContent.data.discovery.recommended_tools');
+
+        $assets = collect($recommended)->firstWhere('tool', 'statamic-assets');
+
+        $this->assertSame('listed_in_catalog', $assets['access']);
+
         // The instructions must not keep promising a search_tools route that
         // no longer exists — an agent told to use it would simply fail.
         $instructions = $this->rpc('server/discover')->json('result.instructions');
@@ -120,6 +133,29 @@ class WebEndpointProtocolTest extends TestCase
 
         $this->assertNotNull($result, 'execute_tools returned no result frame.');
         $this->assertFalse($result['isError'] ?? false);
+    }
+
+    public function test_execute_tools_gets_the_same_response_budget_as_a_direct_call(): void
+    {
+        // ToolSearch caps a batch at its own limit and counts our envelope
+        // twice (content plus structuredContent), so without alignment a
+        // response the addon returns happily on a direct call comes back as
+        // OutputLimitExceeded once the tool sits behind the catalog.
+        $ceiling = (int) config('statamic.mcp.security.max_response_size');
+
+        $this->assertSame($ceiling * 2 + 4096, (int) config('mcp.tool_search.max_output_bytes'));
+    }
+
+    public function test_an_operator_set_output_budget_is_left_alone(): void
+    {
+        // Only the library's untouched default is replaced; a value the
+        // operator chose stays theirs.
+        $this->assertNull(ServiceProvider::toolSearchOutputBudget(1234, 100000));
+        $this->assertSame(204_096, ServiceProvider::toolSearchOutputBudget(65_536, 100000));
+        $this->assertSame(204_096, ServiceProvider::toolSearchOutputBudget(null, 100000));
+
+        // A disabled ceiling must not reintroduce one through the back door.
+        $this->assertSame(PHP_INT_MAX, ServiceProvider::toolSearchOutputBudget(null, 0));
     }
 
     public function test_the_catalog_carries_a_cache_hint_and_tool_calls_do_not(): void
@@ -202,6 +238,26 @@ class WebEndpointProtocolTest extends TestCase
 
         $response->assertOk();
         $this->assertSame('2025-06-18', $response->json('result.protocolVersion'));
+    }
+
+    public function test_a_preflight_allows_the_headers_the_protocol_requires(): void
+    {
+        config()->set('statamic.mcp.web.allowed_origins', ['https://client.example']);
+
+        $response = $this->call('OPTIONS', '/mcp/statamic', [], [], [], [
+            'HTTP_ORIGIN' => 'https://client.example',
+            'HTTP_ACCESS_CONTROL_REQUEST_METHOD' => 'POST',
+        ]);
+
+        $response->assertStatus(204);
+
+        $allowed = (string) $response->headers->get('Access-Control-Allow-Headers');
+
+        // Without these a browser client cannot connect at all: it is blocked
+        // if it sends them, and answered -32020 if it does not.
+        foreach (['MCP-Protocol-Version', 'Mcp-Method', 'Mcp-Name', 'Authorization'] as $header) {
+            $this->assertStringContainsString($header, $allowed);
+        }
     }
 
     public function test_the_endpoint_still_refuses_an_unauthenticated_call(): void

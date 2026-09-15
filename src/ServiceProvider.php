@@ -44,6 +44,14 @@ use Statamic\Statamic;
 
 class ServiceProvider extends AddonServiceProvider
 {
+    /**
+     * laravel/mcp's own default for mcp.tool_search.max_output_bytes.
+     *
+     * Used to tell an untouched default apart from a value an operator chose,
+     * since the key is always present in the published config.
+     */
+    private const LIBRARY_DEFAULT_OUTPUT_BYTES = 65_536;
+
     /** @phpstan-ignore property.phpDocType, property.defaultValue (Parent type is list<string> but registerVite() accepts associative arrays) */
     protected $vite = [
         'input' => ['resources/js/addon.js'],
@@ -60,6 +68,8 @@ class ServiceProvider extends AddonServiceProvider
             Git::listen(Events\McpTokenSaved::class);
             Git::listen(Events\McpTokenDeleted::class);
         }
+
+        $this->alignToolSearchOutputBudget();
 
         // Only load routes if MCP is available
         if (class_exists('Laravel\Mcp\Facades\Mcp')) {
@@ -313,6 +323,58 @@ class ServiceProvider extends AddonServiceProvider
     }
 
     /**
+     * Give tools reached through execute_tools the same response budget as
+     * tools called directly.
+     *
+     * ToolSearch caps a batch at mcp.tool_search.max_output_bytes — 65,536 by
+     * default — which is unrelated to this addon's own
+     * security.max_response_size ceiling of 100,000. Worse, it measures each
+     * result as {content, structuredContent}, and our tools populate both with
+     * the same envelope, so the payload counts roughly twice. A response the
+     * addon happily returns on a direct call would come back as
+     * OutputLimitExceeded once the tool moved behind the searchable catalog,
+     * and raising max_response_size would not help because it is a different
+     * key entirely.
+     *
+     * So the budget is derived: double the addon's ceiling to absorb the
+     * duplicate, plus slack for the wrapper. A batch of several large results
+     * can still exceed it, which is the limit doing its job — it reports how
+     * many calls completed so the client can retry in smaller batches.
+     *
+     * An operator who has set max_output_bytes themselves keeps their value;
+     * only the library's untouched default is replaced.
+     */
+    private function alignToolSearchOutputBudget(): void
+    {
+        $configured = config('mcp.tool_search.max_output_bytes');
+        $ceiling = config('statamic.mcp.security.max_response_size', 100000);
+
+        $budget = self::toolSearchOutputBudget(
+            is_numeric($configured) ? (int) $configured : null,
+            is_numeric($ceiling) ? (int) $ceiling : 100000,
+        );
+
+        if ($budget !== null) {
+            config(['mcp.tool_search.max_output_bytes' => $budget]);
+        }
+    }
+
+    /**
+     * The budget to apply, or null to leave the configured value alone.
+     *
+     * Separated from the config plumbing so the decision can be tested without
+     * re-registering the provider.
+     */
+    public static function toolSearchOutputBudget(?int $configured, int $ceiling): ?int
+    {
+        if ($configured !== null && $configured !== self::LIBRARY_DEFAULT_OUTPUT_BYTES) {
+            return null;
+        }
+
+        return $ceiling > 0 ? $ceiling * 2 + 4096 : PHP_INT_MAX;
+    }
+
+    /**
      * Register web MCP endpoint if enabled in configuration.
      */
     protected function registerWebMcp(): void
@@ -323,6 +385,15 @@ class ServiceProvider extends AddonServiceProvider
 
         /** @var string $path */
         $path = config('statamic.mcp.web.path', '/mcp/statamic');
+
+        // CORS preflight. Mcp::web() registers GET, DELETE and POST but no
+        // OPTIONS, so a preflight 404s before it reaches HandleMcpCors — which
+        // meant its preflight branch never ran and no cross-origin browser
+        // client could connect, since Authorization alone already triggers one.
+        // Deliberately outside the auth stack: a preflight carries no
+        // credentials, and answering 401 fails it just as surely as 404 did.
+        Route::options($path, fn () => response('', 204))
+            ->middleware(HandleMcpCors::class);
 
         // Register web MCP endpoint with security + auth middleware
         Mcp::web($path, StatamicMcpServer::class)

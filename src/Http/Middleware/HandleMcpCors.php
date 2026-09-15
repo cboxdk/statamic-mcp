@@ -18,6 +18,27 @@ use Symfony\Component\HttpFoundation\Response;
 class HandleMcpCors
 {
     /**
+     * Request headers a browser client is permitted to send.
+     *
+     * The three MCP-* entries are not optional extras: since protocol
+     * 2026-07-28 a POST must carry MCP-Protocol-Version and Mcp-Method
+     * matching its body, plus Mcp-Name for tools/call, prompts/get and
+     * resources/read. A preflight that does not allow them leaves a browser
+     * client wedged — the browser blocks the request if it sends them, and
+     * ValidateMcpHeaders answers -32020 if it does not.
+     *
+     * @var list<string>
+     */
+    private const ALLOWED_HEADERS = [
+        'Authorization',
+        'Content-Type',
+        'Accept',
+        'MCP-Protocol-Version',
+        'Mcp-Method',
+        'Mcp-Name',
+    ];
+
+    /**
      * Handle an incoming request.
      *
      * @param  Closure(Request): (Response)  $next
@@ -73,7 +94,7 @@ class HandleMcpCors
         if ($origin !== '' && $this->isOriginAllowed($origin, $allowedOrigins)) {
             $response->headers->set('Access-Control-Allow-Origin', $origin);
             $response->headers->set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-            $response->headers->set('Access-Control-Allow-Headers', 'Authorization, Content-Type, Accept');
+            $response->headers->set('Access-Control-Allow-Headers', implode(', ', self::ALLOWED_HEADERS));
             $response->headers->set('Access-Control-Max-Age', '86400');
         }
 

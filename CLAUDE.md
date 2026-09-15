@@ -756,6 +756,40 @@ Two consequences worth knowing:
 recommended tool is `listed_in_catalog` or reachable `via_execute_tools`. Do not restate
 the split there — it must stay derived, or the two drift.
 
+### CORS and the preflight route
+
+`Mcp::web()` registers GET, DELETE and POST — **not OPTIONS**. The addon therefore
+registers its own OPTIONS route alongside it in `registerWebMcp()`. Without it a
+preflight 404s before reaching `HandleMcpCors`, so its preflight branch never runs and
+no cross-origin browser client can connect — `Authorization` alone already triggers a
+preflight, so this was broken for every browser client, not only 1.0 ones.
+
+That route sits **outside** the auth stack on purpose: a preflight carries no
+credentials, and answering 401 fails it exactly as surely as 404 did.
+
+`HandleMcpCors::ALLOWED_HEADERS` must list every header a client is required to send.
+Since protocol 2026-07-28 that includes `MCP-Protocol-Version`, `Mcp-Method` and
+`Mcp-Name` — a browser is blocked if it sends a header the preflight did not allow, and
+`ValidateMcpHeaders` answers `-32020` if it omits one. **Any new required header must be
+added here too.**
+
+### The execute_tools response budget
+
+`ToolSearch` enforces its own output cap from `mcp.tool_search.max_output_bytes`
+(library default 65,536), unrelated to this addon's `security.max_response_size`
+(default 100,000). It also measures each result as `{content, structuredContent}`, and
+our tools populate both with the same envelope, so a payload counts roughly twice.
+
+Left alone, a response the addon returns happily on a direct call comes back as
+`OutputLimitExceeded` the moment its tool moves behind the searchable catalog — and
+raising `max_response_size` does not help, because it is a different key.
+
+`ServiceProvider::alignToolSearchOutputBudget()` therefore derives the library's value
+from ours: `ceiling * 2 + 4096`, or `PHP_INT_MAX` when the ceiling is disabled. A value
+an operator set themselves is left alone; only the library's untouched default is
+replaced. The decision lives in the pure `toolSearchOutputBudget()` so it can be tested
+without re-registering the provider.
+
 ### Cache hints
 
 laravel/mcp 1.0 lets a response tell the client how long it may be reused
