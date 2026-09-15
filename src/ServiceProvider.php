@@ -362,6 +362,18 @@ class ServiceProvider extends AddonServiceProvider
     /**
      * The budget to apply, or null to leave the configured value alone.
      *
+     * Three times the ceiling, not two. ToolSearch measures an entry as
+     * {content, structuredContent}: structuredContent is the envelope, and
+     * content[0].text is the *same* envelope already serialized, so encoding
+     * the entry escapes every quote and backslash in it a second time. Simply
+     * doubling looked right and was not — a quote-heavy 84 KB envelope measures
+     * 180 KB, a ratio of 2.14, and worse the more structured the content.
+     *
+     * Escaping can at most double the text copy (one character becomes two), so
+     * ceiling + 2 * ceiling bounds a single maximum-size response by
+     * construction rather than by measurement. A batch of several large results
+     * can still exceed it, which is the limit doing its job.
+     *
      * Separated from the config plumbing so the decision can be tested without
      * re-registering the provider.
      */
@@ -371,7 +383,7 @@ class ServiceProvider extends AddonServiceProvider
             return null;
         }
 
-        return $ceiling > 0 ? $ceiling * 2 + 4096 : PHP_INT_MAX;
+        return $ceiling > 0 ? $ceiling * 3 + 4096 : PHP_INT_MAX;
     }
 
     /**
@@ -395,15 +407,21 @@ class ServiceProvider extends AddonServiceProvider
         Route::options($path, fn () => response('', 204))
             ->middleware(HandleMcpCors::class);
 
-        // Register web MCP endpoint with security + auth middleware
-        Mcp::web($path, StatamicMcpServer::class)
-            ->middleware([
-                HandleMcpCors::class,
-                EnsureSecureTransport::class,
-                AuthenticateForMcp::class,
-                'throttle:mcp',
-                RequireMcpPermission::class,
-            ]);
+        // CORS has to wrap laravel/mcp's own middleware, not sit after it.
+        // Mcp::web() attaches ValidateMcpHeaders to the route itself, so a
+        // route-level HandleMcpCors would run *after* it and a -32020 rejection
+        // would carry no Access-Control-Allow-Origin — the browser would hide
+        // the 400 and its explanation behind a generic network error. Group
+        // middleware runs before route middleware, which puts CORS outermost.
+        Route::middleware(HandleMcpCors::class)->group(function () use ($path): void {
+            Mcp::web($path, StatamicMcpServer::class)
+                ->middleware([
+                    EnsureSecureTransport::class,
+                    AuthenticateForMcp::class,
+                    'throttle:mcp',
+                    RequireMcpPermission::class,
+                ]);
+        });
     }
 
     /**

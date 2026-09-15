@@ -767,6 +767,13 @@ preflight, so this was broken for every browser client, not only 1.0 ones.
 That route sits **outside** the auth stack on purpose: a preflight carries no
 credentials, and answering 401 fails it exactly as surely as 404 did.
 
+`HandleMcpCors` is attached as **group** middleware wrapping `Mcp::web()`, not as route
+middleware on it. `Mcp::web()` attaches `ValidateMcpHeaders` to the route itself, and
+route middleware appended afterwards runs *after* it — a `-32020` rejection would then
+carry no `Access-Control-Allow-Origin`, and the browser would hide both the 400 and its
+explanation behind a generic network error. Group middleware runs first, which puts CORS
+outermost. **Keep it there.**
+
 `HandleMcpCors::ALLOWED_HEADERS` must list every header a client is required to send.
 Since protocol 2026-07-28 that includes `MCP-Protocol-Version`, `Mcp-Method` and
 `Mcp-Name` — a browser is blocked if it sends a header the preflight did not allow, and
@@ -785,10 +792,18 @@ Left alone, a response the addon returns happily on a direct call comes back as
 raising `max_response_size` does not help, because it is a different key.
 
 `ServiceProvider::alignToolSearchOutputBudget()` therefore derives the library's value
-from ours: `ceiling * 2 + 4096`, or `PHP_INT_MAX` when the ceiling is disabled. A value
+from ours: `ceiling * 3 + 4096`, or `PHP_INT_MAX` when the ceiling is disabled. A value
 an operator set themselves is left alone; only the library's untouched default is
 replaced. The decision lives in the pure `toolSearchOutputBudget()` so it can be tested
 without re-registering the provider.
+
+**Three, not two** — this is the part that is easy to get wrong. `structuredContent`
+holds the envelope and `content[0].text` holds the *same envelope already serialized*,
+so encoding the entry escapes every quote and backslash in it a second time. A
+quote-heavy 84 KB envelope measures 180 KB: a ratio of 2.14, and worse the more
+structured the content. Escaping can at most double the text copy, so `ceiling +
+2 * ceiling` bounds one maximum-size response by construction rather than by
+measurement.
 
 ### Cache hints
 

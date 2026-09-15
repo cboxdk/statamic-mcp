@@ -143,7 +143,7 @@ class WebEndpointProtocolTest extends TestCase
         // OutputLimitExceeded once the tool sits behind the catalog.
         $ceiling = (int) config('statamic.mcp.security.max_response_size');
 
-        $this->assertSame($ceiling * 2 + 4096, (int) config('mcp.tool_search.max_output_bytes'));
+        $this->assertSame($ceiling * 3 + 4096, (int) config('mcp.tool_search.max_output_bytes'));
     }
 
     public function test_an_operator_set_output_budget_is_left_alone(): void
@@ -151,8 +151,8 @@ class WebEndpointProtocolTest extends TestCase
         // Only the library's untouched default is replaced; a value the
         // operator chose stays theirs.
         $this->assertNull(ServiceProvider::toolSearchOutputBudget(1234, 100000));
-        $this->assertSame(204_096, ServiceProvider::toolSearchOutputBudget(65_536, 100000));
-        $this->assertSame(204_096, ServiceProvider::toolSearchOutputBudget(null, 100000));
+        $this->assertSame(304_096, ServiceProvider::toolSearchOutputBudget(65_536, 100000));
+        $this->assertSame(304_096, ServiceProvider::toolSearchOutputBudget(null, 100000));
 
         // A disabled ceiling must not reintroduce one through the back door.
         $this->assertSame(PHP_INT_MAX, ServiceProvider::toolSearchOutputBudget(null, 0));
@@ -238,6 +238,26 @@ class WebEndpointProtocolTest extends TestCase
 
         $response->assertOk();
         $this->assertSame('2025-06-18', $response->json('result.protocolVersion'));
+    }
+
+    public function test_a_header_rejection_still_carries_cors_headers(): void
+    {
+        config()->set('statamic.mcp.web.allowed_origins', ['https://client.example']);
+
+        // ValidateMcpHeaders is attached inside Mcp::web(), so CORS has to wrap
+        // it. Otherwise a browser gets the -32020 with no
+        // Access-Control-Allow-Origin and shows a generic network error
+        // instead of the reason its request was refused.
+        $response = $this->postJson('/mcp/statamic', $this->body('tools/list'), [
+            'Authorization' => 'Bearer ' . $this->token,
+            'MCP-Protocol-Version' => self::PROTOCOL_VERSION,
+            'Mcp-Method' => 'prompts/list',
+            'Origin' => 'https://client.example',
+        ]);
+
+        $response->assertStatus(400);
+        $this->assertSame(-32020, $response->json('error.code'));
+        $this->assertSame('https://client.example', $response->headers->get('Access-Control-Allow-Origin'));
     }
 
     public function test_a_preflight_allows_the_headers_the_protocol_requires(): void
