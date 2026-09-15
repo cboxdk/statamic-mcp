@@ -1,7 +1,7 @@
 {
     "bomFormat": "CycloneDX",
     "specVersion": "1.5",
-    "serialNumber": "urn:uuid:deb68e06-0904-bf6e-0312-636f3b65df9c",
+    "serialNumber": "urn:uuid:c188894b-0c93-c2d6-7ccb-56909a8b1436",
     "version": 1,
     "metadata": {
         "tools": [
@@ -775,11 +775,11 @@
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/laravel/mcp@v0.9.4",
+            "bom-ref": "pkg:composer/laravel/mcp@v1.0.0",
             "group": "laravel",
             "name": "mcp",
-            "version": "v0.9.4",
-            "purl": "pkg:composer/laravel/mcp@v0.9.4",
+            "version": "v1.0.0",
+            "purl": "pkg:composer/laravel/mcp@v1.0.0",
             "scope": "required",
             "licenses": [
                 {
@@ -792,7 +792,7 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "7ca5b923630118696602d14348cd0466a5e853ec"
+                    "content": "cfa4f38f82873eeb6848527883545f98f871e229"
                 }
             ]
         },
