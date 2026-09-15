@@ -6,6 +6,7 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\System;
 
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
+use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseStatamicTool;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
@@ -33,6 +34,9 @@ use Statamic\Facades\Taxonomy;
 #[Description('Discover Statamic MCP tools based on intent and get current system state for context-aware guidance.')]
 class DiscoveryTool extends BaseStatamicTool
 {
+    /** @var list<string>|null */
+    private ?array $catalogToolNames = null;
+
     protected function defineSchema(JsonSchemaContract $schema): array
     {
         return [
@@ -83,7 +87,7 @@ class DiscoveryTool extends BaseStatamicTool
     /**
      * Match intent keywords to recommended tools, ordered by relevance.
      *
-     * @return list<array{tool: string, reason: string}>
+     * @return list<array{tool: string, reason: string, access: string}>
      */
     private function matchTools(string $intent): array
     {
@@ -124,6 +128,7 @@ class DiscoveryTool extends BaseStatamicTool
                 $matches[] = [
                     'tool' => $tool,
                     'reason' => $toolDescriptions[$tool],
+                    'access' => $this->accessPath($tool),
                     '_score' => $score,
                 ];
             }
@@ -138,6 +143,45 @@ class DiscoveryTool extends BaseStatamicTool
 
             return $match;
         }, $matches);
+    }
+
+    /**
+     * How a client reaches a tool.
+     *
+     * Most tools are kept out of the catalog to keep its token cost down, so
+     * naming one is not enough — a client that cannot see it needs telling that
+     * it goes through execute_tools. Read from the server's own split rather
+     * than restated here, so the two cannot drift apart.
+     */
+    private function accessPath(string $toolName): string
+    {
+        return in_array($toolName, $this->catalogToolNames(), true)
+            ? 'listed_in_catalog'
+            : 'via_execute_tools';
+    }
+
+    /**
+     * The names of the tools a client already has in its catalog.
+     *
+     * @return list<string>
+     */
+    private function catalogToolNames(): array
+    {
+        if ($this->catalogToolNames !== null) {
+            return $this->catalogToolNames;
+        }
+
+        $names = [];
+
+        foreach (StatamicMcpServer::CORE_TOOLS as $class) {
+            try {
+                $names[] = app($class)->name();
+            } catch (\Throwable) {
+                // A tool that cannot be resolved is not in the catalog either.
+            }
+        }
+
+        return $this->catalogToolNames = $names;
     }
 
     /**

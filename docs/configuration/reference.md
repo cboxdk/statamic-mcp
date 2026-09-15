@@ -107,6 +107,35 @@ Controls request throttling for the web endpoint. Skipped in CLI context.
 ],
 ```
 
+## Tool Catalog
+
+Controls how the tool list is presented to a client when it connects.
+
+By default the catalog is **partial**. Only the tools a session usually opens with are
+listed — `statamic-entries`, `statamic-blueprints` and `statamic-system-discover`. The
+rest are reached through `search_tools` and `execute_tools`.
+
+The reason is token cost: the full catalog is roughly 31 KB of JSON schema that every
+client loads on every connection, before it has asked anything. Withholding the less-used
+tools cuts that to about 12.6 KB — a ~60% saving in the client's context window.
+
+Nothing is taken away. The hidden tools are fully available and fully gated — token
+scopes, resource policy, Statamic permissions and the confirmation gate all apply
+exactly as they do on a direct call. Only their schemas wait until a client asks.
+
+```php
+'catalog' => [
+    'searchable' => env('STATAMIC_MCP_SEARCHABLE_CATALOG', true),
+],
+```
+
+Set it to `false` if your MCP client handles `search_tools` poorly and you would rather
+it saw every tool listed directly:
+
+```env
+STATAMIC_MCP_SEARCHABLE_CATALOG=false
+```
+
 ## Tool Domains
 
 Enable or disable individual tool domains. When a domain is disabled, its tools are not registered and calls return an error.
@@ -227,6 +256,9 @@ STATAMIC_MCP_REJECT_UNKNOWN_FIELDS=true
 
 # Rate limiting
 STATAMIC_MCP_RATE_LIMIT_MAX=60
+
+# Tool catalog
+STATAMIC_MCP_SEARCHABLE_CATALOG=true
 
 # OAuth 2.1
 STATAMIC_MCP_OAUTH_ENABLED=true
