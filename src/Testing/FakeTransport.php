@@ -15,7 +15,7 @@ use Laravel\Mcp\Server\Contracts\Transport;
  */
 class FakeTransport implements Transport
 {
-    /** @var list<array{message: string, sessionId: string|null}> */
+    /** @var list<string> */
     public array $sent = [];
 
     public function onReceive(Closure $handler): void
@@ -28,14 +28,9 @@ class FakeTransport implements Transport
         // Nothing to pump.
     }
 
-    public function send(string $message, ?string $sessionId = null): void
+    public function send(string $message): void
     {
-        $this->sent[] = ['message' => $message, 'sessionId' => $sessionId];
-    }
-
-    public function sessionId(): ?string
-    {
-        return 'fake-session';
+        $this->sent[] = $message;
     }
 
     public function stream(Closure $stream): void
@@ -50,6 +45,6 @@ class FakeTransport implements Transport
      */
     public function messages(): array
     {
-        return array_map(fn (array $sent): string => $sent['message'], $this->sent);
+        return $this->sent;
     }
 }
