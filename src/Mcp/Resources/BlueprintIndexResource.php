@@ -6,9 +6,11 @@ namespace Cboxdk\StatamicMcp\Mcp\Resources;
 
 use Cboxdk\StatamicMcp\Mcp\Resources\Concerns\AuthorizesResourceAccess;
 use Cboxdk\StatamicMcp\Mcp\Resources\Concerns\LocatesBlueprints;
+use Laravel\Mcp\Enums\CacheScope;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\ResponseFactory;
+use Laravel\Mcp\Server\Attributes\Cacheable;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\MimeType;
 use Laravel\Mcp\Server\Attributes\Name;
@@ -26,11 +28,16 @@ use Laravel\Mcp\Server\Resource;
  * The entries are plain data rather than ResourceLink content: the library
  * rejects resource links inside a resource's own body (they are only valid in
  * tool results), so a URI string is what a client gets to follow.
+ *
+ * Cacheable for the same short window as BlueprintResource, and for the same
+ * reason — private scope, because the index lists only the blueprints this
+ * caller is allowed to read.
  */
 #[Name('statamic-blueprints-index')]
 #[Title('Statamic Blueprints')]
 #[Description('Index of every readable blueprint on the site, linking to each one.')]
 #[Uri('statamic://blueprints')]
+#[Cacheable(ttlMs: 60_000, scope: CacheScope::Private)]
 #[MimeType('application/json')]
 class BlueprintIndexResource extends Resource
 {

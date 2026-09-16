@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Statamic addon that functions as an MCP (Model Context Protocol) server, built on top of Laravel's MCP server. The addon extends Statamic CMS v6.6+ and requires `laravel/mcp` ^0.6 || ^0.7 || ^0.8 || ^0.9 as a runtime dependency. It includes scoped API token authentication, a Vue 3 CP dashboard, and web MCP endpoints.
+This is a Statamic addon that functions as an MCP (Model Context Protocol) server, built on top of Laravel's MCP server. The addon extends Statamic CMS v6.6+ and requires `laravel/mcp` ^1.0 as a runtime dependency. It includes scoped API token authentication, a Vue 3 CP dashboard, and web MCP endpoints.
 
 ## Key Dependencies
 
 - **PHP**: ^8.3
 - **Statamic CMS**: ^6.6 (v6 only — v5 support was removed in v2.0)
 - **Laravel**: ^12.0 || ^13.0 (via Statamic v6)
-- **Laravel MCP**: ^0.6 || ^0.7 || ^0.8 || ^0.9 (required - must be in `require` section, not `require-dev`)
+- **Laravel MCP**: ^1.0 (required - must be in `require` section, not `require-dev`)
 - **Orchestra Testbench**: ^10.0 || ^11.0 (dev dependency for testing)
 - **Pest**: ^4.1 (stable release with PHP 8.3 requirement)
 - **Symfony YAML**: ^7.0 || ^8.0 (for YAML processing)
@@ -228,9 +228,9 @@ The main entry point is `src/ServiceProvider.php` which extends `Statamic\Provid
 ### Addon Registration
 The addon is registered through Laravel's service provider discovery mechanism via the `extra.laravel.providers` configuration in `composer.json`.
 
-## Laravel MCP v0.6+ Tool Development Guide
+## Laravel MCP v1.0 Tool Development Guide
 
-**CRITICAL**: This project uses Laravel MCP v0.6+ which has specific patterns that MUST be followed exactly.
+**CRITICAL**: This project uses Laravel MCP v1.0 which has specific patterns that MUST be followed exactly.
 
 ### Required Tool Structure
 
@@ -277,7 +277,7 @@ class ExampleTool extends BaseStatamicTool
 }
 ```
 
-### Key Differences from v0.2.0
+### Key Differences from the pre-1.0 API
 
 - **Attributes instead of methods**: Use `#[Name('...')]` and `#[Description('...')]` instead of `getToolName()`/`getToolDescription()`
 - **Tool extends Primitive**: `Tool` base class provides `name()` and `description()` via attributes or string properties
@@ -718,8 +718,109 @@ class StatamicExportStrategy extends BaseStatamicTool
 - `statamic-system-discover` - Intent-based tool discovery
 - `statamic-system-schema` - Tool schema inspection
 
+Note: only `statamic-system-discover`, `statamic-entries` and `statamic-blueprints` are
+listed in the catalog by default. See "The tool catalog is deliberately partial" below.
+
 #### Workflow Facades
 - `statamic-content-facade` - Common content workflows
+
+### The tool catalog is deliberately partial
+
+`tools/list` costs every client ~31 KB of schema on every connection, before it has
+asked anything — the routers carry large schemas and there are eleven of them. So
+`StatamicMcpServer` splits them:
+
+- **`CORE_TOOLS`** stay in the catalog: `statamic-system-discover`, `statamic-entries`,
+  `statamic-blueprints`. They cover what a session actually opens with.
+- **`SEARCHABLE_TOOLS`** are handed to `Laravel\Mcp\Server\Tools\ToolSearch`, which
+  exposes them through `search_tools` and `execute_tools` instead. Catalog drops to
+  ~12.6 KB, a ~60% cut.
+
+**This does not weaken authorization.** ToolSearch honours `shouldRegister()`, so a
+disabled domain stays invisible, and `execute_tools` invokes the tool's own `handle()`
+— token scope, resource policy, Statamic permissions and the confirmation gate all
+apply exactly as on a direct call. A searchable tool is hidden, never ungated.
+
+Two consequences worth knowing:
+
+- `execute_tools` yields progress notifications before its result, so the endpoint
+  answers as an **SSE stream**, not a single JSON body. Tests must read
+  `streamedContent()` and parse `data:` frames.
+- The split is config-driven (`catalog.searchable`, default true) because some
+  clients handle `search_tools` badly. `createContext()` — not `boot()`, not a property
+  initializer — resolves both the catalog and the instructions describing it, so the
+  two can never disagree. **If you change the split, the instructions must change with
+  it**: an agent told to use `search_tools` when it is off will simply fail.
+
+`DiscoveryTool` reads `StatamicMcpServer::CORE_TOOLS` to tell clients whether a
+recommended tool is `listed_in_catalog` or reachable `via_execute_tools`. Do not restate
+the split there — it must stay derived, or the two drift.
+
+### CORS and the preflight route
+
+`Mcp::web()` registers GET, DELETE and POST — **not OPTIONS**. The addon therefore
+registers its own OPTIONS route alongside it in `registerWebMcp()`. Without it a
+preflight 404s before reaching `HandleMcpCors`, so its preflight branch never runs and
+no cross-origin browser client can connect — `Authorization` alone already triggers a
+preflight, so this was broken for every browser client, not only 1.0 ones.
+
+That route sits **outside** the auth stack on purpose: a preflight carries no
+credentials, and answering 401 fails it exactly as surely as 404 did.
+
+`HandleMcpCors` is attached as **group** middleware wrapping `Mcp::web()`, not as route
+middleware on it. `Mcp::web()` attaches `ValidateMcpHeaders` to the route itself, and
+route middleware appended afterwards runs *after* it — a `-32020` rejection would then
+carry no `Access-Control-Allow-Origin`, and the browser would hide both the 400 and its
+explanation behind a generic network error. Group middleware runs first, which puts CORS
+outermost. **Keep it there.**
+
+`HandleMcpCors::ALLOWED_HEADERS` must list every header a client is required to send.
+Since protocol 2026-07-28 that includes `MCP-Protocol-Version`, `Mcp-Method` and
+`Mcp-Name` — a browser is blocked if it sends a header the preflight did not allow, and
+`ValidateMcpHeaders` answers `-32020` if it omits one. **Any new required header must be
+added here too.**
+
+### The execute_tools response budget
+
+`ToolSearch` enforces its own output cap from `mcp.tool_search.max_output_bytes`
+(library default 65,536), unrelated to this addon's `security.max_response_size`
+(default 100,000). It also measures each result as `{content, structuredContent}`, and
+our tools populate both with the same envelope, so a payload counts roughly twice.
+
+Left alone, a response the addon returns happily on a direct call comes back as
+`OutputLimitExceeded` the moment its tool moves behind the searchable catalog — and
+raising `max_response_size` does not help, because it is a different key.
+
+`ServiceProvider::alignToolSearchOutputBudget()` therefore derives the library's value
+from ours: `ceiling * 3 + 4096`, or `PHP_INT_MAX` when the ceiling is disabled. A value
+an operator set themselves is left alone; only the library's untouched default is
+replaced. The decision lives in the pure `toolSearchOutputBudget()` so it can be tested
+without re-registering the provider.
+
+**Three, not two** — this is the part that is easy to get wrong. `structuredContent`
+holds the envelope and `content[0].text` holds the *same envelope already serialized*,
+so encoding the entry escapes every quote and backslash in it a second time. A
+quote-heavy 84 KB envelope measures 180 KB: a ratio of 2.14, and worse the more
+structured the content. Escaping can at most double the text copy, so `ceiling +
+2 * ceiling` bounds one maximum-size response by construction rather than by
+measurement.
+
+### Cache hints
+
+laravel/mcp 1.0 lets a response tell the client how long it may be reused
+(`Cacheable` attribute, `cacheHints()`). What this server hints:
+
+- `server/discover`, `tools/list`, `prompts/list` — 5 min. Derived from config, so they
+  change on deploy, not during a session.
+- The blueprint resources — 1 min, via `#[Cacheable]` on the resource class. Short on
+  purpose: this addon can edit a blueprint, and an agent holding a stale schema across
+  its own edit is the one failure the hint could cause.
+- Everything else is left at the library default of "do not cache". **Tool calls are
+  never cacheable** — that is what keeps content reads fresh.
+
+**Scope is `private` everywhere, and must stay that way.** These responses are filtered
+by the caller's token scope, resource policy and Statamic permissions, so a shared cache
+could otherwise hand one caller's view to another.
 
 ### Benefits of Router Architecture:
 1. **Scalability**: Easy to add new actions without new tools
@@ -848,6 +949,22 @@ delivery, response serialization, and the `isError` flag. This works only becaus
 Testbench does not run package auto-discovery, and without that provider
 `Laravel\Mcp\Request` receives no arguments, so protocol tests pass while asserting
 nothing. Do not remove it.
+
+`tests/Feature/WebEndpointProtocolTest.php` covers the other half: the endpoint driven
+the way a real client drives it, over HTTP, through the full middleware stack (CORS,
+transport check, bearer auth, throttle, permission gate) and through laravel/mcp 1.0's
+`ValidateMcpHeaders`.
+
+That layer had no coverage before 1.0, which is how an entire protocol change could have
+broken every client while the suite stayed green. A 1.0 request body carries its protocol
+version and client capabilities in `params._meta`, and POSTs must send `MCP-Protocol-Version`
+and `Mcp-Method` headers matching the body — plus `Mcp-Name` for `tools/call`, `prompts/get`
+and `resources/read`. A mismatch is HTTP 400 with JSON-RPC error `-32020`. The test's `rpc()`
+helper builds all of that; use it rather than hand-rolling a request.
+
+Legacy `initialize` clients (2025-06-18, 2025-11-25) still connect and skip header
+validation entirely. There is a test pinning that, because it is the compatibility
+promise most likely to be broken by accident.
 
 ## Production-Ready Features
 

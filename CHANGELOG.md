@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - 2026-09-16
+
+### Changed
+
+- **`laravel/mcp` is now `^1.0` only** — 1.0 replaces the `initialize` handshake with `server/discover`, removes session tracking, and adds header validation on every POST, so supporting 0.x alongside it would mean carrying two protocol behaviours indefinitely. Nothing in this package needed rewriting for it: PKCE with S256 and Client ID Metadata Documents, which 1.0 makes mandatory, were already implemented and tested here. `src/Testing/FakeTransport.php` was updated to the new `Transport` contract — `send()` lost its `$sessionId` argument and `sessionId()` is gone.
+
+  **Legacy clients still connect.** A client that sends `initialize` with protocol 2025-06-18 or 2025-11-25 negotiates as before and skips header validation entirely; there is a test pinning that, because it is the compatibility promise most likely to be broken by accident.
+
+- **The tool catalog is partial by default** — Only `statamic-entries`, `statamic-blueprints` and `statamic-system-discover` are listed when a client connects. The other eight are exposed through `search_tools` and `execute_tools`, built into laravel/mcp.
+
+  The reason is token cost, measured rather than assumed: `tools/list` was 31,077 bytes — roughly 7,800 tokens of JSON schema that every client loaded on every connection before it had asked anything, because eleven routers with action-based schemas are individually large. It is now 12,614 bytes, a 59% cut.
+
+  **Nothing is restricted by this.** `ToolSearch` honours `shouldRegister()`, so a domain disabled in config stays invisible, and `execute_tools` invokes the tool's own `handle()` — token scope, resource policy, Statamic permissions and the confirmation gate all apply exactly as on a direct call. A searchable tool is hidden, never ungated.
+
+  **This changes what a client sees, so it can regress a client that handles `search_tools` badly.** Set `STATAMIC_MCP_SEARCHABLE_CATALOG=false` to list every tool directly. The server's instructions describe whichever shape is active, so an agent is never told to use a route that is turned off.
+
+  One consequence worth knowing: `execute_tools` emits progress notifications before its result, so those calls come back as an SSE stream rather than a single JSON body.
+
+### Added
+
+- **Cache hints on the read-only surfaces** — laravel/mcp 1.0 lets a response tell the client how long it may be reused. `server/discover`, `tools/list` and `prompts/list` are hinted at 5 minutes: they derive from config, so they change on deploy, not during a session. The two blueprint resources carry their own 1-minute hint. That is short on purpose — this addon can itself edit a blueprint, and an agent holding a stale schema across its own edit is the one failure the hint could cause. Everything else keeps the library default of "do not cache", and tool calls are never cacheable, which is what keeps content reads fresh.
+
+  Scope is `private` throughout and must stay so: these responses are filtered by the caller's token scope, resource policy and Statamic permissions, so a shared cache could otherwise hand one caller's view to another.
+
+- **`tests/Feature/WebEndpointProtocolTest.php`** — The web endpoint driven the way a real client drives it: over HTTP, through CORS, transport checks, bearer auth, throttling, the permission gate and 1.0's `ValidateMcpHeaders`. That layer had no coverage at all, which is how a protocol change of this size could have broken every client while the suite stayed green. Covers the 2026-07-28 handshake, the catalog split and its opt-out, cache hints, legacy `initialize` clients, and the `-32020` rejections for a missing or mismatched `Mcp-Method` / `Mcp-Name` header.
+
+### Fixed
+
+- **CORS preflight requests no longer 404, so browser-based clients can connect** — `Mcp::web()` registers GET, DELETE and POST but no OPTIONS route, so a preflight never reached `HandleMcpCors` and its entire preflight branch was dead code. Since `Authorization` alone is enough to trigger a preflight, no cross-origin browser client could connect to this endpoint at all — a pre-existing bug that 1.0 only makes more visible, since its mandatory `MCP-*` headers guarantee a preflight. The addon now registers its own OPTIONS route, deliberately outside the auth stack because a preflight carries no credentials and a 401 fails it exactly as surely as a 404 did. `Access-Control-Allow-Headers` also gained `MCP-Protocol-Version`, `Mcp-Method` and `Mcp-Name`: a browser blocks a request carrying a header the preflight did not allow, while omitting them earns `-32020`, so a client without them is wedged either way. `HandleMcpCors` also moved to group middleware wrapping `Mcp::web()`: it used to be appended as route middleware, which runs *after* the `ValidateMcpHeaders` that `Mcp::web()` attaches itself, so a `-32020` rejection reached the browser with no `Access-Control-Allow-Origin` and was hidden behind a generic network error rather than showing why it was refused
+
+- **Tools reached through `execute_tools` keep the configured response budget** — `ToolSearch` caps output at `mcp.tool_search.max_output_bytes` (65,536 by default), unrelated to this addon's `security.max_response_size` of 100,000, and it measures each result as `{content, structuredContent}` — both of which our tools fill with the same envelope, so the payload counts about twice. A response returned happily on a direct call would therefore come back as `OutputLimitExceeded` once its tool moved behind the searchable catalog, and raising `max_response_size` would not have helped because it is a different key. The library's budget is now derived from the addon's ceiling at three times its size — `structuredContent` holds the envelope and `content[0].text` holds the same envelope already serialized, so encoding escapes every quote and backslash a second time, and a quote-heavy 84 KB envelope measures 180 KB. Escaping can at most double the text copy, so tripling bounds one maximum-size response by construction. A value an operator set themselves is left untouched
+
+- **The dashboard no longer breaks when a non-domain key is added under `tools`** — `StatsService::getToolCount()` type-hinted every value under `config('statamic.mcp.tools')` as an array, so the first key that was not a domain block threw a `TypeError` and took the whole Control Panel page down with it. Found by adding exactly such a key during this release. Non-domain entries are now skipped rather than assumed away; the offending setting also moved to its own `catalog` config block, where it belongs
+
 ## [2.10.1] - 2026-09-12
 
 ### Fixed

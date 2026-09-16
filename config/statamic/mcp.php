@@ -204,6 +204,28 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Tool Catalog
+    |--------------------------------------------------------------------------
+    |
+    | How the tool list is presented to clients at connect time.
+    |
+    | With 'searchable' on, only the tools a session usually opens with are
+    | listed — entries, blueprints and discovery. The rest are reached through
+    | search_tools and execute_tools. The full catalog is ~31 KB of schema that
+    | every client pays for on every connection before it has asked anything;
+    | withholding the rest cuts that by about 60%. They stay fully available and
+    | fully gated — only their schemas wait until a client asks for them.
+    |
+    | Turn it off if your MCP client handles search_tools poorly and you would
+    | rather it saw every tool listed directly.
+    |
+    */
+    'catalog' => [
+        'searchable' => env('STATAMIC_MCP_SEARCHABLE_CATALOG', true),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Tool Configuration
     |--------------------------------------------------------------------------
     |

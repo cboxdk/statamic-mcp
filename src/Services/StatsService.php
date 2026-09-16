@@ -39,13 +39,20 @@ class StatsService
      * tracks domain routers (e.g., entries, blueprints). It does not reflect
      * the actual tools registered on the MCP server (which also includes
      * system tools like discovery and schema).
+     *
+     * Entries that are not a domain block are skipped rather than assumed
+     * away: this read used to type-hint every value as an array, so the first
+     * non-domain key added under `tools` brought the whole dashboard down.
      */
     private function getToolCount(): int
     {
-        /** @var array<string, array<string, mixed>> $tools */
+        /** @var array<string, mixed> $tools */
         $tools = config('statamic.mcp.tools', []);
 
-        return count(array_filter($tools, fn (array $tool): bool => (bool) ($tool['enabled'] ?? false)));
+        return count(array_filter(
+            $tools,
+            fn (mixed $tool): bool => is_array($tool) && (bool) ($tool['enabled'] ?? false),
+        ));
     }
 
     /**

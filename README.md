@@ -7,7 +7,7 @@ A comprehensive MCP (Model Context Protocol) server for Statamic CMS v6 that pro
 - PHP 8.3+
 - Laravel 12+
 - Statamic 6.6+
-- Laravel MCP ^0.6 || ^0.7 || ^0.8 || ^0.9
+- Laravel MCP ^1.0
 
 ## Installation
 
@@ -88,6 +88,14 @@ System info, health checks, cache management (clear/warm), and configuration acc
 
 ### Content Workflow Facade — `statamic-content-facade`
 High-level workflow operations: `content_audit`, `content_validate`, and `cross_reference`.
+
+### Finding the tools
+
+Three tools are listed when a client connects — `statamic-entries`, `statamic-blueprints`
+and `statamic-system-discover`. The rest are found with `search_tools` and run with
+`execute_tools`, which keeps ~18 KB of JSON schema out of your context window on every
+connection. They are fully available and fully gated either way; only their schemas wait
+until you ask. Set `STATAMIC_MCP_SEARCHABLE_CATALOG=false` to list all of them directly.
 
 ### Agent Education Tools
 - `statamic-system-discover` — Intent-based tool discovery

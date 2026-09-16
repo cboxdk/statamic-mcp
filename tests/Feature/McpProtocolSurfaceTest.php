@@ -39,6 +39,12 @@ class McpProtocolSurfaceTest extends TestCase
     {
         parent::setUp();
 
+        // This test is about what each tool does on the wire, not about how the
+        // catalog is shaped, so it addresses every tool by name. The default
+        // catalog hides most of them behind search_tools; WebEndpointProtocolTest
+        // covers that split, and here it would only get in the way.
+        config()->set('statamic.mcp.catalog.searchable', false);
+
         Collection::make(self::COLLECTION)->title('Protocol Pages')->save();
         Taxonomy::make(self::TAXONOMY)->title('Protocol Tags')->save();
 

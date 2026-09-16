@@ -27,6 +27,24 @@ The `statamic_version` and `laravel_version` fields in `meta` are only included 
 
 On error, the response includes an `error` key with a human-readable message and a `code` key with a machine-readable error code.
 
+## Finding the tools
+
+Only three tools are listed in the catalog a client loads at connect time:
+`statamic-entries`, `statamic-blueprints` and `statamic-system-discover`. Everything else
+documented below is reached through two built-in tools:
+
+- **`search_tools`** — describe what you want; get back matching tools and their schemas.
+- **`execute_tools`** — run one or more of them by name.
+
+This keeps roughly 18 KB of JSON schema out of the client's context on every connection.
+The hidden tools are not restricted in any way: same token scopes, same resource policy,
+same permissions, same confirmation gate. If your client handles `search_tools` poorly,
+set `STATAMIC_MCP_SEARCHABLE_CATALOG=false` to have all of them listed directly — see
+[the configuration reference](../configuration/reference.md#tool-catalog).
+
+`statamic-system-discover` maps an intent to the right tool and tells you which of the two
+ways to reach it.
+
 ## Domain Routers
 
 ### `statamic-blueprints`

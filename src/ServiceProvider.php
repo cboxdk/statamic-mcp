@@ -44,6 +44,14 @@ use Statamic\Statamic;
 
 class ServiceProvider extends AddonServiceProvider
 {
+    /**
+     * laravel/mcp's own default for mcp.tool_search.max_output_bytes.
+     *
+     * Used to tell an untouched default apart from a value an operator chose,
+     * since the key is always present in the published config.
+     */
+    private const LIBRARY_DEFAULT_OUTPUT_BYTES = 65_536;
+
     /** @phpstan-ignore property.phpDocType, property.defaultValue (Parent type is list<string> but registerVite() accepts associative arrays) */
     protected $vite = [
         'input' => ['resources/js/addon.js'],
@@ -60,6 +68,8 @@ class ServiceProvider extends AddonServiceProvider
             Git::listen(Events\McpTokenSaved::class);
             Git::listen(Events\McpTokenDeleted::class);
         }
+
+        $this->alignToolSearchOutputBudget();
 
         // Only load routes if MCP is available
         if (class_exists('Laravel\Mcp\Facades\Mcp')) {
@@ -313,6 +323,70 @@ class ServiceProvider extends AddonServiceProvider
     }
 
     /**
+     * Give tools reached through execute_tools the same response budget as
+     * tools called directly.
+     *
+     * ToolSearch caps a batch at mcp.tool_search.max_output_bytes — 65,536 by
+     * default — which is unrelated to this addon's own
+     * security.max_response_size ceiling of 100,000. Worse, it measures each
+     * result as {content, structuredContent}, and our tools populate both with
+     * the same envelope, so the payload counts roughly twice. A response the
+     * addon happily returns on a direct call would come back as
+     * OutputLimitExceeded once the tool moved behind the searchable catalog,
+     * and raising max_response_size would not help because it is a different
+     * key entirely.
+     *
+     * So the budget is derived: double the addon's ceiling to absorb the
+     * duplicate, plus slack for the wrapper. A batch of several large results
+     * can still exceed it, which is the limit doing its job — it reports how
+     * many calls completed so the client can retry in smaller batches.
+     *
+     * An operator who has set max_output_bytes themselves keeps their value;
+     * only the library's untouched default is replaced.
+     */
+    private function alignToolSearchOutputBudget(): void
+    {
+        $configured = config('mcp.tool_search.max_output_bytes');
+        $ceiling = config('statamic.mcp.security.max_response_size', 100000);
+
+        $budget = self::toolSearchOutputBudget(
+            is_numeric($configured) ? (int) $configured : null,
+            is_numeric($ceiling) ? (int) $ceiling : 100000,
+        );
+
+        if ($budget !== null) {
+            config(['mcp.tool_search.max_output_bytes' => $budget]);
+        }
+    }
+
+    /**
+     * The budget to apply, or null to leave the configured value alone.
+     *
+     * Three times the ceiling, not two. ToolSearch measures an entry as
+     * {content, structuredContent}: structuredContent is the envelope, and
+     * content[0].text is the *same* envelope already serialized, so encoding
+     * the entry escapes every quote and backslash in it a second time. Simply
+     * doubling looked right and was not — a quote-heavy 84 KB envelope measures
+     * 180 KB, a ratio of 2.14, and worse the more structured the content.
+     *
+     * Escaping can at most double the text copy (one character becomes two), so
+     * ceiling + 2 * ceiling bounds a single maximum-size response by
+     * construction rather than by measurement. A batch of several large results
+     * can still exceed it, which is the limit doing its job.
+     *
+     * Separated from the config plumbing so the decision can be tested without
+     * re-registering the provider.
+     */
+    public static function toolSearchOutputBudget(?int $configured, int $ceiling): ?int
+    {
+        if ($configured !== null && $configured !== self::LIBRARY_DEFAULT_OUTPUT_BYTES) {
+            return null;
+        }
+
+        return $ceiling > 0 ? $ceiling * 3 + 4096 : PHP_INT_MAX;
+    }
+
+    /**
      * Register web MCP endpoint if enabled in configuration.
      */
     protected function registerWebMcp(): void
@@ -324,15 +398,30 @@ class ServiceProvider extends AddonServiceProvider
         /** @var string $path */
         $path = config('statamic.mcp.web.path', '/mcp/statamic');
 
-        // Register web MCP endpoint with security + auth middleware
-        Mcp::web($path, StatamicMcpServer::class)
-            ->middleware([
-                HandleMcpCors::class,
-                EnsureSecureTransport::class,
-                AuthenticateForMcp::class,
-                'throttle:mcp',
-                RequireMcpPermission::class,
-            ]);
+        // CORS preflight. Mcp::web() registers GET, DELETE and POST but no
+        // OPTIONS, so a preflight 404s before it reaches HandleMcpCors — which
+        // meant its preflight branch never ran and no cross-origin browser
+        // client could connect, since Authorization alone already triggers one.
+        // Deliberately outside the auth stack: a preflight carries no
+        // credentials, and answering 401 fails it just as surely as 404 did.
+        Route::options($path, fn () => response('', 204))
+            ->middleware(HandleMcpCors::class);
+
+        // CORS has to wrap laravel/mcp's own middleware, not sit after it.
+        // Mcp::web() attaches ValidateMcpHeaders to the route itself, so a
+        // route-level HandleMcpCors would run *after* it and a -32020 rejection
+        // would carry no Access-Control-Allow-Origin — the browser would hide
+        // the 400 and its explanation behind a generic network error. Group
+        // middleware runs before route middleware, which puts CORS outermost.
+        Route::middleware(HandleMcpCors::class)->group(function () use ($path): void {
+            Mcp::web($path, StatamicMcpServer::class)
+                ->middleware([
+                    EnsureSecureTransport::class,
+                    AuthenticateForMcp::class,
+                    'throttle:mcp',
+                    RequireMcpPermission::class,
+                ]);
+        });
     }
 
     /**

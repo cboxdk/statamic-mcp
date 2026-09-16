@@ -14,7 +14,7 @@ resolver allows it, it is listed; if it does not, it is not.
 |---------|------------|
 | `php` | `^8.3` |
 | `statamic/cms` | `^6.6` |
-| `laravel/mcp` | `^0.6 || ^0.7 || ^0.8 || ^0.9` |
+| `laravel/mcp` | `^1.0` |
 | `symfony/yaml` | `^7.0 || ^8.0` |
 
 ## Laravel
