@@ -531,10 +531,22 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
     private function scanAllTokens(): array
     {
         $tokens = [];
-        $files = glob($this->storagePath . '/*.yaml');
 
-        if ($files === false) {
+        // scandir() rather than glob(): glob() bypasses stream wrappers
+        // entirely, which silently returns nothing when the store is pointed at
+        // a wrapped path. Same ordering (both sort ascending), same result.
+        $entries = @scandir($this->storagePath);
+
+        if ($entries === false) {
             return [];
+        }
+
+        $files = [];
+
+        foreach ($entries as $entry) {
+            if (str_ends_with($entry, '.yaml')) {
+                $files[] = $this->storagePath . '/' . $entry;
+            }
         }
 
         foreach ($files as $file) {

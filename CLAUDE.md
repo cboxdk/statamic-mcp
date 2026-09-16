@@ -966,6 +966,32 @@ Legacy `initialize` clients (2025-06-18, 2025-11-25) still connect and skip head
 validation entirely. There is a test pinning that, because it is the compatibility
 promise most likely to be broken by accident.
 
+## Measuring performance invariants in tests
+
+`tests/Stress/LargeDatasetTest.php` guards the token store against going quadratic.
+Two rules came out of it failing at random for months:
+
+**Never assert on wall-clock.** It measures the machine, not the algorithm. The same
+operations were seen swinging from 6 ms to 710 ms for identical work under load, with a
+50-token prune timing *slower* than a 500-token one. Use CPU time (`getrusage()`, user +
+system) — a competing process cannot inflate it. Under load average 112 it held within
+~5% where wall-clock varied 100x. And watch the floor: a `max($small, 0.01)` guard turns
+a scaling comparison into an absolute deadline the moment the small run drops below it,
+which is exactly how these tests started failing on busy machines.
+
+**Timing cannot see a small term inside a large one.** Reintroducing the quadratic index
+rewrite moved the measured ratio only from 1.35x to 2.12x, because scanning and unlinking
+N token files is linear work in both implementations and dwarfs the index writes. A test
+that cannot fail is worse than one that fails at random — it reports safety it does not
+provide.
+
+Where an invariant is countable, **count it**. `CountingStreamWrapper`
+(`tests/Support/CountingStreamWrapper.php`) proxies filesystem calls and tallies writes
+per file, so "pruning a batch rewrites the index once, not once per token" is asserted
+exactly: the reintroduced bug takes that count from 1 to 50, with no timing involved.
+Note this is why `FileTokenStore` scans with `scandir()` rather than `glob()` — `glob()`
+bypasses stream wrappers and silently returns nothing under a wrapped path.
+
 ## Production-Ready Features
 
 ### Advanced Template Analysis & Optimization
