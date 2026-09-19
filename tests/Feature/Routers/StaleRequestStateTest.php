@@ -27,6 +27,16 @@ class StaleRequestStateTest extends TestCase
     {
         parent::setUp();
 
+        // This test is about Blink, not about cache clearing, and the two
+        // interfere here: a stache clear wipes the stores, and under
+        // PreventsSavingStacheItemsToDisk there is no disk to reload them from,
+        // so every entry would vanish and the assertions below would pass over
+        // an empty set. Turning clearing off keeps the subject isolated.
+        config([
+            'statamic.mcp.cache.clear_stache_after_write' => false,
+            'statamic.mcp.cache.clear_static_after_write' => false,
+        ]);
+
         $this->collection = 'struct-' . bin2hex(random_bytes(4));
 
         Collection::make($this->collection)
@@ -63,7 +73,12 @@ class StaleRequestStateTest extends TestCase
         // third saves see a tree that predates the first entry, so Statamic
         // indexes their URI as null — the entries exist, findByUri() misses
         // them, and the pages 404.
-        foreach (Entry::query()->where('collection', $this->collection)->get() as $entry) {
+        $entries = Entry::query()->where('collection', $this->collection)->get();
+
+        // Without this the loop below could iterate nothing and pass.
+        $this->assertCount(3, $entries, 'All three entries should have been created.');
+
+        foreach ($entries as $entry) {
             $uri = $entry->uri();
 
             $this->assertNotNull($uri, "Entry [{$entry->slug()}] was saved without a URI.");

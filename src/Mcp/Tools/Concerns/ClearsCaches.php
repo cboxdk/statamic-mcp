@@ -25,8 +25,9 @@ trait ClearsCaches
      * rebuild the indexes that *depend* on a write, so without it a changed
      * max_items leaves an index of arrays that later throws, a removed taxonomy
      * leaves whereTaxonomy() returning entries, a changed mount leaves every
-     * entry 404ing. Enumerating those by hand is hopeless; nine review passes
-     * each found more.
+     * entry 404ing. That set is long, version-dependent, and was not exhausted by
+     * repeated attempts to enumerate it — every pass over the code turned up
+     * another one.
      *
      * What was wrong was clearing **mid-request**. `statamic:stache:clear` runs
      * through Artisan and resets the in-memory stores there and then, so the

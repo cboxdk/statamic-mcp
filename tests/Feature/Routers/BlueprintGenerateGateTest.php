@@ -43,6 +43,14 @@ class BlueprintGenerateGateTest extends TestCase
         $result = $this->generate($handle);
 
         $this->assertFalse($result['success'] ?? true, 'generate must be refused by a write-mode resource policy.');
+
+        // Pin the reason too: a refusal for some unrelated reason would
+        // otherwise satisfy this test while the gate stayed open.
+        $this->assertStringContainsString(
+            'resource policy',
+            implode(' ', $result['errors'] ?? []),
+            'It must be the resource policy that refuses, not something incidental.'
+        );
         $this->assertNull(
             collect(Blueprint::in('collections')->all())->firstWhere('handle', $handle),
             'No blueprint may reach disk when the policy refuses the write.'

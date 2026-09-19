@@ -221,6 +221,10 @@ return [
     | your editors hold no 'configure fields' permission and you would rather
     | let the token scope you minted decide who may read schema.
     |
+    | Not to be confused with the per-domain `tools.*.resources` allowlists
+    | further down, which are the resource *policy* — which handles a token may
+    | touch. This block is about the MCP resource surface itself.
+    |
     */
     'resources' => [
         'enabled' => env('STATAMIC_MCP_RESOURCES_ENABLED', true),

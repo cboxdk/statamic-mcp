@@ -974,9 +974,9 @@ once the call is over. Both halves of that matter.
 **It still clears**, because Statamic does not rebuild the indexes that *depend* on a
 write: a changed `max_items` leaves an index whose shape later throws, a changed mount
 leaves every entry 404ing, a removed taxonomy leaves `whereTaxonomy()` returning entries,
-a group's roles leave its members' role indexes stale. Nine review passes each found more
-of these — the set is not enumerable, so do not try to replace the clear with a list of
-special cases. That was tried and abandoned.
+a group's roles leave its members' role indexes stale. Repeated passes over the code kept
+turning up more — the set is not enumerable, so do not try to replace the clear with a
+list of special cases. That was tried and abandoned.
 
 **It clears late**, because clearing mid-call is what broke a live site (#53).
 `statamic:stache:clear` goes through Artisan and resets the in-memory stores immediately,
@@ -1084,17 +1084,25 @@ bypasses stream wrappers and silently returns nothing under a wrapped path.
 - Validation against blueprint field definitions
 
 ### Automatic Cache Purging
-All structural and content changes automatically clear relevant caches:
-- **Blueprint changes**: Clears stache, static, views
-- **Content changes**: Clears stache, static
-- **Structure changes**: Clears stache, static, views
-- **Global changes**: Clears stache with targeted cache invalidation
-- **Response includes cache status** for transparency
+Writes queue a clear of what their change invalidates. Content and structure writes that
+can change a rendered page — entries, terms, collections, taxonomies, navigations, global
+sets, revisions — queue **stache + static**. Writes that cannot — blueprints, assets,
+users, roles, groups — queue **stache** only, since Statamic's own invalidator already
+subscribes to `BlueprintSaved` and `AssetSaved`. Collection writes additionally invalidate
+their own static URLs directly, because `CollectionSaved` is not in that subscriber list.
+
+**The clear is deferred**, and that matters more than the list above: see
+"Cache clearing is deferred, not removed". It runs once the response is built, never
+mid-call. Queue it with `clearCachesAfterWrite()`; `clearStatamicCaches()` is the
+immediate version and belongs only to the system router's `cache_clear` action.
+
+The result is not reported in the response — it is not known until after the envelope is
+assembled, and a cache rebuild is not something the caller acts on.
 
 ### Performance Optimizations
 - **Pagination support** in all content extraction tools
 - **Field filtering** in blueprint scanning (`include_fields: false`)
-- **Response size limits** to prevent token overflow (< 25,000 tokens)
+- **Response size limits** to prevent token overflow (`security.max_response_size`, 100,000 bytes by default)
 - **Intelligent defaults** for large datasets
 - **Optimized Site validation** using `Site::all()->map->handle()->contains()`
 - **Collection handle caching** with `Collection::handles()->all()`

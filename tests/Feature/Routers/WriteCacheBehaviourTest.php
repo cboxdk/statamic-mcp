@@ -173,7 +173,7 @@ class WriteCacheBehaviourTest extends TestCase
         $called = [];
         $this->spyArtisan($called);
 
-        (new EntriesRouter)->execute([
+        $result = (new EntriesRouter)->execute([
             'action' => 'update',
             'collection' => $this->collection,
             'id' => $entry->id(),
@@ -181,6 +181,10 @@ class WriteCacheBehaviourTest extends TestCase
         ]);
 
         Artisan::clearResolvedInstances();
+
+        // Asserting an absence: without this the test would also pass if the
+        // write had simply failed and never asked for a clear at all.
+        $this->assertTrue($result['success'] ?? false, 'The write itself must have succeeded: ' . json_encode($result['errors'] ?? []));
 
         $this->assertNotContains('statamic:stache:clear', $called);
         $this->assertNotContains('statamic:static:clear', $called);
