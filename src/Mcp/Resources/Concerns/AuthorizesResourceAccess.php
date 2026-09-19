@@ -9,6 +9,7 @@ use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Illuminate\Support\Facades\Log;
+use Laravel\Mcp\Response;
 use Statamic\Contracts\Auth\User;
 
 /**
@@ -44,8 +45,15 @@ trait AuthorizesResourceAccess
         if (! $isCli) {
             $domain = $this->domain();
 
-            if (! config("statamic.mcp.tools.{$domain}.enabled", true)) {
-                return ucfirst($domain) . ' are disabled for web access';
+            // Deliberately NOT gated on tools.{domain}.enabled. That switch turns
+            // off a tool that can create, update and delete; sites keeping their
+            // content model in Git switch it off for exactly that reason, and
+            // doing so also removed the only read-only way to learn a
+            // blueprint's fields — while the server's own instructions tell
+            // agents to read the blueprint before every write (#54). Reads have
+            // their own switch.
+            if (! config('statamic.mcp.resources.enabled', true)) {
+                return 'MCP resources are disabled';
             }
 
             /** @var User|null $user */
@@ -76,7 +84,11 @@ trait AuthorizesResourceAccess
                 }
             }
 
-            if (! $user->isSuper() && ! $this->hasStatamicPermission($user)) {
+            if (
+                config('statamic.mcp.resources.require_statamic_permission', true)
+                && ! $user->isSuper()
+                && ! $this->hasStatamicPermission($user)
+            ) {
                 return 'Insufficient Statamic permissions';
             }
         }
@@ -97,10 +109,35 @@ trait AuthorizesResourceAccess
 
     /**
      * The Statamic permission backing this resource's domain.
+     *
+     * 'configure fields' is what BlueprintsRouter requires, and the two
+     * surfaces serve the same data, so they must not disagree about who may
+     * see it. The other two are kept because they used to be the whole check
+     * and removing them would lock out sites that rely on them.
      */
     protected function hasStatamicPermission(User $user): bool
     {
-        return $user->hasPermission('configure collections')
+        return $user->hasPermission('configure fields')
+            || $user->hasPermission('configure collections')
             || $user->hasPermission('configure taxonomies');
+    }
+
+    /**
+     * An expected refusal, shaped as a normal result rather than an error.
+     *
+     * laravel/mcp's ReadResource is not Errable, so anything returned through
+     * Response::error() becomes JSON-RPC -32603 and HTTP 500 — which a hosted
+     * client behind a proxy shows as a bare 502 with the message gone, making
+     * "you lack permission" indistinguishable from an outage (#55). Tools avoid
+     * this by carrying their errors inside a normal result; resources now do
+     * the same, so the reason survives the round trip.
+     */
+    protected function refusal(string $message, string $code): Response
+    {
+        return Response::json([
+            'success' => false,
+            'error' => $message,
+            'code' => $code,
+        ]);
     }
 }

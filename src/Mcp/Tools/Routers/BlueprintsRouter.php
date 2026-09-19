@@ -563,7 +563,7 @@ class BlueprintsRouter extends BaseRouter
                 $blueprint->save();
 
                 // Clear Statamic caches
-                $this->clearStatamicCaches(['stache']);
+                $this->clearCachesAfterWrite(['stache']);
 
                 return [
                     'blueprint' => [
@@ -872,7 +872,7 @@ class BlueprintsRouter extends BaseRouter
             $blueprint->save();
 
             // Clear Statamic caches
-            $this->clearStatamicCaches(['stache']);
+            $this->clearCachesAfterWrite(['stache']);
 
             return [
                 'blueprint' => [
@@ -928,7 +928,7 @@ class BlueprintsRouter extends BaseRouter
             $blueprint->delete();
 
             // Clear Statamic caches
-            $this->clearStatamicCaches(['stache']);
+            $this->clearCachesAfterWrite(['stache']);
 
             return [
                 'deleted' => true,
@@ -1026,7 +1026,7 @@ class BlueprintsRouter extends BaseRouter
             $blueprint->save();
 
             // Clear Statamic caches
-            $this->clearStatamicCaches(['stache']);
+            $this->clearCachesAfterWrite(['stache']);
 
             return [
                 'blueprint' => [

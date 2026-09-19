@@ -74,7 +74,14 @@ trait ValidatesContentRecords
     private function ruleFindings(Fields $fields, array $data, RecordRef $record): array
     {
         try {
-            $fields->addValues($data)->validator()->validate();
+            // preProcessValidatables() is what the Control Panel runs before it
+            // validates, and skipping it made the rules judge a shape Statamic
+            // never intended them to see. A relationship field with
+            // max_items: 1 stores a bare string rather than a one-element
+            // array, so the generated array and max:1 rules both failed on
+            // every correctly stored row (#58). Each fieldtype gets to present
+            // its stored value in the form its own rules were written against.
+            $fields->addValues($data)->preProcessValidatables()->validator()->validate();
 
             return [];
         } catch (ValidationException $e) {

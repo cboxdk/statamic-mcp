@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0] - 2026-09-19
+
+Six issues reported against 3.0.0, all with root-cause analysis good enough to go
+straight to the fix. Thanks to @JorisOrangeStudio and @revans-premier-education.
+
+### Security
+
+- **`generate` no longer bypasses the write gates** (#56) — `statamic-blueprints generate` calls `Blueprint::save()`, but the action appeared in neither write-action list, so it was gated as a *read*: a token holding only `blueprints:read` could create blueprints on disk, and a site with `resources.write => []` for blueprints could not stop it. It now requires `blueprints:write`, passes the resource policy in write mode, and sits behind the confirmation gate alongside `create`.
+
+  **This will refuse calls that previously succeeded.** That is the point — but if you have automation generating blueprints with a read-scoped token, it needs `blueprints:write` now.
+
+### Fixed
+
+- **Writes no longer clear the Stache, which had been corrupting live sites** (#53) — Every write ended in a full Stache and static cache wipe, run through `Artisan::call` *inside the request*, which resets the in-memory stores halfway through a tool call. On a live multisite with a structured collection that left the tree repository returning nothing for the site; `CollectionStructure::validateTree()` then padded the empty tree with every entry at root in Stache order, so nested URLs flattened and — with `root: true` — a random entry became the homepage. Twice in one day, each time within minutes of a batch of MCP writes.
+
+  The clear was never needed. Statamic's `save()` updates the store and its indexes, and `StaticCaching\Invalidate` invalidates static pages from the saved events using the site's own rules, which is why a Control Panel save clears nothing. Post-write clearing is now off; `STATAMIC_MCP_CLEAR_CACHE_AFTER_WRITE=true` restores it. The `statamic-system` `cache_clear` action is untouched — that clear was asked for. Diagnosed in full by @JorisOrangeStudio
+
+- **Blueprint resources are no longer switched off by the writable tool** (#54) — `statamic://blueprints` was gated on `tools.blueprints.enabled`, the switch that turns off a tool which can create, update and delete blueprints. Sites keeping their content model in Git turn it off for exactly that reason, and doing so removed the only read-only way for an agent to learn a blueprint's fields — while the server's own instructions tell it to read the blueprint before every write. Reads now have their own switch, `resources.enabled`.
+
+  The permission check was also inconsistent with the tool it mirrors: the resource required `configure collections` or `configure taxonomies` while `BlueprintsRouter` requires `configure fields`. It now accepts any of the three, and `resources.require_statamic_permission => false` lets a site authorize schema reads by token scope and resource policy alone, for editors who hold no `configure` permission
+
+- **Resource refusals no longer arrive as HTTP 500** (#55) — laravel/mcp's `ReadResource` is not `Errable`, so anything a resource returned through `Response::error()` became JSON-RPC `-32603` and HTTP 500. Through a hosted client behind a proxy that surfaced as a bare 502 with the message gone, making "you lack permission" and "wrong URI" indistinguishable from an outage — and nothing reached Sentry either, since no exception was thrown. Expected conditions now travel as a normal result carrying `{success: false, error, code}`, the same way tool errors always have, so the reason survives the round trip
+
+- **`content_validate` no longer fails every dated entry** (#57) — The entry sweep validated `['slug' => ..., ...data()]`. The slug is folded in because it lives outside `data()`; the entry date lives outside it in exactly the same way — a filename prefix on the file driver, a column on the Eloquent one — but was not, so the `date` field Statamic injects into a dated collection's blueprint was always missing and every entry reported a violation
+
+- **`content_validate` no longer fails single-item relationship fields** (#58) — A relationship field with `max_items: 1` is stored as a bare string, not a one-element array, and the sweep ran the blueprint's rules against stored values without the fieldtype pre-processing the Control Panel does first. The generated `array` and `max:1` rules therefore both failed on every correctly stored row. Values now go through `preProcessValidatables()` before validation, so each fieldtype presents its value in the shape its own rules were written against.
+
+  Together with #57 this had made `content_validate` unusable as a post-import check on an ordinary blog collection: every row failed on its date, and every row with an author failed twice more
+
+### Added
+
+- `cache.clear_after_write` and the `resources.*` block, both documented in the [configuration reference](docs/configuration/reference.md)
+
+### Internal
+
+- **The test suite stopped leaking blueprints into `vendor/`** — `PreventsSavingStacheItemsToDisk` stops Stache writes, but a saved blueprint is a real file under Testbench's skeleton app, which survives every run. They had accumulated to 3,431 directories and 4,122 files that every `Blueprint::in()` listing had to scan. Worse than slow, it was misleading: a new test asserting that a refused write left no blueprint behind failed because an identically named file from an earlier run was still there — which looks exactly like the fix not working. `TestCase` now sweeps the directory once per process
+
 ## [3.0.0] - 2026-09-16
 
 ### Changed

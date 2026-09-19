@@ -52,7 +52,7 @@ class BlueprintIndexResource extends Resource
     public function handle(Request $request): Response|ResponseFactory
     {
         if ($reason = $this->denyReason()) {
-            return Response::error("Permission denied: {$reason}");
+            return $this->refusal("Permission denied: {$reason}", 'PERMISSION_DENIED');
         }
 
         $blueprints = [];

@@ -599,16 +599,48 @@ class ContentFacadeRouter extends BaseRouter
 
                 return $this->validateRecord(
                     $blueprint->fields(),
-                    // The slug lives outside data() but blueprints routinely mark
-                    // it required, so fold it in or every entry looks like it is
-                    // missing a required slug.
-                    ['slug' => $entry->slug(), ...$entry->data()->all()],
+                    $this->entryValidationData($entry),
                     new RecordRef(RecordType::Entry, (string) $entry->id(), $entry->locale())
                 );
             };
         }
 
         return $units;
+    }
+
+    /**
+     * The data an entry should be validated against.
+     *
+     * Not simply data(): a couple of an entry's fields live outside it while
+     * still being declared — and required — in the blueprint, so validating
+     * data() alone reports them missing on every single row.
+     *
+     * The slug is one. The date is the other: Statamic injects a required date
+     * field into a dated collection's blueprint at runtime, but the value is a
+     * filename prefix on the file driver and a column on the Eloquent one, so
+     * it never appears in data() and every dated entry failed (#57).
+     *
+     * @return array<string, mixed>
+     */
+    private function entryValidationData(\Statamic\Contracts\Entries\Entry $entry): array
+    {
+        $data = ['slug' => $entry->slug(), ...$entry->data()->all()];
+
+        $collection = $entry->collection();
+
+        if ($collection instanceof \Statamic\Contracts\Entries\Collection && $collection->dated()) {
+            $date = $entry->date();
+
+            if ($date !== null) {
+                // Match how Statamic itself presents the injected date field:
+                // with time when the collection keeps one, date only otherwise.
+                $data['date'] = $collection->hasTimeEnabled()
+                    ? $date->format('Y-m-d H:i')
+                    : $date->format('Y-m-d');
+            }
+        }
+
+        return $data;
     }
 
     /**

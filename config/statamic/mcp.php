@@ -145,13 +145,13 @@ return [
         | the gate for that domain. The '*' wildcard gates every action.
         |
         | Defaults preserve historical behaviour: 'delete' everywhere plus
-        | create/update on blueprints, and destructive revision actions on
+        | create/generate/update on blueprints, and destructive revision actions on
         | entries. Operators can widen the gate per domain — e.g. require
         | confirmation on entries.update — without forking the package.
         */
         'actions' => [
             'default' => ['delete'],
-            'blueprints' => ['create', 'update', 'delete'],
+            'blueprints' => ['create', 'generate', 'update', 'delete'],
             'entries' => ['delete', 'restore_revision', 'publish_working_copy'],
             // 'entries' => ['create', 'update', 'delete', 'publish', 'unpublish', 'restore_revision', 'publish_working_copy'],
             // 'globals' => ['update'],
@@ -200,6 +200,56 @@ return [
         'cimd_max_response_size' => (int) env('STATAMIC_MCP_OAUTH_CIMD_MAX_RESPONSE_SIZE', 5120),
         'cimd_cache_ttl' => (int) env('STATAMIC_MCP_OAUTH_CIMD_CACHE_TTL', 3600),
         'cimd_block_private_ips' => env('STATAMIC_MCP_OAUTH_CIMD_BLOCK_PRIVATE_IPS', true),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Resources
+    |--------------------------------------------------------------------------
+    |
+    | The read-only surface: statamic://blueprints and friends.
+    |
+    | These have their own switch because they used to share the tools' one. A
+    | site that keeps its content model in Git turns the blueprints *tool* off
+    | precisely because it can create and delete blueprints — and that also
+    | removed the only read-only way for an agent to learn a blueprint's
+    | fields, while the server's own instructions tell it to read the blueprint
+    | before every write (issue #54).
+    |
+    | 'require_statamic_permission' keeps the Statamic permission check on top
+    | of the token scope and the resource-policy allowlist. Set it to false if
+    | your editors hold no 'configure fields' permission and you would rather
+    | let the token scope you minted decide who may read schema.
+    |
+    */
+    'resources' => [
+        'enabled' => env('STATAMIC_MCP_RESOURCES_ENABLED', true),
+        'require_statamic_permission' => env('STATAMIC_MCP_RESOURCES_REQUIRE_PERMISSION', true),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Cache
+    |--------------------------------------------------------------------------
+    |
+    | Whether a write should clear Statamic's caches afterwards.
+    |
+    | Off, because it is not needed and has done harm. Statamic's save() already
+    | updates the Stache store and its indexes, and StaticCaching\Invalidate
+    | invalidates static pages from the saved events using your own rules — a
+    | Control Panel save clears nothing, and neither should this.
+    |
+    | Clearing also ran `statamic:stache:clear` through Artisan inside the
+    | request, resetting the in-memory stores mid-call. On a live multisite that
+    | left a structured collection's tree empty, which Statamic then padded with
+    | every entry at root: nested URLs flattened and a random entry became the
+    | homepage (issue #53).
+    |
+    | Turn it on only if you have a setup that genuinely needs it.
+    |
+    */
+    'cache' => [
+        'clear_after_write' => env('STATAMIC_MCP_CLEAR_CACHE_AFTER_WRITE', false),
     ],
 
     /*

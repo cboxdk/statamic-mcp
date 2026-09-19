@@ -107,6 +107,51 @@ Controls request throttling for the web endpoint. Skipped in CLI context.
 ],
 ```
 
+## Cache
+
+Whether a write clears Statamic's caches afterwards. **Off**, and that is the correct
+default rather than a cautious one.
+
+Statamic's `save()` already updates the Stache store and its indexes, and
+`StaticCaching\Invalidate` invalidates static pages from the saved events using your own
+rules — a Control Panel save clears nothing, and neither should this.
+
+Clearing also ran `statamic:stache:clear` through Artisan *inside the request*, resetting
+the in-memory stores mid-call. On a live multisite that left a structured collection's
+tree empty; Statamic then padded it with every entry at root, so nested URLs flattened
+and a random entry became the homepage.
+
+```php
+'cache' => [
+    'clear_after_write' => env('STATAMIC_MCP_CLEAR_CACHE_AFTER_WRITE', false),
+],
+```
+
+The `statamic-system` tool's `cache_clear` action is unaffected — that clear was asked
+for.
+
+## Resources
+
+The read-only surface: `statamic://blueprints` and friends.
+
+These have their own switch because they used to share the tools' one. A site that keeps
+its content model in Git turns the blueprints *tool* off precisely because it can create
+and delete blueprints — and that also removed the only read-only way for an agent to
+learn a blueprint's fields, while the server's own instructions tell it to read the
+blueprint before every write.
+
+```php
+'resources' => [
+    'enabled' => env('STATAMIC_MCP_RESOURCES_ENABLED', true),
+    'require_statamic_permission' => env('STATAMIC_MCP_RESOURCES_REQUIRE_PERMISSION', true),
+],
+```
+
+`require_statamic_permission` keeps the Statamic permission check (`configure fields`,
+`configure collections` or `configure taxonomies`) on top of the token scope and the
+resource-policy allowlist. Set it to `false` if your editors hold none of those and you
+would rather let the token scope you minted decide who may read schema.
+
 ## Tool Catalog
 
 Controls how the tool list is presented to a client when it connects.
@@ -259,6 +304,13 @@ STATAMIC_MCP_RATE_LIMIT_MAX=60
 
 # Tool catalog
 STATAMIC_MCP_SEARCHABLE_CATALOG=true
+
+# Cache
+STATAMIC_MCP_CLEAR_CACHE_AFTER_WRITE=false
+
+# Resources
+STATAMIC_MCP_RESOURCES_ENABLED=true
+STATAMIC_MCP_RESOURCES_REQUIRE_PERMISSION=true
 
 # OAuth 2.1
 STATAMIC_MCP_OAUTH_ENABLED=true

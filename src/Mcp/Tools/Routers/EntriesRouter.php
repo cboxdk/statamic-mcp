@@ -514,7 +514,7 @@ class EntriesRouter extends BaseRouter
             }
 
             // Clear relevant caches
-            $this->clearStatamicCaches(['stache', 'static']);
+            $this->clearCachesAfterWrite(['stache', 'static']);
 
             $response = [
                 'entry' => [
@@ -805,7 +805,7 @@ class EntriesRouter extends BaseRouter
                 $localization->save();
             }
 
-            $this->clearStatamicCaches(['stache', 'static']);
+            $this->clearCachesAfterWrite(['stache', 'static']);
 
             $response = [
                 'entry' => [
@@ -1032,7 +1032,7 @@ class EntriesRouter extends BaseRouter
             $entry->merge($data)->save();
 
             // Clear relevant caches
-            $this->clearStatamicCaches(['stache', 'static']);
+            $this->clearCachesAfterWrite(['stache', 'static']);
 
             $response = [
                 'entry' => [
@@ -1092,7 +1092,7 @@ class EntriesRouter extends BaseRouter
             $entry->delete();
 
             // Clear relevant caches
-            $this->clearStatamicCaches(['stache', 'static']);
+            $this->clearCachesAfterWrite(['stache', 'static']);
 
             return [
                 'entry' => $entryData,
@@ -1136,7 +1136,7 @@ class EntriesRouter extends BaseRouter
             }
 
             // Clear relevant caches
-            $this->clearStatamicCaches(['stache', 'static']);
+            $this->clearCachesAfterWrite(['stache', 'static']);
 
             $response = [
                 'entry' => [
@@ -1191,7 +1191,7 @@ class EntriesRouter extends BaseRouter
             }
 
             // Clear relevant caches
-            $this->clearStatamicCaches(['stache', 'static']);
+            $this->clearCachesAfterWrite(['stache', 'static']);
 
             $response = [
                 'entry' => [

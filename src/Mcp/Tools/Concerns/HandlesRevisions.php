@@ -238,7 +238,7 @@ trait HandlesRevisions
             }
 
             // Clear relevant caches
-            $this->clearStatamicCaches(['stache', 'static']);
+            $this->clearCachesAfterWrite(['stache', 'static']);
 
             // Re-fetch entry for fresh state (in-memory object is stale after restore)
             $refreshed = $this->resolveRevisionEntry($arguments);
@@ -294,7 +294,7 @@ trait HandlesRevisions
             $entry->publish($options);
 
             // Clear relevant caches
-            $this->clearStatamicCaches(['stache', 'static']);
+            $this->clearCachesAfterWrite(['stache', 'static']);
 
             // Re-fetch entry for fresh state with site context
             $refreshed = $this->resolveRevisionEntry($arguments);

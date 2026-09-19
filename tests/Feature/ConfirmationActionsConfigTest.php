@@ -11,7 +11,7 @@ beforeEach(function (): void {
     // Mirror the shipped defaults so each test starts from a known baseline.
     Config::set('statamic.mcp.confirmation.actions', [
         'default' => ['delete'],
-        'blueprints' => ['create', 'update', 'delete'],
+        'blueprints' => ['create', 'generate', 'update', 'delete'],
     ]);
     Config::set('statamic.mcp.confirmation.enabled', true);
     Config::set('statamic.mcp.confirmation.ttl', 300);
@@ -30,10 +30,15 @@ it('does NOT gate update on entries by default', function (): void {
     expect(ConfirmationActionGate::gates('entries', 'update'))->toBeFalse();
 });
 
-it('gates create/update/delete on blueprints (backwards-compat regression guard)', function (): void {
+it('gates create/generate/update/delete on blueprints (backwards-compat regression guard)', function (): void {
     expect(ConfirmationActionGate::gates('blueprints', 'create'))->toBeTrue();
     expect(ConfirmationActionGate::gates('blueprints', 'update'))->toBeTrue();
     expect(ConfirmationActionGate::gates('blueprints', 'delete'))->toBeTrue();
+
+    // generate writes a blueprint to disk exactly as create does; it was
+    // omitted from every write list, so a blueprints:read token could use it
+    // to create blueprints (#56).
+    expect(ConfirmationActionGate::gates('blueprints', 'generate'))->toBeTrue();
 });
 
 // ---------------------------------------------------------------------------

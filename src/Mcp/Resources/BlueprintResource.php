@@ -62,17 +62,17 @@ class BlueprintResource extends Resource implements HasUriTemplate
         $handle = $request->get('handle');
 
         if (! is_string($namespace) || ! is_string($handle) || $namespace === '' || $handle === '') {
-            return Response::error('A blueprint URI must be statamic://blueprints/{namespace}/{handle}.');
+            return $this->refusal('A blueprint URI must be statamic://blueprints/{namespace}/{handle}.', 'INVALID_URI');
         }
 
         if ($reason = $this->denyReason($handle)) {
-            return Response::error("Permission denied: {$reason}");
+            return $this->refusal("Permission denied: {$reason}", 'PERMISSION_DENIED');
         }
 
         $blueprint = $this->findBlueprint($namespace, $handle);
 
         if ($blueprint === null) {
-            return Response::error("Blueprint not found: {$namespace}/{$handle}");
+            return $this->refusal("Blueprint not found: {$namespace}/{$handle}", 'NOT_FOUND');
         }
 
         return Response::json([

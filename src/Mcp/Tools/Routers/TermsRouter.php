@@ -383,7 +383,7 @@ class TermsRouter extends BaseRouter
             $term->save();
 
             // Clear relevant caches
-            $this->clearStatamicCaches(['stache', 'static']);
+            $this->clearCachesAfterWrite(['stache', 'static']);
 
             return [
                 'term' => [
@@ -518,7 +518,7 @@ class TermsRouter extends BaseRouter
             $term->merge($validatedData)->save();
 
             // Clear relevant caches
-            $this->clearStatamicCaches(['stache', 'static']);
+            $this->clearCachesAfterWrite(['stache', 'static']);
 
             return [
                 'term' => [
@@ -584,7 +584,7 @@ class TermsRouter extends BaseRouter
             $term->delete();
 
             // Clear relevant caches
-            $this->clearStatamicCaches(['stache', 'static']);
+            $this->clearCachesAfterWrite(['stache', 'static']);
 
             return [
                 'term' => $termData,

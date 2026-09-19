@@ -144,7 +144,7 @@ trait HandlesNavigations
             $navigation->save();
 
             // Clear caches
-            $this->clearStatamicCaches(['stache', 'static']);
+            $this->clearCachesAfterWrite(['stache', 'static']);
 
             return [
                 'navigation' => [
@@ -193,7 +193,7 @@ trait HandlesNavigations
             $navigation->save();
 
             // Clear caches
-            $this->clearStatamicCaches(['stache', 'static']);
+            $this->clearCachesAfterWrite(['stache', 'static']);
 
             return [
                 'navigation' => [
@@ -229,7 +229,7 @@ trait HandlesNavigations
             $navigation->delete();
 
             // Clear caches
-            $this->clearStatamicCaches(['stache', 'static']);
+            $this->clearCachesAfterWrite(['stache', 'static']);
 
             return [
                 'navigation' => [
@@ -298,7 +298,7 @@ trait HandlesNavigations
             $navigation->save();
 
             // Clear caches
-            $this->clearStatamicCaches(['stache']);
+            $this->clearCachesAfterWrite(['stache']);
 
             return [
                 'navigation' => [

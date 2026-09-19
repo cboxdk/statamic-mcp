@@ -137,7 +137,7 @@ trait HandlesGlobalSets
             }
 
             // Clear caches
-            $this->clearStatamicCaches(['stache', 'static']);
+            $this->clearCachesAfterWrite(['stache', 'static']);
 
             return [
                 'globalset' => [
@@ -178,7 +178,7 @@ trait HandlesGlobalSets
             $globalSet->save();
 
             // Clear caches
-            $this->clearStatamicCaches(['stache', 'static']);
+            $this->clearCachesAfterWrite(['stache', 'static']);
 
             return [
                 'globalset' => [
@@ -214,7 +214,7 @@ trait HandlesGlobalSets
             $globalSet->delete();
 
             // Clear caches
-            $this->clearStatamicCaches(['stache', 'static']);
+            $this->clearCachesAfterWrite(['stache', 'static']);
 
             return [
                 'globalset' => [
@@ -252,7 +252,7 @@ trait HandlesGlobalSets
             $globalSet->save();
 
             // Clear caches
-            $this->clearStatamicCaches(['stache']);
+            $this->clearCachesAfterWrite(['stache']);
 
             return [
                 'globalset' => [

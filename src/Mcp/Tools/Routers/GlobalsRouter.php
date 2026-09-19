@@ -336,7 +336,7 @@ class GlobalsRouter extends BaseRouter
             $variables->merge($data)->save();
 
             // Clear relevant caches
-            $this->clearStatamicCaches(['stache', 'static']);
+            $this->clearCachesAfterWrite(['stache', 'static']);
 
             return [
                 'global' => [

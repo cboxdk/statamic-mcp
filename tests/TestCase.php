@@ -37,14 +37,60 @@ abstract class TestCase extends AddonTestCase
         ];
     }
 
+    /**
+     * Whether this process has already swept Testbench's blueprint directory.
+     */
+    private static bool $blueprintsSwept = false;
+
     protected function setUp(): void
     {
         parent::setUp();
+
+        self::sweepLeakedBlueprints();
 
         // Clean OAuth file storage between tests to prevent cross-test pollution
         $oauthBasePath = storage_path('statamic-mcp/oauth');
         if (is_dir($oauthBasePath)) {
             File::deleteDirectory($oauthBasePath);
+        }
+    }
+
+    /**
+     * Remove blueprints left behind by earlier runs.
+     *
+     * PreventsSavingStacheItemsToDisk stops Stache writes, but a saved
+     * blueprint is a real file under Testbench's skeleton app — inside vendor,
+     * so it survives every run. They had accumulated to 3,431 directories and
+     * 4,122 files, which every `Blueprint::in()` listing then had to scan.
+     *
+     * Worse than slow, it is misleading: a test asserting that a refused write
+     * left no blueprint behind failed because an identically named file from a
+     * previous run was still sitting there, which looks exactly like the fix
+     * not working.
+     *
+     * Swept once per process rather than per test: the point is to start from
+     * a clean slate, and doing it 1,200 times would cost more than it saves.
+     */
+    private static function sweepLeakedBlueprints(): void
+    {
+        if (self::$blueprintsSwept) {
+            return;
+        }
+
+        self::$blueprintsSwept = true;
+
+        $base = __DIR__ . '/../vendor/orchestra/testbench-core/laravel/resources/blueprints';
+
+        if (! is_dir($base)) {
+            return;
+        }
+
+        foreach (['collections', 'taxonomies', 'globals', 'navigation', 'forms', 'assets', 'users'] as $namespace) {
+            $path = $base . '/' . $namespace;
+
+            if (is_dir($path)) {
+                File::deleteDirectory($path);
+            }
         }
     }
 }

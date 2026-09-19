@@ -184,6 +184,18 @@ class WebEndpointProtocolTest extends TestCase
         $this->assertSame('private', $response->json('result.cacheScope'));
     }
 
+    public function test_a_refused_resource_read_is_not_a_500(): void
+    {
+        // laravel/mcp's ReadResource is not Errable, so anything returned via
+        // Response::error() becomes -32603 and HTTP 500 — which a hosted client
+        // behind a proxy shows as a bare 502 with the message gone, making a
+        // permission refusal look identical to an outage (#55).
+        $response = $this->rpc('resources/read', ['uri' => 'statamic://blueprints/collections/nope']);
+
+        $response->assertOk();
+        $this->assertStringContainsString('NOT_FOUND', (string) $response->getContent());
+    }
+
     public function test_a_mismatched_method_header_is_rejected(): void
     {
         $response = $this->postJson('/mcp/statamic', $this->body('tools/list'), [
