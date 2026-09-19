@@ -49,6 +49,12 @@ class ContentValidateStoredShapesTest extends TestCase
                 'tabs' => ['main' => ['sections' => [['fields' => [
                     ['handle' => 'title', 'field' => ['type' => 'text', 'required' => true]],
                     ['handle' => 'rating', 'field' => ['type' => 'integer']],
+                    ['handle' => 'tickbox', 'field' => [
+                        'type' => 'checkboxes',
+                        'options' => ['a' => 'A', 'b' => 'B'],
+                        'default' => ['a'],
+                        'required' => true,
+                    ]],
                     ['handle' => 'author', 'field' => [
                         'type' => 'entries',
                         'collections' => [$this->authors],
@@ -110,7 +116,7 @@ class ContentValidateStoredShapesTest extends TestCase
             ->collection($this->articles)
             ->slug('dated-post')
             ->date('2026-09-19')
-            ->data(['title' => 'A Dated Post'])
+            ->data(['title' => 'A Dated Post', 'tickbox' => ['a']])
             ->save();
 
         $messages = array_column($this->findings(expectedRecords: 1), 'message');
@@ -128,12 +134,30 @@ class ContentValidateStoredShapesTest extends TestCase
             ->collection($this->articles)
             ->slug('bad-number')
             ->date('2026-09-19')
-            ->data(['title' => 'Bad Number', 'rating' => 'not-a-number'])
+            ->data(['title' => 'Bad Number', 'tickbox' => ['a'], 'rating' => 'not-a-number'])
             ->save();
 
         $messages = array_column($this->findings(expectedRecords: 1), 'message');
 
         $this->assertNotEmpty($messages, 'A non-numeric value in an integer field must still be reported.');
+    }
+
+    public function test_a_required_field_that_is_missing_is_still_reported(): void
+    {
+        // Reshaping a stored value must not invent one. Field::preProcess falls
+        // back to defaultValue(), so putting a whole record through it made a
+        // required-but-absent field validate clean — a false negative in the
+        // one check that exists to catch drift.
+        Entry::make()
+            ->collection($this->articles)
+            ->slug('missing-required')
+            ->date('2026-09-19')
+            ->data(['title' => 'Missing Required'])
+            ->save();
+
+        $messages = array_column($this->findings(expectedRecords: 1), 'message');
+
+        $this->assertNotEmpty($messages, 'A required field with no stored value must be reported, not filled in from its default.');
     }
 
     public function test_a_single_item_relationship_stored_as_a_string_is_accepted(): void
@@ -152,7 +176,7 @@ class ContentValidateStoredShapesTest extends TestCase
             ->collection($this->articles)
             ->slug('with-author')
             ->date('2026-09-19')
-            ->data(['title' => 'With Author', 'author' => (string) $author->id()])
+            ->data(['title' => 'With Author', 'tickbox' => ['a'], 'author' => (string) $author->id()])
             ->save();
 
         $messages = array_column($this->findings(expectedRecords: 1), 'message');

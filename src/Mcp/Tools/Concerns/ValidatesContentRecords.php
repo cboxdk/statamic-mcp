@@ -12,6 +12,7 @@ use Statamic\Facades\Asset;
 use Statamic\Fields\Field;
 use Statamic\Fields\Fields;
 use Statamic\Fields\Fieldtype;
+use Statamic\Fieldtypes\Relationship;
 
 /**
  * Validates already-stored content against its blueprint.
@@ -65,34 +66,47 @@ trait ValidatesContentRecords
     }
 
     /**
-     * Adopt pre-processed values only where pre-processing changed the shape.
+     * Wrap a scalar relationship value in the array its rules expect.
      *
-     * preProcess() exists to build the Control Panel's form, not to describe
-     * what is on disk, and some fieldtypes coerce while they are at it:
-     * Integer::preProcess casts "not-a-number" to 0. Taking its output wholesale
-     * would therefore hide exactly the corruption this sweep is for — a field
-     * holding junk would validate clean.
+     * A relationship field with max_items: 1 stores a bare id rather than a
+     * one-element array, so the generated `array` and `max:1` rules both failed
+     * on every correctly stored row (#58). The Control Panel never sees this
+     * because Relationship::preProcess wraps the value while building the form.
      *
-     * So only the shape change is taken: a scalar that became a container, which
-     * is the relationship-with-max_items case (#58) and nothing else. Anything
-     * that stayed a scalar keeps the value actually stored, junk included.
+     * Deliberately narrow. Running the whole record through preProcess() fixes
+     * the shape but launders the data along with it: Field::preProcess falls
+     * back to `defaultValue()`, so a required field that is missing or null
+     * validates clean; Integer::preProcess casts "not-a-number" to 0; a grid
+     * with min_rows invents a placeholder row; and any fieldtype that throws
+     * takes the whole record's validation down with it. Every one of those is a
+     * false negative in a sweep whose entire job is to find content that drifted.
      *
-     * @param  array<string, mixed>  $stored
-     * @param  array<string, mixed>  $processed
+     * So only this one shape change is made, only where a value is actually
+     * stored. A missing key stays missing and still fails its required rule.
+     *
+     * @param  array<string, mixed>  $data
      *
      * @return array<string, mixed>
      */
-    private function withReshapedValues(array $stored, array $processed): array
+    private function withWrappedRelationships(Fields $fields, array $data): array
     {
-        $merged = $stored;
+        foreach ($fields->all() as $handle => $field) {
+            if (! is_string($handle) || ! array_key_exists($handle, $data)) {
+                continue;
+            }
 
-        foreach ($processed as $handle => $value) {
-            if (is_array($value) && ! is_array($stored[$handle] ?? null)) {
-                $merged[$handle] = $value;
+            $value = $data[$handle];
+
+            if ($value === null || is_array($value)) {
+                continue;
+            }
+
+            if ($field instanceof Field && $field->fieldtype() instanceof Relationship) {
+                $data[$handle] = [$value];
             }
         }
 
-        return $merged;
+        return $data;
     }
 
     /**
@@ -105,23 +119,11 @@ trait ValidatesContentRecords
     private function ruleFindings(Fields $fields, array $data, RecordRef $record): array
     {
         try {
-            // Reproduce the two steps the Control Panel takes before it
-            // validates, because the blueprint's rules were written against
-            // what those produce — not against what sits on disk.
-            //
-            // preProcess() is the one that matters for shape: a relationship
-            // field with max_items: 1 stores a bare id, and Relationship's
-            // preProcess wraps it, which is how the CP's form ever holds an
-            // array for the generated array and max:1 rules to accept (#58).
-            // Validating the stored value directly failed both rules on every
-            // correctly stored row.
-            //
-            // preProcessValidatables() then lets each fieldtype put its value
-            // into the form its own rule expects, which is what Statamic runs
-            // on submitted data before validating it.
-            $processed = $fields->addValues($data)->preProcess()->values()->all();
-
-            $fields->addValues($this->withReshapedValues($data, $processed))
+            // preProcessValidatables() lets each fieldtype put its stored value
+            // into the form its own rule expects — what Statamic runs on
+            // submitted data before validating it. It reads the value as stored,
+            // with no default substitution, so it cannot hide a missing field.
+            $fields->addValues($this->withWrappedRelationships($fields, $data))
                 ->preProcessValidatables()
                 ->validator()
                 ->validate();

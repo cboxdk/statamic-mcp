@@ -259,6 +259,17 @@ trait HandlesCollections
             // Clear caches
             $this->clearCachesAfterWrite(['stache', 'static']);
 
+            // Changing which taxonomies a collection uses is the one write
+            // Statamic does not reindex for itself: the terms' associations
+            // index still lists entries under a taxonomy the collection no
+            // longer has, so whereTaxonomy() and term counts keep returning
+            // them. Nothing short of a Stache rebuild puts that right, and
+            // unlike the blanket per-write clear this is one structural change
+            // on an explicit request, not something an entry save triggers.
+            if (array_key_exists('taxonomies', $data)) {
+                $this->clearStatamicCaches(['stache']);
+            }
+
             return [
                 'collection' => [
                     'handle' => $collection->handle(),
