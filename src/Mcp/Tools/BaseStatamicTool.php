@@ -20,6 +20,7 @@ use Laravel\Mcp\ResponseFactory;
 use Laravel\Mcp\Server\Tool;
 use Statamic\Exceptions\BlueprintNotFoundException;
 use Statamic\Exceptions\FieldtypeNotFoundException;
+use Statamic\Facades\Blink;
 use Statamic\Statamic;
 
 abstract class BaseStatamicTool extends Tool
@@ -39,6 +40,34 @@ abstract class BaseStatamicTool extends Tool
      * @return array<string, mixed>
      */
     abstract protected function executeInternal(array $arguments): array;
+
+    /**
+     * Discard Statamic's per-request memo cache before each tool call.
+     *
+     * Blink is scoped to one request. Statamic fills it freely because a web
+     * request throws it away at the end — but this server is long-lived, so
+     * without this every tool call inherits whatever the last one memoized, and
+     * reads answers that were true several calls ago.
+     *
+     * It is not a theoretical tidy-up. A structured collection's tree is
+     * blinked, so the second `create` in a session saw a tree without the
+     * first entry and Statamic indexed its URI as null: the entry existed,
+     * `findByUri()` could not find it, and the page 404'd. Deleting an entry
+     * left blinked term associations behind, so `entriesCount()` kept counting
+     * it. The blueprint collision fixed in #52 was the same cache, one layer
+     * down.
+     *
+     * Clearing the Stache also fixed these, which is why the problem stayed
+     * hidden until the clear was removed for #53 — but that was a sledgehammer
+     * that reset durable stores mid-request and emptied a live site's
+     * collection tree. This resets nothing durable: Blink holds only what can
+     * be read again, so the cost is a re-read and the gain is that each call
+     * starts as a fresh request would.
+     */
+    private function startFromAFreshRequestState(): void
+    {
+        Blink::flush();
+    }
 
     /**
      * Define the tool's input schema (v0.6 convention).
@@ -142,6 +171,8 @@ abstract class BaseStatamicTool extends Tool
      */
     final public function execute(array $arguments): array
     {
+        $this->startFromAFreshRequestState();
+
         $toolName = $this->name();
         $startTime = microtime(true);
 

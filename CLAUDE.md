@@ -966,6 +966,31 @@ Legacy `initialize` clients (2025-06-18, 2025-11-25) still connect and skip head
 validation entirely. There is a test pinning that, because it is the compatibility
 promise most likely to be broken by accident.
 
+## Blink is per-request; this server is not
+
+Statamic's `Blink` cache is scoped to one web request and filled freely on that
+assumption — the request ends, the cache goes away. This server is long-lived, so
+without intervention every tool call inherits whatever the last one memoized and
+answers with state that was true several calls ago.
+
+`BaseStatamicTool::execute()` therefore flushes Blink at the start of every call. That
+is the single seam every tool goes through, and it makes each call begin the way a fresh
+request would. Nothing durable is lost: Blink holds only what can be read again.
+
+This is not hygiene, it is correctness. Three separate bugs were this cache:
+
+- A structured collection's tree is blinked, so the second `create` in a session saw a
+  tree predating the first entry and Statamic saved it with **`uri: null`** — the entry
+  existed, `findByUri()` missed it, the page 404'd.
+- Deleting an entry left blinked term associations behind, so `entriesCount()` kept
+  counting it and orphaned terms stayed in listings.
+- The unsaved-entry blueprint collision in #52, one layer down, documented above.
+
+Clearing the Stache also masked all of these, which is why they only surfaced when that
+clear was removed for #53. **Do not reach for a Stache clear to fix a stale read** — it
+resets durable stores mid-request, which is what emptied a live site's collection tree.
+Ask first whether the stale value came from Blink.
+
 ## Measuring performance invariants in tests
 
 `tests/Stress/LargeDatasetTest.php` guards the token store against going quadratic.
