@@ -176,14 +176,61 @@ abstract class BaseStatamicTool extends Tool
     {
         $this->startFromAFreshRequestState();
 
+        // The clear is synchronous and the caller waits for it, so it belongs
+        // inside the timing the caller is told about. It just must not run
+        // until the response is built — see flushPendingCacheClears().
+        $startedAt = microtime(true);
+
         try {
-            return $this->runToolCall($arguments);
+            $result = $this->runToolCall($arguments);
         } finally {
-            // Whatever the call asked to clear runs here: after the response is
-            // built, so nothing further reads from emptied stores, and after a
-            // failure too, since a write may well have landed before the throw.
-            $this->flushPendingCacheClears();
+            // Runs after a failure too: a write may well have landed before the
+            // throw, and its indexes are stale either way.
+            $cleared = $this->flushPendingCacheClears();
         }
+
+        if ($cleared !== []) {
+            $result = $this->noteCacheClearDuration($result, microtime(true) - $startedAt);
+        }
+
+        return $result;
+    }
+
+    /**
+     * Report the real wall time, clear included, and flag a timeout it caused.
+     *
+     * runToolCall() measures and logs before the clear has run, so without this
+     * a write whose cache rebuild pushed it past the timeout reported a
+     * comfortable duration and a plain success. The caller waited for that time
+     * regardless.
+     *
+     * @param  array<string, mixed>  $result
+     *
+     * @return array<string, mixed>
+     */
+    private function noteCacheClearDuration(array $result, float $duration): array
+    {
+        if (! isset($result['meta']) || ! is_array($result['meta'])) {
+            return $result;
+        }
+
+        $result['meta']['duration_ms'] = round($duration * 1000, 2);
+
+        /** @var int|float $timeout */
+        $timeout = config('statamic.mcp.security.tool_timeout_seconds', 30);
+
+        if ($duration > (float) $timeout) {
+            $result['meta']['exceeded_timeout'] = true;
+
+            ToolLogger::logToolCall(
+                $this->name(),
+                [],
+                'timeout',
+                $duration * 1000,
+            );
+        }
+
+        return $result;
     }
 
     /**

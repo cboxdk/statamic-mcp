@@ -132,12 +132,11 @@ trait ValidatesContentRecords
     private function ruleFindings(Fields $fields, array $data, RecordRef $record): array
     {
         try {
-            // preProcessValidatables() lets each fieldtype put its stored value
-            // into the form its own rule expects — what Statamic runs on
-            // submitted data before validating it. It reads the value as stored,
-            // with no default substitution, so it cannot hide a missing field.
+            // No preProcessValidatables() here: Validator::preProcessedFields()
+            // already calls it. Doing it twice runs each fieldtype's unwrap
+            // twice, and some are not idempotent — a code field's nested array
+            // came out flattened, so malformed content validated clean.
             $fields->addValues($this->withWrappedRelationships($fields, $data))
-                ->preProcessValidatables()
                 ->validator()
                 ->validate();
 

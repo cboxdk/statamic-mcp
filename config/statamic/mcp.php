@@ -258,31 +258,6 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Resources
-    |--------------------------------------------------------------------------
-    |
-    | The read-only surface: statamic://blueprints and friends.
-    |
-    | These have their own switch because they used to share the tools' one. A
-    | site that keeps its content model in Git turns the blueprints *tool* off
-    | precisely because it can create and delete blueprints — and that also
-    | removed the only read-only way for an agent to learn a blueprint's
-    | fields, while the server's own instructions tell it to read the blueprint
-    | before every write (issue #54).
-    |
-    | 'require_statamic_permission' keeps the Statamic permission check on top
-    | of the token scope and the resource-policy allowlist. Set it to false if
-    | your editors hold no 'configure fields' permission and you would rather
-    | let the token scope you minted decide who may read schema.
-    |
-    */
-    'resources' => [
-        'enabled' => env('STATAMIC_MCP_RESOURCES_ENABLED', true),
-        'require_statamic_permission' => env('STATAMIC_MCP_RESOURCES_REQUIRE_PERMISSION', true),
-    ],
-
-    /*
-    |--------------------------------------------------------------------------
     | Tool Catalog
     |--------------------------------------------------------------------------
     |
