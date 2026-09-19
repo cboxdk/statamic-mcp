@@ -144,7 +144,7 @@ trait HandlesTaxonomies
             $taxonomy->save();
 
             // Clear caches
-            $this->clearCachesAfterWrite(['stache', 'static']);
+            $this->clearCachesAfterStructuralWrite(['stache', 'static']);
 
             return [
                 'taxonomy' => [
@@ -191,7 +191,7 @@ trait HandlesTaxonomies
             $taxonomy->save();
 
             // Clear caches
-            $this->clearCachesAfterWrite(['stache', 'static']);
+            $this->clearCachesAfterStructuralWrite(['stache', 'static']);
 
             return [
                 'taxonomy' => [
@@ -247,7 +247,7 @@ trait HandlesTaxonomies
             $taxonomy->delete();
 
             // Clear caches
-            $this->clearCachesAfterWrite(['stache', 'static']);
+            $this->clearCachesAfterStructuralWrite(['stache', 'static']);
 
             return [
                 'taxonomy' => [
@@ -297,7 +297,7 @@ trait HandlesTaxonomies
             $taxonomy->save();
 
             // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
+            $this->clearCachesAfterStructuralWrite(['stache']);
 
             return [
                 'taxonomy' => [

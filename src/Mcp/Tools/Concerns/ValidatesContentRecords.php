@@ -101,10 +101,15 @@ trait ValidatesContentRecords
                 continue;
             }
 
-            // An empty string is not a selected item. Wrapping it produces
-            // [''], which satisfies required, array and max:1 alike — so a
-            // required relationship stored empty would validate clean, the
-            // exact violation this sweep is meant to surface.
+            // Only an actual id gets wrapped. Anything else is not a selected
+            // item, and wrapping it manufactures one: [''] and [false] both
+            // satisfy required, array and max:1 at once, so a relationship
+            // stored empty or corrupt would validate clean — the exact
+            // violation this sweep exists to surface.
+            if (! is_string($value) && ! is_int($value)) {
+                continue;
+            }
+
             if (is_string($value) && trim($value) === '') {
                 continue;
             }

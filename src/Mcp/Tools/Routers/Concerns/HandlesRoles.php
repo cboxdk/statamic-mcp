@@ -145,7 +145,7 @@ trait HandlesRoles
             $role->save();
 
             // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
+            $this->clearCachesAfterStructuralWrite(['stache']);
 
             return [
                 'role' => [
@@ -194,7 +194,7 @@ trait HandlesRoles
             $role->save();
 
             // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
+            $this->clearCachesAfterStructuralWrite(['stache']);
 
             return [
                 'role' => [
@@ -243,7 +243,7 @@ trait HandlesRoles
             $role->delete();
 
             // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
+            $this->clearCachesAfterStructuralWrite(['stache']);
 
             return [
                 'role' => [

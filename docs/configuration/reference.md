@@ -132,6 +132,15 @@ rebuild rather than corruption — so it stays on until that coverage beats a fl
 ],
 ```
 
+Both settings govern **content** writes only — entries, terms, global values, assets.
+**Structural** writes (blueprints, collections, taxonomies, navigations, global sets,
+users, roles, groups) always rebuild the Stache and are not configurable: Statamic does
+not rebuild the indexes that *depend* on a schema or configuration change. A relationship
+field's `max_items`, a collection's taxonomies, its mount, its `dated` flag, a group's
+roles — each leaves a query returning wrong results or throwing until a rebuild. Those
+writes are rare and deliberate; the frequent content writes are the ones that caused the
+incident above.
+
 Turn static clearing off if you would rather rely on your own invalidation rules; a
 collection configuration write invalidates its own URLs directly either way.
 

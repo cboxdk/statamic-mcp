@@ -147,7 +147,7 @@ trait HandlesGroups
             $group->save();
 
             // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
+            $this->clearCachesAfterStructuralWrite(['stache']);
 
             return [
                 'group' => [
@@ -200,7 +200,7 @@ trait HandlesGroups
             $group->save();
 
             // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
+            $this->clearCachesAfterStructuralWrite(['stache']);
 
             return [
                 'group' => [
@@ -240,7 +240,7 @@ trait HandlesGroups
             $group->delete();
 
             // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
+            $this->clearCachesAfterStructuralWrite(['stache']);
 
             return [
                 'group' => [

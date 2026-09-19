@@ -140,13 +140,14 @@ class WriteCacheBehaviourTest extends TestCase
         $this->assertContains('statamic:stache:clear', $this->commandsDuringUpdate());
     }
 
-    public function test_changing_a_collections_taxonomies_rebuilds_the_stache(): void
+    public function test_a_structural_write_still_rebuilds_the_stache(): void
     {
-        // The one structural write Statamic does not reindex for itself: the
-        // terms' associations index keeps listing entries under a taxonomy the
-        // collection no longer has, so whereTaxonomy() and term counts stay
-        // wrong until the Stache is rebuilt. Unlike the old blanket clear this
-        // is one explicit structural change, never an entry save.
+        // The line is content vs structure, not "never clear". Statamic keeps
+        // its stores current on save but does not rebuild the indexes that
+        // *depend* on a schema or configuration change — a relationship's
+        // max_items, a collection's taxonomies, its mount, its dated flag, a
+        // group's roles. Five review passes each found another one, which is
+        // why this is handled by category rather than case by case.
         $called = [];
         $this->spyArtisan($called);
 
@@ -162,11 +163,16 @@ class WriteCacheBehaviourTest extends TestCase
         $this->assertContains('statamic:stache:clear', $called);
     }
 
-    public function test_configure_also_reindexes_after_a_mount_change(): void
+    public function test_a_structural_write_rebuilds_even_with_clearing_switched_off(): void
     {
-        // Both configuration write paths accept these keys, so the reindex has
-        // to live on both. A mount change on a {mount}/{slug} route leaves the
-        // old URIs indexed, so findByUri returns null and every entry 404s.
+        // The content-write switches must not be able to turn off reindexing
+        // that correctness depends on; switching them off is a performance
+        // choice about content saves, not a licence to serve 404s.
+        config([
+            'statamic.mcp.cache.clear_stache_after_write' => false,
+            'statamic.mcp.cache.clear_static_after_write' => false,
+        ]);
+
         $called = [];
         $this->spyArtisan($called);
 

@@ -264,7 +264,7 @@ trait HandlesUsers
             }
 
             // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
+            $this->clearCachesAfterStructuralWrite(['stache']);
 
             return [
                 'user' => [
@@ -333,7 +333,7 @@ trait HandlesUsers
             $user->save();
 
             // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
+            $this->clearCachesAfterStructuralWrite(['stache']);
 
             return [
                 'user' => [
@@ -389,7 +389,7 @@ trait HandlesUsers
             $user->delete();
 
             // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
+            $this->clearCachesAfterStructuralWrite(['stache']);
 
             return [
                 'user' => [
@@ -434,7 +434,7 @@ trait HandlesUsers
             $user->save();
 
             // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
+            $this->clearCachesAfterStructuralWrite(['stache']);
 
             return [
                 'user' => [
@@ -488,7 +488,7 @@ trait HandlesUsers
             $user->save();
 
             // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
+            $this->clearCachesAfterStructuralWrite(['stache']);
 
             return [
                 'user' => [
@@ -540,7 +540,7 @@ trait HandlesUsers
             $user->save();
 
             // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
+            $this->clearCachesAfterStructuralWrite(['stache']);
 
             return [
                 'user' => [
@@ -589,7 +589,7 @@ trait HandlesUsers
             $user->save();
 
             // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
+            $this->clearCachesAfterStructuralWrite(['stache']);
 
             return [
                 'user' => [

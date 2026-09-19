@@ -252,6 +252,15 @@ return [
     | rather than corruption, so it stays on. Turn it off if you would rather
     | rely on your own invalidation rules.
     |
+    | Both settings govern CONTENT writes only — entries, terms, global values,
+    | assets. Structural writes (blueprints, collections, taxonomies,
+    | navigations, global sets, users, roles, groups) always rebuild the Stache
+    | and are not configurable, because Statamic does not rebuild the indexes
+    | that depend on a schema or configuration change: a relationship field's
+    | max_items, a collection's taxonomies, its mount, its dated flag, a
+    | group's roles. Those writes are rare and deliberate; the frequent
+    | content writes are the ones that caused #53.
+    |
     */
     'cache' => [
         'clear_stache_after_write' => env('STATAMIC_MCP_CLEAR_STACHE_AFTER_WRITE', false),

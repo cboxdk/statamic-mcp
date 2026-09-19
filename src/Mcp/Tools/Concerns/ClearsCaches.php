@@ -52,6 +52,40 @@ trait ClearsCaches
     }
 
     /**
+     * Clear caches after a write that changed the *shape* of content.
+     *
+     * Always rebuilds the Stache, and that is not a relapse into the blanket
+     * clear removed in #53 — it is where the line actually falls.
+     *
+     * Statamic maintains its stores on save, but it does not rebuild the
+     * indexes that *depend* on a schema or configuration change. Changing a
+     * relationship field's max_items leaves an index full of arrays, and a
+     * later where() on it throws a TypeError. Changing a collection's
+     * taxonomies leaves whereTaxonomy() returning entries it no longer has.
+     * Changing its mount leaves the old entry URIs indexed, so every entry
+     * 404s. Toggling `dated` leaves stale date indexes. Changing a group's
+     * roles leaves the members' role indexes behind. Each one of those was
+     * found by a separate review pass, which is the point: the set is not
+     * enumerable, so it cannot be handled one case at a time.
+     *
+     * Structural writes are rare and deliberate. Content writes are frequent
+     * and need none of this — an entry save maintains its own indexes — and
+     * they were the ones that emptied a live collection tree mid-batch. So the
+     * clear stays here and is gone from there, which is the distinction the
+     * incident actually drew.
+     *
+     * @param  array<int, string>  $types
+     *
+     * @return array<string, string>
+     */
+    protected function clearCachesAfterStructuralWrite(array $types = ['stache', 'static']): array
+    {
+        $types = array_values(array_unique([...$types, 'stache']));
+
+        return $this->clearStatamicCaches($types);
+    }
+
+    /**
      * Invalidate the static cache for one item, the way Statamic does.
      *
      * Statamic's StaticCaching\Invalidate subscribes to saved events for
