@@ -101,6 +101,14 @@ trait ValidatesContentRecords
                 continue;
             }
 
+            // An empty string is not a selected item. Wrapping it produces
+            // [''], which satisfies required, array and max:1 alike — so a
+            // required relationship stored empty would validate clean, the
+            // exact violation this sweep is meant to surface.
+            if (is_string($value) && trim($value) === '') {
+                continue;
+            }
+
             if ($field instanceof Field && $field->fieldtype() instanceof Relationship) {
                 $data[$handle] = [$value];
             }

@@ -259,16 +259,7 @@ trait HandlesCollections
             // Clear caches
             $this->clearCachesAfterWrite(['stache', 'static']);
 
-            // Changing which taxonomies a collection uses is the one write
-            // Statamic does not reindex for itself: the terms' associations
-            // index still lists entries under a taxonomy the collection no
-            // longer has, so whereTaxonomy() and term counts keep returning
-            // them. Nothing short of a Stache rebuild puts that right, and
-            // unlike the blanket per-write clear this is one structural change
-            // on an explicit request, not something an entry save triggers.
-            if (array_key_exists('taxonomies', $data)) {
-                $this->clearStatamicCaches(['stache']);
-            }
+            $this->reindexAfterCollectionConfigChange($data);
 
             return [
                 'collection' => [
@@ -279,6 +270,42 @@ trait HandlesCollections
             ];
         } catch (\Exception $e) {
             return $this->createErrorResponse("Failed to update collection: {$e->getMessage()}")->toArray();
+        }
+    }
+
+    /**
+     * Rebuild the Stache after the two collection settings it does not reindex.
+     *
+     * Everything else a collection save touches is either maintained by
+     * Statamic or invalidated from its events, which is why writes no longer
+     * clear the Stache at all (#53). These two are the exceptions, and both
+     * leave the site visibly wrong rather than merely stale:
+     *
+     * - **taxonomies** — the terms' associations index keeps listing entries
+     *   under a taxonomy the collection no longer has, so whereTaxonomy() and
+     *   term counts go on returning them.
+     * - **mount** — on a collection routed through `{mount}/{slug}`, save()
+     *   only rebuilds entry URIs when the route itself changes. The old URLs
+     *   stay indexed and findByUri() returns null for the new ones, so every
+     *   entry 404s.
+     *
+     * A rebuild is the honest remedy for both; reimplementing Statamic's
+     * indexing here would couple this addon to its internals. This is one
+     * structural change on an explicit request, not the entry-save path the
+     * live-site incident came from.
+     *
+     * Both configuration write paths call this, because both accept these keys.
+     *
+     * @param  array<string, mixed>  $changed
+     */
+    private function reindexAfterCollectionConfigChange(array $changed): void
+    {
+        foreach (['taxonomies', 'mount'] as $key) {
+            if (array_key_exists($key, $changed)) {
+                $this->clearStatamicCaches(['stache']);
+
+                return;
+            }
         }
     }
 
@@ -412,6 +439,8 @@ trait HandlesCollections
 
             // Clear caches
             $this->clearCachesAfterWrite(['stache']);
+
+            $this->reindexAfterCollectionConfigChange($config);
 
             return [
                 'collection' => [

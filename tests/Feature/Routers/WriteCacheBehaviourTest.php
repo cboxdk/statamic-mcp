@@ -162,6 +162,26 @@ class WriteCacheBehaviourTest extends TestCase
         $this->assertContains('statamic:stache:clear', $called);
     }
 
+    public function test_configure_also_reindexes_after_a_mount_change(): void
+    {
+        // Both configuration write paths accept these keys, so the reindex has
+        // to live on both. A mount change on a {mount}/{slug} route leaves the
+        // old URIs indexed, so findByUri returns null and every entry 404s.
+        $called = [];
+        $this->spyArtisan($called);
+
+        (new StructuresRouter)->execute([
+            'action' => 'configure',
+            'resource_type' => 'collection',
+            'handle' => $this->collection,
+            'config' => ['mount' => 'somewhere'],
+        ]);
+
+        Artisan::clearResolvedInstances();
+
+        $this->assertContains('statamic:stache:clear', $called);
+    }
+
     public function test_a_collection_write_still_invalidates_its_static_pages(): void
     {
         // Statamic's invalidator subscribes to entry, term, nav, form, asset,

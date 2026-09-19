@@ -59,10 +59,25 @@ class ContentValidateStoredShapesTest extends TestCase
                         'type' => 'entries',
                         'collections' => [$this->authors],
                         'max_items' => 1,
+                        'required' => true,
                     ]],
                 ]]]]],
             ])
             ->save();
+    }
+
+    /**
+     * An author entry to satisfy the required relationship.
+     */
+    private function anAuthorId(): string
+    {
+        $author = Entry::make()
+            ->collection($this->authors)
+            ->slug('author-' . bin2hex(random_bytes(3)))
+            ->data(['title' => 'An Author']);
+        $author->save();
+
+        return (string) $author->id();
     }
 
     /**
@@ -116,7 +131,7 @@ class ContentValidateStoredShapesTest extends TestCase
             ->collection($this->articles)
             ->slug('dated-post')
             ->date('2026-09-19')
-            ->data(['title' => 'A Dated Post', 'tickbox' => ['a']])
+            ->data(['title' => 'A Dated Post', 'tickbox' => ['a'], 'author' => $this->anAuthorId()])
             ->save();
 
         $messages = array_column($this->findings(expectedRecords: 1), 'message');
@@ -134,7 +149,7 @@ class ContentValidateStoredShapesTest extends TestCase
             ->collection($this->articles)
             ->slug('bad-number')
             ->date('2026-09-19')
-            ->data(['title' => 'Bad Number', 'tickbox' => ['a'], 'rating' => 'not-a-number'])
+            ->data(['title' => 'Bad Number', 'tickbox' => ['a'], 'author' => $this->anAuthorId(), 'rating' => 'not-a-number'])
             ->save();
 
         $messages = array_column($this->findings(expectedRecords: 1), 'message');
@@ -158,6 +173,22 @@ class ContentValidateStoredShapesTest extends TestCase
         $messages = array_column($this->findings(expectedRecords: 1), 'message');
 
         $this->assertNotEmpty($messages, 'A required field with no stored value must be reported, not filled in from its default.');
+    }
+
+    public function test_a_required_relationship_stored_empty_is_still_reported(): void
+    {
+        // Wrapping '' would produce [''], which satisfies required, array and
+        // max:1 at once — turning the violation into a pass.
+        Entry::make()
+            ->collection($this->articles)
+            ->slug('empty-author')
+            ->date('2026-09-19')
+            ->data(['title' => 'Empty Author', 'tickbox' => ['a'], 'author' => ''])
+            ->save();
+
+        $messages = array_column($this->findings(expectedRecords: 1), 'message');
+
+        $this->assertNotEmpty($messages, 'An empty value in a required relationship must still be reported.');
     }
 
     public function test_a_single_item_relationship_stored_as_a_string_is_accepted(): void
