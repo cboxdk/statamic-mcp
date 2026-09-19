@@ -13,6 +13,7 @@ use Statamic\Contracts\Entries\Collection as StatamicCollection;
 use Statamic\Facades\Blueprint;
 use Statamic\Facades\Collection;
 use Statamic\Facades\Entry;
+use Statamic\Facades\Taxonomy;
 use Statamic\StaticCaching\Invalidator;
 
 /**
@@ -186,6 +187,53 @@ class WriteCacheBehaviourTest extends TestCase
         Artisan::clearResolvedInstances();
 
         $this->assertContains('statamic:stache:clear', $called);
+    }
+
+    public function test_an_update_that_clears_a_taxonomy_field_rebuilds_indexes(): void
+    {
+        // Removing the last reference to a virtual term orphans it:
+        // TaxonomyTermsStore::sync() drops the association but only reindexes
+        // the terms still coming in, so the removed one stays in listings.
+        // A removal, whatever the action is called.
+        Taxonomy::make('topics')->title('Topics')->save();
+
+        Blueprint::make('page')
+            ->setNamespace("collections.{$this->collection}")
+            ->setContents([
+                'title' => 'Page',
+                'tabs' => ['main' => ['sections' => [['fields' => [
+                    ['handle' => 'title', 'field' => ['type' => 'text']],
+                    ['handle' => 'topics', 'field' => ['type' => 'terms', 'taxonomies' => ['topics']]],
+                ]]]]],
+            ])
+            ->save();
+
+        $entry = Entry::make()
+            ->collection($this->collection)
+            ->slug('tagged')
+            ->data(['title' => 'Tagged', 'topics' => ['news']]);
+        $entry->save();
+
+        $called = [];
+        $this->spyArtisan($called);
+
+        (new EntriesRouter)->execute([
+            'action' => 'update',
+            'collection' => $this->collection,
+            'id' => $entry->id(),
+            'data' => ['topics' => []],
+        ]);
+
+        Artisan::clearResolvedInstances();
+
+        $this->assertContains('statamic:stache:clear', $called);
+    }
+
+    public function test_an_update_that_leaves_taxonomies_alone_does_not(): void
+    {
+        // The distinction has to hold in both directions, or this is just the
+        // blanket clear wearing a different name.
+        $this->assertNotContains('statamic:stache:clear', $this->commandsDuringUpdate());
     }
 
     public function test_deleting_an_entry_rebuilds_dependent_indexes(): void

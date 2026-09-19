@@ -1031,8 +1031,16 @@ class EntriesRouter extends BaseRouter
 
             $entry->merge($data)->save();
 
-            // Clear relevant caches
-            $this->clearCachesAfterWrite(['stache', 'static']);
+            // An update that touches a taxonomy field can remove the last
+            // reference to a term. TaxonomyTermsStore::sync() drops the
+            // association but only reindexes the terms still coming in, so a
+            // virtual term whose last use just went stays in taxonomy listings.
+            // That is a removal like any other, so it reindexes; an ordinary
+            // field edit — the path that emptied a live collection tree — does
+            // not.
+            $this->touchesTaxonomies($entry, $data)
+                ? $this->clearCachesAfterStructuralWrite(['stache', 'static'])
+                : $this->clearCachesAfterWrite(['stache', 'static']);
 
             $response = [
                 'entry' => [
@@ -1062,6 +1070,43 @@ class EntriesRouter extends BaseRouter
             // to the client.
             return $this->createErrorResponse("Failed to update entry: {$e->getMessage()}")->toArray();
         }
+    }
+
+    /**
+     * Whether a write touches a taxonomy field, and so may orphan a term.
+     *
+     * Read off the blueprint rather than guessed from handles: a taxonomy field
+     * can be called anything, so matching on names would miss the ones that
+     * matter and reindex needlessly for the ones that do not.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function touchesTaxonomies(EntryContract $entry, array $data): bool
+    {
+        if ($data === []) {
+            return false;
+        }
+
+        $blueprint = $entry->blueprint();
+
+        if (! $blueprint instanceof Blueprint) {
+            return false;
+        }
+
+        foreach ($blueprint->fields()->all() as $handle => $field) {
+            if (! is_string($handle) || ! array_key_exists($handle, $data)) {
+                continue;
+            }
+
+            // 'terms' is the fieldtype that holds taxonomy references;
+            // 'taxonomies' picks which taxonomies a collection uses. Both can
+            // change what a term is associated with.
+            if ($field instanceof Field && in_array($field->type(), ['terms', 'taxonomies'], true)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

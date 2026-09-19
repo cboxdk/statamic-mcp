@@ -302,7 +302,7 @@ class AssetsRouter extends BaseRouter
             $container->save();
 
             // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
+            $this->clearCachesAfterStructuralWrite(['stache']);
 
             return [
                 'container' => [
@@ -350,7 +350,7 @@ class AssetsRouter extends BaseRouter
             $container->save();
 
             // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
+            $this->clearCachesAfterStructuralWrite(['stache']);
 
             return [
                 'container' => [
@@ -392,7 +392,7 @@ class AssetsRouter extends BaseRouter
             $container->delete();
 
             // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
+            $this->clearCachesAfterStructuralWrite(['stache']);
 
             return [
                 'container' => [
@@ -735,7 +735,7 @@ class AssetsRouter extends BaseRouter
             $asset->delete();
 
             // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
+            $this->clearCachesAfterStructuralWrite(['stache']);
 
             return [
                 'asset' => [
