@@ -176,61 +176,14 @@ abstract class BaseStatamicTool extends Tool
     {
         $this->startFromAFreshRequestState();
 
-        // The clear is synchronous and the caller waits for it, so it belongs
-        // inside the timing the caller is told about. It just must not run
-        // until the response is built — see flushPendingCacheClears().
-        $startedAt = microtime(true);
-
         try {
-            $result = $this->runToolCall($arguments);
+            return $this->runToolCall($arguments);
         } finally {
-            // Runs after a failure too: a write may well have landed before the
-            // throw, and its indexes are stale either way.
-            $cleared = $this->flushPendingCacheClears();
+            // Normally a no-op: the happy path already flushed inside the call.
+            // This catches the throwing path, where a write may well have
+            // landed before the throw and left its indexes stale.
+            $this->flushPendingCacheClears();
         }
-
-        if ($cleared !== []) {
-            $result = $this->noteCacheClearDuration($result, microtime(true) - $startedAt);
-        }
-
-        return $result;
-    }
-
-    /**
-     * Report the real wall time, clear included, and flag a timeout it caused.
-     *
-     * runToolCall() measures and logs before the clear has run, so without this
-     * a write whose cache rebuild pushed it past the timeout reported a
-     * comfortable duration and a plain success. The caller waited for that time
-     * regardless.
-     *
-     * @param  array<string, mixed>  $result
-     *
-     * @return array<string, mixed>
-     */
-    private function noteCacheClearDuration(array $result, float $duration): array
-    {
-        if (! isset($result['meta']) || ! is_array($result['meta'])) {
-            return $result;
-        }
-
-        $result['meta']['duration_ms'] = round($duration * 1000, 2);
-
-        /** @var int|float $timeout */
-        $timeout = config('statamic.mcp.security.tool_timeout_seconds', 30);
-
-        if ($duration > (float) $timeout) {
-            $result['meta']['exceeded_timeout'] = true;
-
-            ToolLogger::logToolCall(
-                $this->name(),
-                [],
-                'timeout',
-                $duration * 1000,
-            );
-        }
-
-        return $result;
     }
 
     /**
@@ -240,7 +193,6 @@ abstract class BaseStatamicTool extends Tool
      */
     private function runToolCall(array $arguments): array
     {
-
         $toolName = $this->name();
         $startTime = microtime(true);
 
@@ -257,6 +209,14 @@ abstract class BaseStatamicTool extends Tool
 
             $result = $this->executeInternal($arguments);
             $standardized = $this->wrapInStandardFormat($result);
+
+            // The response is built, so nothing further reads Statamic and the
+            // clear cannot pull the stores out from under this call — which is
+            // the whole of #53. Doing it here rather than after the fact also
+            // keeps it inside the timing, the audit record and the error
+            // handling below: the caller waits for it, so it is part of the
+            // call in every sense that is reported.
+            $this->flushPendingCacheClears();
 
             $duration = microtime(true) - $startTime;
 

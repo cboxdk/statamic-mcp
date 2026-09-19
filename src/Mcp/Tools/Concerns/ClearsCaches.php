@@ -121,7 +121,10 @@ trait ClearsCaches
                     default => null,
                 };
                 $results[$type] = 'cleared';
-            } catch (\Exception $e) {
+            } catch (\Throwable $e) {
+                // Throwable, not Exception: a StacheCleared listener raising a
+                // TypeError would otherwise escape and cost the caller its
+                // whole response envelope over a cache rebuild.
                 $results[$type] = 'failed';
                 Log::warning("MCP cache clear failed for type '{$type}': {$e->getMessage()}");
             }
