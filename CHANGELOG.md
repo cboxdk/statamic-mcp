@@ -20,7 +20,7 @@ straight to the fix. Thanks to @JorisOrangeStudio and @revans-premier-education.
 
 - **Writes no longer clear the Stache, which had been corrupting live sites** (#53) — Every write ended in a full Stache and static cache wipe, run through `Artisan::call` *inside the request*, which resets the in-memory stores halfway through a tool call. On a live multisite with a structured collection that left the tree repository returning nothing for the site; `CollectionStructure::validateTree()` then padded the empty tree with every entry at root in Stache order, so nested URLs flattened and — with `root: true` — a random entry became the homepage. Twice in one day, each time within minutes of a batch of MCP writes.
 
-  The clear was never needed. Statamic's `save()` updates the store and its indexes, and `StaticCaching\Invalidate` invalidates static pages from the saved events using the site's own rules, which is why a Control Panel save clears nothing. Post-write clearing is now off; `STATAMIC_MCP_CLEAR_CACHE_AFTER_WRITE=true` restores it. The `statamic-system` `cache_clear` action is untouched — that clear was asked for. Diagnosed in full by @JorisOrangeStudio
+  Stache clearing is now off: `save()` updates the store and its indexes, which is why a Control Panel save clears nothing. **Static clearing stays on**, and that separation is deliberate. Dropping it too looked right — `StaticCaching\Invalidate` subscribes to the saved events — but its coverage has holes: no `CollectionSaved` or `TaxonomySaved` subscriber at all, `LocalizedTermSaved` rather than the `TermSaved` a newly created term dispatches, and on a slug change the new URL is invalidated while the old one keeps serving its cached page. A stale page is a bug visitors see, and a static clear is a rebuild rather than corruption. Both are configurable, and collection configuration writes invalidate their own URLs directly regardless. The `statamic-system` `cache_clear` action is untouched — that clear was asked for. Diagnosed in full by @JorisOrangeStudio
 
 - **Blueprint resources are no longer switched off by the writable tool** (#54) — `statamic://blueprints` was gated on `tools.blueprints.enabled`, the switch that turns off a tool which can create, update and delete blueprints. Sites keeping their content model in Git turn it off for exactly that reason, and doing so removed the only read-only way for an agent to learn a blueprint's fields — while the server's own instructions tell it to read the blueprint before every write. Reads now have their own switch, `resources.enabled`.
 
@@ -36,9 +36,7 @@ straight to the fix. Thanks to @JorisOrangeStudio and @revans-premier-education.
 
 ### Added
 
-- `cache.clear_after_write` and the `resources.*` block, both documented in the [configuration reference](docs/configuration/reference.md)
-
-- **Collection configuration writes still invalidate their static pages** — Statamic's `StaticCaching\Invalidate` subscribes to saved events for entries, terms, globals, navs, forms, assets, blueprints and collection *trees*, but not to `CollectionSaved`. Removing the blanket cache clear above would therefore have left cached entry pages serving old output after a template or layout change. Collection writes now call Statamic's own invalidator directly, which already knows how to turn a collection into URLs — targeted, and still no Stache clear
+- `cache.clear_stache_after_write`, `cache.clear_static_after_write` and the `resources.*` block, both documented in the [configuration reference](docs/configuration/reference.md)
 
 ### Internal
 

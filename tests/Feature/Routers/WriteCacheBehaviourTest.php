@@ -97,7 +97,28 @@ class WriteCacheBehaviourTest extends TestCase
         $commands = $this->commandsDuringUpdate();
 
         $this->assertNotContains('statamic:stache:clear', $commands, 'A write must leave the Stache alone; clearing it mid-request emptied collection trees on live sites.');
+    }
+
+    public function test_an_update_still_clears_the_static_cache(): void
+    {
+        // Kept, unlike the Stache clear, because Statamic's own invalidation
+        // has holes — no CollectionSaved or TaxonomySaved subscriber, a new
+        // term dispatches TermSaved rather than the LocalizedTermSaved it
+        // listens for, and a slug change leaves the old URL cached. A stale
+        // page is a bug visitors see; a static clear is a rebuild.
+        $commands = $this->commandsDuringUpdate();
+
+        $this->assertContains('statamic:static:clear', $commands);
+    }
+
+    public function test_static_clearing_can_be_switched_off(): void
+    {
+        config(['statamic.mcp.cache.clear_static_after_write' => false]);
+
+        $commands = $this->commandsDuringUpdate();
+
         $this->assertNotContains('statamic:static:clear', $commands);
+        $this->assertNotContains('statamic:stache:clear', $commands);
     }
 
     public function test_a_collection_write_still_invalidates_its_static_pages(): void
@@ -134,7 +155,7 @@ class WriteCacheBehaviourTest extends TestCase
 
     public function test_a_site_can_still_opt_back_in(): void
     {
-        config(['statamic.mcp.cache.clear_after_write' => true]);
+        config(['statamic.mcp.cache.clear_stache_after_write' => true]);
 
         $commands = $this->commandsDuringUpdate();
 

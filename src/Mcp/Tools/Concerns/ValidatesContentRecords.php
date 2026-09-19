@@ -65,6 +65,37 @@ trait ValidatesContentRecords
     }
 
     /**
+     * Adopt pre-processed values only where pre-processing changed the shape.
+     *
+     * preProcess() exists to build the Control Panel's form, not to describe
+     * what is on disk, and some fieldtypes coerce while they are at it:
+     * Integer::preProcess casts "not-a-number" to 0. Taking its output wholesale
+     * would therefore hide exactly the corruption this sweep is for — a field
+     * holding junk would validate clean.
+     *
+     * So only the shape change is taken: a scalar that became a container, which
+     * is the relationship-with-max_items case (#58) and nothing else. Anything
+     * that stayed a scalar keeps the value actually stored, junk included.
+     *
+     * @param  array<string, mixed>  $stored
+     * @param  array<string, mixed>  $processed
+     *
+     * @return array<string, mixed>
+     */
+    private function withReshapedValues(array $stored, array $processed): array
+    {
+        $merged = $stored;
+
+        foreach ($processed as $handle => $value) {
+            if (is_array($value) && ! is_array($stored[$handle] ?? null)) {
+                $merged[$handle] = $value;
+            }
+        }
+
+        return $merged;
+    }
+
+    /**
      * Run the blueprint's real validation rules against the stored values.
      *
      * @param  array<string, mixed>  $data
@@ -90,7 +121,10 @@ trait ValidatesContentRecords
             // on submitted data before validating it.
             $processed = $fields->addValues($data)->preProcess()->values()->all();
 
-            $fields->addValues($processed)->preProcessValidatables()->validator()->validate();
+            $fields->addValues($this->withReshapedValues($data, $processed))
+                ->preProcessValidatables()
+                ->validator()
+                ->validate();
 
             return [];
         } catch (ValidationException $e) {

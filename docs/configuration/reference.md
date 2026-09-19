@@ -109,23 +109,31 @@ Controls request throttling for the web endpoint. Skipped in CLI context.
 
 ## Cache
 
-Whether a write clears Statamic's caches afterwards. **Off**, and that is the correct
-default rather than a cautious one.
+Whether a write clears Statamic's caches afterwards. The two are separated because only
+one of them did harm.
 
-Statamic's `save()` already updates the Stache store and its indexes, and
-`StaticCaching\Invalidate` invalidates static pages from the saved events using your own
-rules — a Control Panel save clears nothing, and neither should this.
+**Stache clearing is off.** Statamic's `save()` already updates the store and its indexes,
+which is why a Control Panel save clears nothing. Clearing ran `statamic:stache:clear`
+through Artisan *inside the request*, resetting the in-memory stores mid-call. On a live
+multisite that left a structured collection's tree empty; Statamic then padded it with
+every entry at root, so nested URLs flattened and a random entry became the homepage.
 
-Clearing also ran `statamic:stache:clear` through Artisan *inside the request*, resetting
-the in-memory stores mid-call. On a live multisite that left a structured collection's
-tree empty; Statamic then padded it with every entry at root, so nested URLs flattened
-and a random entry became the homepage.
+**Static clearing is on.** `StaticCaching\Invalidate` does subscribe to the saved events,
+but its coverage has holes: it ignores `CollectionSaved` and `TaxonomySaved` entirely, it
+listens for `LocalizedTermSaved` rather than the `TermSaved` a newly created term
+dispatches, and on a slug change it invalidates the new URL while the old one keeps
+serving its cached page. A stale page is a bug your visitors see, and a static clear is a
+rebuild rather than corruption — so it stays on until that coverage beats a flush.
 
 ```php
 'cache' => [
-    'clear_after_write' => env('STATAMIC_MCP_CLEAR_CACHE_AFTER_WRITE', false),
+    'clear_stache_after_write' => env('STATAMIC_MCP_CLEAR_STACHE_AFTER_WRITE', false),
+    'clear_static_after_write' => env('STATAMIC_MCP_CLEAR_STATIC_AFTER_WRITE', true),
 ],
 ```
+
+Turn static clearing off if you would rather rely on your own invalidation rules; a
+collection configuration write invalidates its own URLs directly either way.
 
 The `statamic-system` tool's `cache_clear` action is unaffected — that clear was asked
 for.
@@ -306,7 +314,8 @@ STATAMIC_MCP_RATE_LIMIT_MAX=60
 STATAMIC_MCP_SEARCHABLE_CATALOG=true
 
 # Cache
-STATAMIC_MCP_CLEAR_CACHE_AFTER_WRITE=false
+STATAMIC_MCP_CLEAR_STACHE_AFTER_WRITE=false
+STATAMIC_MCP_CLEAR_STATIC_AFTER_WRITE=true
 
 # Resources
 STATAMIC_MCP_RESOURCES_ENABLED=true

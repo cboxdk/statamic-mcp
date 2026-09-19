@@ -48,6 +48,7 @@ class ContentValidateStoredShapesTest extends TestCase
                 'title' => 'Article',
                 'tabs' => ['main' => ['sections' => [['fields' => [
                     ['handle' => 'title', 'field' => ['type' => 'text', 'required' => true]],
+                    ['handle' => 'rating', 'field' => ['type' => 'integer']],
                     ['handle' => 'author', 'field' => [
                         'type' => 'entries',
                         'collections' => [$this->authors],
@@ -115,6 +116,24 @@ class ContentValidateStoredShapesTest extends TestCase
         $messages = array_column($this->findings(expectedRecords: 1), 'message');
 
         $this->assertSame([], $messages, 'A dated entry with a date must not be reported as missing one.');
+    }
+
+    public function test_a_corrupt_numeric_value_is_still_reported(): void
+    {
+        // Pre-processing a value into the shape the rules expect must not
+        // launder it: Integer::preProcess casts "not-a-number" to 0, so taking
+        // the pre-processed output wholesale would have reported this file as
+        // clean — hiding exactly the corruption the sweep exists to find.
+        Entry::make()
+            ->collection($this->articles)
+            ->slug('bad-number')
+            ->date('2026-09-19')
+            ->data(['title' => 'Bad Number', 'rating' => 'not-a-number'])
+            ->save();
+
+        $messages = array_column($this->findings(expectedRecords: 1), 'message');
+
+        $this->assertNotEmpty($messages, 'A non-numeric value in an integer field must still be reported.');
     }
 
     public function test_a_single_item_relationship_stored_as_a_string_is_accepted(): void

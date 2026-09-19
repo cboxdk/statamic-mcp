@@ -232,24 +232,30 @@ return [
     | Cache
     |--------------------------------------------------------------------------
     |
-    | Whether a write should clear Statamic's caches afterwards.
+    | Whether a write should clear Statamic's caches afterwards. The two are
+    | separated because only one of them did harm.
     |
-    | Off, because it is not needed and has done harm. Statamic's save() already
-    | updates the Stache store and its indexes, and StaticCaching\Invalidate
-    | invalidates static pages from the saved events using your own rules — a
-    | Control Panel save clears nothing, and neither should this.
+    | Stache clearing is OFF. Statamic's save() already updates the store and
+    | its indexes, which is why a Control Panel save clears nothing. Clearing
+    | ran `statamic:stache:clear` through Artisan inside the request, resetting
+    | the in-memory stores mid-call; on a live multisite that left a structured
+    | collection's tree empty, which Statamic then padded with every entry at
+    | root — nested URLs flattened and a random entry became the homepage
+    | (issue #53).
     |
-    | Clearing also ran `statamic:stache:clear` through Artisan inside the
-    | request, resetting the in-memory stores mid-call. On a live multisite that
-    | left a structured collection's tree empty, which Statamic then padded with
-    | every entry at root: nested URLs flattened and a random entry became the
-    | homepage (issue #53).
-    |
-    | Turn it on only if you have a setup that genuinely needs it.
+    | Static clearing is ON. StaticCaching\Invalidate does subscribe to the
+    | saved events, but its coverage has holes: it ignores CollectionSaved and
+    | TaxonomySaved entirely, it listens for LocalizedTermSaved rather than the
+    | TermSaved a new term dispatches, and on a slug change it invalidates the
+    | new URL while the old one keeps serving its cached page. A stale page is
+    | a bug your visitors see, and clearing the static cache is a rebuild
+    | rather than corruption, so it stays on. Turn it off if you would rather
+    | rely on your own invalidation rules.
     |
     */
     'cache' => [
-        'clear_after_write' => env('STATAMIC_MCP_CLEAR_CACHE_AFTER_WRITE', false),
+        'clear_stache_after_write' => env('STATAMIC_MCP_CLEAR_STACHE_AFTER_WRITE', false),
+        'clear_static_after_write' => env('STATAMIC_MCP_CLEAR_STATIC_AFTER_WRITE', true),
     ],
 
     /*
