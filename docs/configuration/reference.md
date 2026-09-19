@@ -109,48 +109,29 @@ Controls request throttling for the web endpoint. Skipped in CLI context.
 
 ## Cache
 
-Whether a write clears Statamic's caches afterwards. The two are separated because only
-one of them did harm.
+Whether a write clears Statamic's caches — and it does, because Statamic does not rebuild
+the indexes that *depend* on a write. Change a field's `max_items` and its index keeps the
+old shape until a query throws on it; change a collection's mount and every entry 404s;
+remove a taxonomy and `whereTaxonomy()` goes on returning entries.
 
-**Stache clearing is off.** Statamic's `save()` already updates the store and its indexes,
-which is why a Control Panel save clears nothing. Clearing ran `statamic:stache:clear`
-through Artisan *inside the request*, resetting the in-memory stores mid-call. On a live
-multisite that left a structured collection's tree empty; Statamic then padded it with
-every entry at root, so nested URLs flattened and a random entry became the homepage.
-
-**Static clearing is on.** `StaticCaching\Invalidate` does subscribe to the saved events,
-but its coverage has holes: it ignores `CollectionSaved` and `TaxonomySaved` entirely, it
-listens for `LocalizedTermSaved` rather than the `TermSaved` a newly created term
-dispatches, and on a slug change it invalidates the new URL while the old one keeps
-serving its cached page. A stale page is a bug your visitors see, and a static clear is a
-rebuild rather than corruption — so it stays on until that coverage beats a flush.
+**What changed in 3.1.0 is *when*.** The clear used to run through Artisan in the middle
+of the request, resetting the in-memory stores while the call was still using them. On a
+live multisite the tree repository returned nothing, Statamic padded the empty tree with
+every entry at root, nested URLs flattened and a random entry became the homepage. It now
+runs once the tool call is finished — the response is built, nothing further reads
+Statamic, and the next call starts fresh. Same coverage, without the mechanism that did
+the damage.
 
 ```php
 'cache' => [
-    'clear_stache_after_write' => env('STATAMIC_MCP_CLEAR_STACHE_AFTER_WRITE', false),
+    'clear_stache_after_write' => env('STATAMIC_MCP_CLEAR_STACHE_AFTER_WRITE', true),
     'clear_static_after_write' => env('STATAMIC_MCP_CLEAR_STATIC_AFTER_WRITE', true),
 ],
 ```
 
-Both settings govern **content** writes only — entries, terms, global values, assets.
-**Structural** writes (blueprints, collections, taxonomies, navigations, global sets,
-users, roles, groups) always rebuild the Stache and are not configurable: Statamic does
-not rebuild the indexes that *depend* on a schema or configuration change. A relationship
-field's `max_items`, a collection's taxonomies, its mount, its `dated` flag, a group's
-roles — each leaves a query returning wrong results or throwing until a rebuild. Those
-writes are rare and deliberate; the frequent content writes are the ones that caused the
-incident above.
-
-**Deletes** rebuild too, for the same reason: a removal invalidates whatever pointed at
-the record. `Entry::delete()` leaves term associations behind and Statamic does not drop
-a virtual term whose last use just went away, so term counts and listings would keep
-showing content that no longer exists.
-
-Turn static clearing off if you would rather rely on your own invalidation rules; a
-collection configuration write invalidates its own URLs directly either way.
-
-The `statamic-system` tool's `cache_clear` action is unaffected — that clear was asked
-for.
+Turn either off if you would rather trade index freshness for speed on a large site and
+rely on your own invalidation rules. The `statamic-system` tool's `cache_clear` action is
+unaffected — that clear runs immediately, because it was asked for.
 
 ## Resources
 

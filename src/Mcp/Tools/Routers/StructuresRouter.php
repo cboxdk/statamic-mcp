@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
-use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesCollections;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesGlobalSets;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesNavigations;
@@ -22,7 +21,6 @@ use Laravel\Mcp\Server\Attributes\Title;
 #[Description('Manage Statamic structural resources: collections, taxonomies, navigations, sites, and global sets. Use resource_type to select the kind, then action for the operation. Actions: list, get, create, update, delete, configure.')]
 class StructuresRouter extends BaseRouter
 {
-    use ClearsCaches;
     use HandlesCollections;
     use HandlesGlobalSets;
     use HandlesNavigations;

@@ -9,6 +9,7 @@ use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ResponseMeta;
 use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\SuccessResponse;
 use Cboxdk\StatamicMcp\Mcp\Exceptions\FieldFormatException;
 use Cboxdk\StatamicMcp\Mcp\Support\ToolLogger;
+use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\Support\Facades\Log;
@@ -25,6 +26,8 @@ use Statamic\Statamic;
 
 abstract class BaseStatamicTool extends Tool
 {
+    use ClearsCaches;
+
     /**
      * Define the tool's input schema.
      *
@@ -172,6 +175,24 @@ abstract class BaseStatamicTool extends Tool
     final public function execute(array $arguments): array
     {
         $this->startFromAFreshRequestState();
+
+        try {
+            return $this->runToolCall($arguments);
+        } finally {
+            // Whatever the call asked to clear runs here: after the response is
+            // built, so nothing further reads from emptied stores, and after a
+            // failure too, since a write may well have landed before the throw.
+            $this->flushPendingCacheClears();
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string, mixed>
+     */
+    private function runToolCall(array $arguments): array
+    {
 
         $toolName = $this->name();
         $startTime = microtime(true);

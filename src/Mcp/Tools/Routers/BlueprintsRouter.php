@@ -6,7 +6,6 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\Support\FieldFormatSpec;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
-use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\Support\Collection as SupportCollection;
@@ -30,8 +29,6 @@ use Statamic\Fieldtypes\Replicator;
 #[Description('Manage Statamic blueprints — the schema definitions for all content types. Call get before creating/updating entries, terms, or globals to understand required fields AND the _format_spec for each field (wire format, allowed types, common mistakes). Actions: list, get, create, update, delete, scan, generate, types, validate.')]
 class BlueprintsRouter extends BaseRouter
 {
-    use ClearsCaches;
-
     protected function getDomain(): string
     {
         return 'blueprints';
@@ -563,7 +560,7 @@ class BlueprintsRouter extends BaseRouter
                 $blueprint->save();
 
                 // Clear Statamic caches
-                $this->clearCachesAfterStructuralWrite(['stache']);
+                $this->clearCachesAfterWrite(['stache']);
 
                 return [
                     'blueprint' => [
@@ -872,7 +869,7 @@ class BlueprintsRouter extends BaseRouter
             $blueprint->save();
 
             // Clear Statamic caches
-            $this->clearCachesAfterStructuralWrite(['stache']);
+            $this->clearCachesAfterWrite(['stache']);
 
             return [
                 'blueprint' => [
@@ -928,7 +925,7 @@ class BlueprintsRouter extends BaseRouter
             $blueprint->delete();
 
             // Clear Statamic caches
-            $this->clearCachesAfterStructuralWrite(['stache']);
+            $this->clearCachesAfterWrite(['stache']);
 
             return [
                 'deleted' => true,
@@ -1026,7 +1023,7 @@ class BlueprintsRouter extends BaseRouter
             $blueprint->save();
 
             // Clear Statamic caches
-            $this->clearCachesAfterStructuralWrite(['stache']);
+            $this->clearCachesAfterWrite(['stache']);
 
             return [
                 'blueprint' => [

@@ -232,41 +232,53 @@ return [
     | Cache
     |--------------------------------------------------------------------------
     |
-    | Whether a write should clear Statamic's caches afterwards. The two are
-    | separated because only one of them did harm.
+    | Whether a write clears Statamic's caches, and it does — because Statamic
+    | does not rebuild the indexes that DEPEND on a write. Change a field's
+    | max_items and its index keeps the old shape until a query throws on it;
+    | change a collection's mount and every entry 404s; remove a taxonomy and
+    | whereTaxonomy() goes on returning entries. That list is long and version
+    | dependent, so it is not worth enumerating by hand.
     |
-    | Stache clearing is OFF. Statamic's save() already updates the store and
-    | its indexes, which is why a Control Panel save clears nothing. Clearing
-    | ran `statamic:stache:clear` through Artisan inside the request, resetting
-    | the in-memory stores mid-call; on a live multisite that left a structured
-    | collection's tree empty, which Statamic then padded with every entry at
-    | root — nested URLs flattened and a random entry became the homepage
-    | (issue #53).
+    | What changed in 3.1.0 is WHEN. The clear used to run through Artisan in
+    | the middle of the request, resetting the in-memory stores while the call
+    | was still using them: on a live multisite the tree repository returned
+    | nothing, Statamic padded the empty tree with every entry at root, and a
+    | random entry became the homepage (issue #53). It now runs once the tool
+    | call is finished, when the response is built and nothing further reads
+    | Statamic — same coverage, without the mechanism that did the damage.
     |
-    | Static clearing is ON. StaticCaching\Invalidate does subscribe to the
-    | saved events, but its coverage has holes: it ignores CollectionSaved and
-    | TaxonomySaved entirely, it listens for LocalizedTermSaved rather than the
-    | TermSaved a new term dispatches, and on a slug change it invalidates the
-    | new URL while the old one keeps serving its cached page. A stale page is
-    | a bug your visitors see, and clearing the static cache is a rebuild
-    | rather than corruption, so it stays on. Turn it off if you would rather
-    | rely on your own invalidation rules.
-    |
-    | Both settings govern CONTENT writes only — entries, terms, global values,
-    | assets. Structural writes (blueprints, collections, taxonomies,
-    | navigations, global sets, users, roles, groups) always rebuild the Stache
-    | and are not configurable, because Statamic does not rebuild the indexes
-    | that depend on a schema or configuration change: a relationship field's
-    | max_items, a collection's taxonomies, its mount, its dated flag, a
-    | group's roles. Those writes are rare and deliberate; the frequent
-    | content writes are the ones that caused #53. Deletes rebuild too: a
-    | removal invalidates whatever pointed at the record, and Statamic does not
-    | clean up term associations or orphaned virtual terms on its own.
+    | Turn either off if you would rather trade index freshness for speed on a
+    | large site, and rely on your own invalidation rules.
     |
     */
     'cache' => [
-        'clear_stache_after_write' => env('STATAMIC_MCP_CLEAR_STACHE_AFTER_WRITE', false),
+        'clear_stache_after_write' => env('STATAMIC_MCP_CLEAR_STACHE_AFTER_WRITE', true),
         'clear_static_after_write' => env('STATAMIC_MCP_CLEAR_STATIC_AFTER_WRITE', true),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Resources
+    |--------------------------------------------------------------------------
+    |
+    | The read-only surface: statamic://blueprints and friends.
+    |
+    | These have their own switch because they used to share the tools' one. A
+    | site that keeps its content model in Git turns the blueprints *tool* off
+    | precisely because it can create and delete blueprints — and that also
+    | removed the only read-only way for an agent to learn a blueprint's
+    | fields, while the server's own instructions tell it to read the blueprint
+    | before every write (issue #54).
+    |
+    | 'require_statamic_permission' keeps the Statamic permission check on top
+    | of the token scope and the resource-policy allowlist. Set it to false if
+    | your editors hold no 'configure fields' permission and you would rather
+    | let the token scope you minted decide who may read schema.
+    |
+    */
+    'resources' => [
+        'enabled' => env('STATAMIC_MCP_RESOURCES_ENABLED', true),
+        'require_statamic_permission' => env('STATAMIC_MCP_RESOURCES_REQUIRE_PERMISSION', true),
     ],
 
     /*

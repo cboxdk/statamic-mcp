@@ -11,76 +11,60 @@ use Statamic\StaticCaching\Invalidator;
 trait ClearsCaches
 {
     /**
-     * Clear caches after a write, for the kinds the site still wants cleared.
+     * Cache types this call has asked for, run once it is finished.
      *
-     * The two are separated because only one of them did harm.
+     * @var list<string>
+     */
+    private array $pendingCacheClears = [];
+
+    /**
+     * Ask for a cache clear once the current tool call is done.
      *
-     * **Stache: off.** Statamic's save() already updates the store and its
-     * indexes, which is why a Control Panel save clears nothing. Clearing ran
-     * `statamic:stache:clear` through Artisan inside the request, resetting the
-     * in-memory stores mid-call; on a live multisite that left a structured
-     * collection's tree empty, and CollectionStructure::validateTree() then
-     * padded it with every entry at root — nested URLs flattened and, with
-     * `root: true`, a random entry became the homepage (#53).
+     * The timing is the whole fix for #53, and it is worth being precise about
+     * why. Clearing after a write was never wrong in itself — Statamic does not
+     * rebuild the indexes that *depend* on a write, so without it a changed
+     * max_items leaves an index of arrays that later throws, a removed taxonomy
+     * leaves whereTaxonomy() returning entries, a changed mount leaves every
+     * entry 404ing. Enumerating those by hand is hopeless; nine review passes
+     * each found more.
      *
-     * **Static: on.** Tempting to drop as well, since StaticCaching\Invalidate
-     * subscribes to the saved events — but its coverage has real holes, and a
-     * stale page is a correctness bug users see. It does not subscribe to
-     * CollectionSaved or TaxonomySaved at all; it listens for
-     * LocalizedTermSaved, which a freshly created term does not dispatch; and
-     * on a slug change it invalidates the new URL while the old one keeps
-     * serving its cached page. Clearing the static cache is a rebuild, not
-     * corruption, so it stays on until that coverage is better than a flush.
+     * What was wrong was clearing **mid-request**. `statamic:stache:clear` runs
+     * through Artisan and resets the in-memory stores there and then, so the
+     * rest of the call read from emptied stores: on a live multisite the tree
+     * repository returned nothing, CollectionStructure::validateTree() padded
+     * the empty tree with every entry at root, and a random entry became the
+     * homepage.
+     *
+     * Deferring to the end of the call keeps the coverage and removes the
+     * mechanism. By then the response is built and nothing further reads
+     * Statamic; the next call starts fresh, with Blink flushed too.
      *
      * @param  array<int, string>  $types
-     *
-     * @return array<string, string>
      */
-    protected function clearCachesAfterWrite(array $types = ['stache', 'static']): array
+    protected function clearCachesAfterWrite(array $types = ['stache', 'static']): void
     {
-        $wanted = array_values(array_filter($types, fn (string $type): bool => match ($type) {
-            'stache' => (bool) config('statamic.mcp.cache.clear_stache_after_write', false),
+        $wanted = array_filter($types, fn (string $type): bool => match ($type) {
+            'stache' => (bool) config('statamic.mcp.cache.clear_stache_after_write', true),
             'static' => (bool) config('statamic.mcp.cache.clear_static_after_write', true),
             default => true,
-        }));
+        });
 
-        if ($wanted === []) {
-            return [];
-        }
-
-        return $this->clearStatamicCaches($wanted);
+        $this->pendingCacheClears = array_values(array_unique([...$this->pendingCacheClears, ...$wanted]));
     }
 
     /**
-     * Clear caches after a write that changed the *shape* of content.
-     *
-     * Always rebuilds the Stache, and that is not a relapse into the blanket
-     * clear removed in #53 — it is where the line actually falls.
-     *
-     * Statamic maintains its stores on save, but it does not rebuild the
-     * indexes that *depend* on a schema or configuration change. Changing a
-     * relationship field's max_items leaves an index full of arrays, and a
-     * later where() on it throws a TypeError. Changing a collection's
-     * taxonomies leaves whereTaxonomy() returning entries it no longer has.
-     * Changing its mount leaves the old entry URIs indexed, so every entry
-     * 404s. Toggling `dated` leaves stale date indexes. Changing a group's
-     * roles leaves the members' role indexes behind. Each one of those was
-     * found by a separate review pass, which is the point: the set is not
-     * enumerable, so it cannot be handled one case at a time.
-     *
-     * Structural writes are rare and deliberate. Content writes are frequent
-     * and need none of this — an entry save maintains its own indexes — and
-     * they were the ones that emptied a live collection tree mid-batch. So the
-     * clear stays here and is gone from there, which is the distinction the
-     * incident actually drew.
-     *
-     * @param  array<int, string>  $types
+     * Run whatever the call asked for. Called once the call is finished.
      *
      * @return array<string, string>
      */
-    protected function clearCachesAfterStructuralWrite(array $types = ['stache', 'static']): array
+    protected function flushPendingCacheClears(): array
     {
-        $types = array_values(array_unique([...$types, 'stache']));
+        if ($this->pendingCacheClears === []) {
+            return [];
+        }
+
+        $types = $this->pendingCacheClears;
+        $this->pendingCacheClears = [];
 
         return $this->clearStatamicCaches($types);
     }
@@ -91,15 +75,11 @@ trait ClearsCaches
      * Statamic's StaticCaching\Invalidate subscribes to saved events for
      * entries, terms, globals, navs, forms, assets, blueprints and collection
      * *trees* — but not to CollectionSaved. So changing a collection's template
-     * or layout invalidates nothing, and with static caching on, its entry
-     * pages keep serving the old output. The blanket clear used to paper over
-     * that; removing it (#53) left the gap exposed.
+     * or layout invalidates nothing on its own.
      *
      * DefaultInvalidator already knows how to turn a Collection into URLs, so
-     * this is Statamic's own targeted path — not a flush, and nothing to do
-     * with the Stache.
-     *
-     * Best-effort: static caching may be off, or the binding absent.
+     * this is Statamic's own targeted path. Best-effort: static caching may be
+     * off, or the binding absent.
      */
     protected function invalidateStaticCache(mixed $item): void
     {
@@ -115,10 +95,10 @@ trait ClearsCaches
     }
 
     /**
-     * Clear relevant Statamic caches.
+     * Clear caches now.
      *
      * The explicit, caller-requested clear — the system router's cache_clear
-     * action. Unconditional on purpose: someone asked for it.
+     * action. Immediate on purpose: someone asked for it.
      *
      * Cache clearing is best-effort — failures are logged but do not halt execution.
      *

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
-use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\NormalizesDateFields;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\SanitizesFieldData;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
@@ -26,7 +25,6 @@ use Statamic\Support\Str;
 #[Description('Manage Statamic taxonomy terms. Use statamic-blueprints get first to understand field structure before create/update. Actions: list, get, create, update, delete.')]
 class TermsRouter extends BaseRouter
 {
-    use ClearsCaches;
     use NormalizesDateFields;
     use SanitizesFieldData;
 
@@ -584,12 +582,7 @@ class TermsRouter extends BaseRouter
             $term->delete();
 
             // Clear relevant caches
-            // A delete, unlike an update, invalidates things that point AT it.
-            // Entry::delete() leaves the term associations behind, and
-            // TaxonomyTermsStore::sync() does not drop a virtual term whose
-            // last use just went away — so entriesCount() keeps counting the
-            // deleted term and orphaned terms keep appearing in listings.
-            $this->clearCachesAfterStructuralWrite(['stache', 'static']);
+            $this->clearCachesAfterWrite(['stache', 'static']);
 
             return [
                 'term' => $termData,

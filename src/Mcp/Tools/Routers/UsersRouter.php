@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
-use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesGroups;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesRoles;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesUsers;
@@ -20,7 +19,6 @@ use Laravel\Mcp\Server\Attributes\Title;
 #[Description('Manage Statamic users, roles, and user groups. Set resource_type first, then choose an action. Actions: list, get, search, create, update, delete, activate, deactivate, assign_role, remove_role.')]
 class UsersRouter extends BaseRouter
 {
-    use ClearsCaches;
     use HandlesGroups;
     use HandlesRoles;
     use HandlesUsers;

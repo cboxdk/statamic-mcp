@@ -966,6 +966,30 @@ Legacy `initialize` clients (2025-06-18, 2025-11-25) still connect and skip head
 validation entirely. There is a test pinning that, because it is the compatibility
 promise most likely to be broken by accident.
 
+## Cache clearing is deferred, not removed
+
+A write asks for a cache clear; `BaseStatamicTool::execute()` runs it in a `finally`,
+once the call is over. Both halves of that matter.
+
+**It still clears**, because Statamic does not rebuild the indexes that *depend* on a
+write: a changed `max_items` leaves an index whose shape later throws, a changed mount
+leaves every entry 404ing, a removed taxonomy leaves `whereTaxonomy()` returning entries,
+a group's roles leave its members' role indexes stale. Nine review passes each found more
+of these — the set is not enumerable, so do not try to replace the clear with a list of
+special cases. That was tried and abandoned.
+
+**It clears late**, because clearing mid-call is what broke a live site (#53).
+`statamic:stache:clear` goes through Artisan and resets the in-memory stores immediately,
+so the rest of the call reads emptied stores — a structured collection's tree came back
+empty, Statamic padded it with every entry at root, and a random entry became the
+homepage. By the time the `finally` runs, the response is built and nothing further reads
+Statamic.
+
+So: **queue with `clearCachesAfterWrite()`, never call `clearStatamicCaches()` from a
+write path.** The immediate version exists for the system router's `cache_clear` action,
+where the caller asked for it. There is a test asserting no clear lands while a call is
+in progress; it fails the moment anything clears inline.
+
 ## Blink is per-request; this server is not
 
 Statamic's `Blink` cache is scoped to one web request and filled freely on that

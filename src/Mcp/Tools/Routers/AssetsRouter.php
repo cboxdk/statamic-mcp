@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
-use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\Http\UploadedFile;
 use Illuminate\JsonSchema\JsonSchema;
@@ -23,8 +22,6 @@ use Statamic\Facades\AssetContainer;
 #[Description('Manage Statamic assets and asset containers. Set resource_type to "container" or "asset", then choose an action. Actions: list, get, create, update, delete, move, copy, upload.')]
 class AssetsRouter extends BaseRouter
 {
-    use ClearsCaches;
-
     protected function getDomain(): string
     {
         return 'assets';
@@ -302,7 +299,7 @@ class AssetsRouter extends BaseRouter
             $container->save();
 
             // Clear caches
-            $this->clearCachesAfterStructuralWrite(['stache']);
+            $this->clearCachesAfterWrite(['stache']);
 
             return [
                 'container' => [
@@ -350,7 +347,7 @@ class AssetsRouter extends BaseRouter
             $container->save();
 
             // Clear caches
-            $this->clearCachesAfterStructuralWrite(['stache']);
+            $this->clearCachesAfterWrite(['stache']);
 
             return [
                 'container' => [
@@ -392,7 +389,7 @@ class AssetsRouter extends BaseRouter
             $container->delete();
 
             // Clear caches
-            $this->clearCachesAfterStructuralWrite(['stache']);
+            $this->clearCachesAfterWrite(['stache']);
 
             return [
                 'container' => [
@@ -735,7 +732,7 @@ class AssetsRouter extends BaseRouter
             $asset->delete();
 
             // Clear caches
-            $this->clearCachesAfterStructuralWrite(['stache']);
+            $this->clearCachesAfterWrite(['stache']);
 
             return [
                 'asset' => [

@@ -196,7 +196,7 @@ trait HandlesCollections
             $this->invalidateStaticCache($collection);
 
             // Clear caches
-            $this->clearCachesAfterStructuralWrite(['stache', 'static']);
+            $this->clearCachesAfterWrite(['stache', 'static']);
 
             return [
                 'collection' => [
@@ -257,7 +257,7 @@ trait HandlesCollections
             $this->invalidateStaticCache($collection);
 
             // Clear caches
-            $this->clearCachesAfterStructuralWrite(['stache', 'static']);
+            $this->clearCachesAfterWrite(['stache', 'static']);
 
             return [
                 'collection' => [
@@ -313,7 +313,7 @@ trait HandlesCollections
             $collection->delete();
 
             // Clear caches
-            $this->clearCachesAfterStructuralWrite(['stache', 'static']);
+            $this->clearCachesAfterWrite(['stache', 'static']);
 
             return [
                 'collection' => [
@@ -400,7 +400,7 @@ trait HandlesCollections
             $this->invalidateStaticCache($collection);
 
             // Clear caches
-            $this->clearCachesAfterStructuralWrite(['stache']);
+            $this->clearCachesAfterWrite(['stache']);
 
             return [
                 'collection' => [

@@ -6,7 +6,6 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\Exceptions\FieldFormatException;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
-use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\HandlesRevisions;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\NormalizesDateFields;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\SanitizesFieldData;
@@ -32,7 +31,6 @@ use Statamic\Support\Str;
 #[Description('Manage Statamic collection entries. Use statamic-blueprints get first to understand field structure before create/update. Actions: list, get, create, update, delete, publish, unpublish, list_revisions, get_revision, restore_revision, publish_working_copy.')]
 class EntriesRouter extends BaseRouter
 {
-    use ClearsCaches;
     use HandlesRevisions;
     use NormalizesDateFields;
     use SanitizesFieldData;
@@ -1031,16 +1029,8 @@ class EntriesRouter extends BaseRouter
 
             $entry->merge($data)->save();
 
-            // An update that touches a taxonomy field can remove the last
-            // reference to a term. TaxonomyTermsStore::sync() drops the
-            // association but only reindexes the terms still coming in, so a
-            // virtual term whose last use just went stays in taxonomy listings.
-            // That is a removal like any other, so it reindexes; an ordinary
-            // field edit — the path that emptied a live collection tree — does
-            // not.
-            $this->touchesTaxonomies($entry, $data)
-                ? $this->clearCachesAfterStructuralWrite(['stache', 'static'])
-                : $this->clearCachesAfterWrite(['stache', 'static']);
+            // Clear relevant caches
+            $this->clearCachesAfterWrite(['stache', 'static']);
 
             $response = [
                 'entry' => [
@@ -1073,43 +1063,6 @@ class EntriesRouter extends BaseRouter
     }
 
     /**
-     * Whether a write touches a taxonomy field, and so may orphan a term.
-     *
-     * Read off the blueprint rather than guessed from handles: a taxonomy field
-     * can be called anything, so matching on names would miss the ones that
-     * matter and reindex needlessly for the ones that do not.
-     *
-     * @param  array<string, mixed>  $data
-     */
-    private function touchesTaxonomies(EntryContract $entry, array $data): bool
-    {
-        if ($data === []) {
-            return false;
-        }
-
-        $blueprint = $entry->blueprint();
-
-        if (! $blueprint instanceof Blueprint) {
-            return false;
-        }
-
-        foreach ($blueprint->fields()->all() as $handle => $field) {
-            if (! is_string($handle) || ! array_key_exists($handle, $data)) {
-                continue;
-            }
-
-            // 'terms' is the fieldtype that holds taxonomy references;
-            // 'taxonomies' picks which taxonomies a collection uses. Both can
-            // change what a term is associated with.
-            if ($field instanceof Field && in_array($field->type(), ['terms', 'taxonomies'], true)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
      * Delete an entry.
      *
      * @param  array<string, mixed>  $arguments
@@ -1137,12 +1090,7 @@ class EntriesRouter extends BaseRouter
             $entry->delete();
 
             // Clear relevant caches
-            // A delete, unlike an update, invalidates things that point AT it.
-            // Entry::delete() leaves the term associations behind, and
-            // TaxonomyTermsStore::sync() does not drop a virtual term whose
-            // last use just went away — so entriesCount() keeps counting the
-            // deleted entry and orphaned terms keep appearing in listings.
-            $this->clearCachesAfterStructuralWrite(['stache', 'static']);
+            $this->clearCachesAfterWrite(['stache', 'static']);
 
             return [
                 'entry' => $entryData,
