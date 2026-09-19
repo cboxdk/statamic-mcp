@@ -74,14 +74,23 @@ trait ValidatesContentRecords
     private function ruleFindings(Fields $fields, array $data, RecordRef $record): array
     {
         try {
-            // preProcessValidatables() is what the Control Panel runs before it
-            // validates, and skipping it made the rules judge a shape Statamic
-            // never intended them to see. A relationship field with
-            // max_items: 1 stores a bare string rather than a one-element
-            // array, so the generated array and max:1 rules both failed on
-            // every correctly stored row (#58). Each fieldtype gets to present
-            // its stored value in the form its own rules were written against.
-            $fields->addValues($data)->preProcessValidatables()->validator()->validate();
+            // Reproduce the two steps the Control Panel takes before it
+            // validates, because the blueprint's rules were written against
+            // what those produce — not against what sits on disk.
+            //
+            // preProcess() is the one that matters for shape: a relationship
+            // field with max_items: 1 stores a bare id, and Relationship's
+            // preProcess wraps it, which is how the CP's form ever holds an
+            // array for the generated array and max:1 rules to accept (#58).
+            // Validating the stored value directly failed both rules on every
+            // correctly stored row.
+            //
+            // preProcessValidatables() then lets each fieldtype put its value
+            // into the form its own rule expects, which is what Statamic runs
+            // on submitted data before validating it.
+            $processed = $fields->addValues($data)->preProcess()->values()->all();
+
+            $fields->addValues($processed)->preProcessValidatables()->validator()->validate();
 
             return [];
         } catch (ValidationException $e) {

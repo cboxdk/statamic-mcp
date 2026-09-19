@@ -5,12 +5,15 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Tests\Feature\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\EntriesRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\StructuresRouter;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Illuminate\Foundation\Console\Kernel;
 use Illuminate\Support\Facades\Artisan;
+use Statamic\Contracts\Entries\Collection as StatamicCollection;
 use Statamic\Facades\Blueprint;
 use Statamic\Facades\Collection;
 use Statamic\Facades\Entry;
+use Statamic\StaticCaching\Invalidator;
 
 /**
  * A write must not wipe the site's caches.
@@ -95,6 +98,38 @@ class WriteCacheBehaviourTest extends TestCase
 
         $this->assertNotContains('statamic:stache:clear', $commands, 'A write must leave the Stache alone; clearing it mid-request emptied collection trees on live sites.');
         $this->assertNotContains('statamic:static:clear', $commands);
+    }
+
+    public function test_a_collection_write_still_invalidates_its_static_pages(): void
+    {
+        // Statamic's invalidator subscribes to entry, term, nav, form, asset,
+        // blueprint and collection-*tree* saves — but not CollectionSaved. So
+        // changing a template or layout invalidates nothing on its own, and
+        // dropping the blanket clear (#53) would have left cached pages stale.
+        $invalidated = [];
+
+        $this->app->instance(Invalidator::class, new class($invalidated) implements Invalidator
+        {
+            /** @param list<mixed> $seen */
+            public function __construct(public array &$seen) {}
+
+            public function invalidate($item): void
+            {
+                $this->seen[] = $item;
+            }
+
+            public function refresh($item): void {}
+        });
+
+        (new StructuresRouter)->execute([
+            'action' => 'update',
+            'resource_type' => 'collection',
+            'handle' => $this->collection,
+            'title' => 'Renamed Collection',
+        ]);
+
+        $this->assertNotEmpty($invalidated, 'A collection configuration write must invalidate its static pages.');
+        $this->assertInstanceOf(StatamicCollection::class, $invalidated[0]);
     }
 
     public function test_a_site_can_still_opt_back_in(): void

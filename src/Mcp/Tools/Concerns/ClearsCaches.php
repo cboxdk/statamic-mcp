@@ -6,6 +6,7 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Concerns;
 
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Log;
+use Statamic\StaticCaching\Invalidator;
 
 trait ClearsCaches
 {
@@ -41,6 +42,35 @@ trait ClearsCaches
         }
 
         return $this->clearStatamicCaches($types);
+    }
+
+    /**
+     * Invalidate the static cache for one item, the way Statamic does.
+     *
+     * Statamic's StaticCaching\Invalidate subscribes to saved events for
+     * entries, terms, globals, navs, forms, assets, blueprints and collection
+     * *trees* — but not to CollectionSaved. So changing a collection's template
+     * or layout invalidates nothing, and with static caching on, its entry
+     * pages keep serving the old output. The blanket clear used to paper over
+     * that; removing it (#53) left the gap exposed.
+     *
+     * DefaultInvalidator already knows how to turn a Collection into URLs, so
+     * this is Statamic's own targeted path — not a flush, and nothing to do
+     * with the Stache.
+     *
+     * Best-effort: static caching may be off, or the binding absent.
+     */
+    protected function invalidateStaticCache(mixed $item): void
+    {
+        try {
+            if (! app()->bound(Invalidator::class)) {
+                return;
+            }
+
+            app(Invalidator::class)->invalidate($item);
+        } catch (\Throwable $e) {
+            Log::warning('MCP static cache invalidation failed: ' . $e->getMessage());
+        }
     }
 
     /**

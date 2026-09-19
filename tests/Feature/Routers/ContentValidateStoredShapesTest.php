@@ -71,13 +71,36 @@ class ContentValidateStoredShapesTest extends TestCase
     }
 
     /**
+     * The findings of a sweep that actually ran.
+     *
+     * The success assertion is the point of this helper, not decoration. An
+     * earlier version read `$result['data']['findings'] ?? []`, which turned a
+     * failed sweep — data null, an exception in errors — into an empty list,
+     * so both tests below passed green while content_validate was aborting on
+     * the first entry with "Call to undefined method". A test that cannot tell
+     * "nothing was wrong" from "nothing was checked" is not a test.
+     *
      * @return list<array<string, mixed>>
      */
-    private function findings(): array
+    private function findings(int $expectedRecords): array
     {
         $result = $this->validate();
 
-        return $result['data']['findings'] ?? [];
+        $this->assertTrue(
+            $result['success'] ?? false,
+            'The sweep must succeed: ' . json_encode($result['errors'] ?? [])
+        );
+
+        $data = $result['data'] ?? null;
+
+        $this->assertIsArray($data, 'A successful sweep must carry data.');
+        $this->assertSame(
+            $expectedRecords,
+            $data['summary']['records_scanned'] ?? null,
+            'The sweep must actually visit the entries, not stop early.'
+        );
+
+        return $data['findings'];
     }
 
     public function test_a_dated_entry_does_not_report_a_missing_date(): void
@@ -89,7 +112,7 @@ class ContentValidateStoredShapesTest extends TestCase
             ->data(['title' => 'A Dated Post'])
             ->save();
 
-        $messages = array_column($this->findings(), 'message');
+        $messages = array_column($this->findings(expectedRecords: 1), 'message');
 
         $this->assertSame([], $messages, 'A dated entry with a date must not be reported as missing one.');
     }
@@ -113,7 +136,7 @@ class ContentValidateStoredShapesTest extends TestCase
             ->data(['title' => 'With Author', 'author' => (string) $author->id()])
             ->save();
 
-        $messages = array_column($this->findings(), 'message');
+        $messages = array_column($this->findings(expectedRecords: 1), 'message');
 
         $this->assertSame([], $messages, 'A correctly stored single-item relationship must not report violations.');
     }

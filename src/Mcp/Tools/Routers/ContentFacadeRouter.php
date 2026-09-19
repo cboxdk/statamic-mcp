@@ -620,23 +620,25 @@ class ContentFacadeRouter extends BaseRouter
      * filename prefix on the file driver and a column on the Eloquent one, so
      * it never appears in data() and every dated entry failed (#57).
      *
+     * Read the date off the entry rather than the collection — Collection has
+     * no time-related accessor at all, and reaching for one silently aborted
+     * the whole sweep on its first dated entry.
+     *
      * @return array<string, mixed>
      */
     private function entryValidationData(\Statamic\Contracts\Entries\Entry $entry): array
     {
         $data = ['slug' => $entry->slug(), ...$entry->data()->all()];
 
-        $collection = $entry->collection();
-
-        if ($collection instanceof \Statamic\Contracts\Entries\Collection && $collection->dated()) {
+        if ($entry->hasDate()) {
             $date = $entry->date();
 
             if ($date !== null) {
-                // Match how Statamic itself presents the injected date field:
-                // with time when the collection keeps one, date only otherwise.
-                $data['date'] = $collection->hasTimeEnabled()
-                    ? $date->format('Y-m-d H:i')
-                    : $date->format('Y-m-d');
+                // The Carbon instance, not a formatted string. Statamic's own
+                // date rule returns early for a Carbon — it treats one as
+                // already processed — so there is no format to guess at and no
+                // time_enabled config to second-guess.
+                $data['date'] = $date;
             }
         }
 

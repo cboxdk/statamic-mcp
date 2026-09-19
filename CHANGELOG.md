@@ -30,13 +30,15 @@ straight to the fix. Thanks to @JorisOrangeStudio and @revans-premier-education.
 
 - **`content_validate` no longer fails every dated entry** (#57) — The entry sweep validated `['slug' => ..., ...data()]`. The slug is folded in because it lives outside `data()`; the entry date lives outside it in exactly the same way — a filename prefix on the file driver, a column on the Eloquent one — but was not, so the `date` field Statamic injects into a dated collection's blueprint was always missing and every entry reported a violation
 
-- **`content_validate` no longer fails single-item relationship fields** (#58) — A relationship field with `max_items: 1` is stored as a bare string, not a one-element array, and the sweep ran the blueprint's rules against stored values without the fieldtype pre-processing the Control Panel does first. The generated `array` and `max:1` rules therefore both failed on every correctly stored row. Values now go through `preProcessValidatables()` before validation, so each fieldtype presents its value in the shape its own rules were written against.
+- **`content_validate` no longer fails single-item relationship fields** (#58) — A relationship field with `max_items: 1` is stored as a bare string, not a one-element array, and the sweep ran the blueprint's rules against stored values without the fieldtype pre-processing the Control Panel does first. The generated `array` and `max:1` rules therefore both failed on every correctly stored row. The sweep now reproduces both steps the Control Panel takes before it validates — `preProcess()`, which is what wraps a single item into the array the generated rules expect, then `preProcessValidatables()` — so each fieldtype presents its value in the shape its own rules were written against.
 
   Together with #57 this had made `content_validate` unusable as a post-import check on an ordinary blog collection: every row failed on its date, and every row with an author failed twice more
 
 ### Added
 
 - `cache.clear_after_write` and the `resources.*` block, both documented in the [configuration reference](docs/configuration/reference.md)
+
+- **Collection configuration writes still invalidate their static pages** — Statamic's `StaticCaching\Invalidate` subscribes to saved events for entries, terms, globals, navs, forms, assets, blueprints and collection *trees*, but not to `CollectionSaved`. Removing the blanket cache clear above would therefore have left cached entry pages serving old output after a template or layout change. Collection writes now call Statamic's own invalidator directly, which already knows how to turn a collection into URLs — targeted, and still no Stache clear
 
 ### Internal
 
