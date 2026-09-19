@@ -188,6 +188,33 @@ class WriteCacheBehaviourTest extends TestCase
         $this->assertContains('statamic:stache:clear', $called);
     }
 
+    public function test_deleting_an_entry_rebuilds_dependent_indexes(): void
+    {
+        // A delete invalidates what points AT the record, which an update does
+        // not: Entry::delete() leaves term associations behind and
+        // TaxonomyTermsStore::sync() does not drop a virtual term whose last
+        // use just went away, so entriesCount() keeps counting the deleted
+        // entry and orphaned terms linger in listings.
+        $entry = Entry::make()
+            ->collection($this->collection)
+            ->slug('doomed')
+            ->data(['title' => 'Doomed']);
+        $entry->save();
+
+        $called = [];
+        $this->spyArtisan($called);
+
+        (new EntriesRouter)->execute([
+            'action' => 'delete',
+            'collection' => $this->collection,
+            'id' => $entry->id(),
+        ]);
+
+        Artisan::clearResolvedInstances();
+
+        $this->assertContains('statamic:stache:clear', $called);
+    }
+
     public function test_a_collection_write_still_invalidates_its_static_pages(): void
     {
         // Statamic's invalidator subscribes to entry, term, nav, form, asset,

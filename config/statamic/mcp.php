@@ -259,7 +259,9 @@ return [
     | that depend on a schema or configuration change: a relationship field's
     | max_items, a collection's taxonomies, its mount, its dated flag, a
     | group's roles. Those writes are rare and deliberate; the frequent
-    | content writes are the ones that caused #53.
+    | content writes are the ones that caused #53. Deletes rebuild too: a
+    | removal invalidates whatever pointed at the record, and Statamic does not
+    | clean up term associations or orphaned virtual terms on its own.
     |
     */
     'cache' => [

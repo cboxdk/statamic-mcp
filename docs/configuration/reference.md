@@ -141,6 +141,11 @@ roles — each leaves a query returning wrong results or throwing until a rebuil
 writes are rare and deliberate; the frequent content writes are the ones that caused the
 incident above.
 
+**Deletes** rebuild too, for the same reason: a removal invalidates whatever pointed at
+the record. `Entry::delete()` leaves term associations behind and Statamic does not drop
+a virtual term whose last use just went away, so term counts and listings would keep
+showing content that no longer exists.
+
 Turn static clearing off if you would rather rely on your own invalidation rules; a
 collection configuration write invalidates its own URLs directly either way.
 

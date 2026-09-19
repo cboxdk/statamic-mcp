@@ -1092,7 +1092,12 @@ class EntriesRouter extends BaseRouter
             $entry->delete();
 
             // Clear relevant caches
-            $this->clearCachesAfterWrite(['stache', 'static']);
+            // A delete, unlike an update, invalidates things that point AT it.
+            // Entry::delete() leaves the term associations behind, and
+            // TaxonomyTermsStore::sync() does not drop a virtual term whose
+            // last use just went away — so entriesCount() keeps counting the
+            // deleted entry and orphaned terms keep appearing in listings.
+            $this->clearCachesAfterStructuralWrite(['stache', 'static']);
 
             return [
                 'entry' => $entryData,
