@@ -504,11 +504,9 @@ class EntriesRouter extends BaseRouter
             // Revision-aware create: use store() which saves as unpublished
             // and creates an initial revision (matches CP behavior)
             if ($this->entryRevisionsEnabled($entry)) {
-                $entry->store([
-                    'message' => is_string($arguments['revision_message'] ?? null) ? $arguments['revision_message'] : null,
-                ]);
+                $entry->store($this->revisionOptions($arguments));
             } else {
-                $entry->save();
+                $this->touchedBy($entry)->save();
             }
 
             // Clear relevant caches
@@ -796,11 +794,9 @@ class EntriesRouter extends BaseRouter
             }
 
             if ($this->entryRevisionsEnabled($localization)) {
-                $localization->store([
-                    'message' => is_string($arguments['revision_message'] ?? null) ? $arguments['revision_message'] : null,
-                ]);
+                $localization->store($this->revisionOptions($arguments));
             } else {
-                $localization->save();
+                $this->touchedBy($localization)->save();
             }
 
             $this->clearCachesAfterWrite(['stache', 'static']);
@@ -1027,7 +1023,7 @@ class EntriesRouter extends BaseRouter
                 return $this->saveAsWorkingCopy($entry, $data, is_string($arguments['revision_message'] ?? null) ? $arguments['revision_message'] : null);
             }
 
-            $entry->merge($data)->save();
+            $this->touchedBy($entry->merge($data))->save();
 
             // Clear relevant caches
             $this->clearCachesAfterWrite(['stache', 'static']);
@@ -1123,11 +1119,7 @@ class EntriesRouter extends BaseRouter
             /** @var \Statamic\Entries\Entry $entry */
             // Use Statamic's built-in publish() which delegates to publishWorkingCopy()
             // when revisions are enabled, or sets published(true)->save() otherwise
-            $options = array_filter([
-                'message' => is_string($arguments['revision_message'] ?? null) ? $arguments['revision_message'] : null,
-            ]);
-
-            $publishedEntry = $entry->publish($options);
+            $publishedEntry = $entry->publish($this->revisionOptions($arguments));
 
             if ($publishedEntry instanceof \Statamic\Entries\Entry) {
                 $entry = $publishedEntry;
@@ -1178,11 +1170,7 @@ class EntriesRouter extends BaseRouter
             /** @var \Statamic\Entries\Entry $entry */
             // Use Statamic's built-in unpublish() which delegates to unpublishWorkingCopy()
             // when revisions are enabled, or sets published(false)->save() otherwise
-            $options = array_filter([
-                'message' => is_string($arguments['revision_message'] ?? null) ? $arguments['revision_message'] : null,
-            ]);
-
-            $unpublishedEntry = $entry->unpublish($options);
+            $unpublishedEntry = $entry->unpublish($this->revisionOptions($arguments));
 
             if ($unpublishedEntry instanceof \Statamic\Entries\Entry) {
                 $entry = $unpublishedEntry;
