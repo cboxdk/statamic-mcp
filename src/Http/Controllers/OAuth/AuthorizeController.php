@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Http\Controllers\OAuth;
 
+use Cboxdk\StatamicMcp\Auth\ScopeAvailability;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\OAuth\Cimd\CimdClientId;
 use Cboxdk\StatamicMcp\OAuth\Cimd\CimdFetchException;
@@ -167,6 +168,24 @@ class AuthorizeController extends Controller
             }
         }
 
+        // Offer only what this user can exercise. A client asking for more
+        // than that is not an error — it asked for its full feature set — but
+        // one asking for nothing the user has gets told so.
+        $availability = app(ScopeAvailability::class);
+        $requestedScopes = array_values(array_filter(
+            $requestedScopes,
+            fn (array $scope): bool => $availability->allows($user, TokenScope::from($scope['value'])),
+        ));
+
+        if ($requestedScopes === []) {
+            return $this->redirectWithError(
+                $request,
+                'invalid_scope',
+                'None of the requested scopes are available to this user.',
+                $redirectUri,
+            );
+        }
+
         // Resource parameter (RFC 8707) — validate if present using request URL, not config
         // This ensures proxies/tunnels (ngrok, cloudflare) work correctly
         /** @var string $resource */
@@ -197,8 +216,9 @@ class AuthorizeController extends Controller
         /** @var string $state */
         $state = $request->query('state', '');
 
-        /** @var array<int, string> $defaultScopes */
-        $defaultScopes = config('statamic.mcp.oauth.default_scopes', []);
+        /** @var array<int, string> $configuredDefaults */
+        $configuredDefaults = config('statamic.mcp.oauth.default_scopes', []);
+        $defaultScopes = $availability->filterValues($user, $configuredDefaults);
 
         /** @var view-string $viewName */
         $viewName = 'statamic-mcp::oauth.consent';
@@ -207,6 +227,7 @@ class AuthorizeController extends Controller
             'client' => $client,
             'scopes' => $requestedScopes,
             'defaultScopes' => $defaultScopes,
+            'fullAccessAvailable' => $availability->allows($user, TokenScope::FullAccess),
             'oauthParams' => [
                 'client_id' => $clientId,
                 'redirect_uri' => $redirectUri,
@@ -285,6 +306,18 @@ class AuthorizeController extends Controller
             /** @var array<int, string> $defaultScopeValues */
             $defaultScopeValues = config('statamic.mcp.oauth.default_scopes', []);
             $allowedScopes = $defaultScopeValues;
+        }
+
+        // The same cap the consent screen applied, so a crafted form cannot
+        // grant what was never offered.
+        $allowedScopes = app(ScopeAvailability::class)->filterValues($user, $allowedScopes);
+
+        if ($allowedScopes === []) {
+            return redirect($redirectUri . '?' . http_build_query(array_filter([
+                'error' => 'invalid_scope',
+                'error_description' => 'None of the requested scopes are available to this user.',
+                'state' => $state,
+            ])));
         }
 
         // Get user-selected scopes from checkboxes

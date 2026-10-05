@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Http\Controllers\CP;
 
 use Carbon\Carbon;
+use Cboxdk\StatamicMcp\Auth\ScopeAvailability;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\Http\Controllers\CP\Concerns\ResolvesUserId;
@@ -50,6 +51,10 @@ class TokenController extends CpController
                     TokenScope::all()
                 )),
             ], 422);
+        }
+
+        if ($refused = $this->refuseUnavailableScopes(User::current(), $scopes)) {
+            return $refused;
         }
 
         $expiresAt = isset($validated['expires_at'])
@@ -113,6 +118,13 @@ class TokenController extends CpController
                         TokenScope::all()
                     )),
                 ], 422);
+            }
+
+            // Capped by the token's owner, not by whoever edits it: an admin
+            // granting an editor's token a scope the editor cannot use makes
+            // a dead scope, not access.
+            if ($refused = $this->refuseUnavailableScopes(User::find($token->userId) ?? User::current(), $scopes)) {
+                return $refused;
             }
         }
 
@@ -217,6 +229,29 @@ class TokenController extends CpController
         return response()->json([
             'message' => 'Token revoked successfully.',
         ]);
+    }
+
+    /**
+     * A 422 naming the scopes the user cannot exercise, or null when every
+     * scope is available to them.
+     *
+     * @param  array<int, TokenScope>  $scopes
+     */
+    private function refuseUnavailableScopes(?\Statamic\Contracts\Auth\User $user, array $scopes): ?JsonResponse
+    {
+        $availability = app(ScopeAvailability::class);
+        $unavailable = $availability->reject($user, $scopes);
+
+        if ($unavailable === []) {
+            return null;
+        }
+
+        $list = fn (array $list): string => implode(', ', array_map(fn (TokenScope $s): string => $s->value, $list));
+
+        return response()->json([
+            'message' => 'These scopes are not available to this user: ' . $list($unavailable)
+                . '. Available scopes: ' . $list($availability->forUser($user)),
+        ], 422);
     }
 
     /**
