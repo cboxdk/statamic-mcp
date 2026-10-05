@@ -461,10 +461,10 @@ class TermsRouter extends BaseRouter
                 // Normalize date field values to the format Statamic expects
                 $validatedData = $this->normalizeDateFields($blueprint, $validatedData);
 
-                // Merge new data with existing for full blueprint validation
+                // Merge new data with existing for full blueprint validation,
+                // minus stored nulls (see mergeStoredDataForValidation).
                 // Include slug since blueprint validates it as required
-                /** @var array<string, mixed> $mergedData */
-                $mergedData = array_merge($term->data()->all(), $validatedData);
+                $mergedData = $this->mergeStoredDataForValidation($term->data()->all(), $validatedData);
                 $mergedData['slug'] = $term->slug();
 
                 // Backward compat: terms saved by MCP prior to v2.1 may have

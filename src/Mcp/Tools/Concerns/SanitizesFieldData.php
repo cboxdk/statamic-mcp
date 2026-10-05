@@ -82,6 +82,42 @@ trait SanitizesFieldData
     }
 
     /**
+     * Assemble the payload an update validates: the record's stored values
+     * with the incoming fields layered on top.
+     *
+     * Stored nulls are left out. Statamic only runs a field's rules when its
+     * key is present in the payload, and the Control Panel never submits a
+     * field its conditions hide, so a blueprint can rely on that: Advanced
+     * SEO's `seo_canonical_entry` and `seo_canonical_custom` carry
+     * `required_if:seo_canonical_type,…`, which stops Statamic from adding
+     * `nullable`, plus `array` and `active_url` — rules a null fails. Records
+     * routinely carry such nulls: a Control Panel save merges every blueprint
+     * field into the entry, hidden ones as null, and Statamic caches that
+     * object in the Stache as-is (only the file on disk has them stripped), so
+     * an entry published from the CP hands back nulls until the next Stache
+     * refresh; localizations keep them on disk; and `create` used to write one
+     * for every field it was not given. Merging them in as values made an
+     * update of an unrelated field fail with "The Entry field must be an
+     * array" and "The URL field must be a valid URL", and the only way past
+     * was to send a value for each.
+     *
+     * A null is an absence, so it is treated as one here. The incoming payload
+     * is merged verbatim: a null the caller sends on purpose is still validated.
+     *
+     * @param  array<string, mixed>  $stored
+     * @param  array<string, mixed>  $incoming
+     *
+     * @return array<string, mixed>
+     */
+    protected function mergeStoredDataForValidation(array $stored, array $incoming): array
+    {
+        return array_merge(
+            array_filter($stored, static fn (mixed $value): bool => $value !== null),
+            $incoming
+        );
+    }
+
+    /**
      * @param  Collection<string, Field>  $fields
      * @param  array<string, mixed>  $data
      * @param  array<int, string>|null  $structuralKeys  Keys that are structural rather than
