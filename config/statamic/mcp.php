@@ -217,9 +217,12 @@ return [
     | before every write (issue #54).
     |
     | 'require_statamic_permission' keeps the Statamic permission check on top
-    | of the token scope and the resource-policy allowlist. Set it to false if
-    | your editors hold no 'configure fields' permission and you would rather
-    | let the token scope you minted decide who may read schema.
+    | of the token scope and the resource-policy allowlist, for the resources
+    | AND for the read actions of the statamic-blueprints tool (list, get,
+    | scan, types, validate). Set it to false if your editors hold no
+    | 'configure' permission and you would rather let the token scope you
+    | minted decide who may read schema. Writing a blueprint always needs
+    | 'configure fields'.
     |
     | Not to be confused with the per-domain `tools.*.resources` allowlists
     | further down, which are the resource *policy* — which handles a token may

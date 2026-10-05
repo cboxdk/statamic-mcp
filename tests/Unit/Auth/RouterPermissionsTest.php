@@ -6,6 +6,7 @@ use Carbon\Carbon;
 use Cboxdk\StatamicMcp\Auth\McpToken;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\BlueprintsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\ContentFacadeRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\EntriesRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\GlobalsRouter;
@@ -638,6 +639,87 @@ describe('ContentFacadeRouter Permission Definitions', function () {
 | 4. Context Detection (isCliContext / isWebContext)
 |--------------------------------------------------------------------------
 */
+
+describe('BlueprintsRouter Permission Definitions', function () {
+    beforeEach(function () {
+        Config::set('statamic.mcp.resources.require_statamic_permission', true);
+        Config::set('statamic.mcp.confirmation.enabled', false);
+        $this->router = new BlueprintsRouter;
+    });
+
+    it('keeps configure fields on every write action', function () {
+        $method = new ReflectionMethod($this->router, 'getRequiredPermissions');
+
+        foreach (['create', 'update', 'delete', 'generate'] as $action) {
+            expect($method->invoke($this->router, $action, []))->toBe(['configure fields']);
+        }
+    });
+
+    it('accepts any configure permission on a read action', function () {
+        $method = new ReflectionMethod($this->router, 'getRequiredPermissions');
+
+        foreach (['list', 'get', 'scan', 'types', 'validate'] as $action) {
+            expect($method->invoke($this->router, $action, []))
+                ->toBe([['configure fields', 'configure collections', 'configure taxonomies']]);
+        }
+    });
+
+    it('denies a read to an editor who holds no configure permission', function () {
+        actAsUser(createMockUser(permissions: ['view blog entries', 'edit blog entries']));
+        setMcpTokenOnRequest(createToken([TokenScope::BlueprintsRead->value]));
+
+        $result = $this->router->execute(['action' => 'list', 'namespace' => 'collections']);
+
+        expect($result['success'])->toBeFalse();
+        expect($result['errors'][0])->toContain('Permission denied');
+    });
+
+    it('lets a user with configure collections read, since the resource does', function () {
+        actAsUser(createMockUser(permissions: ['configure collections']));
+        setMcpTokenOnRequest(createToken([TokenScope::BlueprintsRead->value]));
+
+        $result = $this->router->execute(['action' => 'list', 'namespace' => 'collections']);
+
+        expect($result['success'])->toBeTrue();
+    });
+
+    it('lets an editor read once require_statamic_permission is off, scope permitting', function () {
+        Config::set('statamic.mcp.resources.require_statamic_permission', false);
+        actAsUser(createMockUser(permissions: ['view blog entries']));
+        setMcpTokenOnRequest(createToken([TokenScope::BlueprintsRead->value]));
+
+        $result = $this->router->execute(['action' => 'list', 'namespace' => 'collections']);
+
+        expect($result['success'])->toBeTrue();
+    });
+
+    it('still denies a write to that editor with require_statamic_permission off', function () {
+        Config::set('statamic.mcp.resources.require_statamic_permission', false);
+        actAsUser(createMockUser(permissions: ['view blog entries', 'edit blog entries']));
+        setMcpTokenOnRequest(createToken([TokenScope::BlueprintsWrite->value]));
+
+        $result = $this->router->execute([
+            'action' => 'create',
+            'namespace' => 'collections',
+            'handle' => 'blog',
+            'fields' => [],
+        ]);
+
+        expect($result['success'])->toBeFalse();
+        expect($result['errors'][0])->toContain('Permission denied');
+    });
+
+    it('still asks for the scope when require_statamic_permission is off', function () {
+        Config::set('statamic.mcp.resources.require_statamic_permission', false);
+        actAsUser(createMockUser(permissions: ['view blog entries']));
+        setMcpTokenOnRequest(createToken([TokenScope::EntriesRead->value]));
+
+        $result = $this->router->execute(['action' => 'list', 'namespace' => 'collections']);
+
+        expect($result['success'])->toBeFalse();
+        expect($result['errors'][0])->toContain('Token missing required scope: blueprints:read');
+    });
+});
 
 describe('Context Detection', function () {
     it('treats request with X-MCP-Remote header as web context', function () {

@@ -1288,15 +1288,38 @@ class BlueprintsRouter extends BaseRouter
     }
 
     /**
+     * Read actions: the reads an agent needs before it can shape a write.
+     *
+     * @var array<int, string>
+     */
+    private const READ_ACTIONS = ['list', 'get', 'scan', 'types', 'validate'];
+
+    /**
      * Get required permissions for action.
+     *
+     * Writing a blueprint changes the content model, which is 'configure
+     * fields' in Statamic. Reading one is not: the server's own instructions
+     * tell an agent to read the blueprint before every entry write, and an
+     * editor who may write entries rarely holds a 'configure' permission.
+     * Reads therefore follow the same rule as the statamic://blueprints
+     * resources: any 'configure' permission, or none at all when
+     * `resources.require_statamic_permission` is off and the token scope
+     * plus the resource policy decide (#54).
      *
      * @param  array<string, mixed>  $arguments
      *
-     * @return array<string>
+     * @return array<int, string|array<int, string>>
      */
     protected function getRequiredPermissions(string $action, array $arguments): array
     {
-        // Statamic uses 'configure fields' for all blueprint/fieldset operations
-        return ['configure fields'];
+        if (! in_array($action, self::READ_ACTIONS, true)) {
+            return ['configure fields'];
+        }
+
+        if (! config('statamic.mcp.resources.require_statamic_permission', true)) {
+            return [];
+        }
+
+        return [['configure fields', 'configure collections', 'configure taxonomies']];
     }
 }
