@@ -213,8 +213,10 @@ const defaultExpiryDate = computed(() => {
     return d.toISOString().split('T')[0];
 });
 
-// Scope presets matching documented common combinations
-const scopePresets = [
+// Scope presets matching documented common combinations. Each is cut down
+// to the scopes this user can hold (availableScopes), and a preset with
+// nothing left is not shown: an editor is not offered "Full Access".
+const presetDefinitions = [
     {
         name: 'Read Only',
         scopes: [
@@ -235,6 +237,14 @@ const scopePresets = [
         scopes: ['*'],
     },
 ];
+
+const scopePresets = computed(() => {
+    const available = new Set(props.availableScopes.map(s => s.value));
+
+    return presetDefinitions
+        .map(preset => ({ name: preset.name, scopes: preset.scopes.filter(s => available.has(s)) }))
+        .filter(preset => preset.scopes.length > 0);
+});
 
 function isPresetActive(preset) {
     return preset.scopes.length === form.value.scopes.length
