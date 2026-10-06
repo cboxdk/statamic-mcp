@@ -128,8 +128,42 @@ it('names the scopes a user cannot exercise', function () {
         ->toBe(['entries:read', 'entries:write']);
 });
 
+it('drops a scope whose domain the resource policy closes, super admins included', function () {
+    Config::set('statamic.mcp.tools.structures.resources.write', []);
+
+    $super = User::make()->id('super-2')->email('super2@example.com');
+    $super->makeSuper();
+    $super->save();
+
+    expect(scopeValues($this->availability->forUser($super)))
+        ->not->toContain('structures:write')
+        ->toContain('structures:read', '*');
+
+    expect(scopeValues($this->availability->forUser(userHolding(['edit main nav']))))->toBe([]);
+});
+
+it('drops both scopes of a tool that is switched off', function () {
+    Config::set('statamic.mcp.tools.users.enabled', false);
+
+    $values = scopeValues($this->availability->forUser(userHolding(['view users', 'edit users'])));
+
+    expect($values)->toBe([]);
+});
+
+it('keeps a legacy content scope while entries or terms still allow it', function () {
+    Config::set('statamic.mcp.tools.terms.resources.write', []);
+
+    expect(scopeValues($this->availability->forUser(userHolding(['edit blog entries', 'edit tags terms']))))
+        ->toBe(['content:write', 'entries:write']);
+
+    Config::set('statamic.mcp.tools.entries.resources.write', []);
+
+    expect(scopeValues($this->availability->forUser(userHolding(['edit blog entries', 'edit tags terms']))))->toBe([]);
+});
+
 it('offers everything to everyone when switched off', function () {
     Config::set('statamic.mcp.security.scopes_follow_permissions', false);
+    Config::set('statamic.mcp.tools.structures.resources.write', []);
 
     expect($this->availability->forUser(userHolding([])))->toBe(TokenScope::cases());
 });

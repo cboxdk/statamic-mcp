@@ -114,11 +114,13 @@ return [
         'max_response_size' => (int) env('STATAMIC_MCP_MAX_RESPONSE_SIZE', 100000),
 
         // Offer, and accept, only the scopes a user can exercise: the ones
-        // whose actions their Statamic permissions allow. Super admins get
-        // every scope; nobody else gets '*'. Caps the dashboard's scope
-        // picker, token creation and the OAuth consent screen. The per-call
-        // permission check runs regardless, so this is about not offering
-        // dead scopes rather than about access.
+        // whose actions their Statamic permissions allow, in a domain the
+        // site has not closed (a tool switched off, or a resource allowlist
+        // of [] under 'tools' below). Super admins get every open scope;
+        // nobody else gets '*'. Caps the dashboard's scope picker, token
+        // creation and the OAuth consent screen. The per-call checks run
+        // regardless, so this is about not offering dead scopes rather than
+        // about access.
         'scopes_follow_permissions' => env('STATAMIC_MCP_SCOPES_FOLLOW_PERMISSIONS', true),
 
         // Reject writes carrying keys that are not field handles inside a

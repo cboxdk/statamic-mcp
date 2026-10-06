@@ -81,7 +81,17 @@ class ScopeAvailability
             return false;
         }
 
-        if (! $this->enabled() || $user->isSuper()) {
+        if (! $this->enabled()) {
+            return true;
+        }
+
+        // The site rules first: a switched-off tool and an empty resource
+        // allowlist refuse every call, super admins included.
+        if ($this->ruledOutBySite($scope)) {
+            return false;
+        }
+
+        if ($user->isSuper()) {
             return true;
         }
 
@@ -134,6 +144,46 @@ class ScopeAvailability
             TokenScope::ContentRead => $this->allows($user, TokenScope::EntriesRead) || $this->allows($user, TokenScope::TermsRead),
             TokenScope::ContentWrite => $this->allows($user, TokenScope::EntriesWrite) || $this->allows($user, TokenScope::TermsWrite),
         };
+    }
+
+    /**
+     * Whether the site's own config leaves nothing behind the scope: the
+     * tool switched off (`tools.{domain}.enabled`), or the resource policy
+     * allowing no handle at all (`tools.{domain}.resources.{mode}` set to
+     * `[]`). Both refuse every call regardless of who makes it, so the
+     * scope is dead weight for everyone. The legacy content scopes cover
+     * entries and terms, and go only when both are ruled out.
+     */
+    private function ruledOutBySite(TokenScope $scope): bool
+    {
+        $domains = match ($scope) {
+            TokenScope::FullAccess => [],
+            TokenScope::ContentRead, TokenScope::ContentWrite => ['entries', 'terms'],
+            default => [$scope->group()],
+        };
+
+        if ($domains === []) {
+            return false;
+        }
+
+        $mode = str_ends_with($scope->value, ':write') ? 'write' : 'read';
+
+        foreach ($domains as $domain) {
+            if (! $this->domainRuledOut($domain, $mode)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function domainRuledOut(string $domain, string $mode): bool
+    {
+        if (! config("statamic.mcp.tools.{$domain}.enabled", true)) {
+            return true;
+        }
+
+        return config("statamic.mcp.tools.{$domain}.resources.{$mode}") === [];
     }
 
     /**
