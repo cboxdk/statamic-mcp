@@ -137,11 +137,16 @@ trait RouterHelpers
         $requiredPermissions = $this->getRequiredPermissions($action, $arguments);
 
         foreach ($requiredPermissions as $permission) {
-            if (! $user->hasPermission($permission)) {
+            // A nested list is satisfied by any one of its permissions.
+            $granted = is_array($permission)
+                ? array_filter($permission, fn (string $alternative): bool => $user->hasPermission($alternative)) !== []
+                : $user->hasPermission($permission);
+
+            if (! $granted) {
                 Log::warning('MCP permission denied: missing Statamic permission', [
                     'domain' => $this->getDomain(),
                     'action' => $action,
-                    'missing_permission' => $permission,
+                    'missing_permission' => is_array($permission) ? implode(' | ', $permission) : $permission,
                     'user_id' => method_exists($user, 'id') ? $user->id() : $user->getAuthIdentifier(),
                     'ip' => request()->ip(),
                 ]);
@@ -174,9 +179,12 @@ trait RouterHelpers
     /**
      * Get required Statamic permissions for action - can be overridden by each router.
      *
+     * Every top-level entry must be held. An entry that is itself a list is
+     * satisfied by any one of the permissions in it.
+     *
      * @param  array<string, mixed>  $arguments
      *
-     * @return array<string>
+     * @return array<int, string|array<int, string>>
      */
     protected function getRequiredPermissions(string $action, array $arguments): array
     {
