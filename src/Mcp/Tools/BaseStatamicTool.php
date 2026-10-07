@@ -238,8 +238,15 @@ abstract class BaseStatamicTool extends Tool
                 );
             }
 
+            // Routers report a refused write — blueprint validation, a missing
+            // entry, a denied resource — as an error envelope rather than by
+            // throwing, so the audit status has to come from the envelope. A
+            // save rejected on "The Entry field must be an array" used to be
+            // logged as success, with the refusal only in response_summary.
+            $status = ($standardized['success'] ?? true) === false ? 'error' : 'success';
+
             ToolLogger::logToolCall(
-                $toolName, $arguments, 'success', $duration * 1000,
+                $toolName, $arguments, $status, $duration * 1000,
                 action: $this->extractAction($arguments),
                 result: $standardized,
                 correlationId: $correlationId,
