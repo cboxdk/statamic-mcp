@@ -167,3 +167,26 @@ it('offers everything to everyone when switched off', function () {
 
     expect($this->availability->forUser(userHolding([])))->toBe(TokenScope::cases());
 });
+
+it('offers structures to a user who configures globals, as the structures router lets them', function () {
+    $user = userHolding(['configure globals']);
+
+    expect($this->availability->allows($user, TokenScope::StructuresRead))->toBeTrue()
+        ->and($this->availability->allows($user, TokenScope::StructuresWrite))->toBeTrue();
+});
+
+it('narrows a wildcard to the user\'s own reach instead of dropping it', function () {
+    $user = userHolding(['view blog entries']);
+
+    expect($this->availability->filterValues($user, ['*']))->toBe([])
+        ->and($this->availability->grantable($user, ['*', 'entries:read', 'users:write']))
+        ->toBe(['content:read', 'entries:read']);
+});
+
+it('keeps a wildcard for a user who can hold it', function () {
+    $user = User::make()->id('super-2')->email('super2@example.com');
+    $user->makeSuper();
+    $user->save();
+
+    expect($this->availability->grantable($user, ['*', 'entries:read']))->toBe(['*', 'entries:read']);
+});

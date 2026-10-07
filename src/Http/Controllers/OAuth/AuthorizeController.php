@@ -169,13 +169,14 @@ class AuthorizeController extends Controller
         }
 
         // Offer only what this user can exercise. A client asking for more
-        // than that is not an error — it asked for its full feature set — but
-        // one asking for nothing the user has gets told so.
+        // than that is not an error — it asked for its full feature set, and
+        // a `*` is narrowed to the user's own reach — but one asking for
+        // nothing the user has gets told so.
         $availability = app(ScopeAvailability::class);
-        $requestedScopes = array_values(array_filter(
-            $requestedScopes,
-            fn (array $scope): bool => $availability->allows($user, TokenScope::from($scope['value'])),
-        ));
+        $requestedScopes = array_map(
+            fn (string $value): array => ['value' => $value, 'label' => TokenScope::from($value)->label()],
+            $availability->grantable($user, array_column($requestedScopes, 'value')),
+        );
 
         if ($requestedScopes === []) {
             return $this->redirectWithError(
@@ -218,7 +219,7 @@ class AuthorizeController extends Controller
 
         /** @var array<int, string> $configuredDefaults */
         $configuredDefaults = config('statamic.mcp.oauth.default_scopes', []);
-        $defaultScopes = $availability->filterValues($user, $configuredDefaults);
+        $defaultScopes = $availability->grantable($user, $configuredDefaults);
 
         /** @var view-string $viewName */
         $viewName = 'statamic-mcp::oauth.consent';
@@ -310,7 +311,7 @@ class AuthorizeController extends Controller
 
         // The same cap the consent screen applied, so a crafted form cannot
         // grant what was never offered.
-        $allowedScopes = app(ScopeAvailability::class)->filterValues($user, $allowedScopes);
+        $allowedScopes = app(ScopeAvailability::class)->grantable($user, array_values($allowedScopes));
 
         if ($allowedScopes === []) {
             return redirect($redirectUri . '?' . http_build_query(array_filter([

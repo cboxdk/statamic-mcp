@@ -110,10 +110,9 @@ trait AuthorizesResourceAccess
     /**
      * The Statamic permission backing this resource's domain.
      *
-     * 'configure fields' is what BlueprintsRouter requires, and the two
+     * The same three BlueprintsRouter accepts on its read actions: the two
      * surfaces serve the same data, so they must not disagree about who may
-     * see it. The other two are kept because they used to be the whole check
-     * and removing them would lock out sites that rely on them.
+     * see it. Change one, change the other.
      */
     protected function hasStatamicPermission(User $user): bool
     {

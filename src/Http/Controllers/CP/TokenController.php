@@ -122,8 +122,17 @@ class TokenController extends CpController
 
             // Capped by the token's owner, not by whoever edits it: an admin
             // granting an editor's token a scope the editor cannot use makes
-            // a dead scope, not access.
-            if ($refused = $this->refuseUnavailableScopes(User::find($token->userId) ?? User::current(), $scopes)) {
+            // a dead scope, not access. Only scopes being added are checked.
+            // The edit form resends every scope the token holds, so checking
+            // all of them would leave a token minted before this cap (a `*`,
+            // or a scope whose permission was since revoked) impossible to
+            // rename or re-date without also stripping it.
+            $added = array_values(array_filter(
+                $scopes,
+                fn (TokenScope $scope): bool => ! in_array($scope->value, $token->scopes, true),
+            ));
+
+            if ($refused = $this->refuseUnavailableScopes(User::find($token->userId) ?? User::current(), $added)) {
                 return $refused;
             }
         }

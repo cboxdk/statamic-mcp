@@ -199,4 +199,67 @@ class ScopesFollowPermissionsTest extends TestCase
         $this->assertNotNull($issued);
         $this->assertSame(['entries:read'], $issued->scopes);
     }
+
+    public function test_a_token_minted_before_the_cap_can_still_be_edited(): void
+    {
+        /** @var TokenService $tokens */
+        $tokens = $this->app->make(TokenService::class);
+        $token = $tokens->createToken('editor-1', 'Legacy', [TokenScope::FullAccess])['model'];
+
+        // The edit form resends every scope the token holds.
+        $this->actingAs($this->editor)
+            ->putJson(cp_route('statamic-mcp.tokens.update', ['token' => $token->id]), [
+                'name' => 'Renamed',
+                'scopes' => ['*'],
+            ])
+            ->assertOk();
+
+        // Adding a scope the editor cannot hold is still refused.
+        $this->actingAs($this->editor)
+            ->putJson(cp_route('statamic-mcp.tokens.update', ['token' => $token->id]), [
+                'scopes' => ['*', 'users:write'],
+            ])
+            ->assertStatus(422)
+            ->assertJsonFragment(['message' => 'These scopes are not available to this user: users:write. Available scopes: content:read, content:write, entries:read, entries:write']);
+    }
+
+    public function test_a_client_asking_for_everything_is_offered_the_editors_reach(): void
+    {
+        $response = $this->actingAs($this->editor, 'web')
+            ->get($this->authorizeUrl() . '?' . http_build_query($this->oauthParams('*')))
+            ->assertOk();
+
+        $response->assertSee('Read Entries');
+        $response->assertSee('Write Entries');
+        $response->assertDontSee('Full Access');
+        $response->assertDontSee('Write Users');
+    }
+
+    public function test_approving_a_wildcard_grants_the_editors_reach_not_more(): void
+    {
+        $approve = $this->actingAs($this->editor, 'web')
+            ->post($this->authorizeUrl(), [
+                'decision' => 'approve',
+                'client_id' => $this->client->clientId,
+                'redirect_uri' => $this->redirectUri,
+                'state' => 'st',
+                'code_challenge' => self::CODE_CHALLENGE,
+                'code_challenge_method' => 'S256',
+                'scope' => '*',
+            ]);
+
+        $approve->assertRedirect();
+        parse_str((string) parse_url($approve->headers->get('Location', ''), PHP_URL_QUERY), $query);
+        $this->assertArrayHasKey('code', $query);
+
+        $exchange = $this->post('/mcp/oauth/token', [
+            'grant_type' => 'authorization_code',
+            'code' => $query['code'],
+            'redirect_uri' => $this->redirectUri,
+            'client_id' => $this->client->clientId,
+            'code_verifier' => self::CODE_VERIFIER,
+        ])->assertOk();
+
+        $this->assertSame('content:read content:write entries:read entries:write', $exchange->json('scope'));
+    }
 }

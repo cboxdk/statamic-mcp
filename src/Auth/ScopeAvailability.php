@@ -75,6 +75,37 @@ class ScopeAvailability
         }));
     }
 
+    /**
+     * Scope strings a grant may carry for this user, in the order given.
+     *
+     * Unlike filterValues(), a `*` the user cannot hold is narrowed to every
+     * scope they can rather than dropped: a client asking for everything is
+     * asking for the user's full reach, and an editor should be offered that
+     * on the consent screen, not turned away with invalid_scope.
+     *
+     * @param  array<int, string>  $values
+     *
+     * @return array<int, string>
+     */
+    public function grantable(?User $user, array $values): array
+    {
+        $expanded = [];
+
+        foreach ($values as $value) {
+            if ($value === TokenScope::FullAccess->value && ! $this->allows($user, TokenScope::FullAccess)) {
+                foreach ($this->forUser($user) as $scope) {
+                    $expanded[] = $scope->value;
+                }
+
+                continue;
+            }
+
+            $expanded[] = $value;
+        }
+
+        return array_values(array_unique($this->filterValues($user, $expanded)));
+    }
+
     public function allows(?User $user, TokenScope $scope): bool
     {
         if ($user === null) {
@@ -121,9 +152,9 @@ class ScopeAvailability
                     "upload {$h} assets", "edit {$h} assets", "move {$h} assets", "rename {$h} assets", "delete {$h} assets",
                 ]),
 
-            TokenScope::StructuresRead => $this->holdsAny($user, ['configure collections', 'configure taxonomies', 'configure navs', 'configure sites'])
+            TokenScope::StructuresRead => $this->holdsAny($user, ['configure collections', 'configure taxonomies', 'configure navs', 'configure sites', 'configure globals'])
                 || $this->holdsForAny($user, $this->navHandles(), fn (string $h): array => ["view {$h} nav"]),
-            TokenScope::StructuresWrite => $this->holdsAny($user, ['configure collections', 'configure taxonomies', 'configure navs', 'configure sites'])
+            TokenScope::StructuresWrite => $this->holdsAny($user, ['configure collections', 'configure taxonomies', 'configure navs', 'configure sites', 'configure globals'])
                 || $this->holdsForAny($user, $this->navHandles(), fn (string $h): array => ["edit {$h} nav"]),
 
             // Reads follow the statamic://blueprints rule: a configure
