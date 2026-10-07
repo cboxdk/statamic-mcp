@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Http\Controllers\CP;
 
+use Cboxdk\StatamicMcp\Auth\ScopeAvailability;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\Http\Controllers\CP\Concerns\ResolvesUserId;
@@ -51,6 +52,7 @@ class DashboardController extends CpController
 
         return Inertia::render('statamic-mcp::McpPage', [
             'tokens' => $tokens->map(fn (McpTokenData $token): array => $this->serializeToken($token))->values()->all(),
+            // Only what this user can exercise (see ScopeAvailability).
             'availableScopes' => array_map(
                 fn (TokenScope $s): array => [
                     'value' => $s->value,
@@ -58,7 +60,7 @@ class DashboardController extends CpController
                     'description' => $s->description(),
                     'group' => $s->group(),
                 ],
-                TokenScope::all()
+                app(ScopeAvailability::class)->forUser(User::current())
             ),
             'clients' => $this->configGenerator->getAvailableClients(),
             'webEnabled' => (bool) config('statamic.mcp.web.enabled', false),
