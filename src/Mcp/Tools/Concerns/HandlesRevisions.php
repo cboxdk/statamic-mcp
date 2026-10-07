@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Concerns;
 
+use Statamic\Contracts\Auth\User as UserContract;
 use Statamic\Contracts\Entries\Entry as EntryContract;
 use Statamic\Entries\Entry;
+use Statamic\Facades\User;
 use Statamic\Revisions\Revision;
 
 /**
@@ -16,6 +18,53 @@ use Statamic\Revisions\Revision;
  */
 trait HandlesRevisions
 {
+    /**
+     * The user a write is attributed to: the token's or Basic Auth user over
+     * the web, nobody on the local stdio server.
+     *
+     * Statamic's Revisable methods take the user as an option and do not fall
+     * back to the authenticated one, and TracksLastModified *removes*
+     * `updated_by` when handed null. The Control Panel passes User::current()
+     * on every save; so does every write here.
+     */
+    protected function actingUser(): ?UserContract
+    {
+        return User::current();
+    }
+
+    /**
+     * Options for store(), publish() and unpublish(): the revision message the
+     * client sent, and the acting user when there is one.
+     *
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string, mixed>
+     */
+    protected function revisionOptions(array $arguments): array
+    {
+        return array_filter([
+            'message' => is_string($arguments['revision_message'] ?? null) ? $arguments['revision_message'] : null,
+            'user' => $this->actingUser(),
+        ]);
+    }
+
+    /**
+     * Stamp `updated_by` / `updated_at` the way the Control Panel does before
+     * a plain save(). Left untouched when nobody is acting (CLI), so the local
+     * server keeps today's behaviour.
+     */
+    protected function touchedBy(EntryContract $entry): EntryContract
+    {
+        $user = $this->actingUser();
+
+        if ($user === null) {
+            return $entry;
+        }
+
+        /** @var Entry $entry */
+        return $entry->updateLastModified($user);
+    }
+
     /**
      * Check if revisions are enabled for the given entry.
      *
@@ -73,7 +122,7 @@ trait HandlesRevisions
         $entry->merge($processedData);
 
         // Create the working copy (captures revisionAttributes from entry's current state)
-        $workingCopy = $entry->makeWorkingCopy();
+        $workingCopy = $entry->makeWorkingCopy()->user($this->actingUser());
 
         if ($message !== null && $message !== '') {
             $workingCopy->message($message);
@@ -229,7 +278,7 @@ trait HandlesRevisions
 
             if ($entry->published()) {
                 // Published: create a working copy from the revision
-                $revision->toWorkingCopy()->date(now())->save();
+                $revision->toWorkingCopy()->user($this->actingUser())->date(now())->save();
             } else {
                 // Unpublished: directly update the entry from the revision
                 /** @var Entry $restoredEntry */
@@ -287,11 +336,7 @@ trait HandlesRevisions
                 return $this->createErrorResponse('No working copy exists to publish')->toArray();
             }
 
-            $options = array_filter([
-                'message' => is_string($arguments['revision_message'] ?? null) ? $arguments['revision_message'] : null,
-            ]);
-
-            $entry->publish($options);
+            $entry->publish($this->revisionOptions($arguments));
 
             // Clear relevant caches
             $this->clearCachesAfterWrite(['stache', 'static']);
