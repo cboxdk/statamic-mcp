@@ -488,10 +488,15 @@ class EntriesRouter extends BaseRouter
 
                     // Process through fieldtypes (Terms strips prefixes,
                     // Bard normalizes nodes, Relationship wraps values, etc.)
+                    // and store only what the caller sent. addValues()
+                    // populates every field in the blueprint, so taking all
+                    // of values() wrote an explicit null for each field left
+                    // alone — a value, not an absence, which later updates
+                    // merged into their validation payload and failed on.
                     /** @var array<string, mixed> $processed */
                     $processed = $fields->process()->values()->except(['slug', 'date'])->all();
 
-                    $entry->data($this->withPassthroughKeys($processed, $data, $blueprint));
+                    $entry->data($this->withPassthroughKeys(array_intersect_key($processed, $data), $data, $blueprint));
                 } catch (ValidationException $e) {
                     return $this->formatValidationError($e);
                 } catch (\Throwable $e) {
@@ -938,12 +943,13 @@ class EntriesRouter extends BaseRouter
 
                 // Validate incoming data against blueprint.
                 // We merge with existing data so required-field rules pass for
-                // unchanged fields, but if the full-merge validation throws a
-                // TypeError (common with third-party fieldtypes like SEO Pro
-                // whose preProcessValidatable can't handle stored data formats),
-                // we fall back to validating only the incoming fields.
-                /** @var array<string, mixed> $mergedData */
-                $mergedData = array_merge($entry->data()->all(), $data);
+                // unchanged fields — minus stored nulls, which would otherwise
+                // fail rules on fields the caller never sent (see
+                // mergeStoredDataForValidation). If the full-merge validation
+                // throws a TypeError (common with third-party fieldtypes like
+                // SEO Pro whose preProcessValidatable can't handle stored data
+                // formats), we fall back to validating only the incoming fields.
+                $mergedData = $this->mergeStoredDataForValidation($entry->data()->all(), $data);
                 $mergedData = $this->sanitizeStoredFieldDataForValidation($blueprint, $mergedData);
 
                 // Slug and date are entry properties, not data keys, so the

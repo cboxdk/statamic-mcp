@@ -282,9 +282,9 @@ class GlobalsRouter extends BaseRouter
                 // Normalize date field values to the format Statamic expects
                 $data = $this->normalizeDateFields($blueprint, $data);
 
-                // Merge new data with existing for full blueprint validation
-                /** @var array<string, mixed> $mergedData */
-                $mergedData = array_merge($variables->data()->all(), $data);
+                // Merge new data with existing for full blueprint validation,
+                // minus stored nulls (see mergeStoredDataForValidation).
+                $mergedData = $this->mergeStoredDataForValidation($variables->data()->all(), $data);
 
                 // Backward compat: globals saved by MCP prior to v2.1 may have
                 // raw strings in structured fields. Safe to remove once all
