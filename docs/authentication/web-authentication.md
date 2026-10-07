@@ -18,7 +18,7 @@ Tokens are created in the CP at **Tools > MCP > Tokens**. Each token is:
 
 - **SHA-256 hashed** at rest — the plaintext is shown once at creation
 - **Scoped** — carries specific permissions (see [Token Scopes](token-scopes.md))
-- **Tied to a user** — audit logs show which user's token was used
+- **Tied to a user** — never does more than that user's Statamic permissions allow. Entry writes are attributed to the user in revisions and `updated_by`, as a Control Panel save would be, and the audit log records whose token was used
 - **Optionally expiring** — set an expiry date or leave as permanent
 
 Expired tokens are rejected automatically. Revoked tokens are deleted from the database.
@@ -29,7 +29,7 @@ Expired tokens are rejected automatically. Revoked tokens are deleted from the d
 Authorization: Basic <base64(email:password)>
 ```
 
-Authenticates against Statamic's user system. The user must have the `access cp` permission. Basic Auth users get no scope restrictions — they can access all tools. Use Bearer tokens for production.
+Authenticates against Statamic's user system. The user must have the `access cp` permission. Basic Auth carries no token scopes, so every tool is open to it up to the user's own Statamic permissions. Use Bearer tokens for production.
 
 ## OAuth 2.1 (Browser-Based Clients)
 
@@ -39,7 +39,7 @@ For MCP clients that support the OAuth 2.1 specification, the addon provides a f
 
 1. **Dynamic Client Registration**: The client registers via `POST /mcp/oauth/register` (RFC 7591), providing a `client_name` and `redirect_uris`. The server returns a `client_id` and `client_secret`.
 2. **Authorization Request**: The client redirects to `GET /{cp}/mcp/oauth/authorize` with `code_challenge` (S256) and requested scopes.
-3. **Consent Screen**: The user sees the consent screen in the Statamic CP and approves or denies the request.
+3. **Consent Screen**: The user sees the consent screen in the Statamic CP and approves or denies the request. Only the requested scopes the user can exercise are shown; a request for `*` from a user who is not a super admin is narrowed to the scopes they can hold. A client asking for nothing the user can hold is sent back with `invalid_scope`. See [`security.scopes_follow_permissions`](../configuration/reference.md#scopes_follow_permissions).
 4. **Token Exchange**: The client exchanges the authorization code at `POST /mcp/oauth/token` with the `code_verifier`.
 5. **Refresh**: The client can refresh tokens via `POST /mcp/oauth/token` with `grant_type=refresh_token`.
 

@@ -115,7 +115,7 @@ Tokens are created and revoked in the Statamic Control Panel at **Tools > MCP > 
 ### Token Properties
 
 - **Name** — Human-readable label (e.g. "Claude Desktop - Production")
-- **Scopes** — One or more scopes from the table above
+- **Scopes** — One or more scopes from the table above, limited to those the token's user can exercise
 - **Expiry** — Optional expiration date (null = never expires)
 - **User** — Each token belongs to a Statamic user
 

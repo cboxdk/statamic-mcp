@@ -27,7 +27,7 @@ STATAMIC_MCP_WEB_PATH="/mcp/statamic"
 5. Give it a name (e.g. "Claude Desktop") and select scopes
 6. Copy the token immediately — it is only shown once
 
-For read-only exploration, select only the `:read` scopes. Use `*` (full access) only for local development.
+For read-only exploration, select only the `:read` scopes. Use `*` (full access) only for local development. The picker only lists scopes your Statamic permissions let you use, and `*` is offered to super admins only.
 
 ## 3. Configure Your AI Client
 

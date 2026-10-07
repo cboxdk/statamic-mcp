@@ -5,27 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.2.0] - 2026-10-07
 
-Five pull requests from @JorisOrangeStudio, all found handing MCP access to a hotel's
-editors on a production site — the case this server was least tested against: a user
-who may write content but configures nothing.
+Five pull requests from @JorisOrangeStudio, all found while giving a hotel's editors MCP
+access on a production site. That is the setup this server had seen least: a user who
+may write content but configures nothing.
 
 ### Added
 
-- **Scopes follow permissions** (#63) — The dashboard's scope picker, token creation and the OAuth consent screen offered all 21 scopes to everyone, `*` included. Every call was already capped by the user's Statamic permissions, so the extra scopes granted nothing, but they misled: the first thing an editor asked on the consent screen was why Claude wanted to write users. Each surface now offers only the scopes the user can exercise, derived from the same permissions the routers check. `*`, `system:write` and the content-facade scopes are for super admins; a domain the site has closed (tool off, or a `[]` resource allowlist) is offered to nobody.
+- **Scopes follow permissions** (#63) — The dashboard, token creation and the OAuth consent screen offered all 21 scopes to every user, `*` included. Each call was already capped by the user's Statamic permissions, so the extra scopes granted nothing, but they misled. The first thing an editor asked on the consent screen was why Claude wanted to write users. Each of those surfaces now offers only the scopes the user can exercise, derived from the permissions the routers check. `*`, `system:write` and the content-facade scopes are for super admins. A domain the site has closed (tool switched off, or a `[]` resource allowlist) is offered to nobody.
 
-  Creating a token with a scope the user cannot hold is refused with a 422. Editing one is capped by the token's owner, and only scopes being added are checked, so a token minted before this release keeps what it has and can still be renamed. An OAuth client asking for `*` on behalf of an editor is offered the editor's own reach rather than refused. `security.scopes_follow_permissions` (`STATAMIC_MCP_SCOPES_FOLLOW_PERMISSIONS`) turns it off; access is unaffected either way
+  - Creating a token with a scope the user cannot hold returns a 422 naming it.
+  - Editing a token is capped by the token's owner, and only added scopes are checked. Tokens minted before 3.2 keep the scopes they have and can still be renamed.
+  - An OAuth client asking for `*` on behalf of an editor is offered the editor's own scopes rather than refused.
 
-- **Editors can read the blueprints they write against** (#62) — `statamic-blueprints` required `configure fields` for every action, reads included, while the server's instructions tell an agent to read the blueprint before every entry write. A token minted for an editor could write entries but not learn their shape. The read actions (`list`, `get`, `scan`, `types`, `validate`) now follow the rule the `statamic://blueprints` resources got in 3.1.0: any `configure` permission, or none when `resources.require_statamic_permission` is off. Writes still require `configure fields`
+  Set `STATAMIC_MCP_SCOPES_FOLLOW_PERMISSIONS=false` to offer every scope again. Access is the same either way.
+
+- **Editors can read the blueprints they write against** (#62) — `statamic-blueprints` required `configure fields` for every action, reads included, while the server's own instructions tell an agent to read the blueprint before writing an entry. A token minted for an editor could write entries but could not see their fields. The read actions (`list`, `get`, `scan`, `types`, `validate`) now follow the rule the `statamic://blueprints` resources got in 3.1.0: any `configure` permission, or none when `resources.require_statamic_permission` is off. Writes still require `configure fields`.
 
 ### Fixed
 
-- **An update no longer fails on stored nulls in fields it does not touch** (#59) — `update` validates the stored record merged with the payload, and treated a stored `null` as a value. Statamic only runs a field's non-required rules when its key is present, so a null in a field like Advanced SEO's `seo_canonical_entry` (`required_if` plus `array`) failed an update that only changed the title: "The Entry field must be an array". Control Panel saves leave exactly such nulls in the Stache, localizations keep them on disk, and `create` wrote one per untouched field. Stored nulls are now left out of the validation payload for entries, terms and globals, and `create` stores only the fields it was given. A null the caller sends is still validated, and `required_if` still fires
+- **Updates no longer fail on stored nulls in fields they do not touch** (#59) — `update` validates the stored record merged with the incoming data, and counted a stored `null` as a value. Statamic only runs a field's non-required rules when the key is present, so a null in Advanced SEO's `seo_canonical_entry` (`required_if` plus `array`) failed an update that only changed the title, with "The Entry field must be an array". Records carry such nulls routinely: a Control Panel save leaves them in the Stache, localizations keep them on disk, and `create` wrote one per untouched field. Entries, terms and globals now leave stored nulls out of validation, and `create` stores only the fields it was given. A null the caller sends is still validated, and `required_if` still fires.
 
-- **Entry writes name the user behind the token** (#61) — Statamic's revision methods take the user as an option and never fall back to the authenticated one, and `updateLastModified(null)` *removes* `updated_by`. So MCP revisions had no author, and a publish wiped the last editor off the entry. Every entry write now passes the acting user, as the Control Panel does. On the local stdio server there is no user and nothing is stamped or removed
+- **Entry writes name the user behind the token** (#61) — Statamic's revision methods take the user as an option and never fall back to the logged-in one, and `updateLastModified(null)` removes `updated_by`. So MCP revisions had no author, and an MCP publish erased the entry's last editor. Every entry write now passes the token's user, as the Control Panel does. The local stdio server has no user, so nothing is stamped or removed there.
 
-- **A refused call is logged as an error** (#60) — Routers report a validation failure, a missing record or a denied resource as an error envelope rather than by throwing, and the audit log recorded every non-throwing call as `success`. Filtering the activity log on errors missed all of them. The status now comes from the envelope
+- **Refused calls are logged as errors** (#60) — Routers report a validation failure, a missing record or a denied resource as an error response rather than an exception, and the audit log recorded every call that did not throw as `success`. Filtering the Activity tab on errors missed all of them. Existing log lines are not rewritten.
+
+- **The configuration reference listed `*` as the OAuth default scope.** It has been every `:read` scope since 2.1.0.
+
+### Dependencies
+
+- **`league/commonmark` 2.10.3** — 2.10.0 through 2.10.1 are affected by [GHSA-3q6v-r5mr-hxv8](https://github.com/advisories/GHSA-3q6v-r5mr-hxv8) (high: quadratic-time table parsing) and [GHSA-97jj-33gv-5xf9](https://github.com/advisories/GHSA-97jj-33gv-5xf9). It reaches your site through `statamic/cms`, so this package's constraints do not pin it — run `composer update league/commonmark` to pick up the fix. The SBOM now records 2.10.3.
 
 ## [3.1.0] - 2026-09-19
 
@@ -528,6 +538,9 @@ straight to the fix. Thanks to @JorisOrangeStudio and @revans-premier-education.
 - Laravel MCP v0.2.0 integration
 - Comprehensive test suite
 
+[3.2.0]: https://github.com/cboxdk/statamic-mcp/compare/v3.1.0...v3.2.0
+[3.1.0]: https://github.com/cboxdk/statamic-mcp/compare/v3.0.0...v3.1.0
+[3.0.0]: https://github.com/cboxdk/statamic-mcp/compare/v2.10.1...v3.0.0
 [2.10.1]: https://github.com/cboxdk/statamic-mcp/compare/v2.10.0...v2.10.1
 [2.10.0]: https://github.com/cboxdk/statamic-mcp/compare/v2.9.1...v2.10.0
 [2.9.1]: https://github.com/cboxdk/statamic-mcp/compare/v2.9.0...v2.9.1
