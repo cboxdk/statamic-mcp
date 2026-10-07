@@ -56,6 +56,7 @@ Controls authentication enforcement, audit logging, and system hardening.
 | `security.tool_timeout_seconds` | `STATAMIC_MCP_TOOL_TIMEOUT` | `30` | Maximum execution time per tool call |
 | `security.max_response_size` | `STATAMIC_MCP_MAX_RESPONSE_SIZE` | `100000` | Largest tool response in bytes before it is refused; `0` disables the guard |
 | `security.reject_unknown_fields` | `STATAMIC_MCP_REJECT_UNKNOWN_FIELDS` | `true` | Refuse writes carrying keys that are not field handles inside a set, grid row or group |
+| `security.scopes_follow_permissions` | `STATAMIC_MCP_SCOPES_FOLLOW_PERMISSIONS` | `true` | Offer and accept only the token scopes a user's Statamic permissions let them exercise |
 
 ```php
 'security' => [
@@ -67,6 +68,7 @@ Controls authentication enforcement, audit logging, and system hardening.
     'tool_timeout_seconds' => env('STATAMIC_MCP_TOOL_TIMEOUT', 30),
     'max_response_size' => (int) env('STATAMIC_MCP_MAX_RESPONSE_SIZE', 100000),
     'reject_unknown_fields' => env('STATAMIC_MCP_REJECT_UNKNOWN_FIELDS', true),
+    'scopes_follow_permissions' => env('STATAMIC_MCP_SCOPES_FOLLOW_PERMISSIONS', true),
 ],
 ```
 
@@ -133,6 +135,28 @@ Turn either off if you would rather trade index freshness for speed on a large s
 rely on your own invalidation rules. The `statamic-system` tool's `cache_clear` action is
 unaffected — that clear runs immediately, because it was asked for.
 
+### `scopes_follow_permissions`
+
+Every tool call is already capped by the user's Statamic permissions, so a scope the
+user cannot exercise grants nothing. Offering it still misleads: an editor who sees
+"Write Users" on a consent screen reads it as something the client is about to do.
+
+With this on, the dashboard's scope picker, token creation and the OAuth consent screen
+offer only the scopes the user can exercise. `*`, `system:write` and the content-facade
+scopes are for super admins only. A scope is also withheld from everyone when the site
+has closed its domain — the tool switched off, or its resource allowlist set to `[]`.
+
+- Creating a token with an unavailable scope is refused with a 422 naming it.
+- Editing a token is capped by the token's **owner**, not by whoever edits it, and only
+  scopes being added are checked — a token minted before this setting existed keeps the
+  scopes it has and can still be renamed.
+- An OAuth client asking for more than the user can hold is not an error: it is offered
+  what the user can hold, and a request for `*` is narrowed to exactly that. Only a
+  client asking for nothing the user has is refused with `invalid_scope`.
+
+Turn it off to offer every scope to everyone, as before 3.2. Access is unaffected either
+way.
+
 ## Resources
 
 The read-only surface: `statamic://blueprints` and friends.
@@ -152,8 +176,11 @@ blueprint before every write.
 
 `require_statamic_permission` keeps the Statamic permission check (`configure fields`,
 `configure collections` or `configure taxonomies`) on top of the token scope and the
-resource-policy allowlist. Set it to `false` if your editors hold none of those and you
-would rather let the token scope you minted decide who may read schema.
+resource-policy allowlist. It covers the read actions of the `statamic-blueprints` tool
+too (`list`, `get`, `scan`, `types`, `validate`), so the tool and the resources never
+disagree about who may read a schema. Set it to `false` if your editors hold none of
+those and you would rather let the token scope you minted decide who may read schema.
+Writing a blueprint always requires `configure fields`.
 
 ## Tool Catalog
 
@@ -301,6 +328,7 @@ STATAMIC_MCP_MAX_TOKEN_LIFETIME=365
 STATAMIC_MCP_TOOL_TIMEOUT=30
 STATAMIC_MCP_MAX_RESPONSE_SIZE=100000
 STATAMIC_MCP_REJECT_UNKNOWN_FIELDS=true
+STATAMIC_MCP_SCOPES_FOLLOW_PERMISSIONS=true
 
 # Confirmation flow
 # Unset auto-detects: on in production, off in local/dev/testing

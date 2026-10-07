@@ -56,7 +56,7 @@ terms:read, terms:write, globals:read, globals:write
 
 ### Full Development
 
-For local development only — unrestricted access:
+For local development only — unrestricted access. Only a super admin can hold it:
 
 ```
 *
@@ -72,6 +72,17 @@ When a tool is called via the web endpoint, the `RequireMcpPermission` middlewar
 - A `:read` scope covers read operations (list, get)
 - A `:write` scope covers write operations (create, update, delete)
 - Read scopes do **not** grant write access
+
+### Scopes Follow Permissions
+
+A scope never grants more than the token's user may do: every call also checks the
+user's Statamic permissions. So the dashboard, token creation and the OAuth consent
+screen offer only the scopes the user can actually exercise — an editor who may edit
+blog entries is offered `entries:read` and `entries:write`, not `users:write` or `*`.
+Only super admins can hold `*`, `system:write` and the content-facade scopes.
+
+See [`security.scopes_follow_permissions`](../configuration/reference.md#scopes_follow_permissions)
+for the details and the switch to turn it off.
 
 ### CLI Bypass
 

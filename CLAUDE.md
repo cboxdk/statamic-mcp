@@ -33,6 +33,14 @@ The addon provides scoped API tokens for fine-grained MCP access control:
 - `src/Auth/McpTokenGuard.php` — Laravel Guard implementation for Bearer tokens
 - `src/Auth/AuthServiceProvider.php` — Registers singletons and auth guard
 
+### Scope Availability
+`src/Auth/ScopeAvailability.php` decides which scopes a user is *offered* (dashboard picker,
+token create/edit, OAuth consent). It mirrors every router's `getRequiredPermissions()` by
+hand — **a router that changes its permissions must change the matching line there too**, or
+editors get offered dead scopes or lose live ones. It never grants access; the per-call
+check in `checkWebPermissions()` still runs. `getRequiredPermissions()` may return a nested
+list, meaning "any one of these" (used by the blueprint read actions).
+
 ### Middleware
 - `HandleMcpCors` — CORS headers for browser-based clients (only when `allowed_origins` configured)
 - `EnsureSecureTransport` — Rejects plain HTTP in production (when `require_https` enabled)
