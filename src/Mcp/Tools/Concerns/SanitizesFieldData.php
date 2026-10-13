@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Concerns;
 
+use Carbon\Exceptions\InvalidFormatException;
 use Cboxdk\StatamicMcp\Mcp\Exceptions\FieldFormatException;
 use Cboxdk\StatamicMcp\Mcp\Support\FieldtypeExtensions;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Statamic\Fields\Blueprint;
 use Statamic\Fields\Field;
 use Statamic\Fieldtypes\Bard;
+use Statamic\Fieldtypes\Date;
 use Statamic\Fieldtypes\Grid;
 use Statamic\Fieldtypes\Group;
 use Statamic\Fieldtypes\Replicator;
@@ -236,11 +239,85 @@ trait SanitizesFieldData
             'grid' => $this->sanitizeGridValue($field, $value, $allowLegacyCoercion, $path),
             'replicator' => $this->sanitizeReplicatorValue($field, $value, $allowLegacyCoercion, $path),
             'table' => $this->sanitizeTableValue($value, $allowLegacyCoercion, $path),
+            'date' => $this->sanitizeDateValue($field, $value),
             'assets' => $this->normalizeAssetFieldValue($field, $value),
             'terms', 'entries', 'users', 'checkboxes' => $this->sanitizeRelationshipValue($value),
             // Untouched unless a sanitizer is registered for the fieldtype.
             default => FieldtypeExtensions::applySanitizer($field, $value, $path),
         };
+    }
+
+    /**
+     * Bring a date value into the shape Statamic's DateFieldtype rule accepts.
+     *
+     * The rule checks the format the Control Panel submits — ISO 8601 Zulu
+     * with milliseconds, or `Y-m-d` for a date-only field — while the stored
+     * value uses the field's save format (`Y-m-d H:i` by default), and a
+     * client may send `Y-m-d`, a `{date, time}` object or any ISO 8601 string.
+     * NormalizesDateFields covers the top level of a record; this covers a date
+     * inside a grid row, replicator set or group, where every update of an
+     * entry with, say, stored price seasons otherwise failed "Not a valid date".
+     * The stored value is parsed the way Date::preProcess() does (save format
+     * in the app timezone, then a lenient parse). Anything unparseable is
+     * returned untouched so validation reports it.
+     */
+    private function sanitizeDateValue(Field $field, mixed $value): mixed
+    {
+        $fieldtype = $field->fieldtype();
+
+        if (! $fieldtype instanceof Date || $value === '' || $value === 'now') {
+            return $value;
+        }
+
+        if ($fieldtype->config('mode', 'single') === 'range') {
+            if (! is_array($value) || ! array_key_exists('start', $value)) {
+                return $value;
+            }
+
+            return [
+                'start' => $this->validatableDate($fieldtype, $value['start']),
+                'end' => $this->validatableDate($fieldtype, $value['end'] ?? null),
+            ];
+        }
+
+        return $this->validatableDate($fieldtype, $value);
+    }
+
+    private function validatableDate(Date $fieldtype, mixed $value): mixed
+    {
+        if (is_array($value) && array_key_exists('date', $value)) {
+            $time = is_string($value['time'] ?? null) ? $value['time'] : '00:00';
+            $value = trim((is_string($value['date']) ? $value['date'] : '') . ' ' . $time);
+        }
+
+        if (! is_string($value) || $value === '') {
+            return $value;
+        }
+
+        $saveFormat = $fieldtype->config('format') ?: ($fieldtype->config('time_seconds_enabled')
+            ? Date::DEFAULT_DATETIME_WITH_SECONDS_FORMAT
+            : Date::DEFAULT_DATETIME_FORMAT);
+
+        $timezone = config('app.timezone');
+        $timezone = is_string($timezone) ? $timezone : null;
+
+        try {
+            $date = Carbon::createFromFormat($saveFormat, $value, $timezone);
+        } catch (InvalidFormatException|\InvalidArgumentException) {
+            try {
+                $date = Carbon::parse($value, $timezone);
+            } catch (\Throwable) {
+                return $value;
+            }
+        }
+
+        if (! $date instanceof Carbon) {
+            return $value;
+        }
+
+        return $fieldtype->formatHasTime()
+            ? $date->utc()->toIso8601ZuluString('millisecond')
+            : $date->format(Date::DEFAULT_DATE_FORMAT);
     }
 
     /**
