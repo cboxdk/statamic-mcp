@@ -254,12 +254,16 @@ trait SanitizesFieldData
      * with milliseconds, or `Y-m-d` for a date-only field — while the stored
      * value uses the field's save format (`Y-m-d H:i` by default), and a
      * client may send `Y-m-d`, a `{date, time}` object or any ISO 8601 string.
-     * NormalizesDateFields covers the top level of a record; this covers a date
-     * inside a grid row, replicator set or group, where every update of an
-     * entry with, say, stored price seasons otherwise failed "Not a valid date".
-     * The stored value is parsed the way Date::preProcess() does (save format
-     * in the app timezone, then a lenient parse). Anything unparseable is
-     * returned untouched so validation reports it.
+     * This runs at every level of a record: the top level as well as a date
+     * inside a grid row, replicator set, group or Bard set, where every update
+     * of an entry with, say, stored price seasons otherwise failed "Not a valid
+     * date" (#64). The stored value is parsed the way Date::preProcess() does
+     * (save format in the app timezone, then a lenient parse) and converted to
+     * UTC before it is formatted; formatting the wall clock with a literal `Z`
+     * instead, as a former top-level pass did, shifted every time on a non-UTC
+     * site by its offset. A `format: U` field stores an int, which is parsed as
+     * the string it is. Anything unparseable is returned untouched so
+     * validation reports it.
      */
     private function sanitizeDateValue(Field $field, mixed $value): mixed
     {
@@ -288,6 +292,10 @@ trait SanitizesFieldData
         if (is_array($value) && array_key_exists('date', $value)) {
             $time = is_string($value['time'] ?? null) ? $value['time'] : '00:00';
             $value = trim((is_string($value['date']) ? $value['date'] : '') . ' ' . $time);
+        }
+
+        if (is_int($value)) {
+            $value = (string) $value;
         }
 
         if (! is_string($value) || $value === '') {

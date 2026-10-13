@@ -287,7 +287,7 @@ class DateNormalizationTest extends TestCase
             ],
         ]);
 
-        // parseDateValue will throw, normalizeDateFields catches it,
+        // The sanitizer leaves an unparseable string untouched,
         // then the FieldsValidator rejects the unparseable string
         $this->assertFalse($result['success']);
         $this->assertNotEmpty($result['errors']);

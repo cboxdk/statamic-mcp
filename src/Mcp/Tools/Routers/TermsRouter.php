@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
-use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\NormalizesDateFields;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\SanitizesFieldData;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
@@ -25,7 +24,6 @@ use Statamic\Support\Str;
 #[Description('Manage Statamic taxonomy terms. Use statamic-blueprints get first to understand field structure before create/update. Actions: list, get, create, update, delete.')]
 class TermsRouter extends BaseRouter
 {
-    use NormalizesDateFields;
     use SanitizesFieldData;
 
     protected function getDomain(): string
@@ -342,9 +340,6 @@ class TermsRouter extends BaseRouter
                 // Strip entry-level metadata and coerce values to expected types
                 $data = $this->sanitizeIncomingFieldData($blueprint, $data);
 
-                // Normalize date field values to the format Statamic expects
-                $data = $this->normalizeDateFields($blueprint, $data);
-
                 // Add slug to data for validation if it's set
                 $dataWithSlug = $data;
                 if ($term->slug()) {
@@ -457,9 +452,6 @@ class TermsRouter extends BaseRouter
             if (! empty($validatedData)) {
                 // Strip entry-level metadata and coerce values to expected types
                 $validatedData = $this->sanitizeIncomingFieldData($blueprint, $validatedData);
-
-                // Normalize date field values to the format Statamic expects
-                $validatedData = $this->normalizeDateFields($blueprint, $validatedData);
 
                 // Merge new data with existing for full blueprint validation,
                 // minus stored nulls (see mergeStoredDataForValidation).
