@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.1] - 2026-10-13
+
+### Fixed
+
+- **Dates inside grids, replicators and groups no longer block every update** (#64, @alexmzk) — Statamic validates a date field in the format the Control Panel submits (ISO 8601 Zulu, or `Y-m-d` when the save format has no time), while the stored value uses the field's save format (`Y-m-d H:i` by default). The top level of a record was converted before validation; a date inside a grid row, replicator set or group was not, so an entry holding one failed "Not a valid date" on every update, whatever the update changed. Programme and room entries carrying a `prices` grid with a `valid_from` date could not be touched through the MCP at all. Dates are now converted at every level, in entries, terms and globals alike, and stored values round-trip unchanged.
+
+- **Dates are no longer shifted on sites outside UTC.** The former top-level conversion formatted the app-timezone wall clock with a literal `Z`, so `2026-06-01 10:00` sent to a site on Europe/Copenhagen was stored as `12:00`. The test suite runs in UTC, where the two agree, which is how it went unnoticed. That pass is gone; the conversion that replaced it reads a wall-clock value in the app timezone and converts to UTC before formatting, so a value is stored as sent. An ISO 8601 Zulu value is an instant and lands on the site's clock, as it does from the Control Panel.
+
+- **Top-level date fields in range mode can be written.** The same pass took a `{start, end}` value for a `{date, time}` object and replaced it with today's date, after which Statamic failed with "array_key_exists(): Argument #2 must be of type array". Every create or update carrying a top-level range failed.
+
+- **Date fields with `format: U` validate.** Statamic stores a Unix-timestamp field as an integer, which the conversion skipped, so the stored value failed "Not a valid date" on every update of the record.
+
 ## [3.2.0] - 2026-10-07
 
 Five pull requests from @JorisOrangeStudio, all found while giving a hotel's editors MCP
@@ -538,6 +550,7 @@ straight to the fix. Thanks to @JorisOrangeStudio and @revans-premier-education.
 - Laravel MCP v0.2.0 integration
 - Comprehensive test suite
 
+[3.2.1]: https://github.com/cboxdk/statamic-mcp/compare/v3.2.0...v3.2.1
 [3.2.0]: https://github.com/cboxdk/statamic-mcp/compare/v3.1.0...v3.2.0
 [3.1.0]: https://github.com/cboxdk/statamic-mcp/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/cboxdk/statamic-mcp/compare/v2.10.1...v3.0.0

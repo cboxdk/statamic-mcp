@@ -888,6 +888,16 @@ is a **write** action — it appears in the write lists in both `EnforcesResourc
 and `RouterHelpers`, which is what makes it require `entries:write` and a write-mode
 resource policy check. Any new write action must be added to both.
 
+Date fields are converted once, in `SanitizesFieldData::sanitizeDateValue()`, at every
+level of a record. Statamic validates a date in the Control Panel's wire format (ISO 8601
+Zulu, or `Y-m-d` when the save format has no time) and `process()` writes the save format as
+app-timezone wall clock, so the sanitizer reads a wall-clock value in the app timezone and
+converts to UTC before formatting. **Do not add a second pass on top of it.** The one that
+used to run on the top level formatted the wall clock with a literal `Z`, which shifted
+every time on a non-UTC site, and took a `{start, end}` range for a `{date, time}` object
+(3.2.1). The suite runs in UTC, where the shift is invisible, which is why
+`tests/Integration/DateFieldRoundTripTest.php` switches to Europe/Copenhagen.
+
 **`statamic-terms`** — list, get, create, update, delete
 
 **`statamic-globals`** — list, get, update (global set values with multi-site support)
