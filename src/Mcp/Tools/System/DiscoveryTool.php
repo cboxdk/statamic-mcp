@@ -6,6 +6,7 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\System;
 
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
+use Cboxdk\StatamicMcp\Mcp\ExtraTools;
 use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseStatamicTool;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
@@ -177,8 +178,8 @@ class DiscoveryTool extends BaseStatamicTool
         }
 
         $classes = config('statamic.mcp.catalog.searchable', true)
-            ? StatamicMcpServer::CORE_TOOLS
-            : [...StatamicMcpServer::CORE_TOOLS, ...StatamicMcpServer::SEARCHABLE_TOOLS];
+            ? [...StatamicMcpServer::CORE_TOOLS, ...ExtraTools::core()]
+            : [...StatamicMcpServer::CORE_TOOLS, ...StatamicMcpServer::SEARCHABLE_TOOLS, ...array_keys(ExtraTools::all())];
 
         $names = [];
 

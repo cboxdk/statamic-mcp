@@ -6,6 +6,7 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Concerns;
 
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
+use Cboxdk\StatamicMcp\Mcp\ExtraTools;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -111,6 +112,14 @@ trait RouterHelpers
 
         if ($mcpToken) {
             $requiredScope = $this->getRequiredTokenScope($action);
+
+            // A tool another package added, in a domain this package has no
+            // scope for, would otherwise need none. Fail closed: only a
+            // full-access token may reach it.
+            if ($requiredScope === null && ExtraTools::isRegistered(static::class)) {
+                $requiredScope = TokenScope::FullAccess;
+            }
+
             /** @var TokenService $tokenService */
             $tokenService = app(TokenService::class);
             if ($requiredScope && ! $tokenService->hasScope($mcpToken, $requiredScope)) {

@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Servers;
 
+use Cboxdk\StatamicMcp\Mcp\ExtraTools;
 use Cboxdk\StatamicMcp\Mcp\Prompts\AgentEducationPrompt;
 use Cboxdk\StatamicMcp\Mcp\Prompts\ToolUsageContractPrompt;
 use Cboxdk\StatamicMcp\Mcp\Resources\BlueprintIndexResource;
 use Cboxdk\StatamicMcp\Mcp\Resources\BlueprintResource;
+use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\AssetsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\BlueprintsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\ContentFacadeRouter;
@@ -24,6 +26,7 @@ use Illuminate\Support\Facades\Log;
 use Laravel\Mcp\Enums\CacheScope;
 use Laravel\Mcp\Server;
 use Laravel\Mcp\Server\Attributes\Cacheable;
+use Laravel\Mcp\Server\Contracts\Transport;
 use Laravel\Mcp\Server\Prompt;
 use Laravel\Mcp\Server\Resource;
 use Laravel\Mcp\Server\ServerContext;
@@ -115,6 +118,39 @@ class StatamicMcpServer extends Server
     ];
 
     /**
+     * Tools other packages registered, appended to the flat list.
+     *
+     * The registry is read when the server is built, which happens per
+     * connection — after every service provider has booted and registered.
+     */
+    public function __construct(Transport $transport)
+    {
+        parent::__construct($transport);
+
+        foreach (array_keys(ExtraTools::all()) as $class) {
+            if (! in_array($class, $this->tools, true)) {
+                $this->tools[] = $class;
+            }
+        }
+    }
+
+    /**
+     * Add a tool from another package.
+     *
+     * Call from a service provider's boot(). The class must extend BaseRouter,
+     * so it is gated like every built-in tool: the per-domain web toggle, token
+     * scope, Statamic permissions, resource policy, confirmation gate and audit
+     * log all apply. Searchable tools are reached through search_tools and
+     * execute_tools; set $searchable to false to list it at connect time.
+     *
+     * @param  class-string<BaseRouter>  $class
+     */
+    public static function registerTool(string $class, bool $searchable = true): void
+    {
+        ExtraTools::register($class, $searchable);
+    }
+
+    /**
      * The prompts that the server exposes.
      *
      * @var array<int, class-string<Prompt>>
@@ -188,7 +224,11 @@ class StatamicMcpServer extends Server
         // Reshape for the wire only, then put the property back: $tools is the
         // honest list of what this server offers, and callers read it.
         $all = $this->tools;
-        $this->tools = [...self::CORE_TOOLS, ToolSearch::class => self::SEARCHABLE_TOOLS];
+        $this->tools = [
+            ...self::CORE_TOOLS,
+            ...ExtraTools::core(),
+            ToolSearch::class => [...self::SEARCHABLE_TOOLS, ...ExtraTools::searchable()],
+        ];
 
         try {
             return parent::createContext();
@@ -219,7 +259,7 @@ class StatamicMcpServer extends Server
     {
         $searchable = implode(', ', array_map(
             fn (string $class): string => app($class)->name(),
-            self::SEARCHABLE_TOOLS,
+            [...self::SEARCHABLE_TOOLS, ...ExtraTools::searchable()],
         ));
 
         return <<<MARKDOWN

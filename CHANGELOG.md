@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Other packages can add their own tools.** `StatamicMcpServer::registerTool(Router::class, searchable: true)` from a service provider, or the new `statamic.mcp.extra_tools` config key. Extra tools must extend `BaseRouter`, so the web toggle, token scope, Statamic permissions, resource policy, confirmation gate and audit log all apply as they do to the built-in routers. They are reached through `search_tools` by default and appear in the instructions and in `statamic-system-discover`'s catalog. A router whose domain has no token scope in this package requires a full-access token rather than none.
+
 ## [3.2.1] - 2026-10-13
 
 ### Fixed
