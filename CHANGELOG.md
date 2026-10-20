@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.3.0] - 2026-10-20
 
 **Upgrade promptly if any token or Control Panel user can upload assets.** The first
 entry below is a code-execution hole on a typical PHP host.
@@ -19,6 +19,37 @@ entry below is a code-execution hole on a typical PHP host.
 - **Outbound fetches can no longer be pointed at the server's own network.** The OAuth Client ID Metadata Document fetch checked one IPv4 address with `gethostbyname()` and then let the HTTP client resolve the name again, so a host could answer public to the check and private to the request (DNS rebinding). The blocked list also missed CGNAT, multicast, reserved and documentation ranges, IPv6 link-local, and IPv6 forms that embed an IPv4 address such as `::ffff:127.0.0.1`. A new `OutboundFetcher` checks every A and AAAA answer, pins the connection to the checked address, re-checks each redirect, caps the body while reading, and never names the address it refused. CIMD and the new URL import both use it.
 
 - **An extra tool that names no permission is for super admins only** — follow-up to #66 below. A router another package registers whose `getRequiredPermissions()` returns nothing would otherwise be open to every Control Panel user over Basic Auth.
+
+The rest of this block comes from an internal source-and-sandbox security audit of the whole addon (see **Known follow-ups** for what it surfaced but this release does not yet fix):
+
+- **Id-addressed actions are bound to the resource the caller named.** Authorization (the per-collection/taxonomy/global-set permission and the resource-policy allowlist) was keyed on the resource named in the arguments, while the handler acted on whatever the `id` resolved to. A caller allowed on one collection could read, change or delete entries in another by pairing its own collection's handle with a foreign id; terms had the same gap on update and delete. Entry get/update/delete/publish/unpublish/localize and the revision actions now resolve the entry only within the named collection, and term update/delete apply the taxonomy check `get` already had.
+
+  **This refuses cross-collection id access that previously succeeded.**
+
+- **The resource policy and the handler now name one resource.** `global_set` (a bare alias), and an unrelated allowed `collection`/`container` key sent alongside a denied `handle`/`data.handle`, could satisfy the policy for a resource the action did not touch. `GlobalsRouter`, `StructuresRouter` and `AssetsRouter` now resolve the policy handle the same way their handlers do.
+
+- **`statamic-users` stays within the caller's own authority.** A non-super caller with `edit roles` could add `super` to a role (its own included) and become super; `create users`/`edit user groups` attached `data.roles` without `assign roles`; and `edit users` could set any user's password, including a super admin's. Granting `super` now requires a super admin, attaching roles requires `assign roles` on every path, and changing another user's password requires `change passwords` — matching Statamic's own policies. Term create/delete likewise require `create`/`delete {taxonomy} terms` rather than `edit`.
+
+- **`manage all mcp tokens` is no longer impersonation.** A non-super admin could widen a super admin's token to `*` and regenerate it to receive the plaintext secret. Regenerate is restricted to the caller's own tokens, widening another user's token is capped by the editor too, and a non-super admin cannot modify a super admin's token.
+
+- **`denied_fields` no longer leaks through list filters or revision snapshots.** A denied field used as a `list` filter key was an equality oracle; `get_revision` returned the field in full. Both are now filtered.
+
+- **Blueprint handles are validated.** `create`/`generate` passed the handle and namespace straight into Statamic's path construction, which does not resolve `..`, so a handle like `../evil` wrote YAML outside its namespace. Handles must now match `^[A-Za-z0-9_-]+$` and the namespace must be a known one.
+
+- **`file_path` uploads are CLI-only.** The documented-CLI-only `file_path` upload source had no context gate, so a remote caller could copy files out of `storage/app` into a container. It now requires CLI context.
+
+- **Deactivated users lose MCP access.** The `deactivate` action set `status=inactive` but nothing on the auth path read it. Deactivation now revokes the user's MCP tokens and both auth paths refuse an inactive user.
+
+### Known follow-ups
+
+The audit surfaced issues this release does not yet address; they are either behavioural changes that need maintainer sign-off or depend on deployment facts:
+
+- MCP entry/term/global writes do not apply Statamic's author-ownership and per-site policy (`EntryPolicy` "other authors" / "access {site} site").
+- `statamic-system-discover` and `statamic-content-facade` sweeps list resources the per-domain resource policy would hide.
+- Revoking an OAuth access token does not revoke the matching refresh token, so the grant can be renewed after revocation.
+- The OAuth consent screen does not show the redirect destination and sets no frame-protection header.
+- CLI-vs-web trust derives from the process SAPI plus an optional header; under a console-SAPI HTTP runtime (e.g. Octane) authenticated web calls could be treated as the trusted local operator. Needs validation against the supported runtimes.
+- The release workflow runs freshly resolved dependency code next to a write-capable token; CI hardening (pinned actions, `persist-credentials: false`, narrowed `permissions`).
 
 ### Added
 
@@ -589,6 +620,7 @@ straight to the fix. Thanks to @JorisOrangeStudio and @revans-premier-education.
 - Laravel MCP v0.2.0 integration
 - Comprehensive test suite
 
+[3.3.0]: https://github.com/cboxdk/statamic-mcp/compare/v3.2.1...v3.3.0
 [3.2.1]: https://github.com/cboxdk/statamic-mcp/compare/v3.2.0...v3.2.1
 [3.2.0]: https://github.com/cboxdk/statamic-mcp/compare/v3.1.0...v3.2.0
 [3.1.0]: https://github.com/cboxdk/statamic-mcp/compare/v3.0.0...v3.1.0

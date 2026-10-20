@@ -80,6 +80,41 @@ Granular resource-level access control configured in `config/statamic/mcp.php`:
 5. Confirmation required? → `ConfirmationActionGate` (configurable per domain; defaults: deletes + blueprint writes) → `ConfirmationTokenManager`
 6. Field filtering → `ResourcePolicy::filterFields()` on input + output
 
+### Authorization invariants (don't regress these)
+
+A 3.3.0 security audit hardened the tool layer. Keep these when touching routers:
+
+- **An id-addressed action must act on the resource the caller named**, because
+  the permission check and the resource policy are keyed on that name. Entry
+  actions resolve through `EntriesRouter::resolveEntryInCollection()` (and the
+  revision path checks `collectionHandle()`); term update/delete check
+  `taxonomyHandle()` like `get` does. A new id-addressed action needs the same
+  binding, or a caller allowed on one collection/taxonomy reaches another's
+  records.
+- **`resolveResourceHandle()` must name the same resource the handler acts on.**
+  `GlobalsRouter` (`global_set ?? handle`), `StructuresRouter` and `AssetsRouter`
+  (`data.handle ?? handle` / `container`) override it for exactly this reason;
+  the default priority list would otherwise let an unrelated allowed argument
+  satisfy the policy for a denied target.
+- **`statamic-users` must not exceed the caller's own authority:** only a super
+  admin grants `super` (in a role or via the flag); attaching `data.roles`
+  (user create, group create/update) requires `assign roles`; changing another
+  user's password requires `change passwords`. Each write action maps to its own
+  Statamic permission (create/edit/delete), and `ScopeAvailability` mirrors that.
+- **`manage all mcp tokens` never yields a working credential for another user:**
+  `TokenController::regenerate` is own-tokens-only, and widening another user's
+  token is capped by the editor as well as the owner.
+- **`denied_fields` apply everywhere a value can surface** — output, `list`
+  filter keys, and revision snapshots (`HandlesRevisions` filters revision data).
+- **Only trusted-local surfaces take server-local input:** `file_path` uploads
+  require `isCliContext()`; client-supplied URLs go through `OutboundFetcher`.
+- Blueprint `handle`/`namespace` are validated before Statamic builds a path
+  (`BlueprintsRouter::validateBlueprintLocation`): no `..`, known namespaces only.
+- `ExtraTools` keys the registry by canonical class name so the fail-closed
+  rules in `checkWebPermissions()` match `static::class` whatever the spelling.
+- `deactivate` revokes the user's tokens and `AuthenticateForMcp` refuses an
+  `status=inactive` user on both the bearer and Basic paths.
+
 ### OAuth 2.1 Authorization Server
 The addon includes a full OAuth 2.1 authorization server with PKCE for browser-based MCP clients:
 
