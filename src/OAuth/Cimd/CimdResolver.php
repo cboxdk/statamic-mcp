@@ -4,34 +4,22 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\OAuth\Cimd;
 
+use Cboxdk\StatamicMcp\Support\Http\FetchRefused;
+use Cboxdk\StatamicMcp\Support\Http\OutboundFetcher;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Http;
 
 /**
  * Fetches and resolves CIMD metadata documents with SSRF protection.
  *
  * Provides secure retrieval of Client ID Metadata Documents (CIMD) by:
- * - Blocking requests to private/reserved IP ranges (SSRF protection)
+ * - Fetching through OutboundFetcher, which refuses private and reserved
+ *   addresses and pins the connection to the address it checked (SSRF)
  * - Enforcing response size limits
  * - Caching valid results
  * - Disabling redirect following
  */
 class CimdResolver
 {
-    /**
-     * Private and reserved IPv4 CIDR ranges to block.
-     *
-     * @var list<array{string, string}>
-     */
-    private const BLOCKED_IPV4_RANGES = [
-        ['10.0.0.0', '10.255.255.255'],
-        ['172.16.0.0', '172.31.255.255'],
-        ['192.168.0.0', '192.168.255.255'],
-        ['127.0.0.0', '127.255.255.255'],
-        ['169.254.0.0', '169.254.255.255'],
-        ['0.0.0.0', '0.255.255.255'],
-    ];
-
     /**
      * Resolve a CIMD client_id URL to its metadata document.
      *
@@ -75,41 +63,24 @@ class CimdResolver
     {
         $url = $clientId->toString();
 
-        $this->guardAgainstSsrf($clientId);
-
         /** @var int $timeout */
         $timeout = config('statamic.mcp.oauth.cimd_fetch_timeout', 5);
 
         /** @var int $maxSize */
         $maxSize = config('statamic.mcp.oauth.cimd_max_response_size', 5120);
 
+        $fetcher = new OutboundFetcher(blockPrivate: (bool) config('statamic.mcp.oauth.cimd_block_private_ips', true));
+
         try {
-            $response = Http::timeout($timeout)
-                ->maxRedirects(0)
-                ->accept('application/json')
-                ->get($url);
-        } catch (\Throwable $e) {
-            throw new CimdFetchException(
-                'fetch_failed',
-                "Failed to fetch CIMD document from '{$url}': {$e->getMessage()}",
-                $e,
-            );
-        }
-
-        if ($response->failed()) {
-            throw new CimdFetchException(
-                'http_error',
-                "CIMD document fetch returned HTTP {$response->status()} for '{$url}'.",
-            );
-        }
-
-        $body = $response->body();
-
-        if (strlen($body) > $maxSize) {
-            throw new CimdFetchException(
-                'response_too_large',
-                "CIMD document from '{$url}' exceeds maximum size of {$maxSize} bytes.",
-            );
+            $body = $fetcher->get($url, $maxSize, $timeout, maxRedirects: 0, headers: ['Accept' => 'application/json'])->body;
+        } catch (FetchRefused $e) {
+            throw match ($e->reason) {
+                FetchRefused::BLOCKED_ADDRESS => new CimdFetchException('ssrf_blocked', 'CIMD document URL resolves to a private/reserved IP address.', $e),
+                FetchRefused::UNRESOLVABLE => new CimdFetchException('dns_resolution_failed', "Could not resolve the CIMD document host for '{$url}'.", $e),
+                FetchRefused::TOO_LARGE => new CimdFetchException('response_too_large', "CIMD document from '{$url}' exceeds maximum size of {$maxSize} bytes.", $e),
+                FetchRefused::HTTP_ERROR, FetchRefused::TOO_MANY_REDIRECTS => new CimdFetchException('http_error', "CIMD document fetch failed: {$e->getMessage()}", $e),
+                default => new CimdFetchException('fetch_failed', "Failed to fetch CIMD document from '{$url}': {$e->getMessage()}", $e),
+            };
         }
 
         try {
@@ -131,67 +102,5 @@ class CimdResolver
 
         /** @var array<string, mixed> $data */
         return CimdMetadata::fromArray($data, $clientId);
-    }
-
-    /**
-     * Check that the hostname does not resolve to a private/reserved IP.
-     *
-     * @throws CimdFetchException If the IP is in a blocked range
-     */
-    private function guardAgainstSsrf(CimdClientId $clientId): void
-    {
-        /** @var bool $blockPrivateIps */
-        $blockPrivateIps = config('statamic.mcp.oauth.cimd_block_private_ips', true);
-
-        if (! $blockPrivateIps) {
-            return;
-        }
-
-        $host = $clientId->getHost();
-        $ip = gethostbyname($host);
-
-        // gethostbyname returns the original hostname if resolution fails
-        if ($ip === $host) {
-            throw new CimdFetchException(
-                'dns_resolution_failed',
-                "Could not resolve hostname '{$host}' for CIMD document.",
-            );
-        }
-
-        if ($this->isBlockedIp($ip)) {
-            throw new CimdFetchException(
-                'ssrf_blocked',
-                "CIMD document URL resolves to a private/reserved IP address ({$ip}).",
-            );
-        }
-    }
-
-    /**
-     * Check whether an IP address falls within blocked private/reserved ranges.
-     */
-    private function isBlockedIp(string $ip): bool
-    {
-        // Check IPv6 loopback and private ranges
-        if ($ip === '::1' || str_starts_with($ip, 'fc') || str_starts_with($ip, 'fd')) {
-            return true;
-        }
-
-        $long = ip2long($ip);
-
-        if ($long === false) {
-            // Non-IPv4 address that isn't a known IPv6 private — allow it
-            return false;
-        }
-
-        foreach (self::BLOCKED_IPV4_RANGES as [$rangeStart, $rangeEnd]) {
-            $start = ip2long($rangeStart);
-            $end = ip2long($rangeEnd);
-
-            if ($start !== false && $end !== false && $long >= $start && $long <= $end) {
-                return true;
-            }
-        }
-
-        return false;
     }
 }
