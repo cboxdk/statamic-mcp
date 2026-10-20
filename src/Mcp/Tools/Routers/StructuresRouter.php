@@ -77,7 +77,10 @@ class StructuresRouter extends BaseRouter
             'handle' => JsonSchema::string()
                 ->description('Structure identifier in snake_case. Required for get, create, update, delete. Example: "blog" for collection, "tags" for taxonomy'),
             'data' => JsonSchema::object()
-                ->description('Structure configuration. Fields depend on resource_type. Use statamic-structures action "get" to see current configuration before updating.'),
+                ->description('Structure configuration. Fields depend on resource_type. Use statamic-structures action "get" to see current configuration before updating. '
+                    . 'Navigation: title, max_depth, collections, and the menu itself as trees — the same [{site, items}] list "get" returns, so edit it and send it back — '
+                    . 'or tree (a list of items) with an optional site. Each item is {id?, entry? | url? | title?, data?, children?}; an item without an id gets one. '
+                    . 'A tree replaces the whole menu for its site. Unknown keys are refused.'),
             'include_details' => JsonSchema::boolean()
                 ->description('Include detailed configuration and statistics in response'),
             'filters' => JsonSchema::object()

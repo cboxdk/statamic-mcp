@@ -4,14 +4,33 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns;
 
+use Statamic\Contracts\Structures\Nav as NavContract;
+use Statamic\Facades\Entry;
 use Statamic\Facades\Nav;
 use Statamic\Facades\Site;
+use Statamic\Structures\BranchIds;
 
 /**
  * Navigation operations for the StructuresRouter.
  */
 trait HandlesNavigations
 {
+    /**
+     * Keys a navigation write accepts in `data`. Anything else is refused:
+     * these writes used to drop unknown keys and report success, which left
+     * a client sure it had written a tree that was never saved (#65).
+     *
+     * @var list<string>
+     */
+    private static array $navigationDataKeys = ['handle', 'title', 'max_depth', 'collections', 'tree', 'trees', 'site'];
+
+    /**
+     * Keys a navigation item may carry, as Statamic stores them.
+     *
+     * @var list<string>
+     */
+    private static array $navigationBranchKeys = ['id', 'entry', 'title', 'url', 'data', 'children'];
+
     /**
      * Handle navigation operations.
      *
@@ -42,7 +61,7 @@ trait HandlesNavigations
         try {
             $includeDetails = $this->getBooleanArgument($arguments, 'include_details', true);
             $navigations = Nav::all()->map(function ($navigation) use ($includeDetails) {
-                /** @var \Statamic\Contracts\Structures\Nav $navigation */
+                /** @var NavContract $navigation */
                 $data = [
                     'handle' => $navigation->handle(),
                     'title' => $navigation->title(),
@@ -89,12 +108,7 @@ trait HandlesNavigations
                 'collections' => $navigation->collections()->map->handle()->all(),
                 'max_depth' => $navigation->maxDepth(),
                 'sites' => $navigation->sites()->all(),
-                'trees' => $navigation->trees()->map(function ($tree) {
-                    return [
-                        'site' => $tree->locale(),
-                        'items' => $tree->tree(),
-                    ];
-                })->all(),
+                'trees' => $this->navigationTreesPayload($navigation),
             ];
 
             return ['navigation' => $data];
@@ -129,27 +143,14 @@ trait HandlesNavigations
 
             $navigation = Nav::make($handle);
 
-            if (isset($data['title'])) {
-                $navigation->title($data['title']);
+            $error = $this->applyNavigationData($navigation, $data);
+            if ($error !== null) {
+                return $this->createErrorResponse($error)->toArray();
             }
-
-            if (isset($data['max_depth'])) {
-                $navigation->maxDepth($data['max_depth']);
-            }
-
-            if (isset($data['collections']) && is_array($data['collections'])) {
-                $navigation->collections($data['collections']);
-            }
-
-            $navigation->save();
-
-            // Clear caches
-            $this->clearCachesAfterWrite(['stache', 'static']);
 
             return [
                 'navigation' => [
-                    'handle' => $navigation->handle(),
-                    'title' => $navigation->title(),
+                    ...$this->navigationSummary($navigation),
                     'created' => true,
                 ],
             ];
@@ -178,27 +179,14 @@ trait HandlesNavigations
                 return $this->createErrorResponse("Navigation not found: {$handle}")->toArray();
             }
 
-            if (isset($data['title'])) {
-                $navigation->title($data['title']);
+            $error = $this->applyNavigationData($navigation, $data);
+            if ($error !== null) {
+                return $this->createErrorResponse($error)->toArray();
             }
-
-            if (isset($data['max_depth'])) {
-                $navigation->maxDepth($data['max_depth']);
-            }
-
-            if (isset($data['collections']) && is_array($data['collections'])) {
-                $navigation->collections($data['collections']);
-            }
-
-            $navigation->save();
-
-            // Clear caches
-            $this->clearCachesAfterWrite(['stache', 'static']);
 
             return [
                 'navigation' => [
-                    'handle' => $navigation->handle(),
-                    'title' => $navigation->title(),
+                    ...$this->navigationSummary($navigation),
                     'updated' => true,
                 ],
             ];
@@ -243,6 +231,10 @@ trait HandlesNavigations
     }
 
     /**
+     * The same write as update. `configure` historically read a `config`
+     * argument the tool schema never declared, so a schema-following client
+     * could not reach it at all; `data` is read now, `config` still honoured.
+     *
      * @param  array<string, mixed>  $arguments
      *
      * @return array<string, mixed>
@@ -251,66 +243,266 @@ trait HandlesNavigations
     {
         try {
             $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
-            $config = is_array($arguments['config'] ?? null) ? $arguments['config'] : [];
+            $data = is_array($arguments['config'] ?? null)
+                ? $arguments['config']
+                : (is_array($arguments['data'] ?? null) ? $arguments['data'] : []);
 
             $navigation = Nav::find($handle);
             if (! $navigation) {
                 return $this->createErrorResponse("Navigation not found: {$handle}")->toArray();
             }
 
-            // Determine site to use (with fallback to default)
-            $defaultSite = Site::default();
-            $defaultSiteHandle = is_object($defaultSite) && method_exists($defaultSite, 'handle') ? (string) $defaultSite->handle() : 'default';
-            $site = is_string($config['site'] ?? null) ? $config['site'] : $defaultSiteHandle;
-
-            // Handle specific configuration options
-            if (isset($config['title'])) {
-                $navigation->title($config['title']);
+            $error = $this->applyNavigationData($navigation, $data);
+            if ($error !== null) {
+                return $this->createErrorResponse($error)->toArray();
             }
-
-            if (isset($config['max_depth'])) {
-                $navigation->maxDepth($config['max_depth']);
-            }
-
-            if (isset($config['collections'])) {
-                $navigation->collections($config['collections']);
-            }
-
-            if (isset($config['tree'])) {
-                if (! is_array($config['tree'])) {
-                    return $this->createErrorResponse('Navigation tree must be an array')->toArray();
-                }
-                $encoded = json_encode($config['tree']);
-                if ($encoded === false || strlen($encoded) > 1048576) { // 1MB limit
-                    return $this->createErrorResponse('Navigation tree data exceeds maximum size (1MB)')->toArray();
-                }
-
-                // Set the navigation tree structure
-                $tree = $navigation->in($site);
-                if (! $tree) {
-                    $tree = $navigation->makeTree($site);
-                }
-                $tree->tree($config['tree']);
-                $tree->save();
-            }
-
-            // Save the navigation
-            $navigation->save();
-
-            // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
 
             return [
-                'navigation' => [
-                    'handle' => $navigation->handle(),
-                    'title' => $navigation->title(),
-                    'config' => $navigation->toArray(),
-                    'tree' => $navigation->in($site)?->tree() ?? [],
-                ],
+                'navigation' => $this->navigationSummary($navigation),
                 'configured' => true,
             ];
         } catch (\Exception $e) {
             return $this->createErrorResponse("Failed to configure navigation: {$e->getMessage()}")->toArray();
         }
+    }
+
+    /**
+     * Validate the whole payload, then write it: settings first, trees after.
+     * Nothing is saved when any part is refused.
+     *
+     * @param  array<mixed>  $data
+     *
+     * @return string|null the refusal, or null once written
+     */
+    private function applyNavigationData(NavContract $navigation, array $data): ?string
+    {
+        $unknown = array_diff(array_map('strval', array_keys($data)), self::$navigationDataKeys);
+        if ($unknown !== []) {
+            return 'Unknown navigation keys: ' . implode(', ', $unknown)
+                . '. Allowed: ' . implode(', ', self::$navigationDataKeys) . '.';
+        }
+
+        if (isset($data['handle']) && $data['handle'] !== $navigation->handle()) {
+            return 'A navigation cannot be renamed: data.handle must match the navigation handle.';
+        }
+
+        $maxDepth = $navigation->maxDepth();
+        if (array_key_exists('max_depth', $data)) {
+            if ($data['max_depth'] !== null && (! is_int($data['max_depth']) || $data['max_depth'] < 1)) {
+                return 'max_depth must be a positive integer, or null for no limit.';
+            }
+            $maxDepth = $data['max_depth'];
+        }
+
+        if (isset($data['collections']) && (! is_array($data['collections']) || array_filter($data['collections'], fn (mixed $c): bool => ! is_string($c)) !== [])) {
+            return 'collections must be a list of collection handles.';
+        }
+
+        $trees = $this->navigationTreesFromData($data);
+        if (is_string($trees)) {
+            return $trees;
+        }
+
+        foreach ($trees as $site => $items) {
+            if (! Site::all()->has($site)) {
+                return "Unknown site '{$site}'. Sites: " . Site::all()->keys()->implode(', ') . '.';
+            }
+
+            $ids = [];
+            $error = $this->validateNavigationBranches($items, "trees.{$site}", 1, is_int($maxDepth) ? $maxDepth : null, $ids);
+            if ($error !== null) {
+                return $error;
+            }
+        }
+
+        $encoded = json_encode($trees);
+        if ($encoded === false || strlen($encoded) > 1048576) {
+            return 'Navigation tree data exceeds maximum size (1MB).';
+        }
+
+        if (isset($data['title'])) {
+            $navigation->title($data['title']);
+        }
+
+        if (array_key_exists('max_depth', $data)) {
+            $navigation->maxDepth($data['max_depth']);
+        }
+
+        if (isset($data['collections'])) {
+            $navigation->collections($data['collections']);
+        }
+
+        $navigation->save();
+
+        foreach ($trees as $site => $items) {
+            $tree = $navigation->in($site) ?? $navigation->makeTree($site);
+            // Items without an id get one, the way the Control Panel's save does.
+            $tree->tree((new BranchIds)->ensure($items));
+            $tree->save();
+        }
+
+        $this->clearCachesAfterWrite(['stache', 'static']);
+
+        return null;
+    }
+
+    /**
+     * The trees a write carries, keyed by site.
+     *
+     * Accepts the shape `get` returns — `trees: [{site, items}]` — so a read
+     * can be edited and sent back as is; a map of site to items (or to
+     * `{items}`); or a single `tree` with an optional `site`.
+     *
+     * @param  array<mixed>  $data
+     *
+     * @return array<string, array<int, mixed>>|string the trees, or the refusal
+     */
+    private function navigationTreesFromData(array $data): array|string
+    {
+        $hasTree = array_key_exists('tree', $data);
+        $hasTrees = array_key_exists('trees', $data);
+
+        if ($hasTree && $hasTrees) {
+            return "Send either 'tree' (with an optional 'site') or 'trees', not both.";
+        }
+
+        if (array_key_exists('site', $data) && ! $hasTree) {
+            return "'site' only applies to 'tree'. With 'trees', key each tree by its site.";
+        }
+
+        if ($hasTree) {
+            if (! is_array($data['tree']) || ! array_is_list($data['tree'])) {
+                return "'tree' must be a list of navigation items.";
+            }
+
+            $defaultSite = Site::default()->handle();
+            $site = is_string($data['site'] ?? null) ? $data['site'] : $defaultSite;
+
+            return [$site => $data['tree']];
+        }
+
+        if (! $hasTrees) {
+            return [];
+        }
+
+        if (! is_array($data['trees'])) {
+            return "'trees' must be a list of {site, items}, or an object of site => items.";
+        }
+
+        $trees = [];
+
+        foreach ($data['trees'] as $key => $value) {
+            if (is_int($key)) {
+                if (! is_array($value) || ! is_string($value['site'] ?? null)) {
+                    return "trees[{$key}] must be {site, items}, as statamic-structures get returns it.";
+                }
+                $site = $value['site'];
+                $items = $value['items'] ?? null;
+            } else {
+                $site = $key;
+                $items = is_array($value) && array_key_exists('items', $value) ? $value['items'] : $value;
+            }
+
+            if (! is_array($items) || ! array_is_list($items)) {
+                return "trees.{$site} must be a list of navigation items.";
+            }
+
+            $trees[$site] = $items;
+        }
+
+        return $trees;
+    }
+
+    /**
+     * @param  array<int, mixed>  $branches
+     * @param  array<string, true>  $ids  ids seen so far, to refuse duplicates
+     */
+    private function validateNavigationBranches(array $branches, string $path, int $depth, ?int $maxDepth, array &$ids): ?string
+    {
+        foreach ($branches as $index => $branch) {
+            $at = "{$path}[{$index}]";
+
+            if (! is_array($branch) || ($branch !== [] && array_is_list($branch))) {
+                return "{$at} must be an object.";
+            }
+
+            $unknown = array_diff(array_map('strval', array_keys($branch)), self::$navigationBranchKeys);
+            if ($unknown !== []) {
+                return "{$at} has unknown keys: " . implode(', ', $unknown)
+                    . '. Allowed: ' . implode(', ', self::$navigationBranchKeys) . '.';
+            }
+
+            foreach (['id', 'entry', 'title', 'url'] as $key) {
+                if (array_key_exists($key, $branch) && ! is_string($branch[$key])) {
+                    return "{$at}.{$key} must be a string.";
+                }
+            }
+
+            if (($branch['entry'] ?? '') === '' && ($branch['url'] ?? '') === '' && ($branch['title'] ?? '') === '') {
+                return "{$at} needs an entry, a url or a title.";
+            }
+
+            if (isset($branch['entry']) && Entry::find($branch['entry']) === null) {
+                return "{$at}.entry: no entry with id '{$branch['entry']}'.";
+            }
+
+            if (isset($branch['data']) && ! is_array($branch['data'])) {
+                return "{$at}.data must be an object.";
+            }
+
+            if (isset($branch['id'])) {
+                if (isset($ids[$branch['id']])) {
+                    return "{$at}.id '{$branch['id']}' is used more than once.";
+                }
+                $ids[$branch['id']] = true;
+            }
+
+            if ($maxDepth !== null && $depth > $maxDepth) {
+                return "{$at} is {$depth} levels deep; this navigation allows {$maxDepth}.";
+            }
+
+            if (array_key_exists('children', $branch)) {
+                if (! is_array($branch['children']) || ! array_is_list($branch['children'])) {
+                    return "{$at}.children must be a list of navigation items.";
+                }
+
+                $error = $this->validateNavigationBranches($branch['children'], "{$at}.children", $depth + 1, $maxDepth, $ids);
+                if ($error !== null) {
+                    return $error;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function navigationSummary(NavContract $navigation): array
+    {
+        return [
+            'handle' => $navigation->handle(),
+            'title' => $navigation->title(),
+            'max_depth' => $navigation->maxDepth(),
+            'collections' => $navigation->collections()->map->handle()->all(),
+            'trees' => $this->navigationTreesPayload($navigation),
+        ];
+    }
+
+    /**
+     * Every tree, in the shape a write accepts back.
+     *
+     * @return list<array{site: string, items: mixed}>
+     */
+    private function navigationTreesPayload(NavContract $navigation): array
+    {
+        $trees = [];
+
+        foreach ($navigation->trees() as $tree) {
+            $trees[] = ['site' => (string) $tree->locale(), 'items' => $tree->tree()];
+        }
+
+        return $trees;
     }
 }
