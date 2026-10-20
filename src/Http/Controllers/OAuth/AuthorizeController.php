@@ -17,6 +17,7 @@ use Cboxdk\StatamicMcp\Support\UserIds;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Routing\Controller;
 use Statamic\Facades\User;
 
@@ -32,7 +33,7 @@ class AuthorizeController extends Controller
      *
      * Display the OAuth consent screen for the user to approve/deny.
      */
-    public function show(Request $request): View|RedirectResponse
+    public function show(Request $request): Response|View|RedirectResponse
     {
         // Check authentication — redirect to Statamic CP login if not logged in.
         // This route uses statamic.cp middleware (session, CSRF, guard) but NOT
@@ -224,7 +225,7 @@ class AuthorizeController extends Controller
         /** @var view-string $viewName */
         $viewName = 'statamic-mcp::oauth.consent';
 
-        return view($viewName, [
+        $view = view($viewName, [
             'client' => $client,
             'scopes' => $requestedScopes,
             'defaultScopes' => $defaultScopes,
@@ -237,6 +238,14 @@ class AuthorizeController extends Controller
                 'code_challenge_method' => 'S256',
                 'scope' => $scope,
             ],
+        ]);
+
+        // The consent screen authorizes a grant with one click; it must not be
+        // framed, so a cross-origin page cannot overlay it for a clickjacked
+        // approval.
+        return response($view)->withHeaders([
+            'X-Frame-Options' => 'DENY',
+            'Content-Security-Policy' => "frame-ancestors 'none'",
         ]);
     }
 
