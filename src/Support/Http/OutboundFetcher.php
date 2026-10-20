@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Support\Http;
 
 use Closure;
+use GuzzleHttp\Handler\CurlHandler;
 use GuzzleHttp\Psr7\Uri;
 use GuzzleHttp\Psr7\UriResolver;
 use Illuminate\Support\Facades\Http;
@@ -73,13 +74,29 @@ final class OutboundFetcher
                 throw new FetchRefused(FetchRefused::BAD_URL, "{$host} is not on this site's list of hosts files may be fetched from.");
             }
 
-            $options = ['allow_redirects' => false, 'stream' => true, 'connect_timeout' => $timeout];
+            $options = ['allow_redirects' => false, 'stream' => true, 'connect_timeout' => $timeout, 'http_errors' => false];
+            $pending = Http::withHeaders($headers)->timeout($timeout);
+
             if ($address !== null) {
-                $options['curl'] = [CURLOPT_RESOLVE => ["{$host}:{$port}:" . (str_contains($address, ':') ? "[{$address}]" : $address)]];
+                // Pin the connection to the address vet() checked, and force the cURL
+                // handler. Guzzle's default handler routes a 'stream' request to the PHP
+                // stream handler, which silently ignores the 'curl' option — so without
+                // this the CURLOPT_RESOLVE pin never applies and a second DNS answer at
+                // connect time (rebinding) reaches an unvetted address. 'proxy' => ''
+                // stops an environment proxy from re-resolving the host, and the protocol
+                // allowlist refuses a redirect or URL that curl would otherwise follow to
+                // file://, gopher://, etc.
+                $options['proxy'] = '';
+                $options['curl'] = [
+                    CURLOPT_RESOLVE => ["{$host}:{$port}:" . (str_contains($address, ':') ? "[{$address}]" : $address)],
+                    CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
+                    CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
+                ];
+                $pending = $pending->setHandler(new CurlHandler);
             }
 
             try {
-                $response = Http::withOptions($options)->withHeaders($headers)->timeout($timeout)->get($url);
+                $response = $pending->withOptions($options)->get($url);
             } catch (\Throwable $e) {
                 throw new FetchRefused(FetchRefused::FAILED, "Could not fetch {$url}: {$e->getMessage()}", $e);
             }
