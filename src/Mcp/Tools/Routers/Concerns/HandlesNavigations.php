@@ -303,9 +303,12 @@ trait HandlesNavigations
             return $trees;
         }
 
+        /** @var \Illuminate\Support\Collection<string, \Statamic\Sites\Site> $sites */
+        $sites = Site::all();
+
         foreach ($trees as $site => $items) {
-            if (! Site::all()->has($site)) {
-                return "Unknown site '{$site}'. Sites: " . Site::all()->keys()->implode(', ') . '.';
+            if (! $sites->has($site)) {
+                return "Unknown site '{$site}'. Sites: " . $sites->keys()->implode(', ') . '.';
             }
 
             $ids = [];
@@ -375,8 +378,9 @@ trait HandlesNavigations
                 return "'tree' must be a list of navigation items.";
             }
 
-            $defaultSite = Site::default()->handle();
-            $site = is_string($data['site'] ?? null) ? $data['site'] : $defaultSite;
+            /** @var \Statamic\Sites\Site $defaultSite */
+            $defaultSite = Site::default();
+            $site = is_string($data['site'] ?? null) ? $data['site'] : $defaultSite->handle();
 
             return [$site => $data['tree']];
         }
@@ -415,7 +419,7 @@ trait HandlesNavigations
 
     /**
      * @param  array<int, mixed>  $branches
-     * @param  array<string, true>  $ids  ids seen so far, to refuse duplicates
+     * @param  array<array-key, true>  $ids  ids seen so far, to refuse duplicates
      */
     private function validateNavigationBranches(array $branches, string $path, int $depth, ?int $maxDepth, array &$ids): ?string
     {
