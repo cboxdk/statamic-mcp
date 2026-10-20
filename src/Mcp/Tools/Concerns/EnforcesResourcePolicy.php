@@ -78,6 +78,26 @@ trait EnforcesResourcePolicy
             $arguments['fields'] = $policy->filterFields($domain, $fields);
         }
 
+        // A denied field must not be usable as a list filter either: a
+        // where() on it is an equality oracle that leaks the value the policy
+        // hid from output. Drop filter keys naming a denied field (and nested
+        // paths rooted at one).
+        if (isset($arguments['filters']) && is_array($arguments['filters'])) {
+            $denied = $policy->getDeniedFields($domain);
+            $arguments['filters'] = array_filter(
+                $arguments['filters'],
+                static function (mixed $value, mixed $key) use ($denied): bool {
+                    if (! is_string($key)) {
+                        return true;
+                    }
+                    $root = preg_split('/->|\./', $key)[0] ?? $key;
+
+                    return ! in_array($root, $denied, true);
+                },
+                ARRAY_FILTER_USE_BOTH
+            );
+        }
+
         return $arguments;
     }
 

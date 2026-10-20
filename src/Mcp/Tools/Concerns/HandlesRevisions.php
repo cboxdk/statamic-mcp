@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Concerns;
 
+use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Statamic\Contracts\Auth\User as UserContract;
 use Statamic\Contracts\Entries\Entry as EntryContract;
 use Statamic\Entries\Entry;
@@ -229,11 +230,22 @@ trait HandlesRevisions
                 return $this->createErrorResponse("Revision not found: {$revisionId}")->toArray();
             }
 
+            // A revision snapshot carries the entry's full data, which the
+            // top-level output filter does not reach, so denied fields must be
+            // stripped here too — otherwise get_revision discloses what get hides.
+            $attributes = $revision->attributes();
+            if (isset($attributes['data']) && is_array($attributes['data'])) {
+                /** @var array<string, mixed> $revisionData */
+                $revisionData = $attributes['data'];
+                $attributes['data'] = app(ResourcePolicy::class)
+                    ->filterFields($this->getDomain(), $revisionData);
+            }
+
             return [
                 'entry_id' => $entry->id(),
                 'revision' => [
                     ...$this->formatRevisionMeta($revision),
-                    'attributes' => $revision->attributes(),
+                    'attributes' => $attributes,
                 ],
             ];
         } catch (\Exception $e) {
