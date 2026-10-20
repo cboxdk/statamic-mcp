@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\System;
 
+use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\Mcp\ExtraTools;
@@ -17,6 +18,7 @@ use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Attributes\Title;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
+use Statamic\Contracts\Auth\User;
 use Statamic\Facades\AssetContainer;
 use Statamic\Facades\Collection;
 use Statamic\Facades\GlobalSet;
@@ -202,41 +204,75 @@ class DiscoveryTool extends BaseStatamicTool
      */
     private function getSystemState(): array
     {
+        // Only report what the caller could list through the equivalent router:
+        // each section behind its configure permission, each handle filtered by
+        // the resource policy. Otherwise discovery hands any authenticated caller
+        // the full content-model inventory the routers would refuse them.
+        /** @var User|null $user */
+        $user = auth()->user();
+        $cli = McpContext::isCli();
+        /** @var ResourcePolicy $policy */
+        $policy = app(ResourcePolicy::class);
+
+        $may = fn (string $permission): bool => $cli || ($user !== null && ($user->isSuper() || $user->hasPermission($permission)));
+        /**
+         * @param  list<array{handle: string, title: mixed}>  $rows
+         *
+         * @return list<array{handle: string, title: mixed}>
+         */
+        $allowed = fn (string $domain, array $rows): array => array_values(array_filter(
+            $rows,
+            fn (array $row): bool => $policy->canAccess($domain, $row['handle'], 'read'),
+        ));
+
         $state = [];
 
         try {
-            $state['collections'] = Collection::all()->map(function (mixed $c): array {
-                /** @var \Statamic\Contracts\Entries\Collection $c */
-                return ['handle' => $c->handle(), 'title' => $c->title()];
-            })->values()->all();
-
-            $state['taxonomies'] = Taxonomy::all()->map(function (mixed $t): array {
-                /** @var \Statamic\Contracts\Taxonomies\Taxonomy $t */
-                return ['handle' => $t->handle(), 'title' => $t->title()];
-            })->values()->all();
-
-            $state['asset_containers'] = AssetContainer::all()->map(function (mixed $c): array {
-                /** @var \Statamic\Contracts\Assets\AssetContainer $c */
-                return ['handle' => $c->handle(), 'title' => $c->title()];
-            })->values()->all();
-
-            $state['global_sets'] = GlobalSet::all()->map(function (mixed $g): array {
-                /** @var \Statamic\Contracts\Globals\GlobalSet $g */
-                return ['handle' => $g->handle(), 'title' => $g->title()];
-            })->values()->all();
-
-            $sites = Site::all();
-            $sitesIterable = is_iterable($sites) ? $sites : [];
-            $siteList = [];
-            foreach ($sitesIterable as $site) {
-                /** @var \Statamic\Sites\Site $site */
-                $siteList[] = [
-                    'handle' => $site->handle(),
-                    'name' => $site->name(),
-                    'locale' => $site->locale(),
-                ];
+            if ($may('configure collections')) {
+                /** @var list<array{handle: string, title: mixed}> $rows */
+                $rows = Collection::all()->map(function (mixed $c): array {
+                    /** @var \Statamic\Contracts\Entries\Collection $c */
+                    return ['handle' => (string) $c->handle(), 'title' => $c->title()];
+                })->all();
+                $state['collections'] = $allowed('structures', $rows);
             }
-            $state['sites'] = $siteList;
+
+            if ($may('configure taxonomies')) {
+                /** @var list<array{handle: string, title: mixed}> $rows */
+                $rows = Taxonomy::all()->map(function (mixed $t): array {
+                    /** @var \Statamic\Contracts\Taxonomies\Taxonomy $t */
+                    return ['handle' => (string) $t->handle(), 'title' => $t->title()];
+                })->all();
+                $state['taxonomies'] = $allowed('structures', $rows);
+            }
+
+            if ($may('configure asset containers')) {
+                /** @var list<array{handle: string, title: mixed}> $rows */
+                $rows = AssetContainer::all()->map(function (mixed $c): array {
+                    /** @var \Statamic\Contracts\Assets\AssetContainer $c */
+                    return ['handle' => (string) $c->handle(), 'title' => $c->title()];
+                })->all();
+                $state['asset_containers'] = $allowed('assets', $rows);
+            }
+
+            if ($may('configure globals')) {
+                /** @var list<array{handle: string, title: mixed}> $rows */
+                $rows = GlobalSet::all()->map(function (mixed $g): array {
+                    /** @var \Statamic\Contracts\Globals\GlobalSet $g */
+                    return ['handle' => (string) $g->handle(), 'title' => $g->title()];
+                })->all();
+                $state['global_sets'] = $allowed('globals', $rows);
+            }
+
+            if ($may('configure sites')) {
+                $sites = Site::all();
+                $siteList = [];
+                foreach (is_iterable($sites) ? $sites : [] as $site) {
+                    /** @var \Statamic\Sites\Site $site */
+                    $siteList[] = ['handle' => $site->handle(), 'name' => $site->name(), 'locale' => $site->locale()];
+                }
+                $state['sites'] = $siteList;
+            }
         } catch (\Exception $e) {
             $state['error'] = 'Partial system state: ' . $e->getMessage();
         }
