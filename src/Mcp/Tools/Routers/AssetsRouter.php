@@ -930,6 +930,14 @@ class AssetsRouter extends BaseRouter
                     return $this->createErrorResponse('file_path is required')->toArray();
                 }
 
+                // file_path reads a server-local file; it is for the trusted
+                // local CLI server only. A remote/web caller could otherwise
+                // copy files out of storage/app into a container, so refuse it
+                // outside CLI context — remote clients use source_url or content.
+                if (! $this->isCliContext()) {
+                    return $this->createErrorResponse('file_path uploads are only available to the local CLI server; use source_url or content instead.')->toArray();
+                }
+
                 $realPath = realpath($file_path);
                 $allowedBase = realpath(storage_path('app'));
                 if ($realPath === false || ! $allowedBase || ! str_starts_with($realPath, $allowedBase . DIRECTORY_SEPARATOR)) {

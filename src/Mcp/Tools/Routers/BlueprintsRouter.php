@@ -474,6 +474,10 @@ class BlueprintsRouter extends BaseRouter
                 return $this->createErrorResponse('Handle is required for blueprint creation')->toArray();
             }
 
+            if ($locationError = $this->validateBlueprintLocation($handle, $namespace, $collectionHandle, $taxonomyHandle)) {
+                return $locationError;
+            }
+
             // Validate namespace-specific requirements
             if ($namespace === 'collections' && ! $collectionHandle) {
                 return $this->createErrorResponse('collection_handle is required when namespace=collections. Example: collection_handle="brands", handle="brand"')->toArray();
@@ -962,10 +966,8 @@ class BlueprintsRouter extends BaseRouter
                 return $this->createErrorResponse('Handle is required for blueprint generation')->toArray();
             }
 
-            // Validate namespace
-            $validNamespaces = ['collections', 'taxonomies', 'globals', 'forms', 'assets', 'users'];
-            if (! in_array($namespace, $validNamespaces, true)) {
-                return $this->createErrorResponse("Invalid namespace: {$namespace}. Valid: " . implode(', ', $validNamespaces))->toArray();
+            if ($locationError = $this->validateBlueprintLocation($handle, $namespace)) {
+                return $locationError;
             }
 
             // Fields must be provided by the user/LLM — never hardcoded
@@ -1321,5 +1323,30 @@ class BlueprintsRouter extends BaseRouter
         }
 
         return [['configure fields', 'configure collections', 'configure taxonomies']];
+    }
+
+    /**
+     * Validate the handle and namespace before Statamic builds a file path from
+     * them. Statamic assembles the path as `namespaceDir/{handle}.yaml` and does
+     * not resolve `..` in the handle, so an unvalidated handle like `../evil`
+     * would write YAML outside the namespace directory. The Control Panel
+     * validates blueprint handles; the MCP surface did not.
+     *
+     * @return array<string, mixed>|null an error response, or null when valid
+     */
+    private function validateBlueprintLocation(?string $handle, string $namespace, ?string $collectionHandle = null, ?string $taxonomyHandle = null): ?array
+    {
+        $validNamespaces = ['collections', 'taxonomies', 'globals', 'forms', 'assets', 'users'];
+        if (! in_array($namespace, $validNamespaces, true)) {
+            return $this->createErrorResponse("Invalid namespace: {$namespace}. Valid: " . implode(', ', $validNamespaces))->toArray();
+        }
+
+        foreach (['handle' => $handle, 'collection_handle' => $collectionHandle, 'taxonomy_handle' => $taxonomyHandle] as $label => $value) {
+            if ($value !== null && ! preg_match('/^[A-Za-z0-9_-]+$/', $value)) {
+                return $this->createErrorResponse("Invalid {$label}: only letters, digits, underscores and hyphens are allowed.")->toArray();
+            }
+        }
+
+        return null;
     }
 }
