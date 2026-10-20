@@ -56,6 +56,10 @@ Controls authentication enforcement, audit logging, and system hardening.
 | `security.tool_timeout_seconds` | `STATAMIC_MCP_TOOL_TIMEOUT` | `30` | Maximum execution time per tool call |
 | `security.max_response_size` | `STATAMIC_MCP_MAX_RESPONSE_SIZE` | `100000` | Largest tool response in bytes before it is refused; `0` disables the guard |
 | `security.reject_unknown_fields` | `STATAMIC_MCP_REJECT_UNKNOWN_FIELDS` | `true` | Refuse writes carrying keys that are not field handles inside a set, grid row or group |
+| `security.url_import.enabled` | `STATAMIC_MCP_URL_IMPORT_ENABLED` | `true` | Let `statamic-assets` upload fetch a file from a URL (`source_url`) |
+| `security.url_import.timeout` | `STATAMIC_MCP_URL_IMPORT_TIMEOUT` | `15` | Seconds allowed for the download |
+| `security.url_import.allowed_hosts` | `STATAMIC_MCP_URL_IMPORT_ALLOWED_HOSTS` | *(any public host)* | Comma-separated hosts or wildcards (`*.example.com`) files may be fetched from |
+| `security.url_import.block_private_ips` | `STATAMIC_MCP_URL_IMPORT_BLOCK_PRIVATE_IPS` | `true` | Refuse private and reserved addresses. Turn off only for local development |
 | `security.scopes_follow_permissions` | `STATAMIC_MCP_SCOPES_FOLLOW_PERMISSIONS` | `true` | Offer and accept only the token scopes a user's Statamic permissions let them exercise |
 
 ```php
@@ -69,6 +73,12 @@ Controls authentication enforcement, audit logging, and system hardening.
     'max_response_size' => (int) env('STATAMIC_MCP_MAX_RESPONSE_SIZE', 100000),
     'reject_unknown_fields' => env('STATAMIC_MCP_REJECT_UNKNOWN_FIELDS', true),
     'scopes_follow_permissions' => env('STATAMIC_MCP_SCOPES_FOLLOW_PERMISSIONS', true),
+    'url_import' => [
+        'enabled' => env('STATAMIC_MCP_URL_IMPORT_ENABLED', true),
+        'timeout' => (int) env('STATAMIC_MCP_URL_IMPORT_TIMEOUT', 15),
+        'allowed_hosts' => array_values(array_filter(explode(',', (string) env('STATAMIC_MCP_URL_IMPORT_ALLOWED_HOSTS', '')))),
+        'block_private_ips' => env('STATAMIC_MCP_URL_IMPORT_BLOCK_PRIVATE_IPS', true),
+    ],
 ],
 ```
 
@@ -134,6 +144,28 @@ the damage.
 Turn either off if you would rather trade index freshness for speed on a large site and
 rely on your own invalidation rules. The `statamic-system` tool's `cache_clear` action is
 unaffected — that clear runs immediately, because it was asked for.
+
+### `url_import`
+
+`statamic-assets` `upload` with a `source_url` makes the server download the file. A
+remote client can name an image on the web but cannot reasonably send megabytes of
+base64 through a tool call; this is how it adds one.
+
+A server that fetches URLs a client chose is a classic way into its own network
+(`http://169.254.169.254/` hands out cloud credentials on many hosts). So every fetch:
+
+- accepts only `http` and `https` on their default ports, without credentials in the URL;
+- requires every address the host resolves to be public — private, loopback,
+  link-local, CGNAT, multicast, reserved and documentation ranges are refused, for IPv4
+  and IPv6, including IPv6 forms that embed an IPv4 address;
+- connects to the address it checked, so a second DNS answer cannot redirect it;
+- follows at most three redirects, checking each one again (and `allowed_hosts`, if set);
+- stops reading once the file passes `max_upload_size`.
+
+The downloaded file then goes through the same allowed-extensions check as every other
+upload. Set `enabled` to `false` to switch the feature off, or list `allowed_hosts` to
+accept only your own CDN. The OAuth Client ID Metadata Document fetch uses the same
+fetcher.
 
 ### `scopes_follow_permissions`
 
@@ -209,6 +241,18 @@ it saw every tool listed directly:
 
 ```env
 STATAMIC_MCP_SEARCHABLE_CATALOG=false
+```
+
+## Extra Tools
+
+Tools from other packages, served next to the built-in ones. See
+[Extending: tools](../extending/tools.md).
+
+```php
+'extra_tools' => [
+    \Vendor\Package\Mcp\SiteHealthRouter::class,                              // via search_tools
+    ['class' => \Vendor\Package\Mcp\OtherRouter::class, 'searchable' => false], // listed at connect time
+],
 ```
 
 ## Tool Domains
@@ -329,6 +373,10 @@ STATAMIC_MCP_TOOL_TIMEOUT=30
 STATAMIC_MCP_MAX_RESPONSE_SIZE=100000
 STATAMIC_MCP_REJECT_UNKNOWN_FIELDS=true
 STATAMIC_MCP_SCOPES_FOLLOW_PERMISSIONS=true
+STATAMIC_MCP_URL_IMPORT_ENABLED=true
+STATAMIC_MCP_URL_IMPORT_TIMEOUT=15
+STATAMIC_MCP_URL_IMPORT_ALLOWED_HOSTS=
+STATAMIC_MCP_URL_IMPORT_BLOCK_PRIVATE_IPS=true
 
 # Confirmation flow
 # Unset auto-detects: on in production, off in local/dev/testing

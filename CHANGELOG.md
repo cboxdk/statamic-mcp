@@ -7,9 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+**Upgrade promptly if any token or Control Panel user can upload assets.** The first
+entry below is a code-execution hole on a typical PHP host.
+
+### Security
+
+- **Uploads go through Statamic's allowed-extensions check** — The Control Panel runs every upload through Statamic's `AllowedFile` rule. The `statamic-assets` `upload` and `create` actions did not, so a token with `assets:write`, or a Control Panel user over Basic Auth who may upload, could write `shell.php` into a container. With a container under `public/` and a stock PHP host, that is code execution. Both actions now store through one path that applies the rule; `statamic.assets.additional_uploadable_extensions` widens it as it does in the Control Panel. `move` and `copy` cannot change a file's extension.
+
+  **This refuses uploads that previously succeeded** — any file whose extension Statamic would not accept from the Control Panel either.
+
+- **Outbound fetches can no longer be pointed at the server's own network.** The OAuth Client ID Metadata Document fetch checked one IPv4 address with `gethostbyname()` and then let the HTTP client resolve the name again, so a host could answer public to the check and private to the request (DNS rebinding). The blocked list also missed CGNAT, multicast, reserved and documentation ranges, IPv6 link-local, and IPv6 forms that embed an IPv4 address such as `::ffff:127.0.0.1`. A new `OutboundFetcher` checks every A and AAAA answer, pins the connection to the checked address, re-checks each redirect, caps the body while reading, and never names the address it refused. CIMD and the new URL import both use it.
+
+- **An extra tool that names no permission is for super admins only** — follow-up to #66 below. A router another package registers whose `getRequiredPermissions()` returns nothing would otherwise be open to every Control Panel user over Basic Auth.
+
 ### Added
 
-- **Other packages can add their own tools.** `StatamicMcpServer::registerTool(Router::class, searchable: true)` from a service provider, or the new `statamic.mcp.extra_tools` config key. Extra tools must extend `BaseRouter`, so the web toggle, token scope, Statamic permissions, resource policy, confirmation gate and audit log all apply as they do to the built-in routers. They are reached through `search_tools` by default and appear in the instructions and in `statamic-system-discover`'s catalog. A router whose domain has no token scope in this package requires a full-access token rather than none.
+- **Import a file from a URL** (#67) — `statamic-assets` `upload` takes `source_url`; the server downloads the file and stores it like any other upload. A remote client such as Claude can name an image on the web but cannot reasonably send megabytes of base64 through a tool call, so until now it could not add one at all. The filename defaults to the last segment of the URL. Configured under `security.url_import`: `enabled` (on by default), `timeout`, `allowed_hosts` (exact hosts or wildcards, checked on every redirect) and `block_private_ips` for local development. Thanks to @Bennovdp for the detailed request.
+
+- **Uploads can target a folder** — `upload` takes `folder`, e.g. `uploads/cases`. Every upload used to land in the container root.
+
+- **Other packages can add their own tools** (#66, @illia-sapryga) — `StatamicMcpServer::registerTool(Router::class)` from a service provider, or the `statamic.mcp.extra_tools` config key. Extra tools must extend `BaseRouter`, so the web toggle, token scope, Statamic permissions, resource policy, confirmation gate and audit log all apply. They are reached through `search_tools` by default, and appear in the instructions, `statamic-system-discover` and `statamic-system-schema`. A router whose domain has no token scope in this package requires a full-access token. See [Extending: tools](docs/extending/tools.md).
+
+### Fixed
+
+- **Navigation trees can be written** (#65, @timluigjes) — `update` never read a tree, and `configure` read a `config` argument the tool schema does not declare, so every attempt reported success and saved nothing. `create`, `update` and `configure` now share one write that takes the tree in the shape `get` returns (`trees: [{site, items}]`), as a map of site to items, or as a single `tree` with an optional `site`. Items without an id get one, as in the Control Panel. The whole payload is validated before anything is saved: unknown keys, missing entries, duplicate ids, unknown sites and items deeper than `max_depth` are refused with the path that failed. A tree write now also clears the static cache, since it changes rendered menus.
+
+  **Navigation writes now refuse keys they do not understand**, where they used to drop them silently.
+
+- **`copy` works** — It called a method Statamic's `Asset` does not have, so it failed on every call. It now copies the file and its data, and refuses to overwrite.
+
+- **`move` reads `destination` as a path** — The schema documents `destination` as the new path, but it was handed to Statamic as a folder: `archive/old-hero.jpg` ended up at `archive/old-hero.jpg/hero.jpg`. A trailing slash, or a destination without an extension, still names a folder and keeps the filename.
+
+- **Discovery lists `localize`**, which `statamic-entries` has handled since 2.10.0. `statamic-system-schema` also caught up with the revision actions and `statamic-users` `search`.
 
 ## [3.2.1] - 2026-10-13
 

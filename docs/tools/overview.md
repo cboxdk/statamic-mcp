@@ -151,7 +151,7 @@ Global set structure and values management with multi-site support.
 
 ### `statamic-structures`
 
-Manage collections, taxonomies, navigations, and site configuration. Requires a `type` parameter (`collection`, `taxonomy`, `navigation`, `site`).
+Manage collections, taxonomies, navigations, and site configuration. Requires a `resource_type` parameter (`collection`, `taxonomy`, `navigation`, `site`, `globalset`).
 
 | Action | Type | Description | Key Parameters |
 |--------|------|-------------|----------------|
@@ -161,12 +161,42 @@ Manage collections, taxonomies, navigations, and site configuration. Requires a 
 | `list` | taxonomy | List taxonomies | — |
 | `get` | taxonomy | Get taxonomy | `handle` |
 | `list` | navigation | List navigations | — |
+| `get` | navigation | Get a navigation and its trees | `handle` |
+| `create` | navigation | Create a navigation, optionally with a tree | `handle`, `data` |
+| `update` / `configure` | navigation | Change settings and replace trees | `handle`, `data` |
 | `list` | site | List sites | — |
 | `get` | site | Get site | `handle` |
 
+#### Navigation trees
+
+`get` returns a navigation's menus as `trees: [{site, items}]`. A write accepts that
+same list back, so the usual edit is: read, change the items, send the list as
+`data.trees`. A map of site to items, or a single `data.tree` with an optional
+`data.site`, works too. A tree replaces the whole menu for its site.
+
+Each item is `{id?, entry?, url?, title?, data?, children?}` and needs at least an
+`entry`, a `url` or a `title`. Items without an `id` get one. The whole payload is
+checked before anything is saved: unknown keys, entries that do not exist, duplicate
+ids, unknown sites and items deeper than `max_depth` are refused with the path that
+failed, e.g. `trees.default[1].children[0] is 3 levels deep`.
+
+```json
+{
+  "action": "update",
+  "resource_type": "navigation",
+  "handle": "main",
+  "data": {
+    "tree": [
+      {"id": "home", "entry": "91fc9bb6-..."},
+      {"title": "Contact", "url": "/contact"}
+    ]
+  }
+}
+```
+
 ### `statamic-assets`
 
-Asset container and file operations. Requires a `type` parameter (`container`, `asset`).
+Asset container and file operations. Requires a `resource_type` parameter (`container`, `asset`).
 
 | Action | Type | Description | Key Parameters |
 |--------|------|-------------|----------------|
@@ -177,14 +207,32 @@ Asset container and file operations. Requires a `type` parameter (`container`, `
 | `delete` | container | Delete container | `handle` |
 | `list` | asset | List assets | `container`, `folder` |
 | `get` | asset | Get asset | `container`, `path` |
-| `upload` | asset | Upload asset | `container`, `file_path`, `filename` |
+| `upload` | asset | Upload a file | `container`, `folder`, one of `source_url` / `content`+`encoding`+`filename` / `file_path` |
 | `move` | asset | Move asset | `container`, `path`, `destination` |
-| `copy` | asset | Copy asset | `container`, `path`, `destination` |
+| `copy` | asset | Copy asset with its data | `container`, `path`, `destination` |
+
+`upload` takes the file one of three ways:
+
+- **`source_url`** — the server downloads it. This is the way for a remote client such
+  as Claude or ChatGPT to add an image without sending it as base64. Only public
+  `http`/`https` hosts on default ports can be fetched, never the server's own network;
+  see [`security.url_import`](../configuration/reference.md#url_import).
+- **`content`** with `encoding: base64` and a `filename` — the bytes in the call itself.
+  Fine for small files; a photo of a few megabytes is too much for most clients.
+- **`file_path`** — a file under `storage/app`, for local CLI clients.
+
+`folder` places the file, e.g. `uploads/cases`. Every upload goes through Statamic's
+own allowed-extensions check, as a Control Panel upload does; a site widens it with
+`statamic.assets.additional_uploadable_extensions`.
+
+For `move` and `copy`, `destination` is the new path with the filename:
+`archive/old-hero.jpg`. End it with `/` to keep the filename. The extension cannot
+change. `copy` refuses to overwrite an existing file.
 | `delete` | asset | Delete asset | `container`, `path` |
 
 ### `statamic-users`
 
-User CRUD with role and group management. Requires a `type` parameter (`user`, `role`, `group`).
+User CRUD with role and group management. Requires a `resource_type` parameter (`user`, `role`, `group`).
 
 | Action | Description | Key Parameters |
 |--------|-------------|----------------|

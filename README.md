@@ -78,7 +78,7 @@ Global set structure and values management with multi-site support, change track
 Collection, taxonomy, navigation, and site configuration management.
 
 ### Asset Management — `statamic-assets`
-Asset container and file operations: upload, move, copy, rename, delete with metadata management.
+Asset container and file operations: upload (from a URL, base64 or a local file), move, copy and delete, with metadata management.
 
 ### User Management — `statamic-users`
 User CRUD, role assignment, group management with RBAC support.
@@ -120,7 +120,10 @@ Extra tools are gated exactly like the built-in ones: the per-domain web toggle
 (`{domain}:read` / `{domain}:write`), Statamic permissions, the resource policy, the
 confirmation gate and the audit log. A router in a domain this package has no token scope
 for requires a full-access (`*`) token, so a third-party tool is never reachable by a token
-that was not issued for it. Anything that is not a `BaseRouter` is refused at registration.
+that was not issued for it. A router that declares no Statamic permission
+(`getRequiredPermissions()` returns nothing) is reachable by super admins only. Anything
+that is not a `BaseRouter` is refused at registration. See
+[Extending: tools](docs/extending/tools.md).
 
 ### Agent Education Tools
 - `statamic-system-discover` — Intent-based tool discovery

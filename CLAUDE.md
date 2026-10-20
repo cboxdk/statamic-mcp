@@ -41,6 +41,13 @@ editors get offered dead scopes or lose live ones. It never grants access; the p
 check in `checkWebPermissions()` still runs. `getRequiredPermissions()` may return a nested
 list, meaning "any one of these" (used by the blueprint read actions).
 
+### Extra tools
+`src/Mcp/ExtraTools.php` holds tools other packages register (`StatamicMcpServer::registerTool()`
+or `statamic.mcp.extra_tools`). They must extend `BaseRouter`, and `RouterHelpers::checkWebPermissions()`
+fails closed for them twice: a domain with no `TokenScope` requires `*`, and an empty
+`getRequiredPermissions()` requires a super admin. Built-in routers are not affected by
+either rule. `statamic-system-schema` describes extra tools from `BaseRouter::catalogEntry()`.
+
 ### Middleware
 - `HandleMcpCors` — CORS headers for browser-based clients (only when `allowed_origins` configured)
 - `EnsureSecureTransport` — Rejects plain HTTP in production (when `require_https` enabled)
@@ -902,9 +909,34 @@ every time on a non-UTC site, and took a `{start, end}` range for a `{date, time
 
 **`statamic-globals`** — list, get, update (global set values with multi-site support)
 
-**`statamic-structures`** — list/get/create for collections, taxonomies, navigations, and sites (via `type` param)
+**`statamic-structures`** — list/get/create for collections, taxonomies, navigations, and sites (via `resource_type` param)
 
-**`statamic-assets`** — list/get/create/update/delete/upload/move/copy for containers and assets (via `type` param)
+Navigation `create`, `update` and `configure` share `HandlesNavigations::applyNavigationData()`.
+It takes trees in the shape `get` returns (`trees: [{site, items}]`), validates the whole
+payload, then writes — and **refuses unknown keys**. Both actions used to drop what they did
+not understand and report success, which is how a tree write saved nothing for months (#65).
+`configure` still reads the undeclared `config` argument for old callers; new code uses `data`.
+
+**`statamic-assets`** — list/get/create/update/delete/upload/move/copy for containers and assets (via `resource_type` param)
+
+**Every new file goes through `AssetsRouter::storeFile()`**, because that is where Statamic's
+`AllowedFile` rule runs. The Control Panel applies it to every upload; the MCP `upload` and
+`create` actions once did not, so `shell.php` could be written into a public container. A new
+way of adding a file must call `storeFile()`/`storeContent()`, not `makeAsset()->upload()`
+directly. `move`/`copy` keep the extension for the same reason.
+
+`upload` with `source_url` fetches through `OutboundFetcher` (below).
+
+### Outbound fetches
+
+`src/Support/Http/OutboundFetcher.php` is the only way this package fetches a URL a client
+supplied — CIMD documents and asset imports today. It refuses non-public addresses (both
+families, embedded IPv4 included), pins the connection with `CURLOPT_RESOLVE` to the address
+it checked, re-checks every redirect and caps the body while reading. **Never call `Http::get()`
+on a client-supplied URL**: checking a hostname and then letting the client resolve it again
+is the DNS-rebinding hole the CIMD fetch had. Tests inject a resolver or use public IP literals,
+so they never depend on DNS; `Http::fake()` bypasses curl, so the pinning itself is only
+exercised against a live host.
 
 **`statamic-users`** — list, get, create, update, delete, assign-role for users, roles, and groups (via `type` param)
 
