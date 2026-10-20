@@ -5,26 +5,39 @@ on:
     tags:
       - 'v*'
 
+# Default the whole workflow to a read-only token. The one step that needs to
+# write (creating the GitHub release) gets its own job with an elevated token,
+# so the long build/test job never runs third-party code next to a write token.
+permissions:
+  contents: read
+
 jobs:
-  release:
+  build:
     runs-on: ubuntu-latest
 
-    name: Create Release
+    name: Build & Verify
 
     # Without this, a hanging step burns the 6h default job timeout before
     # anyone finds out the release failed.
     timeout-minutes: 30
 
+    outputs:
+      exists: ${{ steps.check_release.outputs.exists }}
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        # actions/checkout@v4.4.0
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
+          # Don't leave the job token in .git/config for later steps that run
+          # freshly resolved third-party code.
+          persist-credentials: false
 
       - name: Check if release already exists
         id: check_release
         run: |
-          # Check if a release already exists for this tag
+          # Check if a release already exists for this tag (read-only).
           if gh release view ${{ github.ref_name }} > /dev/null 2>&1; then
             echo "Release for ${{ github.ref_name }} already exists. Skipping release creation."
             echo "exists=true" >> $GITHUB_OUTPUT
@@ -37,7 +50,8 @@ jobs:
 
       - name: Setup PHP
         if: steps.check_release.outputs.exists == 'false'
-        uses: shivammathur/setup-php@v2
+        # shivammathur/setup-php@2.40.0
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962
         with:
           php-version: 8.4
           extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, imagick
@@ -87,10 +101,38 @@ jobs:
             echo "Automated release for ${GITHUB_REF_NAME}" > release_notes.txt
           fi
 
-      - name: Create Release
+      - name: Upload release notes
         if: steps.check_release.outputs.exists == 'false'
+        # actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-notes
+          path: release_notes.txt
+          retention-days: 1
+
+  release:
+    runs-on: ubuntu-latest
+    name: Create Release
+    needs: build
+    if: needs.build.outputs.exists == 'false'
+    timeout-minutes: 10
+
+    # Only this job may write — and it runs no third-party build code, just
+    # the release creation against notes produced by the build job.
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download release notes
+        # actions/download-artifact@v4.3.0
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-notes
+
+      - name: Create Release
         run: |
           gh release create ${{ github.ref_name }} \
+            --repo ${{ github.repository }} \
             --title "Release ${{ github.ref_name }}" \
             --notes-file release_notes.txt
         env:
