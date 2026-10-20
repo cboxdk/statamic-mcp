@@ -297,6 +297,26 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Extra Tools
+    |--------------------------------------------------------------------------
+    |
+    | Tools from other packages, served alongside the built-in ones. Each must
+    | extend Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter, so it is gated exactly like
+    | them: the per-domain web toggle, token scope, Statamic permissions, resource
+    | policy, confirmation gate and audit log. A tool whose domain has no token
+    | scope here requires a full-access token.
+    |
+    | A class name is reached through search_tools; ['class' => …, 'searchable'
+    | => false] lists it at connect time. Packages can instead call
+    | StatamicMcpServer::registerTool(MyRouter::class) from their service provider.
+    |
+    */
+    'extra_tools' => [
+        // \Vendor\Package\Mcp\SiteHealthRouter::class,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Tool Configuration
     |--------------------------------------------------------------------------
     |
