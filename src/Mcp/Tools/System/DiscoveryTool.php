@@ -10,6 +10,7 @@ use Cboxdk\StatamicMcp\Mcp\ExtraTools;
 use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseStatamicTool;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
+use Cboxdk\StatamicMcp\Support\McpContext;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Laravel\Mcp\Server\Attributes\Description;
@@ -57,7 +58,7 @@ class DiscoveryTool extends BaseStatamicTool
         $intent = strtolower(is_string($arguments['intent'] ?? null) ? $arguments['intent'] : '');
 
         // In web context, require system:read scope before exposing system state
-        if (! app()->runningInConsole()) {
+        if (McpContext::isWebRequest()) {
             /** @var McpTokenData|null $mcpToken */
             $mcpToken = request()->attributes->get('mcp_token');
 
