@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
+use Cboxdk\StatamicMcp\Support\Http\FetchRefused;
+use Cboxdk\StatamicMcp\Support\Http\OutboundFetcher;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\Http\UploadedFile;
 use Illuminate\JsonSchema\JsonSchema;
@@ -19,6 +21,7 @@ use Statamic\Contracts\Assets\AssetContainer as AssetContainerContract;
 use Statamic\Facades\Asset;
 use Statamic\Facades\AssetContainer;
 use Statamic\Rules\AllowedFile;
+use Statamic\Support\Str;
 
 #[Name('statamic-assets')]
 #[Title('Statamic Assets')]
@@ -40,7 +43,7 @@ class AssetsRouter extends BaseRouter
             'delete' => 'Delete assets or containers',
             'move' => 'Move assets to different locations',
             'copy' => 'Copy assets to different locations',
-            'upload' => 'Upload a file to a container. Accepts base64-encoded content (for remote clients like ChatGPT) or a local file_path (for CLI clients)',
+            'upload' => 'Upload a file to a container: from a URL the server fetches (source_url), from base64 content, or from a local file_path (CLI clients)',
         ];
     }
 
@@ -65,7 +68,7 @@ class AssetsRouter extends BaseRouter
                     . 'delete (resource_type; container + path for assets, handle for containers), '
                     . 'move (resource_type=asset, container, path, destination), '
                     . 'copy (resource_type=asset, container, path, destination), '
-                    . 'upload (resource_type=asset, container, content+encoding+filename for remote clients OR file_path for local CLI clients)'
+                    . 'upload (resource_type=asset, container, optional folder; source_url to fetch from the web, OR content+encoding+filename, OR file_path for local CLI clients)'
                 )
                 ->enum(['list', 'get', 'create', 'update', 'delete', 'move', 'copy', 'upload'])
                 ->required(),
@@ -89,6 +92,8 @@ class AssetsRouter extends BaseRouter
                 ->description('Folder inside the container to upload into. Example: "uploads/cases". Default: the container root.'),
             'content' => JsonSchema::string()
                 ->description('File content as a string. For binary files (images, PDFs): set encoding=base64 and pass the base64-encoded file data. For text files (CSV, JSON, HTML): use encoding=raw (default). Required for create action and for upload action when file_path is not available.'),
+            'source_url' => JsonSchema::string()
+                ->description('For upload: an http(s) URL the server downloads the file from — the way for a remote client to add an image without sending it as base64. Public hosts only. The filename defaults to the last segment of the URL.'),
             'file_path' => JsonSchema::string()
                 ->description('Absolute path to a local file for upload action. Only works for CLI-based MCP clients with filesystem access. Must be within the storage/app directory. Not available for remote/web MCP clients — use content+encoding instead.'),
             'encoding' => JsonSchema::string()
@@ -854,10 +859,15 @@ class AssetsRouter extends BaseRouter
             $file_path = is_string($arguments['file_path'] ?? null) ? $arguments['file_path'] : null;
             $filename = is_string($arguments['filename'] ?? null) ? $arguments['filename'] : null;
             $content = is_string($arguments['content'] ?? null) ? $arguments['content'] : null;
+            $sourceUrl = is_string($arguments['source_url'] ?? null) && $arguments['source_url'] !== '' ? $arguments['source_url'] : null;
             $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
 
             if (! $container) {
                 return $this->createErrorResponse('Container is required')->toArray();
+            }
+
+            if (count(array_filter([$file_path, $content, $sourceUrl])) > 1) {
+                return $this->createErrorResponse('Send one of source_url, content or file_path, not several')->toArray();
             }
 
             $folder = $this->assetFolder($arguments['folder'] ?? null);
@@ -865,8 +875,8 @@ class AssetsRouter extends BaseRouter
                 return $this->createErrorResponse("folder must be a path inside the container, such as 'uploads/cases', without '.' or '..' segments")->toArray();
             }
 
-            if (! $file_path && ! $content) {
-                return $this->createErrorResponse('Either file_path (local files) or content with encoding+filename (remote/base64) is required')->toArray();
+            if (! $file_path && ! $content && ! $sourceUrl) {
+                return $this->createErrorResponse('One of source_url (fetch from a URL), content with encoding+filename (base64), or file_path (local CLI) is required')->toArray();
             }
 
             $assetContainer = AssetContainer::find($container);
@@ -874,7 +884,13 @@ class AssetsRouter extends BaseRouter
                 return $this->createErrorResponse("Asset container not found: {$container}")->toArray();
             }
 
-            if ($content) {
+            if ($sourceUrl !== null) {
+                $stored = $this->importFromUrl($assetContainer, $folder, $sourceUrl, $filename);
+                if (is_string($stored)) {
+                    return $this->createErrorResponse($stored)->toArray();
+                }
+                $asset = $stored;
+            } elseif ($content) {
                 // Remote upload via base64/raw content (for MCP clients like ChatGPT that can't access the filesystem)
                 if (! $filename) {
                     return $this->createErrorResponse('filename is required when uploading via content')->toArray();
@@ -910,7 +926,10 @@ class AssetsRouter extends BaseRouter
                 $asset = $stored;
             } else {
                 // Local file upload (CLI MCP clients with filesystem access)
-                // $file_path is guaranteed non-null here (early return above checks both)
+                if ($file_path === null) {
+                    return $this->createErrorResponse('file_path is required')->toArray();
+                }
+
                 $realPath = realpath($file_path);
                 $allowedBase = realpath(storage_path('app'));
                 if ($realPath === false || ! $allowedBase || ! str_starts_with($realPath, $allowedBase . DIRECTORY_SEPARATOR)) {
@@ -964,6 +983,73 @@ class AssetsRouter extends BaseRouter
     }
 
     /**
+     * Fetch a file from a URL and store it as an asset.
+     *
+     * For remote clients, which can name a file on the web but cannot send
+     * megabytes of base64 through a tool call (#67). Every URL a client
+     * names is fetched through OutboundFetcher, so it cannot reach the
+     * server's own network.
+     *
+     * @return AssetContract|string the asset, or why it was refused
+     */
+    private function importFromUrl(AssetContainerContract $container, string $folder, string $url, ?string $filename): AssetContract|string
+    {
+        if (! config('statamic.mcp.security.url_import.enabled', true)) {
+            return 'Importing from a URL is switched off on this site (security.url_import.enabled).';
+        }
+
+        $filename ??= rawurldecode(basename((string) parse_url($url, PHP_URL_PATH)));
+
+        if ($filename === '' || pathinfo($filename, PATHINFO_EXTENSION) === '') {
+            return 'The URL does not end in a filename with an extension; pass filename as well.';
+        }
+
+        if ($filename !== basename($filename)) {
+            return 'Filename must not contain path separators or traversal sequences';
+        }
+
+        // Refuse the extension before downloading anything; storeFile()
+        // checks again against the file it actually stores.
+        $probe = tempnam(sys_get_temp_dir(), 'statamic_mcp_probe_');
+        if ($probe === false) {
+            return 'Failed to create temporary file for upload';
+        }
+
+        try {
+            $refused = $this->disallowedFile(new UploadedFile($probe, $filename, null, null, true));
+        } finally {
+            @unlink($probe);
+        }
+
+        if ($refused !== null) {
+            return $refused;
+        }
+
+        /** @var array<int, string> $allowedHosts */
+        $allowedHosts = config('statamic.mcp.security.url_import.allowed_hosts', []);
+        /** @var int $timeout */
+        $timeout = config('statamic.mcp.security.url_import.timeout', 15);
+        /** @var int $maxBytes */
+        $maxBytes = config('statamic.mcp.security.max_upload_size', 10 * 1024 * 1024);
+
+        $fetcher = new OutboundFetcher(blockPrivate: (bool) config('statamic.mcp.security.url_import.block_private_ips', true));
+
+        try {
+            $fetched = $fetcher->get(
+                $url,
+                $maxBytes,
+                $timeout,
+                headers: ['User-Agent' => 'statamic-mcp (asset import)', 'Accept' => '*/*'],
+                allowHost: $allowedHosts === [] ? null : fn (string $host): bool => Str::is($allowedHosts, $host),
+            );
+        } catch (FetchRefused $e) {
+            return $e->getMessage();
+        }
+
+        return $this->storeContent($container, $folder, $filename, $fetched->body);
+    }
+
+    /**
      * Write bytes to a temporary file and store them as an asset.
      *
      * @return AssetContract|string the asset, or why it was refused
@@ -999,12 +1085,9 @@ class AssetsRouter extends BaseRouter
     {
         $file = new UploadedFile($sourcePath, $filename, $this->detectMimeType($sourcePath), null, true);
 
-        if (Validator::make(['file' => $file], ['file' => [new AllowedFile]])->fails()) {
-            $extension = $file->getClientOriginalExtension();
-
-            return $extension === ''
-                ? "Files without an extension cannot be uploaded: '{$filename}'."
-                : "Files with the extension '.{$extension}' cannot be uploaded. A site can allow it in statamic.assets.additional_uploadable_extensions.";
+        $refused = $this->disallowedFile($file);
+        if ($refused !== null) {
+            return $refused;
         }
 
         $asset = $container->makeAsset($folder === '' ? $filename : "{$folder}/{$filename}")->upload($file);
@@ -1014,6 +1097,22 @@ class AssetsRouter extends BaseRouter
         }
 
         return $asset;
+    }
+
+    /**
+     * Statamic's AllowedFile verdict on a file's name, or null when allowed.
+     */
+    private function disallowedFile(UploadedFile $file): ?string
+    {
+        if (! Validator::make(['file' => $file], ['file' => [new AllowedFile]])->fails()) {
+            return null;
+        }
+
+        $extension = $file->getClientOriginalExtension();
+
+        return $extension === ''
+            ? "Files without an extension cannot be uploaded: '{$file->getClientOriginalName()}'."
+            : "Files with the extension '.{$extension}' cannot be uploaded. A site can allow it in statamic.assets.additional_uploadable_extensions.";
     }
 
     private function detectMimeType(string $path): string

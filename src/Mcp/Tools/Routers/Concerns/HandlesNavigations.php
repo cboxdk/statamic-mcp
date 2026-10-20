@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns;
 
+use Illuminate\Support\Collection;
 use Statamic\Contracts\Structures\Nav as NavContract;
 use Statamic\Facades\Entry;
 use Statamic\Facades\Nav;
@@ -303,7 +304,7 @@ trait HandlesNavigations
             return $trees;
         }
 
-        /** @var \Illuminate\Support\Collection<string, \Statamic\Sites\Site> $sites */
+        /** @var Collection<string, \Statamic\Sites\Site> $sites */
         $sites = Site::all();
 
         foreach ($trees as $site => $items) {

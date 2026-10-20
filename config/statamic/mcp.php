@@ -100,6 +100,21 @@ return [
         // Maximum upload size in bytes (default: 10MB)
         'max_upload_size' => env('STATAMIC_MCP_MAX_UPLOAD_SIZE', 10 * 1024 * 1024),
 
+        // statamic-assets upload can fetch the file from a URL (source_url),
+        // for remote clients that cannot send megabytes of base64. The server
+        // fetches it through OutboundFetcher: http(s) on default ports only,
+        // public addresses only (checked on every redirect, connection pinned
+        // to the checked address), at most max_upload_size bytes.
+        // 'allowed_hosts' narrows it further: exact hosts or wildcards such as
+        // '*.example.com'; empty allows any public host.
+        // 'block_private_ips' => false is for local development only.
+        'url_import' => [
+            'enabled' => env('STATAMIC_MCP_URL_IMPORT_ENABLED', true),
+            'timeout' => (int) env('STATAMIC_MCP_URL_IMPORT_TIMEOUT', 15),
+            'allowed_hosts' => array_values(array_filter(explode(',', (string) env('STATAMIC_MCP_URL_IMPORT_ALLOWED_HOSTS', '')))),
+            'block_private_ips' => env('STATAMIC_MCP_URL_IMPORT_BLOCK_PRIVATE_IPS', true),
+        ],
+
         // Include version information in API responses (enable for debugging, disable in production)
         'expose_versions' => env('STATAMIC_MCP_EXPOSE_VERSIONS', false),
 
