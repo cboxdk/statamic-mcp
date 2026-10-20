@@ -52,6 +52,21 @@ abstract class BaseRouter extends BaseStatamicTool
     abstract protected function executeAction(array $arguments): array;
 
     /**
+     * What statamic-system-schema reports for a router it has no entry for,
+     * which is every tool another package registers.
+     *
+     * @return array{domain: string, actions: list<string>, provided_by: string}
+     */
+    public function catalogEntry(): array
+    {
+        return [
+            'domain' => $this->getDomain(),
+            'actions' => array_map('strval', array_keys($this->getActions())),
+            'provided_by' => 'extension',
+        ];
+    }
+
+    /**
      * Map the router's domain to a config key for shouldRegister().
      */
     protected function getToolDomain(): ?string

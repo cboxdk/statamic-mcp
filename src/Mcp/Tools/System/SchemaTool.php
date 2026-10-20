@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\System;
 
+use Cboxdk\StatamicMcp\Mcp\ExtraTools;
+use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseStatamicTool;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
@@ -44,6 +46,12 @@ class SchemaTool extends BaseStatamicTool
 
         $catalog = $this->getToolCatalog();
 
+        foreach (array_keys(ExtraTools::all()) as $class) {
+            /** @var BaseRouter $tool */
+            $tool = app($class);
+            $catalog[$tool->name()] ??= $tool->catalogEntry();
+        }
+
         if ($toolName) {
             if (! isset($catalog[$toolName])) {
                 return $this->createErrorResponse("Unknown tool: {$toolName}. Available: " . implode(', ', array_keys($catalog)))->toArray();
@@ -71,8 +79,8 @@ class SchemaTool extends BaseStatamicTool
         return [
             'statamic-entries' => [
                 'domain' => 'content',
-                'actions' => ['list', 'get', 'create', 'update', 'delete', 'publish', 'unpublish'],
-                'key_params' => ['collection (required)', 'id', 'data', 'site', 'limit', 'offset'],
+                'actions' => ['list', 'get', 'create', 'update', 'localize', 'delete', 'publish', 'unpublish', 'list_revisions', 'get_revision', 'restore_revision', 'publish_working_copy'],
+                'key_params' => ['collection (required)', 'id', 'data', 'site', 'merge_sets', 'revision_message', 'limit', 'offset'],
                 'write' => true,
             ],
             'statamic-terms' => [
@@ -107,7 +115,7 @@ class SchemaTool extends BaseStatamicTool
             ],
             'statamic-users' => [
                 'domain' => 'users',
-                'actions' => ['list', 'get', 'create', 'update', 'delete', 'activate', 'deactivate', 'assign_role', 'remove_role'],
+                'actions' => ['list', 'get', 'search', 'create', 'update', 'delete', 'activate', 'deactivate', 'assign_role', 'remove_role'],
                 'key_params' => ['type (user|role|group)', 'id', 'data', 'role'],
                 'write' => true,
             ],

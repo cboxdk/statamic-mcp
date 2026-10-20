@@ -1208,6 +1208,7 @@ class EntriesRouter extends BaseRouter
             'get' => 'Get specific entry with full data (supports version param for revision-aware reads)',
             'create' => 'Create new entry (uses store() with initial revision when revisions enabled)',
             'update' => 'Update existing entry (creates working copy when revisions enabled and entry is published)',
+            'localize' => 'Create a localization of an entry in another site; untranslated fields fall back to the origin',
             'delete' => 'Delete entry',
             'publish' => 'Publish entry (promotes working copy when revisions enabled)',
             'unpublish' => 'Unpublish entry (creates revision snapshot when revisions enabled)',

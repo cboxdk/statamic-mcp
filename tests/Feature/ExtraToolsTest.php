@@ -7,7 +7,9 @@ use Cboxdk\StatamicMcp\Auth\McpToken;
 use Cboxdk\StatamicMcp\Mcp\ExtraTools;
 use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
 use Cboxdk\StatamicMcp\Mcp\Tools\System\DiscoveryTool;
+use Cboxdk\StatamicMcp\Mcp\Tools\System\SchemaTool;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
+use Cboxdk\StatamicMcp\Tests\Fixtures\ExtraTools\PermissionedExtraRouter;
 use Cboxdk\StatamicMcp\Tests\Fixtures\ExtraTools\SystemScopedExtraRouter;
 use Cboxdk\StatamicMcp\Tests\Fixtures\ExtraTools\UnscopedExtraRouter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -15,6 +17,7 @@ use Laravel\Mcp\Server\Contracts\Transport;
 use Laravel\Mcp\Server\ServerContext;
 use Laravel\Mcp\Server\Tool;
 use Laravel\Mcp\Server\Tools\ToolSearch;
+use Statamic\Facades\Role;
 use Statamic\Facades\User;
 
 uses(RefreshDatabase::class);
@@ -83,16 +86,26 @@ function extraToolsToken(array $scopes): McpTokenData
  *
  * @param  class-string<Tool>  $class
  * @param  list<string>  $scopes
+ * @param  list<string>|null  $permissions  the user's permissions; null for a super admin
  *
  * @return array<string, mixed>
  */
-function callAsWebClient(string $class, array $scopes): array
+function callAsWebClient(string $class, array $scopes, ?array $permissions = null): array
 {
     test()->loadMigrationsFrom(__DIR__ . '/../../database/migrations/tokens');
     config()->set('statamic.mcp.web.enabled', true);
     request()->headers->set('X-MCP-Remote', 'true');
 
-    $user = User::make()->email('extra-tools@example.com')->makeSuper();
+    $user = User::make()->email('extra-tools-' . bin2hex(random_bytes(4)) . '@example.com');
+
+    if ($permissions === null) {
+        $user->makeSuper();
+    } else {
+        $role = 'role-' . bin2hex(random_bytes(4));
+        Role::make()->handle($role)->title('Role')->permissions(['access cp', ...$permissions])->save();
+        $user->assignRole($role);
+    }
+
     $user->save();
     test()->actingAs($user);
 
@@ -192,4 +205,29 @@ it('gates an extra tool in a known domain by that domain\'s scope', function () 
 
     expect(callAsWebClient(SystemScopedExtraRouter::class, ['content:read'])['success'])->toBeFalse()
         ->and(callAsWebClient(SystemScopedExtraRouter::class, ['system:read'])['success'])->toBeTrue();
+});
+
+it('keeps an extra tool that names no permission to super admins', function () {
+    StatamicMcpServer::registerTool(SystemScopedExtraRouter::class);
+
+    $denied = callAsWebClient(SystemScopedExtraRouter::class, ['system:read'], ['access utilities']);
+
+    expect($denied['success'])->toBeFalse()
+        ->and(json_encode($denied['errors']))->toContain('Permission denied');
+});
+
+it('lets a user through once the extra tool names the permission it needs', function () {
+    StatamicMcpServer::registerTool(PermissionedExtraRouter::class);
+
+    expect(callAsWebClient(PermissionedExtraRouter::class, ['system:read'], ['access utilities'])['success'])->toBeTrue()
+        ->and(callAsWebClient(PermissionedExtraRouter::class, ['system:read'], [])['success'])->toBeFalse();
+});
+
+it('describes an extra tool in statamic-system-schema', function () {
+    StatamicMcpServer::registerTool(UnscopedExtraRouter::class);
+
+    $result = app(SchemaTool::class)->execute(['tool_name' => 'fixture-site-health']);
+
+    expect($result['success'])->toBeTrue()
+        ->and($result['data']['tool'])->toBe(['domain' => 'site-health', 'actions' => ['get'], 'provided_by' => 'extension']);
 });

@@ -145,6 +145,15 @@ trait RouterHelpers
 
         $requiredPermissions = $this->getRequiredPermissions($action, $arguments);
 
+        // A tool another package added that declares no Statamic permission
+        // would otherwise be open to every Control Panel user, through Basic
+        // Auth or any token carrying its scope. Fail closed, as the scope
+        // check above does: only a super admin may reach it until the router
+        // says which permission it needs.
+        if ($requiredPermissions === [] && ExtraTools::isRegistered(static::class)) {
+            $requiredPermissions = ['super'];
+        }
+
         foreach ($requiredPermissions as $permission) {
             // A nested list is satisfied by any one of its permissions.
             $granted = is_array($permission)
