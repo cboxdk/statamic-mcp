@@ -137,6 +137,12 @@ trait HandlesGroups
             }
 
             if (isset($data['roles']) && is_array($data['roles'])) {
+                // Binding roles to a group is 'assign roles', not 'edit user
+                // groups' — members inherit the group's roles.
+                if ($data['roles'] !== [] && ! $this->hasPermission('assign', 'roles')) {
+                    return $this->createErrorResponse('Permission denied: Assigning roles to a group requires the assign roles permission')->toArray();
+                }
+
                 $roles = collect($data['roles'])->map(function ($roleHandle) {
                     return is_string($roleHandle) ? Role::find($roleHandle) : null;
                 })->filter();
@@ -190,6 +196,12 @@ trait HandlesGroups
             }
 
             if (isset($data['roles']) && is_array($data['roles'])) {
+                // Binding roles to a group is 'assign roles', not 'edit user
+                // groups' — members inherit the group's roles.
+                if ($data['roles'] !== [] && ! $this->hasPermission('assign', 'roles')) {
+                    return $this->createErrorResponse('Permission denied: Assigning roles to a group requires the assign roles permission')->toArray();
+                }
+
                 $roles = collect($data['roles'])->map(function ($roleHandle) {
                     return is_string($roleHandle) ? Role::find($roleHandle) : null;
                 })->filter();

@@ -139,7 +139,16 @@ trait HandlesRoles
             }
 
             if (isset($data['permissions'])) {
-                $role->permissions(is_array($data['permissions']) ? $data['permissions'] : []);
+                $permissions = is_array($data['permissions']) ? array_values(array_filter($data['permissions'], 'is_string')) : [];
+                // Only a super admin may grant the 'super' permission, the same
+                // rule Statamic's RolesController enforces. Otherwise a non-super
+                // holder of 'edit roles' could make its own role super.
+                /** @var \Statamic\Contracts\Auth\User|null $caller */
+                $caller = auth()->user();
+                if (in_array('super', $permissions, true) && ! $this->isCliContext() && (! $caller || ! $caller->isSuper())) {
+                    return $this->createErrorResponse('Permission denied: Only super admins can grant the super permission to a role')->toArray();
+                }
+                $role->permissions($permissions);
             }
 
             $role->save();
@@ -188,7 +197,16 @@ trait HandlesRoles
             }
 
             if (isset($data['permissions'])) {
-                $role->permissions(is_array($data['permissions']) ? $data['permissions'] : []);
+                $permissions = is_array($data['permissions']) ? array_values(array_filter($data['permissions'], 'is_string')) : [];
+                // Only a super admin may grant the 'super' permission, the same
+                // rule Statamic's RolesController enforces. Otherwise a non-super
+                // holder of 'edit roles' could make its own role super.
+                /** @var \Statamic\Contracts\Auth\User|null $caller */
+                $caller = auth()->user();
+                if (in_array('super', $permissions, true) && ! $this->isCliContext() && (! $caller || ! $caller->isSuper())) {
+                    return $this->createErrorResponse('Permission denied: Only super admins can grant the super permission to a role')->toArray();
+                }
+                $role->permissions($permissions);
             }
 
             $role->save();

@@ -250,6 +250,14 @@ trait HandlesUsers
                 $user->makeSuper();
             }
 
+            // Attaching roles is its own authority ('assign roles'), separate
+            // from 'create users'. Check it before the user is saved, so a
+            // caller who may create users but not assign roles cannot seed a
+            // privileged account.
+            if (isset($data['roles']) && is_array($data['roles']) && $data['roles'] !== [] && ! $this->hasPermission('assign', 'roles')) {
+                return $this->createErrorResponse('Permission denied: Assigning roles requires the assign roles permission')->toArray();
+            }
+
             $user->save();
 
             // Assign roles if provided
@@ -316,6 +324,16 @@ trait HandlesUsers
                 $user->email($data['email']);
             }
             if (isset($data['password']) && is_string($data['password'])) {
+                // Setting another user's password is 'change passwords' in
+                // Statamic (UserPolicy::editPassword), not 'edit users'. Without
+                // this an 'edit users' holder could set a super admin's password
+                // and sign in as them.
+                /** @var \Statamic\Contracts\Auth\User|null $caller */
+                $caller = auth()->user();
+                $isSelf = $caller !== null && $caller->id() === $user->id();
+                if (! $isSelf && ! $this->hasPermission('change', 'passwords')) {
+                    return $this->createErrorResponse("Permission denied: Changing another user's password requires the change passwords permission")->toArray();
+                }
                 if (strlen($data['password']) < 8) {
                     return $this->createErrorResponse('Password must be at least 8 characters long')->toArray();
                 }
