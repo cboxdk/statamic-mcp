@@ -120,19 +120,38 @@ class TokenController extends CpController
                 ], 422);
             }
 
-            // Capped by the token's owner, not by whoever edits it: an admin
-            // granting an editor's token a scope the editor cannot use makes
-            // a dead scope, not access. Only scopes being added are checked.
-            // The edit form resends every scope the token holds, so checking
-            // all of them would leave a token minted before this cap (a `*`,
-            // or a scope whose permission was since revoked) impossible to
-            // rename or re-date without also stripping it.
+            // Only scopes being added are checked: the edit form resends every
+            // scope the token holds, so checking all of them would leave a
+            // token minted before this cap (a `*`, or a scope whose permission
+            // was since revoked) impossible to rename or re-date without also
+            // stripping it.
             $added = array_values(array_filter(
                 $scopes,
                 fn (TokenScope $scope): bool => ! in_array($scope->value, $token->scopes, true),
             ));
 
-            if ($refused = $this->refuseUnavailableScopes(User::find($token->userId) ?? User::current(), $added)) {
+            $owner = User::find($token->userId);
+            $current = User::current();
+
+            // Editing someone else's token must not grant authority the editor
+            // lacks. Added scopes are capped by the owner (a scope the owner
+            // cannot use is dead weight) and, when the token is not the editor's
+            // own, by the editor too — otherwise a non-super admin could widen a
+            // super admin's token to `*` and then impersonate them. A non-super
+            // editor may not touch a super admin's token at all.
+            if ($token->userId !== $this->resolveUserId()) {
+                if ($owner !== null && $owner->isSuper() && ($current === null || ! $current->isSuper())) {
+                    return response()->json([
+                        'message' => "Only a super admin can modify a super admin's token.",
+                    ], 403);
+                }
+
+                if ($refused = $this->refuseUnavailableScopes($current, $added)) {
+                    return $refused;
+                }
+            }
+
+            if ($refused = $this->refuseUnavailableScopes($owner ?? $current, $added)) {
                 return $refused;
             }
         }
@@ -184,6 +203,17 @@ class TokenController extends CpController
             return response()->json([
                 'message' => 'Token not found.',
             ], 404);
+        }
+
+        // Regenerating returns the new plaintext secret. Handing an admin the
+        // secret of another user's token is impersonation of that user, so it
+        // is restricted to the caller's own tokens; 'manage all mcp tokens'
+        // still allows renaming, re-scoping (capped, see update) and revoking
+        // another user's token, never obtaining a working credential for it.
+        if ($token->userId !== $this->resolveUserId()) {
+            return response()->json([
+                'message' => 'A token owned by another user cannot be regenerated — its secret would be disclosed to you. Revoke it instead and ask the owner to create a new one.',
+            ], 403);
         }
 
         if ($token->oauthClientId !== null || str_contains($token->name, '(OAuth)')) {
