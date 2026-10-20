@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns;
 
+use Cboxdk\StatamicMcp\Auth\TokenService;
 use Statamic\Facades\Role;
 use Statamic\Facades\User;
 
@@ -504,6 +505,11 @@ trait HandlesUsers
             $user->set('deactivation_reason', $reason);
             $user->set('deactivated_at', now()->toISOString());
             $user->save();
+
+            // Deactivation must actually cut off access: revoke the user's MCP
+            // tokens so existing bearer tokens stop working. AuthenticateForMcp
+            // also refuses an inactive user, which covers Basic Auth.
+            app(TokenService::class)->revokeAllForUser((string) $user->id());
 
             // Clear caches
             $this->clearCachesAfterWrite(['stache']);

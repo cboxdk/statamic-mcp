@@ -53,6 +53,7 @@ function createMockStatamicUser(string $id = 'user-1', string $email = 'test@exa
     $user->shouldReceive('can')->with('access cp')->andReturn($canAccessCp);
     $user->shouldReceive('hasPermission')->with('access cp')->andReturn($canAccessCp);
     $user->shouldReceive('isSuper')->andReturn(false)->byDefault();
+    $user->shouldReceive('get')->with('status')->andReturn($overrides['status'] ?? null)->byDefault();
 
     return $user;
 }
@@ -108,6 +109,19 @@ describe('AuthenticateForMcp', function () {
         expect($response->getStatusCode())->toBe(200);
         expect($request->attributes->get('statamic_user'))->toBe($mockUser);
         expect($request->attributes->get('mcp_token'))->toBeInstanceOf(McpTokenData::class);
+    });
+
+    it('refuses a deactivated user holding a valid Bearer token', function () {
+        $mockUser = createMockStatamicUser(overrides: ['status' => 'inactive']);
+
+        $result = $this->tokenService->createToken('user-1', 'Test Token', [TokenScope::ContentRead]);
+
+        User::shouldReceive('find')->with('user-1')->andReturn($mockUser);
+
+        $middleware = new AuthenticateForMcp($this->tokenService);
+        $response = $middleware->handle(createBearerRequest($result['token']), $this->passThrough);
+
+        expect($response->getStatusCode())->toBe(401);
     });
 
     it('returns 401 for an invalid Bearer token', function () {

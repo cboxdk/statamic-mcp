@@ -231,3 +231,19 @@ it('describes an extra tool in statamic-system-schema', function () {
     expect($result['success'])->toBeTrue()
         ->and($result['data']['tool'])->toBe(['domain' => 'site-health', 'actions' => ['get'], 'provided_by' => 'extension']);
 });
+
+it('still fails closed when an extra tool is registered under a non-canonical class name', function (string $spelling) {
+    ExtraTools::flush();
+    StatamicMcpServer::registerTool($spelling);
+
+    // The unscoped tool's domain has no scope, so the fail-closed rule needs a
+    // '*' token. A content:read token must still be refused even though the
+    // class was registered with a leading backslash or the wrong case.
+    $denied = callAsWebClient(UnscopedExtraRouter::class, ['content:read']);
+
+    expect($denied['success'])->toBeFalse()
+        ->and(json_encode($denied['errors']))->toContain('*');
+})->with([
+    'leading backslash' => ['\\' . UnscopedExtraRouter::class],
+    'lowercase' => [strtolower(UnscopedExtraRouter::class)],
+]);

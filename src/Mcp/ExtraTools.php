@@ -41,9 +41,7 @@ final class ExtraTools
      */
     public static function register(string $class, bool $searchable = true): void
     {
-        self::assertRouter($class);
-
-        self::$registered[$class] = $searchable;
+        self::$registered[self::canonical($class)] = $searchable;
     }
 
     /**
@@ -83,7 +81,13 @@ final class ExtraTools
      */
     public static function isRegistered(string $class): bool
     {
-        return array_key_exists($class, self::all());
+        // The registry is keyed by canonical class name, so a lookup with a
+        // leading backslash or different case still matches. This matters
+        // because the fail-closed scope and permission rules in
+        // RouterHelpers::checkWebPermissions hang off this check.
+        $key = class_exists($class) ? (new \ReflectionClass($class))->getName() : ltrim($class, '\\');
+
+        return array_key_exists($key, self::all());
     }
 
     /**
@@ -119,12 +123,24 @@ final class ExtraTools
                 throw new InvalidArgumentException('Each statamic.mcp.extra_tools entry needs a tool class name.');
             }
 
-            self::assertRouter($class);
-
-            $tools[$class] = $searchable;
+            $tools[self::canonical($class)] = $searchable;
         }
 
         return $tools;
+    }
+
+    /**
+     * The canonical fully-qualified class name, so every registry key matches
+     * what `static::class` yields at the call site regardless of how the class
+     * was spelled (leading backslash, letter case).
+     *
+     * @return class-string<BaseRouter>
+     */
+    private static function canonical(string $class): string
+    {
+        self::assertRouter($class);
+
+        return (new \ReflectionClass($class))->getName();
     }
 
     /**

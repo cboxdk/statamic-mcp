@@ -54,7 +54,7 @@ class AuthenticateForMcp
             if ($mcpToken) {
                 $statamicUser = User::find($mcpToken->userId);
 
-                if ($statamicUser) {
+                if ($statamicUser && ! $this->isDeactivated($statamicUser)) {
                     $request->attributes->set('statamic_user', $statamicUser);
                     $request->attributes->set('mcp_token', $mcpToken);
                     Auth::setUser($statamicUser);
@@ -143,7 +143,7 @@ class AuthenticateForMcp
             // Always run password_verify to prevent timing-based user enumeration
             $passwordValid = password_verify($password, $userPassword);
 
-            if (! $user || ! $passwordValid || ! $user->hasPermission('access cp')) {
+            if (! $user || ! $passwordValid || ! $user->hasPermission('access cp') || $this->isDeactivated($user)) {
                 return null;
             }
 
@@ -154,5 +154,15 @@ class AuthenticateForMcp
 
             return null;
         }
+    }
+
+    /**
+     * Whether the account was deactivated through statamic-users. That action
+     * sets status=inactive; without this check neither authentication path
+     * would honour it, so a deactivated user kept full access.
+     */
+    private function isDeactivated(\Statamic\Contracts\Auth\User $user): bool
+    {
+        return $user->get('status') === 'inactive';
     }
 }
