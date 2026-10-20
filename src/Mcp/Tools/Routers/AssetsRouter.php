@@ -9,6 +9,7 @@ use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\Http\UploadedFile;
 use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Validator;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Attributes\Title;
@@ -16,6 +17,7 @@ use Statamic\Contracts\Assets\Asset as AssetContract;
 use Statamic\Contracts\Assets\AssetContainer as AssetContainerContract;
 use Statamic\Facades\Asset;
 use Statamic\Facades\AssetContainer;
+use Statamic\Rules\AllowedFile;
 
 #[Name('statamic-assets')]
 #[Title('Statamic Assets')]
@@ -81,7 +83,9 @@ class AssetsRouter extends BaseRouter
             'destination' => JsonSchema::string()
                 ->description('Destination path for move/copy operations. Example: "archive/old-hero.jpg"'),
             'filename' => JsonSchema::string()
-                ->description('Target filename for create/upload operations. Example: "logo.png", "document.pdf"'),
+                ->description('Target filename for create/upload operations. Example: "logo.png", "document.pdf". The extension must be one Statamic accepts for uploads.'),
+            'folder' => JsonSchema::string()
+                ->description('Folder inside the container to upload into. Example: "uploads/cases". Default: the container root.'),
             'content' => JsonSchema::string()
                 ->description('File content as a string. For binary files (images, PDFs): set encoding=base64 and pass the base64-encoded file data. For text files (CSV, JSON, HTML): use encoding=raw (default). Required for create action and for upload action when file_path is not available.'),
             'file_path' => JsonSchema::string()
@@ -579,47 +583,11 @@ class AssetsRouter extends BaseRouter
                     return $this->createErrorResponse("File size exceeds maximum allowed size of {$maxSizeMB}MB")->toArray();
                 }
 
-                // Create temporary file with guaranteed cleanup using random name
-                $tempPath = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'statamic_asset_' . bin2hex(random_bytes(16));
-                if (file_put_contents($tempPath, '') === false) {
-                    return $this->createErrorResponse('Failed to create temporary file for upload')->toArray();
+                $stored = $this->storeContent($assetContainer, '', $filename, $decodedContent);
+                if (is_string($stored)) {
+                    return $this->createErrorResponse($stored)->toArray();
                 }
-
-                try {
-                    file_put_contents($tempPath, $decodedContent);
-
-                    $mimeType = 'application/octet-stream';
-                    if (function_exists('finfo_open')) {
-                        $finfo = finfo_open(FILEINFO_MIME_TYPE);
-                        if ($finfo !== false) {
-                            $detected = finfo_file($finfo, $tempPath);
-                            if ($detected !== false) {
-                                $mimeType = $detected;
-                            }
-                            finfo_close($finfo);
-                        }
-                    } elseif (function_exists('mime_content_type')) {
-                        $mimeType = mime_content_type($tempPath) ?: 'application/octet-stream';
-                    }
-
-                    // Upload the file
-                    $asset = $assetContainer->makeAsset($filename)
-                        ->upload(new UploadedFile(
-                            $tempPath,
-                            $filename,
-                            $mimeType,
-                            null,
-                            true
-                        ));
-                } finally {
-                    if (file_exists($tempPath)) {
-                        if (! unlink($tempPath)) {
-                            Log::warning('Failed to clean up MCP temp file', [
-                                'path' => $tempPath,
-                            ]);
-                        }
-                    }
-                }
+                $asset = $stored;
             } else {
                 return $this->createErrorResponse('Content is required to create an asset. Provide file content with encoding parameter (base64 or raw).')->toArray();
             }
@@ -869,6 +837,11 @@ class AssetsRouter extends BaseRouter
                 return $this->createErrorResponse('Container is required')->toArray();
             }
 
+            $folder = $this->assetFolder($arguments['folder'] ?? null);
+            if ($folder === null) {
+                return $this->createErrorResponse("folder must be a path inside the container, such as 'uploads/cases', without '.' or '..' segments")->toArray();
+            }
+
             if (! $file_path && ! $content) {
                 return $this->createErrorResponse('Either file_path (local files) or content with encoding+filename (remote/base64) is required')->toArray();
             }
@@ -907,37 +880,11 @@ class AssetsRouter extends BaseRouter
                     return $this->createErrorResponse("File size exceeds maximum allowed size of {$maxSizeMB}MB")->toArray();
                 }
 
-                $tempPath = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'statamic_upload_' . bin2hex(random_bytes(16));
-
-                try {
-                    file_put_contents($tempPath, $decodedContent);
-
-                    $mimeType = 'application/octet-stream';
-                    if (function_exists('finfo_open')) {
-                        $finfo = finfo_open(FILEINFO_MIME_TYPE);
-                        if ($finfo !== false) {
-                            $detected = finfo_file($finfo, $tempPath);
-                            if ($detected !== false) {
-                                $mimeType = $detected;
-                            }
-                            finfo_close($finfo);
-                        }
-                    } elseif (function_exists('mime_content_type')) {
-                        $mimeType = mime_content_type($tempPath) ?: 'application/octet-stream';
-                    }
-
-                    $asset = $assetContainer->makeAsset($filename)->upload(new UploadedFile(
-                        $tempPath,
-                        $filename,
-                        $mimeType,
-                        null,
-                        true
-                    ));
-                } finally {
-                    if (file_exists($tempPath)) {
-                        unlink($tempPath);
-                    }
+                $stored = $this->storeContent($assetContainer, $folder, $filename, $decodedContent);
+                if (is_string($stored)) {
+                    return $this->createErrorResponse($stored)->toArray();
                 }
+                $asset = $stored;
             } else {
                 // Local file upload (CLI MCP clients with filesystem access)
                 // $file_path is guaranteed non-null here (early return above checks both)
@@ -957,15 +904,11 @@ class AssetsRouter extends BaseRouter
                     return $this->createErrorResponse('Filename must not contain path separators or traversal sequences')->toArray();
                 }
 
-                $mimeType = mime_content_type($file_path) ?: 'application/octet-stream';
-
-                $asset = $assetContainer->makeAsset($filename)->upload(new UploadedFile(
-                    $file_path,
-                    $filename,
-                    $mimeType,
-                    null,
-                    true
-                ));
+                $stored = $this->storeFile($assetContainer, $folder, $filename, $realPath);
+                if (is_string($stored)) {
+                    return $this->createErrorResponse($stored)->toArray();
+                }
+                $asset = $stored;
             }
 
             // Set additional data
@@ -995,6 +938,102 @@ class AssetsRouter extends BaseRouter
         } catch (\Exception $e) {
             return $this->createErrorResponse("Failed to upload asset: {$e->getMessage()}")->toArray();
         }
+    }
+
+    /**
+     * Write bytes to a temporary file and store them as an asset.
+     *
+     * @return AssetContract|string the asset, or why it was refused
+     */
+    private function storeContent(AssetContainerContract $container, string $folder, string $filename, string $bytes): AssetContract|string
+    {
+        $tempPath = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'statamic_mcp_upload_' . bin2hex(random_bytes(16));
+
+        if (file_put_contents($tempPath, $bytes) === false) {
+            return 'Failed to create temporary file for upload';
+        }
+
+        try {
+            return $this->storeFile($container, $folder, $filename, $tempPath);
+        } finally {
+            if (file_exists($tempPath) && ! unlink($tempPath)) {
+                Log::warning('Failed to clean up MCP temp file', ['path' => $tempPath]);
+            }
+        }
+    }
+
+    /**
+     * Store a local file as an asset, the way a Control Panel upload does.
+     *
+     * Every path that puts a new file into a container ends here, because
+     * this is where Statamic's AllowedFile rule runs. The Control Panel
+     * applies it to every upload; without it a token with assets:write
+     * could write `shell.php` into a public container.
+     *
+     * @return AssetContract|string the asset, or why it was refused
+     */
+    private function storeFile(AssetContainerContract $container, string $folder, string $filename, string $sourcePath): AssetContract|string
+    {
+        $file = new UploadedFile($sourcePath, $filename, $this->detectMimeType($sourcePath), null, true);
+
+        if (Validator::make(['file' => $file], ['file' => [new AllowedFile]])->fails()) {
+            $extension = $file->getClientOriginalExtension();
+
+            return $extension === ''
+                ? "Files without an extension cannot be uploaded: '{$filename}'."
+                : "Files with the extension '.{$extension}' cannot be uploaded. A site can allow it in statamic.assets.additional_uploadable_extensions.";
+        }
+
+        $asset = $container->makeAsset($folder === '' ? $filename : "{$folder}/{$filename}")->upload($file);
+
+        if (! $asset instanceof AssetContract) {
+            return 'The upload was cancelled by an AssetCreating listener.';
+        }
+
+        return $asset;
+    }
+
+    private function detectMimeType(string $path): string
+    {
+        if (function_exists('finfo_open')) {
+            $finfo = finfo_open(FILEINFO_MIME_TYPE);
+
+            if ($finfo !== false) {
+                $detected = finfo_file($finfo, $path);
+                finfo_close($finfo);
+
+                if ($detected !== false) {
+                    return $detected;
+                }
+            }
+        }
+
+        return (function_exists('mime_content_type') ? mime_content_type($path) : false) ?: 'application/octet-stream';
+    }
+
+    /**
+     * A folder inside the container, without leading or trailing slashes;
+     * '' for the root, null when it is not a plain relative path.
+     */
+    private function assetFolder(mixed $folder): ?string
+    {
+        if ($folder === null || $folder === '') {
+            return '';
+        }
+
+        if (! is_string($folder) || str_contains($folder, '\\') || str_contains($folder, "\0")) {
+            return null;
+        }
+
+        $segments = explode('/', trim($folder, '/'));
+
+        foreach ($segments as $segment) {
+            if ($segment === '' || $segment === '.' || $segment === '..') {
+                return null;
+            }
+        }
+
+        return implode('/', $segments);
     }
 
     /**
