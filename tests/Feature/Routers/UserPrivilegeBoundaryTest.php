@@ -109,12 +109,14 @@ class UserPrivilegeBoundaryTest extends TestCase
 
     public function test_edit_user_groups_cannot_attach_roles_without_assign_roles(): void
     {
-        Role::make()->handle('elevated')->title('Elevated')->permissions(['access cp', 'super'])->save();
+        $role = 'elevated-' . bin2hex(random_bytes(4));
+        $group = 'staff-' . bin2hex(random_bytes(4));
+        Role::make()->handle($role)->title('Elevated')->permissions(['access cp', 'super'])->save();
         $this->actAs(['create user groups', 'edit user groups']);
 
         $result = (new UsersRouter)->execute([
             'action' => 'create', 'resource_type' => 'group',
-            'data' => ['handle' => 'staff', 'title' => 'Staff', 'roles' => ['elevated']],
+            'data' => ['handle' => $group, 'title' => 'Staff', 'roles' => [$role]],
         ]);
 
         $this->assertFalse($result['success']);
