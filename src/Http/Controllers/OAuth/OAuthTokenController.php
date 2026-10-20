@@ -99,6 +99,16 @@ class OAuthTokenController extends Controller
             ], 400);
         }
 
+        // A registered (non-CIMD) client that has been deleted or pruned can no
+        // longer refresh: otherwise deleting a client would not end its grants.
+        // A CIMD client_id is a URL resolved externally, so it is exempt here.
+        if (CimdClientId::tryFrom($clientId) === null && $this->oauthDriver->findClient($clientId) === null) {
+            return response()->json([
+                'error' => 'invalid_client',
+                'error_description' => 'Unknown client.',
+            ], 400);
+        }
+
         try {
             $authCode = $this->oauthDriver->exchangeRefreshToken($refreshToken, $clientId);
         } catch (OAuthException $e) {

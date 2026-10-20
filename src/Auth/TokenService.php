@@ -8,6 +8,7 @@ use Carbon\Carbon;
 use Cboxdk\StatamicMcp\Contracts\TokenStore;
 use Cboxdk\StatamicMcp\Events\McpTokenDeleted;
 use Cboxdk\StatamicMcp\Events\McpTokenSaved;
+use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -214,6 +215,13 @@ class TokenService
     {
         $existing = $this->tokenStore->find($tokenId);
         $deleted = $this->tokenStore->delete($tokenId);
+
+        // Revoking an OAuth access token must end the whole grant, or the
+        // client could renew it from the refresh token the revoke left behind.
+        if ($existing !== null && $existing->oauthClientId !== null) {
+            app(OAuthDriver::class)
+                ->revokeRefreshTokensFor($existing->userId, $existing->oauthClientId);
+        }
 
         if ($deleted && $existing !== null) {
             McpTokenDeleted::dispatch($existing->name);

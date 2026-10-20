@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.0] - 2026-10-20
+
+This release closes every item from the **Known follow-ups** of 3.3.0 — the
+remainder of the internal source-and-sandbox security audit, plus the CI
+hardening that depended on it.
+
+### Security
+
+- **MCP entry actions apply Statamic's own `EntryPolicy`** (#68) — `statamic-entries` resolved an entry by collection + id and then acted on it with only a token scope and the site-wide resource policy; the per-entry policy was never consulted. A delegated, non-super caller with `edit {collection} entries` but not the `edit other authors {collection} entries` variant could edit, publish or delete entries authored by someone else, and a caller barred from a site (`access {site} site`) could still write that site's entries. `get`, `update`, `delete`, `publish`, `unpublish` and `localize` now run the matching ability through the caller's `EntryPolicy` once the entry is resolved. It applies in web context only — CLI is the trusted operator and super admins pass via the policy's `before()`.
+
+  **This refuses entry writes that previously succeeded** — a caller acting on another author's entry, or on a site it may not access, where the collection-level permission alone used to let it through.
+
+- **Discovery and the content facade are scoped to the resource policy** (#69) — `statamic-system-discover` and `statamic-content-facade`'s sweeps listed collections, taxonomies and globals the per-domain resource-policy allowlist would hide from a direct call, disclosing the existence and handles of resources the caller cannot read. Both now filter every section through the same `ResourcePolicy` check the read tools apply.
+
+- **Revoking an OAuth access token ends the whole grant** (#70) — revoking an access token left its refresh token intact, so a client could renew access immediately afterwards, defeating revocation as an incident-response control. `TokenService::revokeToken()` now also revokes the refresh tokens for that grant (user + OAuth client), via a new `OAuthDriver::revokeRefreshTokensFor()`; a registered client that has since been deleted or pruned can no longer refresh either.
+
+- **The OAuth consent screen shows where approval sends the user** (#71) — the screen named the client but not the redirect destination, and set no frame-protection header, so a user could approve without seeing the callback host and the page could be framed. It now shows the parsed redirect host, labels a dynamically-registered (unverified) client as such, and sends `X-Frame-Options: DENY` and `Content-Security-Policy: frame-ancestors 'none'`.
+
+- **Web-vs-CLI trust no longer derives from the process SAPI** (#72) — the trusted-operator decision keyed on `php_sapi_name()` plus an optional header, so under a console-SAPI HTTP runtime (such as Laravel Octane) an authenticated web call could be treated as the local CLI operator and skip the author/site and privilege guards. A new `McpContext` decides from an attribute the web middleware sets on the request, never from the SAPI; `AuthenticateForMcp` marks every web request, and all the guards read that marker.
+
+### CI
+
+- **The release and test workflows are hardened** (#73) — they ran with the repository's default (write) token, left the job token in `.git/config` through `actions/checkout`, and pinned third-party actions by mutable tag, so freshly resolved dependency code ran next to a write-scoped token. Every workflow now defaults to `permissions: contents: read`; `release.yml` splits the build/test work (read-only) from a minimal job that holds `contents: write` only to create the GitHub release; every checkout sets `persist-credentials: false`; and all actions are pinned to commit SHAs.
+
+
 ## [3.3.0] - 2026-10-20
 
 **Upgrade promptly if any token or Control Panel user can upload assets.** The first

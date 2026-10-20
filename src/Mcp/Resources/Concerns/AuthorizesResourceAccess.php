@@ -8,6 +8,7 @@ use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
+use Cboxdk\StatamicMcp\Support\McpContext;
 use Illuminate\Support\Facades\Log;
 use Laravel\Mcp\Response;
 use Statamic\Contracts\Auth\User;
@@ -40,7 +41,7 @@ trait AuthorizesResourceAccess
     protected function denyReason(?string $handle = null): ?string
     {
         // CLI runs as the site operator; the resource policy still applies below.
-        $isCli = app()->runningInConsole() && ! config('statamic.mcp.security.force_web_mode', false);
+        $isCli = McpContext::isCli();
 
         if (! $isCli) {
             $domain = $this->domain();

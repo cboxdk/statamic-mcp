@@ -42,7 +42,18 @@
         @else
             <p class="subtitle">This application wants access to your MCP server.</p>
         @endif
-        @if ($client->isCimd && collect($client->redirectUris)->every(fn($uri) => str_contains($uri, '://localhost') || str_contains($uri, '://127.0.0.1')))
+        @php
+            $redirectHost = parse_url($oauthParams['redirect_uri'], PHP_URL_HOST);
+            $localHosts = ['localhost', '127.0.0.1', '[::1]', '::1'];
+            $allLocal = collect($client->redirectUris)->every(fn ($uri) => in_array(parse_url($uri, PHP_URL_HOST), $localHosts, true));
+        @endphp
+        <p style="font-size: .8125rem; color: #374151; text-align: center; margin-bottom: 1rem; padding: .5rem .75rem; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px;">
+            After you approve, the authorization code is sent to <strong>{{ $redirectHost }}</strong>.
+            @unless ($client->isCimd)
+                <br><span style="color: #b45309;">This client registered itself; its name is not verified.</span>
+            @endunless
+        </p>
+        @if ($allLocal)
             <p style="font-size: .75rem; color: #9ca3af; text-align: center; margin-bottom: 1rem;">This client only uses localhost redirect URIs.</p>
         @endif
 

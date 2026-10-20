@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Http\Middleware;
 
 use Cboxdk\StatamicMcp\Auth\TokenService;
+use Cboxdk\StatamicMcp\Support\McpContext;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -45,6 +46,10 @@ class AuthenticateForMcp
                 'Retry-After' => (string) RateLimiter::availableIn($rateLimitKey),
             ]);
         }
+
+        // Mark this as a web request authoritatively, so context detection does
+        // not depend on the process SAPI (Octane/Swoole workers report console).
+        $request->attributes->set(McpContext::WEB_ATTRIBUTE, true);
 
         // Try Bearer token first (scoped MCP API tokens)
         $plainToken = $request->bearerToken();

@@ -8,6 +8,7 @@ use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\Mcp\ExtraTools;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
+use Cboxdk\StatamicMcp\Support\McpContext;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
@@ -24,9 +25,7 @@ trait RouterHelpers
      */
     protected function isCliContext(): bool
     {
-        return app()->runningInConsole() &&
-               ! request()->hasHeader('X-MCP-Remote') &&
-               ! config('statamic.mcp.security.force_web_mode', false);
+        return McpContext::isCli();
     }
 
     /**

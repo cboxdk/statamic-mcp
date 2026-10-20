@@ -474,4 +474,28 @@ trait OAuthDriverContractTests
 
         $driver->exchangeRefreshToken('nonexistent_token_value_here', $client->clientId);
     }
+
+    public function test_revoke_refresh_tokens_for_user_and_client_ends_the_grant(): void
+    {
+        $driver = $this->createDriver();
+        $client = $driver->registerClient('Test App', ['https://example.com/callback']);
+        $other = $driver->registerClient('Other App', ['https://example.com/cb2']);
+
+        $token = $driver->createRefreshToken('user-123', $client->clientId, ['content:read']);
+        $keep = $driver->createRefreshToken('user-999', $other->clientId, ['content:read']);
+
+        $revoked = $driver->revokeRefreshTokensFor('user-123', $client->clientId);
+        expect($revoked)->toBeGreaterThanOrEqual(1);
+
+        // The revoked grant can no longer be refreshed...
+        try {
+            $driver->exchangeRefreshToken($token, $client->clientId);
+            $this->fail('Expected the revoked refresh token to be rejected');
+        } catch (\Throwable $e) {
+            expect($e)->toBeInstanceOf(\Throwable::class);
+        }
+
+        // ...while an unrelated user/client refresh token is untouched.
+        expect($driver->exchangeRefreshToken($keep, $other->clientId)->userId)->toBe('user-999');
+    }
 }

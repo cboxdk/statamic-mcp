@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
+use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ValidatesContentRecords;
 use Cboxdk\StatamicMcp\Mcp\Validation\Finding;
@@ -153,6 +154,9 @@ class ContentFacadeRouter extends BaseRouter
             /** @var array<string, array{title: string, entry_count: int, published_count: int}> $collectionData */
             $collectionData = [];
             foreach ($collections as $collection) {
+                if (! in_array((string) $collection->handle(), $this->readableCollectionHandles(), true)) {
+                    continue;
+                }
                 $collectionData[$collection->handle()] = [
                     'title' => $collection->title(),
                     'entry_count' => 0,
@@ -191,6 +195,9 @@ class ContentFacadeRouter extends BaseRouter
             /** @var array<string, array{title: string, term_count: int}> $taxonomyData */
             $taxonomyData = [];
             foreach ($taxonomies as $taxonomy) {
+                if (! in_array((string) $taxonomy->handle(), $this->readableTaxonomyHandles(), true)) {
+                    continue;
+                }
                 $taxonomyData[$taxonomy->handle()] = [
                     'title' => $taxonomy->title(),
                     'term_count' => 0,
@@ -223,6 +230,9 @@ class ContentFacadeRouter extends BaseRouter
             $defaultSite = Site::default();
             foreach ($globalSets as $globalSet) {
                 /** @var \Statamic\Contracts\Globals\GlobalSet $globalSet */
+                if (! $this->globalIsReadable((string) $globalSet->handle())) {
+                    continue;
+                }
                 $hasValues = $globalSet->in($defaultSite->handle())->data()->isNotEmpty();
                 $results['details']['globals'][] = [
                     'handle' => $globalSet->handle(),
@@ -306,6 +316,9 @@ class ContentFacadeRouter extends BaseRouter
             /** @var iterable<\Statamic\Contracts\Entries\Collection> $collections */
             $collections = Collection::all();
             foreach ($collections as $collection) {
+                if (! in_array((string) $collection->handle(), $this->readableCollectionHandles(), true)) {
+                    continue;
+                }
                 /** @var \Statamic\Contracts\Entries\Collection $collection */
                 $taxonomyFieldHandles = [];
 
@@ -329,6 +342,9 @@ class ContentFacadeRouter extends BaseRouter
             $referencedTermSlugs = [];
 
             foreach ($collections as $collection) {
+                if (! in_array((string) $collection->handle(), $this->readableCollectionHandles(), true)) {
+                    continue;
+                }
                 /** @var \Statamic\Contracts\Entries\Collection $collection */
                 $taxFields = $collectionTaxonomyFields[$collection->handle()] ?? [];
                 $page = 1;
@@ -377,6 +393,9 @@ class ContentFacadeRouter extends BaseRouter
             $taxonomies = Taxonomy::all();
             foreach ($taxonomies as $taxonomy) {
                 /** @var \Statamic\Contracts\Taxonomies\Taxonomy $taxonomy */
+                if (! in_array((string) $taxonomy->handle(), $this->readableTaxonomyHandles(), true)) {
+                    continue;
+                }
                 $terms = Term::query()->where('taxonomy', $taxonomy->handle())->get();
 
                 foreach ($terms as $term) {
@@ -561,10 +580,15 @@ class ContentFacadeRouter extends BaseRouter
 
     private function entryQuery(string $collection): EntryQueryBuilder
     {
+        $allowed = $this->readableCollectionHandles();
         $query = Entry::query();
 
         if ($collection !== '') {
-            $query->where('collection', $collection);
+            // A named collection the policy denies resolves to nothing.
+            $query->where('collection', in_array($collection, $allowed, true) ? $collection : '__mcp_denied__');
+        } else {
+            // The "all collections" sweep is limited to the permitted ones.
+            $query->whereIn('collection', $allowed !== [] ? $allowed : ['__mcp_denied__']);
         }
 
         return $query;
@@ -572,10 +596,13 @@ class ContentFacadeRouter extends BaseRouter
 
     private function termQuery(string $taxonomy): TermQueryBuilder
     {
+        $allowed = $this->readableTaxonomyHandles();
         $query = Term::query();
 
         if ($taxonomy !== '') {
-            $query->where('taxonomy', $taxonomy);
+            $query->where('taxonomy', in_array($taxonomy, $allowed, true) ? $taxonomy : '__mcp_denied__');
+        } else {
+            $query->whereIn('taxonomy', $allowed !== [] ? $allowed : ['__mcp_denied__']);
         }
 
         return $query;
@@ -786,5 +813,44 @@ class ContentFacadeRouter extends BaseRouter
         ksort($counts);
 
         return $counts;
+    }
+
+    /**
+     * Collection handles the resource policy permits reading. The facade sweeps
+     * content that belongs to the entries/terms/globals domains, so it must
+     * honour those domains' allowlists even though the facade is super-only —
+     * the resource policy is a site-wide restriction that binds super admins too.
+     *
+     * @return list<string>
+     */
+    private function readableCollectionHandles(): array
+    {
+        /** @var ResourcePolicy $policy */
+        $policy = app(ResourcePolicy::class);
+
+        return array_values(Collection::handles()
+            ->filter(fn (mixed $h): bool => is_string($h) && $policy->canAccess('entries', $h, 'read'))
+            ->all());
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function readableTaxonomyHandles(): array
+    {
+        /** @var ResourcePolicy $policy */
+        $policy = app(ResourcePolicy::class);
+
+        return array_values(Taxonomy::handles()
+            ->filter(fn (mixed $h): bool => is_string($h) && $policy->canAccess('terms', $h, 'read'))
+            ->all());
+    }
+
+    private function globalIsReadable(string $handle): bool
+    {
+        /** @var ResourcePolicy $policy */
+        $policy = app(ResourcePolicy::class);
+
+        return $policy->canAccess('globals', $handle, 'read');
     }
 }

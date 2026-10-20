@@ -109,6 +109,7 @@ describe('AuthenticateForMcp', function () {
         expect($response->getStatusCode())->toBe(200);
         expect($request->attributes->get('statamic_user'))->toBe($mockUser);
         expect($request->attributes->get('mcp_token'))->toBeInstanceOf(McpTokenData::class);
+        expect($request->attributes->get('mcp_web_request'))->toBeTrue();
     });
 
     it('refuses a deactivated user holding a valid Bearer token', function () {

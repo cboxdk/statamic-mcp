@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main, develop]
 
+# Read-only token: this workflow builds and exercises the addon, it never
+# writes to the repo.
+permissions:
+  contents: read
+
 jobs:
   playwright:
     runs-on: ubuntu-latest
@@ -13,18 +18,22 @@ jobs:
 
     steps:
       - name: Checkout addon
-        uses: actions/checkout@v4
+        # actions/checkout@v4.4.0
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           path: addon
+          persist-credentials: false
 
       - name: Setup PHP
-        uses: shivammathur/setup-php@v2
+        # shivammathur/setup-php@2.40.0
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962
         with:
           php-version: '8.4'
           extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, intl
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        # actions/setup-node@v4.4.0
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
 

@@ -61,5 +61,11 @@ interface OAuthDriver
      */
     public function revokeRefreshToken(string $refreshToken): bool;
 
+    /**
+     * Revoke every refresh token issued for a given user and client, so that
+     * revoking the access token ends the whole grant. Returns the number removed.
+     */
+    public function revokeRefreshTokensFor(string $userId, string $clientId): int;
+
     public function prune(): int;
 }
