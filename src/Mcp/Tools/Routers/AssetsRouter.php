@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Validator;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Attributes\Title;
+use Statamic\Assets\AssetUploader;
 use Statamic\Contracts\Assets\Asset as AssetContract;
 use Statamic\Contracts\Assets\AssetContainer as AssetContainerContract;
 use Statamic\Facades\Asset;
@@ -81,7 +82,7 @@ class AssetsRouter extends BaseRouter
             'data' => JsonSchema::object()
                 ->description('Asset or container metadata. For assets: field values like alt, title. For containers: configuration like title, disk.'),
             'destination' => JsonSchema::string()
-                ->description('Destination path for move/copy operations. Example: "archive/old-hero.jpg"'),
+                ->description('New path for move/copy, filename included: "archive/old-hero.jpg". End it with "/" to keep the filename: "archive/". The extension cannot change.'),
             'filename' => JsonSchema::string()
                 ->description('Target filename for create/upload operations. Example: "logo.png", "document.pdf". The extension must be one Statamic accepts for uploads.'),
             'folder' => JsonSchema::string()
@@ -748,8 +749,13 @@ class AssetsRouter extends BaseRouter
                 return $this->createErrorResponse("Asset not found: {$container}::{$path}")->toArray();
             }
 
+            $target = $this->assetDestination($asset, $destination);
+            if (is_string($target)) {
+                return $this->createErrorResponse($target)->toArray();
+            }
+
             $oldPath = $asset->path();
-            $asset->move($destination);
+            $asset->move($target['folder'], $target['filename']);
             $asset->save();
 
             // Clear caches
@@ -793,7 +799,24 @@ class AssetsRouter extends BaseRouter
                 return $this->createErrorResponse("Asset not found: {$container}::{$path}")->toArray();
             }
 
-            $newAsset = $asset->copy($destination);
+            $target = $this->assetDestination($asset, $destination);
+            if (is_string($target)) {
+                return $this->createErrorResponse($target)->toArray();
+            }
+
+            // Statamic's Asset has no copy(); this used to call one and fail
+            // every time. Copy the file, then give the new asset the same data.
+            $newPath = ltrim($target['folder'] . '/' . AssetUploader::getSafeFilename($target['filename']) . '.' . $asset->extension(), '/');
+            $disk = $asset->container()->disk();
+
+            if ($disk->exists($newPath)) {
+                return $this->createErrorResponse("An asset already exists at {$container}::{$newPath}")->toArray();
+            }
+
+            $disk->copy($asset->path(), $newPath);
+
+            $newAsset = $asset->container()->makeAsset($newPath);
+            $newAsset->data($asset->data()->all());
             $newAsset->save();
 
             // Clear caches
@@ -1009,6 +1032,41 @@ class AssetsRouter extends BaseRouter
         }
 
         return (function_exists('mime_content_type') ? mime_content_type($path) : false) ?: 'application/octet-stream';
+    }
+
+    /**
+     * Split a move or copy destination into the folder and the filename
+     * (without extension) Statamic's move() takes.
+     *
+     * `destination` is the asset's new path — "archive/old-hero.jpg". A path
+     * ending in a slash, or without an extension, names a folder and keeps
+     * the filename, which is how it was read before. The extension cannot
+     * change: that is what keeps a stored image from becoming `.php`.
+     *
+     * @return array{folder: string, filename: string}|string the parts, or why it was refused
+     */
+    private function assetDestination(AssetContract $asset, string $destination): array|string
+    {
+        $extension = pathinfo($destination, PATHINFO_EXTENSION);
+
+        if (str_ends_with($destination, '/') || $extension === '') {
+            $folder = $this->assetFolder($destination);
+            $filename = $asset->filename();
+        } else {
+            if (strtolower($extension) !== strtolower($asset->extension())) {
+                return "The destination must keep the extension '.{$asset->extension()}'.";
+            }
+
+            $directory = dirname($destination);
+            $folder = $this->assetFolder($directory === '.' ? '' : $directory);
+            $filename = pathinfo($destination, PATHINFO_FILENAME);
+        }
+
+        if ($folder === null || $filename === '') {
+            return "destination must be a path inside the container, such as 'archive/hero.jpg', without '.' or '..' segments";
+        }
+
+        return ['folder' => $folder, 'filename' => $filename];
     }
 
     /**

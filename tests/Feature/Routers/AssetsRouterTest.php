@@ -266,10 +266,9 @@ class AssetsRouterTest extends TestCase
             'destination' => 'copied/source.txt',
         ]);
 
-        // Copy asset may fail depending on implementation
-        // The error could be about method not existing or file not found
-        $this->assertFalse($result['success']);
-        $this->assertNotEmpty($result['errors']);
+        // Behaviour is covered in depth by AssetMoveCopyTest.
+        $this->assertTrue($result['success'], json_encode($result['errors'] ?? []));
+        $this->assertSame('content to copy', Storage::disk('assets')->get('copied/source.txt'));
     }
 
     public function test_rename_asset(): void
