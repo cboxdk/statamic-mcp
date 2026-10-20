@@ -40,6 +40,10 @@ entry below is a code-execution hole on a typical PHP host.
 
 - **Discovery lists `localize`**, which `statamic-entries` has handled since 2.10.0. `statamic-system-schema` also caught up with the revision actions and `statamic-users` `search`.
 
+### Dependencies
+
+- **`symfony/http-foundation` 8.1.9** — earlier releases are affected by [CVE-2026-108082](https://symfony.com/cve-2026-108082), a ReDoS in `HeaderUtils::split()`. It reaches your site through Laravel, so this package does not pin it; run `composer update symfony/http-foundation`. The SBOM now records 8.1.9.
+
 ## [3.2.1] - 2026-10-13
 
 ### Fixed

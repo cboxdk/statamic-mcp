@@ -1,7 +1,7 @@
 {
     "bomFormat": "CycloneDX",
     "specVersion": "1.5",
-    "serialNumber": "urn:uuid:b851e328-2615-0c41-4a8f-f42125dc785d",
+    "serialNumber": "urn:uuid:167b9158-3d04-9f95-6e9f-09e8c7686701",
     "version": 1,
     "metadata": {
         "tools": [
@@ -3117,11 +3117,11 @@
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/symfony/http-foundation@v8.1.6",
+            "bom-ref": "pkg:composer/symfony/http-foundation@v8.1.9",
             "group": "symfony",
             "name": "http-foundation",
-            "version": "v8.1.6",
-            "purl": "pkg:composer/symfony/http-foundation@v8.1.6",
+            "version": "v8.1.9",
+            "purl": "pkg:composer/symfony/http-foundation@v8.1.9",
             "scope": "required",
             "licenses": [
                 {
@@ -3134,7 +3134,7 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "093b78326f649c3a9db922b9f17123b6aeb3b8fb"
+                    "content": "7850897fb8659f98491b03be79ac48600bdaf9ab"
                 }
             ]
         },
