@@ -567,13 +567,19 @@ describe('TermsRouter Permission Definitions', function () {
         expect($getPerms)->toBe(['view categories terms']);
     });
 
-    it('requires taxonomy-specific edit permission for create, update, delete', function () {
+    it('requires the matching taxonomy-specific permission for create, update, delete', function () {
         $router = new TermsRouter;
         $method = new ReflectionMethod($router, 'getRequiredPermissions');
 
-        foreach (['create', 'update', 'delete'] as $action) {
-            $perms = $method->invoke($router, $action, ['taxonomy' => 'tags']);
-            expect($perms)->toBe(['edit tags terms'], "Action '{$action}' should require 'edit tags terms'");
+        $expected = [
+            'create' => ['create tags terms'],
+            'update' => ['edit tags terms'],
+            'delete' => ['delete tags terms'],
+        ];
+
+        foreach ($expected as $action => $perms) {
+            expect($method->invoke($router, $action, ['taxonomy' => 'tags']))
+                ->toBe($perms, "Action '{$action}' permission");
         }
     });
 

@@ -1325,4 +1325,25 @@ class AssetsRouter extends BaseRouter
             return null;
         }
     }
+
+    /**
+     * The resource policy must see the same container the action acts on. A
+     * container action resolves `data.handle ?? handle` (create reads
+     * data.handle); an asset action resolves `container`. The default resolver
+     * tries `container` before `handle`, so a container create carrying an
+     * allowed `container` alongside a denied `data.handle` slipped past.
+     *
+     * @param  array<string, mixed>  $arguments
+     */
+    protected function resolveResourceHandle(array $arguments): ?string
+    {
+        if (($arguments['resource_type'] ?? null) === 'container') {
+            $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
+            $raw = $data['handle'] ?? $arguments['handle'] ?? null;
+        } else {
+            $raw = $arguments['container'] ?? null;
+        }
+
+        return is_string($raw) && $raw !== '' ? $raw : null;
+    }
 }

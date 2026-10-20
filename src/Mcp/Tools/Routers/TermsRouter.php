@@ -158,7 +158,9 @@ class TermsRouter extends BaseRouter
 
         return match ($action) {
             'list', 'get' => ["view {$taxonomy} terms"],
-            'create', 'update', 'delete' => ["edit {$taxonomy} terms"],
+            'create' => ["create {$taxonomy} terms"],
+            'update' => ["edit {$taxonomy} terms"],
+            'delete' => ["delete {$taxonomy} terms"],
             default => [],
         };
     }
@@ -413,6 +415,10 @@ class TermsRouter extends BaseRouter
             if (! empty($arguments['id'])) {
                 $termId = is_string($arguments['id']) ? $arguments['id'] : '';
                 $term = Term::find($termId);
+
+                if ($term !== null && $term->taxonomyHandle() !== $taxonomy) {
+                    $term = null;
+                }
             } elseif (! empty($arguments['slug'])) {
                 $term = Term::query()
                     ->where('taxonomy', $taxonomy)
@@ -542,6 +548,10 @@ class TermsRouter extends BaseRouter
             if (! empty($arguments['id'])) {
                 $termId = is_string($arguments['id']) ? $arguments['id'] : '';
                 $term = Term::find($termId);
+
+                if ($term !== null && $term->taxonomyHandle() !== $taxonomy) {
+                    $term = null;
+                }
             } elseif (! empty($arguments['slug'])) {
                 $term = Term::query()
                     ->where('taxonomy', $taxonomy)

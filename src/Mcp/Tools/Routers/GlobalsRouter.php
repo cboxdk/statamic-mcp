@@ -362,4 +362,19 @@ class GlobalsRouter extends BaseRouter
             'GlobalValues' => 'Global set values for a specific site',
         ];
     }
+
+    /**
+     * The resource policy must see the same global set the action resolves,
+     * which is `global_set ?? handle`. The default resolver only reads `handle`,
+     * so a `global_set` alone slipped past the policy and a `global_set` paired
+     * with an allowed `handle` let the policy approve the wrong set.
+     *
+     * @param  array<string, mixed>  $arguments
+     */
+    protected function resolveResourceHandle(array $arguments): ?string
+    {
+        $raw = $arguments['global_set'] ?? $arguments['handle'] ?? null;
+
+        return is_string($raw) && $raw !== '' ? $raw : null;
+    }
 }

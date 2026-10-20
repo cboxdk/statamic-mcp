@@ -377,6 +377,14 @@ trait HandlesRevisions
             return null;
         }
 
+        // Revision actions authorize `view|publish {collection} entries`, so an
+        // entry from another collection must read as "not found" — the same
+        // binding the id-addressed actions apply (see resolveEntryInCollection).
+        $collection = is_string($arguments['collection'] ?? null) ? $arguments['collection'] : '';
+        if ($entry->collectionHandle() !== $collection) {
+            return null;
+        }
+
         $site = $this->resolveSiteHandle($arguments);
 
         if ($entry->site()->handle() === $site) {

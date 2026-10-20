@@ -138,7 +138,7 @@ class ScopeAvailability
             ]),
 
             TokenScope::TermsRead => $this->holdsForAny($user, $this->taxonomyHandles(), fn (string $h): array => ["view {$h} terms"]),
-            TokenScope::TermsWrite => $this->holdsForAny($user, $this->taxonomyHandles(), fn (string $h): array => ["edit {$h} terms"]),
+            TokenScope::TermsWrite => $this->holdsForAny($user, $this->taxonomyHandles(), fn (string $h): array => ["create {$h} terms", "edit {$h} terms", "delete {$h} terms"]),
 
             // The globals router asks for the edit permission on reads too.
             TokenScope::GlobalsRead,

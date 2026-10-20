@@ -158,4 +158,22 @@ class StructuresRouter extends BaseRouter
 
         return ['super'];
     }
+
+    /**
+     * The resource policy must see the same resource the action acts on, which
+     * is `data.handle ?? handle` (create reads data.handle, the rest read
+     * handle). The default resolver tries `collection`/`taxonomy`/`container`
+     * first, so an unrelated extra key — e.g. a permitted `collection` alongside
+     * a denied `handle` — could satisfy the policy for a resource the handler
+     * never touches.
+     *
+     * @param  array<string, mixed>  $arguments
+     */
+    protected function resolveResourceHandle(array $arguments): ?string
+    {
+        $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
+        $raw = $data['handle'] ?? $arguments['handle'] ?? null;
+
+        return is_string($raw) && $raw !== '' ? $raw : null;
+    }
 }

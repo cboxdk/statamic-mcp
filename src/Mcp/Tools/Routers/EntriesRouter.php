@@ -298,7 +298,7 @@ class EntriesRouter extends BaseRouter
         $version = is_string($arguments['version'] ?? null) ? $arguments['version'] : 'published';
 
         try {
-            $entry = Entry::find($id);
+            $entry = $this->resolveEntryInCollection($id, $arguments);
 
             if ($entry === null) {
                 return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
@@ -697,7 +697,7 @@ class EntriesRouter extends BaseRouter
         $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
 
         try {
-            $entry = Entry::find($id);
+            $entry = $this->resolveEntryInCollection($id, $arguments);
 
             if ($entry === null) {
                 return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
@@ -841,7 +841,7 @@ class EntriesRouter extends BaseRouter
         $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
 
         try {
-            $entry = Entry::find($id);
+            $entry = $this->resolveEntryInCollection($id, $arguments);
 
             if ($entry === null) {
                 return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
@@ -1069,7 +1069,7 @@ class EntriesRouter extends BaseRouter
         $id = is_string($arguments['id']) ? $arguments['id'] : '';
 
         try {
-            $entry = Entry::find($id);
+            $entry = $this->resolveEntryInCollection($id, $arguments);
 
             if ($entry === null) {
                 return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
@@ -1109,7 +1109,7 @@ class EntriesRouter extends BaseRouter
         $id = is_string($arguments['id']) ? $arguments['id'] : '';
 
         try {
-            $entry = Entry::find($id);
+            $entry = $this->resolveEntryInCollection($id, $arguments);
 
             if ($entry === null) {
                 return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
@@ -1160,7 +1160,7 @@ class EntriesRouter extends BaseRouter
         $id = is_string($arguments['id']) ? $arguments['id'] : '';
 
         try {
-            $entry = Entry::find($id);
+            $entry = $this->resolveEntryInCollection($id, $arguments);
 
             if ($entry === null) {
                 return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
@@ -1227,5 +1227,30 @@ class EntriesRouter extends BaseRouter
         return [
             'entry' => 'Collection-based content items',
         ];
+    }
+
+    /**
+     * Resolve an entry by id, but only within the collection the caller named.
+     *
+     * Permission and resource-policy checks are keyed on the `collection`
+     * argument, so an entry belonging to any other collection must read as
+     * "not found": otherwise a caller authorized on collection A could reach,
+     * change or delete an entry in collection B by passing A's handle with B's
+     * id. The Control Panel binds the same way by deriving the collection from
+     * the entry itself.
+     *
+     * @param  array<string, mixed>  $arguments
+     */
+    private function resolveEntryInCollection(string $id, array $arguments): ?EntryContract
+    {
+        $entry = Entry::find($id);
+
+        if ($entry === null) {
+            return null;
+        }
+
+        $collection = is_string($arguments['collection'] ?? null) ? $arguments['collection'] : '';
+
+        return $entry->collectionHandle() === $collection ? $entry : null;
     }
 }
