@@ -9,6 +9,7 @@ use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\HandlesRevisions;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ParsesDateValues;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\SanitizesFieldData;
+use Cboxdk\StatamicMcp\Support\McpContext;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\Support\Collection as SupportCollection;
@@ -20,6 +21,7 @@ use Laravel\Mcp\Server\Attributes\Title;
 use Statamic\Contracts\Entries\Entry as EntryContract;
 use Statamic\Facades\Collection;
 use Statamic\Facades\Entry;
+use Statamic\Facades\User;
 use Statamic\Fields\Blueprint;
 use Statamic\Fields\Field;
 use Statamic\Fields\Validator as FieldsValidator;
@@ -302,6 +304,10 @@ class EntriesRouter extends BaseRouter
 
             if ($entry === null) {
                 return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
+            }
+
+            if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
+                return $policyError;
             }
 
             // Get entry for specific site if needed
@@ -703,6 +709,10 @@ class EntriesRouter extends BaseRouter
                 return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
             }
 
+            if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
+                return $policyError;
+            }
+
             $collection = $entry->collection();
 
             if (! in_array($site, $collection->sites()->all(), true)) {
@@ -845,6 +855,10 @@ class EntriesRouter extends BaseRouter
 
             if ($entry === null) {
                 return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
+            }
+
+            if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
+                return $policyError;
             }
 
             // Get entry for specific site
@@ -1075,6 +1089,10 @@ class EntriesRouter extends BaseRouter
                 return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
             }
 
+            if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
+                return $policyError;
+            }
+
             $entryData = [
                 'id' => $entry->id(),
                 'slug' => $entry->slug(),
@@ -1113,6 +1131,10 @@ class EntriesRouter extends BaseRouter
 
             if ($entry === null) {
                 return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
+            }
+
+            if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
+                return $policyError;
             }
 
             /** @var \Statamic\Entries\Entry $entry */
@@ -1164,6 +1186,10 @@ class EntriesRouter extends BaseRouter
 
             if ($entry === null) {
                 return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
+            }
+
+            if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
+                return $policyError;
             }
 
             /** @var \Statamic\Entries\Entry $entry */
@@ -1238,6 +1264,44 @@ class EntriesRouter extends BaseRouter
      * change or delete an entry in collection B by passing A's handle with B's
      * id. The Control Panel binds the same way by deriving the collection from
      * the entry itself.
+     *
+     * @param  array<string, mixed>  $arguments
+     */
+    /**
+     * Apply Statamic's EntryPolicy to the resolved entry, so an MCP write obeys
+     * the same author-ownership and per-site rules the Control Panel enforces.
+     * The flat per-collection permission has already been checked; this adds the
+     * "other authors {collection} entries" and "access {site} site" conditions
+     * the policy carries. CLI is the trusted operator and super admins pass via
+     * the policy's own `before()`.
+     *
+     * @return array<string, mixed>|null an error response, or null when allowed
+     */
+    private function authorizeResolvedEntry(string $fn, EntryContract $entry): ?array
+    {
+        if (! McpContext::isWebRequest()) {
+            return null;
+        }
+
+        $ability = match ($fn) {
+            'getEntry' => 'view',
+            'deleteEntry' => 'delete',
+            'publishEntry', 'unpublishEntry' => 'publish',
+            default => 'edit',
+        };
+
+        /** @var \Statamic\Contracts\Auth\User|null $user */
+        $user = User::current();
+
+        if ($user === null || ! $user->can($ability, $entry)) {
+            return $this->createErrorResponse("Permission denied: your account may not {$ability} this entry (author or site restriction)")->toArray();
+        }
+
+        return null;
+    }
+
+    /**
+     * Resolve an entry by id, but only within the collection the caller named.
      *
      * @param  array<string, mixed>  $arguments
      */
