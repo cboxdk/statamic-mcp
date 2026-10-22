@@ -6,6 +6,7 @@ namespace Cboxdk\StatamicMcp\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Route;
 use Laravel\Mcp\Server\Middleware\AddWwwAuthenticateHeader;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -38,6 +39,14 @@ class SetOAuthWwwAuthenticate extends AddWwwAuthenticateHeader
             return $response;
         }
 
+        // laravel/mcp 1.0 also pushes this middleware onto the kernel as
+        // global middleware, so it sees every 401 on the site. Only answer
+        // for routes that carry it, as the parent class does — otherwise an
+        // app's own challenge (e.g. HTTP Basic Auth) is overwritten.
+        if (! $this->isMcpRoute($request)) {
+            return $response;
+        }
+
         if (! (bool) config('statamic.mcp.oauth.enabled', true)) {
             $response->headers->set('WWW-Authenticate', 'Bearer realm="mcp", error="invalid_token"');
 
@@ -52,5 +61,13 @@ class SetOAuthWwwAuthenticate extends AddWwwAuthenticateHeader
         );
 
         return $response;
+    }
+
+    private function isMcpRoute(Request $request): bool
+    {
+        $route = $request->route();
+
+        return $route instanceof Route
+            && in_array(AddWwwAuthenticateHeader::class, app('router')->gatherRouteMiddleware($route), true);
     }
 }
