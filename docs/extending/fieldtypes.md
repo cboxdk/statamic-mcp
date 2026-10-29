@@ -97,6 +97,12 @@ into a message a client can act on. Include it in every error you throw.
 Sanitizers run wherever field data is sanitized, so they apply inside replicator
 sets, grid rows, bard sets and groups as well as at the top level.
 
+The string fieldtypes — `text`, `textarea`, `slug`, `markdown`, `color`, `link`
+and `video` — already have a built-in check: a string passes, a number is cast
+to one, and anything else is refused. Registering a sanitizer for one of them
+replaces that check rather than running after it, so your sanitizer decides
+what the field accepts.
+
 ## Introspection and tests
 
 `FieldtypeExtensions::registered()` lists the handles that have a spec or a
