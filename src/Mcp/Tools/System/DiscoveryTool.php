@@ -143,20 +143,25 @@ class DiscoveryTool extends BaseStatamicTool
         // same way. Without this an intent such as "seo" only ever reaches the
         // built-in routers, even on a site whose SEO package registered a tool.
         foreach ($this->extraTools() as $tool) {
-            $score = 0;
-            foreach ($tool->discoveryKeywords() as $keyword) {
-                $keyword = strtolower(trim($keyword));
-                if ($keyword !== '' && str_contains($intent, $keyword)) {
-                    $score++;
+            // Another package's code: one that throws or returns junk is left
+            // out rather than taking discovery down for every client.
+            try {
+                $score = 0;
+                foreach ($this->normalizedKeywords($tool->discoveryKeywords()) as $keyword) {
+                    if (str_contains($intent, $keyword)) {
+                        $score++;
+                    }
                 }
-            }
-            if ($score > 0) {
-                $matches[] = [
-                    'tool' => $tool->name(),
-                    'reason' => $tool->discoveryReason(),
-                    'access' => $this->accessPath($tool->name()),
-                    '_score' => $score,
-                ];
+                if ($score > 0) {
+                    $matches[] = [
+                        'tool' => $tool->name(),
+                        'reason' => $tool->discoveryReason(),
+                        'access' => $this->accessPath($tool->name()),
+                        '_score' => $score,
+                    ];
+                }
+            } catch (\Throwable) {
+                continue;
             }
         }
 
@@ -169,6 +174,27 @@ class DiscoveryTool extends BaseStatamicTool
 
             return $match;
         }, $matches);
+    }
+
+    /**
+     * Lower-cased, trimmed and de-duplicated, so a repeated keyword cannot
+     * outrank the built-in routers and a blank one cannot match every intent.
+     *
+     * @param  array<mixed>  $keywords
+     *
+     * @return list<string>
+     */
+    private function normalizedKeywords(array $keywords): array
+    {
+        $normalized = [];
+
+        foreach ($keywords as $keyword) {
+            if (is_string($keyword) && ($keyword = strtolower(trim($keyword))) !== '') {
+                $normalized[$keyword] = true;
+            }
+        }
+
+        return array_keys($normalized);
     }
 
     /**

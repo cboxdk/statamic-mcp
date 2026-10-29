@@ -108,7 +108,9 @@ routers use, and recommendations are ranked by points (a tie keeps the built-in 
 first). The recommendation's reason is the first sentence of your tool's description;
 override `discoveryReason()` to say something else. A tool that declares no keywords is
 never recommended, and one switched off with `statamic.mcp.tools.{domain}.enabled` is
-left out like it is from the catalog.
+left out like it is from the catalog. A keyword counts once however often it is listed,
+and a tool whose `discoveryKeywords()` or `discoveryReason()` throws is left out rather
+than failing discovery.
 
 ## How it is gated
 

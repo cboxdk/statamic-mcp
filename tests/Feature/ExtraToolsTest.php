@@ -9,6 +9,7 @@ use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
 use Cboxdk\StatamicMcp\Mcp\Tools\System\DiscoveryTool;
 use Cboxdk\StatamicMcp\Mcp\Tools\System\SchemaTool;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
+use Cboxdk\StatamicMcp\Tests\Fixtures\ExtraTools\BrokenKeywordsExtraRouter;
 use Cboxdk\StatamicMcp\Tests\Fixtures\ExtraTools\KeywordedExtraRouter;
 use Cboxdk\StatamicMcp\Tests\Fixtures\ExtraTools\PermissionedExtraRouter;
 use Cboxdk\StatamicMcp\Tests\Fixtures\ExtraTools\SystemScopedExtraRouter;
@@ -239,6 +240,16 @@ it('ignores a blank keyword', function () {
     StatamicMcpServer::registerTool(KeywordedExtraRouter::class);
 
     expect(array_column(discoverRecommends('manage blog entries'), 'tool'))->not->toContain('fixture-seo');
+});
+
+it('leaves out an extra tool whose keywords throw, and keeps recommending the rest', function () {
+    StatamicMcpServer::registerTool(BrokenKeywordsExtraRouter::class);
+    StatamicMcpServer::registerTool(KeywordedExtraRouter::class);
+
+    $tools = array_column(discoverRecommends('fix the seo canonical of a page'), 'tool');
+
+    expect($tools[0])->toBe('fixture-seo')
+        ->and($tools)->toContain('statamic-entries');
 });
 
 it('gives the whole description as the reason when it has no sentence end', function () {

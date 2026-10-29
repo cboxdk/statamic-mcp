@@ -46,7 +46,10 @@ list, meaning "any one of these" (used by the blueprint read actions).
 or `statamic.mcp.extra_tools`). They must extend `BaseRouter`, and `RouterHelpers::checkWebPermissions()`
 fails closed for them twice: a domain with no `TokenScope` requires `*`, and an empty
 `getRequiredPermissions()` requires a super admin. Built-in routers are not affected by
-either rule. `statamic-system-schema` describes extra tools from `BaseRouter::catalogEntry()`.
+either rule. `statamic-system-schema` describes extra tools from `BaseRouter::catalogEntry()`,
+and `statamic-system-discover` recommends one only when it declares `discoveryKeywords()`.
+Discovery calls that third-party code inside a `try/catch`, so one faulty tool is skipped
+instead of failing discovery for every client.
 
 ### Middleware
 - `HandleMcpCors` — CORS headers for browser-based clients (only when `allowed_origins` configured)

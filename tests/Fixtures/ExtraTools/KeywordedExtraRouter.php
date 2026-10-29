@@ -20,7 +20,7 @@ class KeywordedExtraRouter extends BaseRouter
      */
     public function discoveryKeywords(): array
     {
-        return ['seo', 'meta description', 'Canonical', ' '];
+        return ['seo', 'meta description', 'Canonical', ' ', 'SEO '];
     }
 
     protected function getDomain(): string

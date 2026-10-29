@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Extra tools can be recommended by `statamic-system-discover`** — a router another package registers can return `discoveryKeywords()`; discovery scores them like the built-in routers' keywords and recommends the tool with the first sentence of its description as the reason (`discoveryReason()` to change it) and the right access path (`listed_in_catalog` or `via_execute_tools`). Before, discovery only ever recommended the built-in routers, so an intent such as "change a page's SEO title" pointed at `statamic-entries` and `statamic-globals` even on a site whose SEO package registered its own tool. `discoveryKeywords()` returns none by default, so existing tools are unaffected; a switched-off tool is never recommended. See [Extending: tools](docs/extending/tools.md).
+- **Extra tools can be recommended by `statamic-system-discover`** — a router another package registers can return `discoveryKeywords()`; discovery scores them like the built-in routers' keywords and recommends the tool with the first sentence of its description as the reason (`discoveryReason()` to change it) and the right access path (`listed_in_catalog` or `via_execute_tools`). Before, discovery only ever recommended the built-in routers, so an intent such as "change a page's SEO title" pointed at `statamic-entries` and `statamic-globals` even on a site whose SEO package registered its own tool. `discoveryKeywords()` returns none by default, so existing tools are unaffected; a switched-off tool is never recommended, and one that throws is skipped. See [Extending: tools](docs/extending/tools.md).
 
 ### Fixed
 
