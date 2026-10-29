@@ -96,9 +96,17 @@ A 3.3.0 security audit hardened the tool layer. Keep these when touching routers
   records.
 - **`resolveResourceHandle()` must name the same resource the handler acts on.**
   `GlobalsRouter` (`global_set ?? handle`), `StructuresRouter` and `AssetsRouter`
-  (`data.handle ?? handle` / `container`) override it for exactly this reason;
-  the default priority list would otherwise let an unrelated allowed argument
-  satisfy the policy for a denied target.
+  (`container` for assets; `handle` for containers, `data.handle` only on
+  create) override it for exactly this reason; the default priority list would
+  otherwise let an unrelated allowed argument satisfy the policy for a denied
+  target.
+- **A router's permission check is `getRequiredPermissions()`, and it names
+  real Statamic permissions.** `AssetsRouter`'s handlers once re-checked
+  invented ones (`create assets`, `edit asset_containers`) and locked every
+  non-super editor out (#78). Mirror Statamic's own policy instead —
+  `configure asset containers` satisfies every asset action, as in
+  `AssetPolicy::before()`, and `copy` needs `upload` like `DuplicateAsset`.
+  An unscoped `list` has no handle to check, so it filters per item.
 - **`statamic-users` must not exceed the caller's own authority:** only a super
   admin grants `super` (in a role or via the flag); attaching `data.roles`
   (user create, group create/update) requires `assign roles`; changing another

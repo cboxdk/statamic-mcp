@@ -210,6 +210,15 @@ Asset container and file operations. Requires a `resource_type` parameter (`cont
 | `upload` | asset | Upload a file | `container`, `folder`, one of `source_url` / `content`+`encoding`+`filename` / `file_path` |
 | `move` | asset | Move asset | `container`, `path`, `destination` |
 | `copy` | asset | Copy asset with its data | `container`, `path`, `destination` |
+| `create` | asset | Create a file from inline content | `container`, `filename`, `content` |
+| `update` | asset | Update asset data (alt, title, …) | `container`, `path`, `data` |
+| `delete` | asset | Delete asset | `container`, `path` |
+
+Each action asks for the Statamic permission the Control Panel would, on the container it
+acts on: `view {container} assets` to list and get, `upload` to upload, create and copy,
+`edit` to update, `move` to move and `delete` to delete. `configure asset containers` covers
+all of them, and is what creating, updating and deleting a container requires. Listing
+containers returns only the ones the caller can view and the resource policy allows.
 
 `upload` takes the file one of three ways:
 
@@ -228,7 +237,6 @@ own allowed-extensions check, as a Control Panel upload does; a site widens it w
 For `move` and `copy`, `destination` is the new path with the filename:
 `archive/old-hero.jpg`. End it with `/` to keep the filename. The extension cannot
 change. `copy` refuses to overwrite an existing file.
-| `delete` | asset | Delete asset | `container`, `path` |
 
 ### `statamic-users`
 
@@ -308,6 +316,8 @@ sets and grid rows.
 ### `statamic-system-discover`
 
 Intent-based tool discovery. Describe what you want to do and the tool suggests which MCP tool and action to use.
+Tools that other packages register are recommended too, when they declare discovery
+keywords; see [Extending: tools](../extending/tools.md#be-recommended-by-discovery).
 
 ### `statamic-system-schema`
 

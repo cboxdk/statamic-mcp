@@ -1341,19 +1341,19 @@ class AssetsRouter extends BaseRouter
     }
 
     /**
-     * The resource policy must see the same container the action acts on. A
-     * container action resolves `data.handle ?? handle` (create reads
-     * data.handle); an asset action resolves `container`. The default resolver
+     * The resource policy must see the same container the action acts on:
+     * `data.handle ?? handle` for a container create, `handle` for every other
+     * container action, `container` for an asset action. The default resolver
      * tries `container` before `handle`, so a container create carrying an
-     * allowed `container` alongside a denied `data.handle` slipped past.
+     * allowed `container` alongside a denied `data.handle` slipped past; and
+     * preferring `data.handle` for update and delete let an allowed name there
+     * cover a denied `handle`.
      *
      * @param  array<string, mixed>  $arguments
      */
     protected function resolveResourceHandle(array $arguments): ?string
     {
         if (($arguments['resource_type'] ?? null) === 'container') {
-            // Only create names its container in data.handle; get, update and
-            // delete act on the top-level handle whatever data carries.
             $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
             $raw = ($arguments['action'] ?? null) === 'create'
                 ? $data['handle'] ?? $arguments['handle'] ?? null

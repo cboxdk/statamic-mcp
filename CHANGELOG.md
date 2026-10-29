@@ -7,23 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.0] - 2026-10-29
+
+Non-super editors can work with assets again, string fields stop accepting values
+that break a record, and tools from other packages can be recommended by discovery.
+
+**Some writes that used to succeed are now refused:** a list, boolean or object sent to
+a string field, an asset `copy` by a caller without `upload {container} assets`, and a
+container `get`/`update`/`delete` whose `handle` the resource policy denies.
+
 ### Added
 
-- **Extra tools can be recommended by `statamic-system-discover`** — a router another package registers can return `discoveryKeywords()`; discovery scores them like the built-in routers' keywords and recommends the tool with the first sentence of its description as the reason (`discoveryReason()` to change it) and the right access path (`listed_in_catalog` or `via_execute_tools`). Before, discovery only ever recommended the built-in routers, so an intent such as "change a page's SEO title" pointed at `statamic-entries` and `statamic-globals` even on a site whose SEO package registered its own tool. `discoveryKeywords()` returns none by default, so existing tools are unaffected; a switched-off tool is never recommended, and one that throws is skipped. See [Extending: tools](docs/extending/tools.md).
-
-### Fixed
-
-- **String fields refuse values that are not strings** (#77) — a `text`, `textarea`, `slug`, `markdown`, `color`, `link` or `video` field had no input check, and Statamic's own rules let a list through (`required` passes for a non-empty array). So `title: ["a", "b"]` was saved and the entry broke when it was rendered. These fields now take a string, cast a number to one, and refuse anything else with an error naming the field, at every level of a record. A value already stored does not block updates to other fields, and a sanitizer registered through `FieldtypeExtensions` replaces the built-in check.
-- **Field errors inside sets name the full path** — a bad value in a replicator set, grid row, bard set or group was reported by its own handle alone (`[text]`); it is now reported as `[page_builder.0.text]`.
-- **Editors with per-container asset permissions can use `statamic-assets` again** (#78) — every write handler re-checked a permission Statamic does not have (`create assets`, `edit assets`, `create asset_containers`, …) after the outer check had already enforced the real one (`upload {container} assets`, `configure asset containers`, …), so only super admins could upload, update, move, copy or delete assets, or manage containers. The redundant inner checks are gone; the per-container checks still apply.
-- **Container `list` shows the containers the caller can view** (#78) — it required `configure asset containers` and then returned every container, ignoring the resource policy. It now lists each container the resource policy allows reading and the caller can view (`view {container} assets`, or `configure asset containers`).
-- **Container `get` checks the container it returns** — the permission was keyed on `container` while the handler read `handle`, so a caller allowed on one container could read another's configuration.
-- **`configure asset containers` covers every asset action**, as it does in Statamic's `AssetPolicy`. A per-container action used to demand the per-container permission alone, so a container admin was refused uploads and edits.
+- **Extra tools can be recommended by `statamic-system-discover`** (#76, thanks @illia-sapryga) — a router another package registers can return `discoveryKeywords()`; discovery scores them like the built-in routers' keywords and recommends the tool with the first sentence of its description as the reason (`discoveryReason()` to change it) and the right access path (`listed_in_catalog` or `via_execute_tools`). Before, discovery only ever recommended the built-in routers, so an intent such as "change a page's SEO title" pointed at `statamic-entries` and `statamic-globals` even on a site whose SEO package registered its own tool. `discoveryKeywords()` returns none by default, so existing tools are unaffected. A switched-off tool is never recommended, a keyword counts once however often it is listed, and a tool whose keywords or reason throw is skipped rather than failing discovery. See [Extending: tools](docs/extending/tools.md#be-recommended-by-discovery).
 
 ### Security
 
-- **Container `get`, `update` and `delete` check the resource policy on the container they act on** — the policy was checked on `data.handle` when present, while those handlers act on the top-level `handle`, so an allowed name in `data.handle` let a caller read, change or delete a container the policy denies. Only `create` names its container in `data.handle`.
-- **Asset `copy` requires `upload {container} assets`**, as Statamic's own duplicate action does. It used to require `move`, so an editor who could move but not upload could create new assets.
+- **Container `get`, `update` and `delete` check the resource policy on the container they act on** (#79) — the policy was checked on `data.handle` when present, while those handlers act on the top-level `handle`, so an allowed name in `data.handle` let a caller read, change or delete a container the policy denies. Only `create` names its container in `data.handle`.
+- **Container `get` checks the permission on the container it returns** (#79) — the permission was keyed on `container` while the handler read `handle`, so a caller allowed to view one container could read another's configuration.
+- **Asset `copy` requires `upload {container} assets`** (#79), as Statamic's own duplicate action does. It used to require `move`, so an editor who could move but not upload could create new assets.
+
+### Fixed
+
+- **Editors with per-container asset permissions can use `statamic-assets` again** (#78, #79) — every write handler re-checked a permission Statamic does not have (`create assets`, `edit assets`, `create asset_containers`, …) after the outer check had already enforced the real one (`upload {container} assets`, `configure asset containers`, …), so only super admins could upload, update, move, copy or delete assets, or manage containers. The redundant inner checks are gone; the per-container checks still apply.
+- **`configure asset containers` covers every asset action** (#79), as it does in Statamic's `AssetPolicy`. A per-container action used to demand the per-container permission alone, so a container admin was refused uploads and edits.
+- **Container `list` shows the containers the caller can view** (#78, #79) — it required `configure asset containers` and then returned every container, ignoring the resource policy. It now lists each container the resource policy allows reading and the caller can view.
+- **String fields refuse values that are not strings** (#77, #80) — a `text`, `textarea`, `slug`, `markdown`, `color`, `link` or `video` field had no input check, and Statamic's own rules let a list through (`required` passes for a non-empty array). So `title: ["a", "b"]` was saved and the entry broke when it was rendered. These fields now take a string, cast a number to one, and refuse anything else with an error naming the field, at every level of a record. A value already stored does not block updates to other fields, and a sanitizer registered through `FieldtypeExtensions` replaces the built-in check.
+- **Field errors inside sets name the full path** (#80) — a bad value in a replicator set, grid row, bard set or group was reported by its own handle alone (`[text]`); it is now reported as `[page_builder.0.text]`.
+
+### Documentation
+
+- `docs/tools/overview.md` lists the Statamic permission each asset action requires, and the `create`, `update` and `delete` asset rows that were missing from or outside its table.
+
+## [3.4.1] - 2026-10-23
+
+### Fixed
+
+- **The OAuth `WWW-Authenticate` rewrite is kept to MCP routes** (#75, thanks @jasonbaciulis) — laravel/mcp 1.0 also registers the middleware globally, so it rewrote every 401 on the site and overwrote an app's own challenge, such as HTTP Basic Auth. It now only answers on routes that carry it.
 
 ## [3.4.0] - 2026-10-20
 
@@ -665,6 +684,10 @@ straight to the fix. Thanks to @JorisOrangeStudio and @revans-premier-education.
 - Laravel MCP v0.2.0 integration
 - Comprehensive test suite
 
+[Unreleased]: https://github.com/cboxdk/statamic-mcp/compare/v3.5.0...HEAD
+[3.5.0]: https://github.com/cboxdk/statamic-mcp/compare/v3.4.1...v3.5.0
+[3.4.1]: https://github.com/cboxdk/statamic-mcp/compare/v3.4.0...v3.4.1
+[3.4.0]: https://github.com/cboxdk/statamic-mcp/compare/v3.3.0...v3.4.0
 [3.3.0]: https://github.com/cboxdk/statamic-mcp/compare/v3.2.1...v3.3.0
 [3.2.1]: https://github.com/cboxdk/statamic-mcp/compare/v3.2.0...v3.2.1
 [3.2.0]: https://github.com/cboxdk/statamic-mcp/compare/v3.1.0...v3.2.0
