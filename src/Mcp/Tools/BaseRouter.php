@@ -67,6 +67,35 @@ abstract class BaseRouter extends BaseStatamicTool
     }
 
     /**
+     * Words in an intent that make statamic-system-discover recommend this tool.
+     *
+     * Matched like the built-in routers' keywords: each one found in the
+     * lower-cased intent adds a point, and tools are ranked by points. Only
+     * read for tools another package registers; empty by default, so a tool
+     * that declares none is never recommended.
+     *
+     * @return list<string>
+     */
+    public function discoveryKeywords(): array
+    {
+        return [];
+    }
+
+    /**
+     * The reason statamic-system-discover gives when it recommends this tool.
+     *
+     * Defaults to the first sentence of the tool's description.
+     */
+    public function discoveryReason(): string
+    {
+        $description = trim($this->description());
+
+        return preg_match('/^.+?[.!?](?=\s|$)/s', $description, $match) === 1
+            ? $match[0]
+            : $description;
+    }
+
+    /**
      * Map the router's domain to a config key for shouldRegister().
      */
     protected function getToolDomain(): ?string

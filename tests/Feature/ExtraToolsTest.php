@@ -9,6 +9,7 @@ use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
 use Cboxdk\StatamicMcp\Mcp\Tools\System\DiscoveryTool;
 use Cboxdk\StatamicMcp\Mcp\Tools\System\SchemaTool;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
+use Cboxdk\StatamicMcp\Tests\Fixtures\ExtraTools\KeywordedExtraRouter;
 use Cboxdk\StatamicMcp\Tests\Fixtures\ExtraTools\PermissionedExtraRouter;
 use Cboxdk\StatamicMcp\Tests\Fixtures\ExtraTools\SystemScopedExtraRouter;
 use Cboxdk\StatamicMcp\Tests\Fixtures\ExtraTools\UnscopedExtraRouter;
@@ -172,6 +173,85 @@ it('tells the discovery tool about a listed extra tool', function () {
     $names = (new ReflectionMethod(DiscoveryTool::class, 'catalogToolNames'))->invoke(app(DiscoveryTool::class));
 
     expect($names)->toContain('fixture-site-health');
+});
+
+/**
+ * The tools statamic-system-discover recommends for an intent, in order.
+ *
+ * @return list<array{tool: string, reason: string, access: string}>
+ */
+function discoverRecommends(string $intent): array
+{
+    /** @var array{success: bool, data: array{discovery: array{recommended_tools: list<array{tool: string, reason: string, access: string}>}}} $result */
+    $result = app(DiscoveryTool::class)->execute(['intent' => $intent]);
+
+    return $result['data']['discovery']['recommended_tools'];
+}
+
+it('recommends an extra tool for an intent that matches its keywords', function () {
+    StatamicMcpServer::registerTool(KeywordedExtraRouter::class);
+
+    $recommended = discoverRecommends('Change the SEO title and meta description of a page');
+
+    expect($recommended[0])->toBe([
+        'tool' => 'fixture-seo',
+        'reason' => 'Fixture: a page\'s SEO title and meta description.',
+        'access' => 'via_execute_tools',
+    ]);
+});
+
+it('ranks an extra tool by how many of its keywords the intent contains', function () {
+    StatamicMcpServer::registerTool(KeywordedExtraRouter::class);
+
+    // "page" is one point for statamic-entries and "seo" one for statamic-globals;
+    // "seo" and "canonical" (declared in capitals) are two for the extra tool.
+    $tools = array_column(discoverRecommends('fix the seo canonical of a page'), 'tool');
+
+    expect($tools[0])->toBe('fixture-seo')
+        ->and($tools)->toContain('statamic-entries', 'statamic-globals');
+
+    // One point each: the built-in routers keep their place ahead of a tie.
+    $tied = array_column(discoverRecommends('seo of a page'), 'tool');
+
+    expect($tied)->toBe(['statamic-entries', 'statamic-globals', 'fixture-seo']);
+});
+
+it('says an extra tool listed at connect time is in the catalog', function () {
+    StatamicMcpServer::registerTool(KeywordedExtraRouter::class, searchable: false);
+
+    expect(discoverRecommends('seo canonical')[0])->toMatchArray(['tool' => 'fixture-seo', 'access' => 'listed_in_catalog']);
+});
+
+it('never recommends an extra tool that is switched off', function () {
+    StatamicMcpServer::registerTool(KeywordedExtraRouter::class);
+    config()->set('statamic.mcp.tools.fixture-seo.enabled', false);
+
+    expect(array_column(discoverRecommends('seo canonical'), 'tool'))->not->toContain('fixture-seo');
+});
+
+it('recommends no extra tool that declares no keywords', function () {
+    StatamicMcpServer::registerTool(UnscopedExtraRouter::class);
+
+    expect(array_column(discoverRecommends('fixture site health get'), 'tool'))->not->toContain('fixture-site-health');
+});
+
+it('ignores a blank keyword', function () {
+    StatamicMcpServer::registerTool(KeywordedExtraRouter::class);
+
+    expect(array_column(discoverRecommends('manage blog entries'), 'tool'))->not->toContain('fixture-seo');
+});
+
+it('gives the whole description as the reason when it has no sentence end', function () {
+    $router = new class extends UnscopedExtraRouter
+    {
+        public function description(): string
+        {
+            return 'Report the site health';
+        }
+    };
+
+    expect($router->discoveryReason())->toBe('Report the site health')
+        ->and($router->discoveryKeywords())->toBe([]);
 });
 
 it('refuses a class that is not a router', function (string $class) {

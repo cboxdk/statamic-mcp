@@ -90,6 +90,26 @@ server's instructions and found with `search_tools`. List a tool at connect time
 when most sessions will use it. `statamic-system-discover` and `statamic-system-schema`
 both report extra tools.
 
+## Be recommended by discovery
+
+`statamic-system-discover` matches a client's intent against keywords and recommends the
+tools that score. Name the words that should send a client to your tool:
+
+```php
+/** @return list<string> */
+public function discoveryKeywords(): array
+{
+    return ['health', 'uptime', 'site status'];
+}
+```
+
+Each keyword found in the lower-cased intent adds a point, the same scoring the built-in
+routers use, and recommendations are ranked by points (a tie keeps the built-in router
+first). The recommendation's reason is the first sentence of your tool's description;
+override `discoveryReason()` to say something else. A tool that declares no keywords is
+never recommended, and one switched off with `statamic.mcp.tools.{domain}.enabled` is
+left out like it is from the catalog.
+
 ## How it is gated
 
 Exactly like a built-in router, in the same order:

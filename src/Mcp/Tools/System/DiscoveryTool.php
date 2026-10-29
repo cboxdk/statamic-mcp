@@ -9,6 +9,7 @@ use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\Mcp\ExtraTools;
 use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
+use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseStatamicTool;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Cboxdk\StatamicMcp\Support\McpContext;
@@ -138,6 +139,27 @@ class DiscoveryTool extends BaseStatamicTool
             }
         }
 
+        // Tools other packages registered bring their own keywords, scored the
+        // same way. Without this an intent such as "seo" only ever reaches the
+        // built-in routers, even on a site whose SEO package registered a tool.
+        foreach ($this->extraTools() as $tool) {
+            $score = 0;
+            foreach ($tool->discoveryKeywords() as $keyword) {
+                $keyword = strtolower(trim($keyword));
+                if ($keyword !== '' && str_contains($intent, $keyword)) {
+                    $score++;
+                }
+            }
+            if ($score > 0) {
+                $matches[] = [
+                    'tool' => $tool->name(),
+                    'reason' => $tool->discoveryReason(),
+                    'access' => $this->accessPath($tool->name()),
+                    '_score' => $score,
+                ];
+            }
+        }
+
         // Sort by relevance (highest score first)
         usort($matches, fn (array $a, array $b): int => $b['_score'] <=> $a['_score']);
 
@@ -147,6 +169,34 @@ class DiscoveryTool extends BaseStatamicTool
 
             return $match;
         }, $matches);
+    }
+
+    /**
+     * The tools other packages registered that a client is offered.
+     *
+     * Filtered by shouldRegister(), the check the catalog applies, so a tool an
+     * operator switched off is never recommended. A tool that cannot be resolved
+     * is skipped, as it is in catalogToolNames().
+     *
+     * @return list<BaseRouter>
+     */
+    private function extraTools(): array
+    {
+        $tools = [];
+
+        foreach (array_keys(ExtraTools::all()) as $class) {
+            try {
+                $tool = app($class);
+            } catch (\Throwable) {
+                continue;
+            }
+
+            if ($tool instanceof BaseRouter && $tool->shouldRegister()) {
+                $tools[] = $tool;
+            }
+        }
+
+        return $tools;
     }
 
     /**
