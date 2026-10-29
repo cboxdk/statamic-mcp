@@ -37,6 +37,13 @@ trait SanitizesFieldData
     /** `type` inside a bard set's values names the set, it is not a field handle. */
     private const BARD_SET_VALUE_KEYS = ['type'];
 
+    /**
+     * Fieldtypes that store a plain string. Anything else written to one is
+     * saved verbatim and breaks the record when it is rendered (#77). `code`
+     * is left out: a mode-selectable code field stores {code, mode}.
+     */
+    private const STRING_FIELDTYPES = ['text', 'textarea', 'slug', 'markdown', 'color', 'link', 'video'];
+
     /** Cap on handles listed back in an unknown-field error, so the message stays readable. */
     private const MAX_LISTED_HANDLES = 60;
 
@@ -161,7 +168,7 @@ trait SanitizesFieldData
                 $field,
                 $data[$handle],
                 $allowLegacyCoercion,
-                $handle
+                $path === '' ? $handle : "{$path}.{$handle}"
             );
         }
 
@@ -242,9 +249,39 @@ trait SanitizesFieldData
             'date' => $this->sanitizeDateValue($field, $value),
             'assets' => $this->normalizeAssetFieldValue($field, $value),
             'terms', 'entries', 'users', 'checkboxes' => $this->sanitizeRelationshipValue($value),
-            // Untouched unless a sanitizer is registered for the fieldtype.
-            default => FieldtypeExtensions::applySanitizer($field, $value, $path),
+            // A registered sanitizer replaces the built-in string check, so a
+            // site can still decide for itself what a string field accepts.
+            default => FieldtypeExtensions::hasSanitizer($field) || ! in_array($field->type(), self::STRING_FIELDTYPES, true)
+                ? FieldtypeExtensions::applySanitizer($field, $value, $path)
+                : $this->sanitizeStringValue($field, $value, $allowLegacyCoercion, $path),
         };
+    }
+
+    /**
+     * Accept a string, cast a number to one, and refuse anything else.
+     *
+     * Statamic's own rules let a list through (`required` passes for a
+     * non-empty array), so without this a text field saved ["a", "b"] and the
+     * entry then failed to render. Stored values are left alone so an update of
+     * another field does not fail on an old bad value; sending a string fixes it.
+     */
+    private function sanitizeStringValue(Field $field, mixed $value, bool $allowLegacyCoercion, string $path): mixed
+    {
+        if (is_string($value)) {
+            return $value;
+        }
+
+        if (is_int($value) || is_float($value)) {
+            return (string) $value;
+        }
+
+        if ($allowLegacyCoercion) {
+            return $value;
+        }
+
+        throw new FieldFormatException(
+            "Field [{$path}] is a {$field->type()} field and expects a string, received " . get_debug_type($value) . '.'
+        );
     }
 
     /**
