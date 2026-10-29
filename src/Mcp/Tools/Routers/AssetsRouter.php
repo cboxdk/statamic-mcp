@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
+use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Support\Http\FetchRefused;
 use Cboxdk\StatamicMcp\Support\Http\OutboundFetcher;
@@ -18,6 +19,7 @@ use Laravel\Mcp\Server\Attributes\Title;
 use Statamic\Assets\AssetUploader;
 use Statamic\Contracts\Assets\Asset as AssetContract;
 use Statamic\Contracts\Assets\AssetContainer as AssetContainerContract;
+use Statamic\Contracts\Auth\User;
 use Statamic\Facades\Asset;
 use Statamic\Facades\AssetContainer;
 use Statamic\Rules\AllowedFile;
@@ -184,11 +186,11 @@ class AssetsRouter extends BaseRouter
         try {
             $includeDetails = $this->getBooleanArgument($arguments, 'include_details', true);
             $includeCounts = $this->getBooleanArgument($arguments, 'include_counts', false);
-            $containers = AssetContainer::all()->map(function ($container) use ($includeDetails, $includeCounts) {
-                if (! $container instanceof AssetContainerContract) {
-                    return null;
-                }
-
+            // An unscoped list has no handle for the outer permission and
+            // resource-policy checks to key on, so each container is checked here.
+            $containers = AssetContainer::all()->filter(
+                fn ($container): bool => $container instanceof AssetContainerContract && $this->canListContainer($container->handle())
+            )->map(function (AssetContainerContract $container) use ($includeDetails, $includeCounts) {
                 $data = [
                     'handle' => $container->handle(),
                     'title' => $container->title(),
@@ -215,7 +217,7 @@ class AssetsRouter extends BaseRouter
                 }
 
                 return $data;
-            })->all();
+            })->values()->all();
 
             return [
                 'containers' => $containers,
@@ -276,10 +278,6 @@ class AssetsRouter extends BaseRouter
      */
     private function createContainer(array $arguments): array
     {
-        if (! $this->hasPermission('create', 'asset_containers')) {
-            return $this->createErrorResponse('Permission denied: Cannot create asset containers')->toArray();
-        }
-
         try {
             $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
             $handle = is_string($data['handle'] ?? null) ? $data['handle'] : (is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '');
@@ -330,10 +328,6 @@ class AssetsRouter extends BaseRouter
      */
     private function updateContainer(array $arguments): array
     {
-        if (! $this->hasPermission('edit', 'asset_containers')) {
-            return $this->createErrorResponse('Permission denied: Cannot update asset containers')->toArray();
-        }
-
         try {
             $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
             $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
@@ -378,10 +372,6 @@ class AssetsRouter extends BaseRouter
      */
     private function deleteContainer(array $arguments): array
     {
-        if (! $this->hasPermission('delete', 'asset_containers')) {
-            return $this->createErrorResponse('Permission denied: Cannot delete asset containers')->toArray();
-        }
-
         try {
             $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
             $container = AssetContainer::find($handle);
@@ -542,10 +532,6 @@ class AssetsRouter extends BaseRouter
      */
     private function createAsset(array $arguments): array
     {
-        if (! $this->hasPermission('create', 'assets')) {
-            return $this->createErrorResponse('Permission denied: Cannot create assets')->toArray();
-        }
-
         try {
             $container = is_string($arguments['container'] ?? null) ? $arguments['container'] : null;
             $filename = is_string($arguments['filename'] ?? null) ? $arguments['filename'] : null;
@@ -634,10 +620,6 @@ class AssetsRouter extends BaseRouter
      */
     private function updateAsset(array $arguments): array
     {
-        if (! $this->hasPermission('edit', 'assets')) {
-            return $this->createErrorResponse('Permission denied: Cannot update assets')->toArray();
-        }
-
         try {
             $container = is_string($arguments['container'] ?? null) ? $arguments['container'] : null;
             $path = is_string($arguments['path'] ?? null) ? $arguments['path'] : null;
@@ -685,10 +667,6 @@ class AssetsRouter extends BaseRouter
      */
     private function deleteAsset(array $arguments): array
     {
-        if (! $this->hasPermission('delete', 'assets')) {
-            return $this->createErrorResponse('Permission denied: Cannot delete assets')->toArray();
-        }
-
         try {
             $container = is_string($arguments['container'] ?? null) ? $arguments['container'] : null;
             $path = is_string($arguments['path'] ?? null) ? $arguments['path'] : null;
@@ -726,10 +704,6 @@ class AssetsRouter extends BaseRouter
      */
     private function moveAsset(array $arguments): array
     {
-        if (! $this->hasPermission('edit', 'assets')) {
-            return $this->createErrorResponse('Permission denied: Cannot move assets')->toArray();
-        }
-
         try {
             $container = is_string($arguments['container'] ?? null) ? $arguments['container'] : null;
             $path = is_string($arguments['path'] ?? null) ? $arguments['path'] : null;
@@ -786,10 +760,6 @@ class AssetsRouter extends BaseRouter
      */
     private function copyAsset(array $arguments): array
     {
-        if (! $this->hasPermission('create', 'assets')) {
-            return $this->createErrorResponse('Permission denied: Cannot copy assets')->toArray();
-        }
-
         try {
             $container = is_string($arguments['container'] ?? null) ? $arguments['container'] : null;
             $path = is_string($arguments['path'] ?? null) ? $arguments['path'] : null;
@@ -850,10 +820,6 @@ class AssetsRouter extends BaseRouter
      */
     private function uploadAsset(array $arguments): array
     {
-        if (! $this->hasPermission('create', 'assets')) {
-            return $this->createErrorResponse('Permission denied: Cannot upload assets')->toArray();
-        }
-
         try {
             $container = is_string($arguments['container'] ?? null) ? $arguments['container'] : null;
             $file_path = is_string($arguments['file_path'] ?? null) ? $arguments['file_path'] : null;
@@ -1204,18 +1170,31 @@ class AssetsRouter extends BaseRouter
     /**
      * Get required permissions for action.
      *
+     * Mirrors Statamic's AssetPolicy and AssetContainerPolicy, whose before()
+     * lets "configure asset containers" do anything a per-container
+     * permission allows.
+     *
      * @param  array<string, mixed>  $arguments
      *
-     * @return array<string>
+     * @return array<int, string|array<int, string>>
      */
     protected function getRequiredPermissions(string $action, array $arguments): array
     {
         $type = $arguments['resource_type'] ?? '';
         $container = is_string($arguments['container'] ?? null) ? $arguments['container'] : '';
 
+        $perContainer = fn (string $handle, string $ability): array => $handle !== ''
+            ? [["{$ability} {$handle} assets", 'configure asset containers']]
+            : ['configure asset containers'];
+
         if ($type === 'container') {
+            // getContainer() acts on `handle`, so the permission is keyed on it.
+            $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
+
             return match ($action) {
-                'list', 'get' => $container !== '' ? ["view {$container} assets"] : ['configure asset containers'],
+                // listContainers() filters per container.
+                'list' => [],
+                'get' => $perContainer($handle, 'view'),
                 'create', 'update', 'delete' => ['configure asset containers'],
                 default => ['super'],
             };
@@ -1223,17 +1202,44 @@ class AssetsRouter extends BaseRouter
 
         if ($type === 'asset') {
             return match ($action) {
-                'list', 'get' => $container !== '' ? ["view {$container} assets"] : ['configure asset containers'],
-                'upload', 'create' => $container !== '' ? ["upload {$container} assets"] : ['configure asset containers'],
-                'update' => $container !== '' ? ["edit {$container} assets"] : ['configure asset containers'],
-                'move', 'copy' => $container !== '' ? ["move {$container} assets"] : ['configure asset containers'],
-                'rename' => $container !== '' ? ["rename {$container} assets"] : ['configure asset containers'],
-                'delete' => $container !== '' ? ["delete {$container} assets"] : ['configure asset containers'],
+                'list', 'get' => $perContainer($container, 'view'),
+                'upload', 'create' => $perContainer($container, 'upload'),
+                'update' => $perContainer($container, 'edit'),
+                'move' => $perContainer($container, 'move'),
+                // A copy is a new asset; Statamic's DuplicateAsset authorizes store.
+                'copy' => $perContainer($container, 'upload'),
+                'rename' => $perContainer($container, 'rename'),
+                'delete' => $perContainer($container, 'delete'),
                 default => ['super'],
             };
         }
 
         return ['super'];
+    }
+
+    /**
+     * Whether a container belongs in an unscoped container list: the resource
+     * policy must allow reading it and, in web context, the caller must be able
+     * to view it.
+     */
+    private function canListContainer(string $handle): bool
+    {
+        /** @var ResourcePolicy $policy */
+        $policy = app(ResourcePolicy::class);
+
+        if (! $policy->canAccess($this->getDomain(), $handle, 'read')) {
+            return false;
+        }
+
+        if ($this->isCliContext()) {
+            return true;
+        }
+
+        /** @var User|null $user */
+        $user = auth()->user();
+
+        return $user !== null
+            && ($user->isSuper() || $user->hasPermission('configure asset containers') || $user->hasPermission("view {$handle} assets"));
     }
 
     /**
@@ -1346,8 +1352,12 @@ class AssetsRouter extends BaseRouter
     protected function resolveResourceHandle(array $arguments): ?string
     {
         if (($arguments['resource_type'] ?? null) === 'container') {
+            // Only create names its container in data.handle; get, update and
+            // delete act on the top-level handle whatever data carries.
             $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
-            $raw = $data['handle'] ?? $arguments['handle'] ?? null;
+            $raw = ($arguments['action'] ?? null) === 'create'
+                ? $data['handle'] ?? $arguments['handle'] ?? null
+                : $arguments['handle'] ?? null;
         } else {
             $raw = $arguments['container'] ?? null;
         }

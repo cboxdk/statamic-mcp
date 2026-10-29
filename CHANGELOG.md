@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Editors with per-container asset permissions can use `statamic-assets` again** (#78) — every write handler re-checked a permission Statamic does not have (`create assets`, `edit assets`, `create asset_containers`, …) after the outer check had already enforced the real one (`upload {container} assets`, `configure asset containers`, …), so only super admins could upload, update, move, copy or delete assets, or manage containers. The redundant inner checks are gone; the per-container checks still apply.
+- **Container `list` shows the containers the caller can view** (#78) — it required `configure asset containers` and then returned every container, ignoring the resource policy. It now lists each container the resource policy allows reading and the caller can view (`view {container} assets`, or `configure asset containers`).
+- **Container `get` checks the container it returns** — the permission was keyed on `container` while the handler read `handle`, so a caller allowed on one container could read another's configuration.
+- **`configure asset containers` covers every asset action**, as it does in Statamic's `AssetPolicy`. A per-container action used to demand the per-container permission alone, so a container admin was refused uploads and edits.
+
+### Security
+
+- **Container `get`, `update` and `delete` check the resource policy on the container they act on** — the policy was checked on `data.handle` when present, while those handlers act on the top-level `handle`, so an allowed name in `data.handle` let a caller read, change or delete a container the policy denies. Only `create` names its container in `data.handle`.
+- **Asset `copy` requires `upload {container} assets`**, as Statamic's own duplicate action does. It used to require `move`, so an editor who could move but not upload could create new assets.
+
 ## [3.4.0] - 2026-10-20
 
 This release closes every item from the **Known follow-ups** of 3.3.0 — the
