@@ -186,4 +186,59 @@ class AssetPermissionBoundaryTest extends TestCase
         $this->assertTrue($result['success'], json_encode($result) ?: '');
         $this->assertNotNull(AssetContainer::find($handle));
     }
+
+    public function test_container_writes_check_the_resource_policy_on_the_container_they_act_on(): void
+    {
+        config(['statamic.mcp.tools.assets.resources.read' => [$this->allowed]]);
+        config(['statamic.mcp.tools.assets.resources.write' => [$this->allowed]]);
+        $this->actAs(['configure asset containers']);
+
+        // An allowed name in data.handle must not cover a denied top-level handle.
+        foreach (['get', 'update', 'delete'] as $action) {
+            $result = $this->router->execute([
+                'action' => $action,
+                'resource_type' => 'container',
+                'handle' => $this->other,
+                'data' => ['handle' => $this->allowed, 'title' => 'Hijacked'],
+            ]);
+
+            $this->assertFalse($result['success'], "{$action} reached a denied container");
+        }
+
+        $this->assertNotNull(AssetContainer::find($this->other));
+        $this->assertSame('Docs', AssetContainer::find($this->other)?->title());
+    }
+
+    public function test_copy_requires_the_upload_permission(): void
+    {
+        Storage::disk('assets')->put('note.txt', 'hello');
+        $this->actAs(["view {$this->allowed} assets", "move {$this->allowed} assets"]);
+
+        $result = $this->router->execute([
+            'action' => 'copy',
+            'resource_type' => 'asset',
+            'container' => $this->allowed,
+            'path' => 'note.txt',
+            'destination' => 'copy.txt',
+        ]);
+
+        $this->assertFalse($result['success']);
+        $this->assertFalse(Storage::disk('assets')->exists('copy.txt'));
+    }
+
+    public function test_configure_asset_containers_covers_per_container_asset_actions(): void
+    {
+        $this->actAs(['configure asset containers']);
+
+        $result = $this->router->execute([
+            'action' => 'upload',
+            'resource_type' => 'asset',
+            'container' => $this->allowed,
+            'filename' => 'note.txt',
+            'content' => base64_encode('hello'),
+        ]);
+
+        $this->assertTrue($result['success'], json_encode($result) ?: '');
+        $this->assertNotNull(Asset::find("{$this->allowed}::note.txt"));
+    }
 }

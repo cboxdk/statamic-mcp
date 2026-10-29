@@ -1170,14 +1170,22 @@ class AssetsRouter extends BaseRouter
     /**
      * Get required permissions for action.
      *
+     * Mirrors Statamic's AssetPolicy and AssetContainerPolicy, whose before()
+     * lets "configure asset containers" do anything a per-container
+     * permission allows.
+     *
      * @param  array<string, mixed>  $arguments
      *
-     * @return array<string>
+     * @return array<int, string|array<int, string>>
      */
     protected function getRequiredPermissions(string $action, array $arguments): array
     {
         $type = $arguments['resource_type'] ?? '';
         $container = is_string($arguments['container'] ?? null) ? $arguments['container'] : '';
+
+        $perContainer = fn (string $handle, string $ability): array => $handle !== ''
+            ? [["{$ability} {$handle} assets", 'configure asset containers']]
+            : ['configure asset containers'];
 
         if ($type === 'container') {
             // getContainer() acts on `handle`, so the permission is keyed on it.
@@ -1186,7 +1194,7 @@ class AssetsRouter extends BaseRouter
             return match ($action) {
                 // listContainers() filters per container.
                 'list' => [],
-                'get' => $handle !== '' ? ["view {$handle} assets"] : ['configure asset containers'],
+                'get' => $perContainer($handle, 'view'),
                 'create', 'update', 'delete' => ['configure asset containers'],
                 default => ['super'],
             };
@@ -1194,12 +1202,14 @@ class AssetsRouter extends BaseRouter
 
         if ($type === 'asset') {
             return match ($action) {
-                'list', 'get' => $container !== '' ? ["view {$container} assets"] : ['configure asset containers'],
-                'upload', 'create' => $container !== '' ? ["upload {$container} assets"] : ['configure asset containers'],
-                'update' => $container !== '' ? ["edit {$container} assets"] : ['configure asset containers'],
-                'move', 'copy' => $container !== '' ? ["move {$container} assets"] : ['configure asset containers'],
-                'rename' => $container !== '' ? ["rename {$container} assets"] : ['configure asset containers'],
-                'delete' => $container !== '' ? ["delete {$container} assets"] : ['configure asset containers'],
+                'list', 'get' => $perContainer($container, 'view'),
+                'upload', 'create' => $perContainer($container, 'upload'),
+                'update' => $perContainer($container, 'edit'),
+                'move' => $perContainer($container, 'move'),
+                // A copy is a new asset; Statamic's DuplicateAsset authorizes store.
+                'copy' => $perContainer($container, 'upload'),
+                'rename' => $perContainer($container, 'rename'),
+                'delete' => $perContainer($container, 'delete'),
                 default => ['super'],
             };
         }
@@ -1342,8 +1352,12 @@ class AssetsRouter extends BaseRouter
     protected function resolveResourceHandle(array $arguments): ?string
     {
         if (($arguments['resource_type'] ?? null) === 'container') {
+            // Only create names its container in data.handle; get, update and
+            // delete act on the top-level handle whatever data carries.
             $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
-            $raw = $data['handle'] ?? $arguments['handle'] ?? null;
+            $raw = ($arguments['action'] ?? null) === 'create'
+                ? $data['handle'] ?? $arguments['handle'] ?? null
+                : $arguments['handle'] ?? null;
         } else {
             $raw = $arguments['container'] ?? null;
         }
