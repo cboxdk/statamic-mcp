@@ -1,7 +1,7 @@
 {
     "bomFormat": "CycloneDX",
     "specVersion": "1.5",
-    "serialNumber": "urn:uuid:167b9158-3d04-9f95-6e9f-09e8c7686701",
+    "serialNumber": "urn:uuid:cdc6822b-23d1-57c7-3e64-28f848e838b6",
     "version": 1,
     "metadata": {
         "tools": [
@@ -3209,11 +3209,11 @@
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/symfony/mime@v8.1.6",
+            "bom-ref": "pkg:composer/symfony/mime@v8.1.10",
             "group": "symfony",
             "name": "mime",
-            "version": "v8.1.6",
-            "purl": "pkg:composer/symfony/mime@v8.1.6",
+            "version": "v8.1.10",
+            "purl": "pkg:composer/symfony/mime@v8.1.10",
             "scope": "required",
             "licenses": [
                 {
@@ -3226,7 +3226,7 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "1b36ccfd7ccb9ad1d6eafb9024b3dd3d9606b15f"
+                    "content": "8d1232052c9cdef170ed9608b3147bca4f61ff69"
                 }
             ]
         },
@@ -3301,11 +3301,11 @@
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/symfony/polyfill-intl-idn@v1.42.0",
+            "bom-ref": "pkg:composer/symfony/polyfill-intl-idn@v1.43.0",
             "group": "symfony",
             "name": "polyfill-intl-idn",
-            "version": "v1.42.0",
-            "purl": "pkg:composer/symfony/polyfill-intl-idn@v1.42.0",
+            "version": "v1.43.0",
+            "purl": "pkg:composer/symfony/polyfill-intl-idn@v1.43.0",
             "scope": "required",
             "licenses": [
                 {
@@ -3318,17 +3318,17 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "51b5ff5ba85452b31ec6f55490b08148612339d9"
+                    "content": "533d68cf99c8f8ee2e8893c59ed59192e92cfd74"
                 }
             ]
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/symfony/polyfill-intl-normalizer@v1.42.0",
+            "bom-ref": "pkg:composer/symfony/polyfill-intl-normalizer@v1.43.0",
             "group": "symfony",
             "name": "polyfill-intl-normalizer",
-            "version": "v1.42.0",
-            "purl": "pkg:composer/symfony/polyfill-intl-normalizer@v1.42.0",
+            "version": "v1.43.0",
+            "purl": "pkg:composer/symfony/polyfill-intl-normalizer@v1.43.0",
             "scope": "required",
             "licenses": [
                 {
@@ -3341,17 +3341,17 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "aa20edea75bd9c48cfecc8360922e5a6e5c44502"
+                    "content": "ebd57ccc7edb93d632e184efbe7693d2517bab3b"
                 }
             ]
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/symfony/polyfill-mbstring@v1.38.2",
+            "bom-ref": "pkg:composer/symfony/polyfill-mbstring@v1.43.3",
             "group": "symfony",
             "name": "polyfill-mbstring",
-            "version": "v1.38.2",
-            "purl": "pkg:composer/symfony/polyfill-mbstring@v1.38.2",
+            "version": "v1.43.3",
+            "purl": "pkg:composer/symfony/polyfill-mbstring@v1.43.3",
             "scope": "required",
             "licenses": [
                 {
@@ -3364,7 +3364,7 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "d3d318bad5e7a1bfbd026009c8bfb8d8f99ae6b6"
+                    "content": "122889ed24dc000165bcbfd77ec412f15cbdfc6a"
                 }
             ]
         },
