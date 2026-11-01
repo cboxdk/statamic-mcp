@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Entries report their `status`** (published, scheduled, expired or draft) on `list`, `get`, `create`, `update`, `localize`, `publish` and `unpublish`, so a client can tell a scheduled entry from a live one; `published` alone is true for both. `publish` also returns the entry's `date`.
+- **`statamic-structures` `get` on a collection returns `past_date_behavior` and `future_date_behavior`**, which `update` could already set.
+- The `publish` action's description says how scheduling works.
+
+### Fixed
+
+- **`filters: {"status": "..."}` on entry `list` works.** The tool's own example failed with "Filtering by status is not supported"; it now goes through `whereStatus()`, an unknown status is refused with the allowed values, and asking for a status isn't narrowed by `include_unpublished`.
+
 ## [3.5.0] - 2026-10-29
 
 Non-super editors can work with assets again, string fields stop accepting values

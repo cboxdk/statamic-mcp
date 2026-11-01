@@ -69,7 +69,7 @@ Dedicated entry operations with advanced filtering, search, and pagination.
 
 | Action | Description | Key Parameters |
 |--------|-------------|----------------|
-| `list` | List with filtering | `collection`, `filters`, `include_unpublished`, `limit`, `offset` |
+| `list` | List with filtering; `filters` takes field handles or `status` (published, scheduled, expired, draft) | `collection`, `filters`, `include_unpublished`, `limit`, `offset` |
 | `get` | Get entry | `collection`, `id`, `version` |
 | `create` | Create entry | `collection`, `slug`, `data` |
 | `update` | Update entry | `collection`, `id`, `data`, `merge_sets`, `revision_message` |
