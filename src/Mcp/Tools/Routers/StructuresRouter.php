@@ -122,13 +122,19 @@ class StructuresRouter extends BaseRouter
      *
      * @param  array<string, mixed>  $arguments
      *
-     * @return array<string>
+     * @return array<int, string|array<int, string>>
      */
     protected function getRequiredPermissions(string $action, array $arguments): array
     {
         $type = $arguments['resource_type'] ?? '';
 
         if ($type === 'collection') {
+            $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
+
+            if ($action === 'get' && $handle !== '') {
+                return [['configure collections', "view {$handle} entries"]];
+            }
+
             return ['configure collections'];
         }
 

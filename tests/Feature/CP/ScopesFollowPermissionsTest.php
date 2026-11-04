@@ -88,7 +88,7 @@ class ScopesFollowPermissionsTest extends TestCase
         // @phpstan-ignore-next-line (assertInertia is a TestResponse macro registered by Inertia)
         $response->assertInertia(fn (AssertableInertia $page) => $page
             ->where('availableScopes', fn ($scopes) => collect($scopes)->pluck('value')->all() === [
-                'content:read', 'content:write', 'entries:read', 'entries:write',
+                'content:read', 'content:write', 'structures:read', 'entries:read', 'entries:write',
             ])
         );
     }
@@ -115,7 +115,7 @@ class ScopesFollowPermissionsTest extends TestCase
                 'scopes' => ['entries:read', 'users:write'],
             ])
             ->assertStatus(422)
-            ->assertJsonFragment(['message' => 'These scopes are not available to this user: users:write. Available scopes: content:read, content:write, entries:read, entries:write']);
+            ->assertJsonFragment(['message' => 'These scopes are not available to this user: users:write. Available scopes: content:read, content:write, structures:read, entries:read, entries:write']);
 
         $this->actingAs($this->editor)
             ->postJson(cp_route('statamic-mcp.tokens.store'), [
@@ -151,6 +151,7 @@ class ScopesFollowPermissionsTest extends TestCase
             ->assertOk();
 
         $response->assertSee('Read Entries');
+        $response->assertSee('Read Structures');
         $response->assertDontSee('Write Users');
         $response->assertDontSee('Full Access');
     }
@@ -220,7 +221,7 @@ class ScopesFollowPermissionsTest extends TestCase
                 'scopes' => ['*', 'users:write'],
             ])
             ->assertStatus(422)
-            ->assertJsonFragment(['message' => 'These scopes are not available to this user: users:write. Available scopes: content:read, content:write, entries:read, entries:write']);
+            ->assertJsonFragment(['message' => 'These scopes are not available to this user: users:write. Available scopes: content:read, content:write, structures:read, entries:read, entries:write']);
     }
 
     public function test_a_client_asking_for_everything_is_offered_the_editors_reach(): void
@@ -230,6 +231,7 @@ class ScopesFollowPermissionsTest extends TestCase
             ->assertOk();
 
         $response->assertSee('Read Entries');
+        $response->assertSee('Read Structures');
         $response->assertSee('Write Entries');
         $response->assertDontSee('Full Access');
         $response->assertDontSee('Write Users');
@@ -260,6 +262,6 @@ class ScopesFollowPermissionsTest extends TestCase
             'code_verifier' => self::CODE_VERIFIER,
         ])->assertOk();
 
-        $this->assertSame('content:read content:write entries:read entries:write', $exchange->json('scope'));
+        $this->assertSame('content:read content:write structures:read entries:read entries:write', $exchange->json('scope'));
     }
 }

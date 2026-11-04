@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns;
 
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
+use Illuminate\Support\Facades\Gate;
+use Statamic\Contracts\Auth\User;
 use Statamic\Contracts\Entries\Collection as CollectionContract;
 use Statamic\Facades\Collection;
 
@@ -99,6 +101,31 @@ trait HandlesCollections
 
             if (! $collection) {
                 return $this->createErrorResponse("Collection not found: {$handle}")->toArray();
+            }
+
+            // Entry viewers need editing metadata, not the collection's
+            // administrative configuration or cross-site entry statistics.
+            $user = auth()->user();
+            $canConfigure = $this->isCliContext()
+                || ($user instanceof User && ($user->isSuper() || $user->hasPermission('configure collections')));
+
+            if (! $canConfigure) {
+                if (! $user instanceof User || ! Gate::forUser($user)->allows('view', $collection)) {
+                    return $this->createErrorResponse('Permission denied: your account may not view this collection (site restriction)')->toArray();
+                }
+
+                $viewerData = [
+                    'handle' => $collection->handle(),
+                    'title' => $collection->title(),
+                    'blueprints' => $collection->entryBlueprints()->map->handle()->all(),
+                    'dated' => $collection->dated(),
+                    'orderable' => $collection->orderable(),
+                    'past_date_behavior' => $collection->pastDateBehavior(),
+                    'future_date_behavior' => $collection->futureDateBehavior(),
+                    'default_status' => $collection->defaultPublishState(),
+                ];
+
+                return ['collection' => app(ResourcePolicy::class)->filterFields('structures', $viewerData)];
             }
 
             $data = [

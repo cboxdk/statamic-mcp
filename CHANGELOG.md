@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.1] - 2026-11-04
+
 ### Security
 
 - **Structure actions check the resource policy against the resource they actually use.** A conflicting or empty `data.handle` could make `get`, `update`, `delete` or `configure` check a different handle, or skip the policy, while acting on the top-level `handle`. Create checks the effective handle after denied-field filtering. This closes resource-allowlist bypasses; it does not bypass authentication, token scopes or Statamic permissions. Thanks to Eelko Sterk for privately reporting the collection-read case.
@@ -20,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Collection entry viewers can read editing metadata through `statamic-structures`** without `configure collections`. Collection `get` accepts `view {handle} entries` and checks Statamic's collection/site policy; these viewers can request `structures:read`. Their response omits administrative configuration, configured sites and cross-site entry counts. Administrators and CLI callers retain the full response. Listing and collection writes remain restricted, and token scopes and resource allowlists still apply.
 - **`filters: {"status": "..."}` on entry `list` works.** The tool's own example failed with "Filtering by status is not supported"; it now goes through `whereStatus()`, an unknown status is refused with the allowed values, and asking for a status isn't narrowed by `include_unpublished`.
 
 ## [3.5.0] - 2026-10-29
