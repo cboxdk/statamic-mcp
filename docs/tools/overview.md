@@ -167,6 +167,22 @@ Manage collections, taxonomies, navigations, and site configuration. Requires a 
 | `list` | site | List sites | — |
 | `get` | site | Get site | `handle` |
 
+#### Collection reads for editors
+
+Collection `get` accepts either `configure collections` or `view {handle} entries`.
+A token still needs `structures:read`, and the resource policy must allow the
+requested collection. On multisite installations, an entry viewer must also have
+access to at least one of the collection's sites, matching Statamic's collection
+view policy. Editors can request that scope in the token picker and OAuth consent
+flow.
+
+An entry viewer receives `handle`, `title`, `blueprints`, `dated`, `orderable`,
+`past_date_behavior`, `future_date_behavior` and `default_status`. This describes
+how to create and schedule entries without exposing administrative configuration,
+configured sites or an entry count across sites. Collection administrators, super
+admins and local CLI callers retain the full response. Listing collections and
+all collection writes still require `configure collections` in web context.
+
 #### Navigation trees
 
 `get` returns a navigation's menus as `trees: [{site, items}]`. A write accepts that

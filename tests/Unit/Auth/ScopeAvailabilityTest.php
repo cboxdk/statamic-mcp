@@ -78,7 +78,7 @@ it('never offers full access, system writes or the content facade below super', 
 
 it('follows the entries router: view gives read, any write permission gives write', function () {
     expect(scopeValues($this->availability->forUser(userHolding(['view blog entries']))))
-        ->toBe(['content:read', 'entries:read']);
+        ->toBe(['content:read', 'structures:read', 'entries:read']);
 
     expect(scopeValues($this->availability->forUser(userHolding(['publish blog entries']))))
         ->toBe(['content:write', 'entries:write']);
@@ -180,7 +180,7 @@ it('narrows a wildcard to the user\'s own reach instead of dropping it', functio
 
     expect($this->availability->filterValues($user, ['*']))->toBe([])
         ->and($this->availability->grantable($user, ['*', 'entries:read', 'users:write']))
-        ->toBe(['content:read', 'entries:read']);
+        ->toBe(['content:read', 'structures:read', 'entries:read']);
 });
 
 it('keeps a wildcard for a user who can hold it', function () {
@@ -189,4 +189,15 @@ it('keeps a wildcard for a user who can hold it', function () {
     $user->save();
 
     expect($this->availability->grantable($user, ['*', 'entries:read']))->toBe(['*', 'entries:read']);
+});
+
+it('offers entry viewers structure reads without structure writes', function () {
+    $viewer = userHolding(['view blog entries']);
+
+    expect($this->availability->allows($viewer, TokenScope::StructuresRead))->toBeTrue()
+        ->and($this->availability->allows($viewer, TokenScope::StructuresWrite))->toBeFalse();
+
+    Config::set('statamic.mcp.tools.structures.resources.read', []);
+
+    expect($this->availability->allows($viewer, TokenScope::StructuresRead))->toBeFalse();
 });
