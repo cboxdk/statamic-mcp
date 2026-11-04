@@ -161,8 +161,9 @@ class StructuresRouter extends BaseRouter
 
     /**
      * The resource policy must see the same resource the action acts on, which
-     * is `data.handle ?? handle` (create reads data.handle, the rest read
-     * handle). The default resolver tries `collection`/`taxonomy`/`container`
+     * is the top-level handle except on create. Create prefers a string
+     * data.handle, after denied fields have been removed, just as its handler
+     * does. The default resolver tries `collection`/`taxonomy`/`container`
      * first, so an unrelated extra key — e.g. a permitted `collection` alongside
      * a denied `handle` — could satisfy the policy for a resource the handler
      * never touches.
@@ -171,8 +172,16 @@ class StructuresRouter extends BaseRouter
      */
     protected function resolveResourceHandle(array $arguments): ?string
     {
-        $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
-        $raw = $data['handle'] ?? $arguments['handle'] ?? null;
+        $raw = $arguments['handle'] ?? null;
+
+        if (($arguments['action'] ?? null) === 'create') {
+            $arguments = $this->filterInputFields($arguments);
+            $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
+
+            if (is_string($data['handle'] ?? null)) {
+                $raw = $data['handle'];
+            }
+        }
 
         return is_string($raw) && $raw !== '' ? $raw : null;
     }

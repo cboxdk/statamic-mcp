@@ -3,8 +3,9 @@
 ## Reporting a vulnerability
 
 Report security issues through
-[GitHub Private Vulnerability Reporting](https://github.com/cboxdk/statamic-mcp/security/advisories/new).
-That keeps the report private until a fix is available.
+[GitHub Private Vulnerability Reporting](https://github.com/cboxdk/statamic-mcp/security/advisories).
+While signed in to GitHub, choose **Report a vulnerability** to open the private
+reporting form. That keeps the report private until a fix is available.
 
 Please do not open a public issue for a security problem.
 

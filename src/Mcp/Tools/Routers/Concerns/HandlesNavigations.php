@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns;
 
+use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Illuminate\Support\Collection;
 use Statamic\Contracts\Structures\Nav as NavContract;
 use Statamic\Facades\Entry;
@@ -61,7 +62,11 @@ trait HandlesNavigations
     {
         try {
             $includeDetails = $this->getBooleanArgument($arguments, 'include_details', true);
-            $navigations = Nav::all()->map(function ($navigation) use ($includeDetails) {
+            $policy = app(ResourcePolicy::class);
+            $navigations = Nav::all()->filter(
+                fn ($navigation): bool => $navigation instanceof NavContract
+                    && $policy->canAccess('structures', $navigation->handle(), 'read')
+            )->map(function ($navigation) use ($includeDetails) {
                 /** @var NavContract $navigation */
                 $data = [
                     'handle' => $navigation->handle(),

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns;
 
+use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
+use Statamic\Contracts\Taxonomies\Taxonomy as TaxonomyContract;
 use Statamic\Facades\Taxonomy;
 
 /**
@@ -44,11 +46,15 @@ trait HandlesTaxonomies
             $limit = $pagination['limit'];
             $offset = $pagination['offset'];
 
-            $allTaxonomies = Taxonomy::all();
+            $policy = app(ResourcePolicy::class);
+            $allTaxonomies = Taxonomy::all()->filter(
+                fn ($taxonomy): bool => $taxonomy instanceof TaxonomyContract
+                    && $policy->canAccess('structures', $taxonomy->handle(), 'read')
+            );
             $total = $allTaxonomies->count();
 
             $taxonomies = $allTaxonomies->skip($offset)->take($limit)->map(function ($taxonomy) use ($includeDetails) {
-                /** @var \Statamic\Contracts\Taxonomies\Taxonomy $taxonomy */
+                /** @var TaxonomyContract $taxonomy */
                 $data = [
                     'handle' => $taxonomy->handle(),
                     'title' => $taxonomy->title(),
