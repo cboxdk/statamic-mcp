@@ -34,6 +34,10 @@ use Statamic\Support\Str;
 class EntriesRouter extends BaseRouter
 {
     use HandlesRevisions;
+
+    /** The values of Entry::status(). */
+    private const ENTRY_STATUSES = ['published', 'scheduled', 'expired', 'draft'];
+
     use ParsesDateValues;
     use SanitizesFieldData;
 
@@ -54,7 +58,7 @@ class EntriesRouter extends BaseRouter
                     . 'update (collection, id, data; optional: revision_message, merge_sets), '
                     . 'localize (collection, id, site — creates the entry\'s localization in that site; optional: data, revision_message), '
                     . 'delete (collection, id), '
-                    . 'publish (collection, id; optional: revision_message), '
+                    . 'publish (collection, id; optional: revision_message; on a dated collection whose future_date_behavior is private, a future-dated entry becomes status "scheduled", not live: its URL 404s until its date. To schedule, set data.date with update, then publish; read status, not published, to know what visitors see), '
                     . 'unpublish (collection, id; optional: revision_message), '
                     . 'list_revisions (collection, id), '
                     . 'get_revision (collection, id, revision_id), '
@@ -88,10 +92,10 @@ class EntriesRouter extends BaseRouter
                 ->description('Entry slug for the create action. Defaults to a slug generated from the title. For update, pass "slug" inside data instead'),
 
             'filters' => JsonSchema::object()
-                ->description('Filter conditions as key-value pairs. Keys are field handles from the blueprint. Example: {"status": "published"}'),
+                ->description('Filter conditions as key-value pairs. Keys are field handles from the blueprint, or "status" (published, scheduled, expired, draft). Example: {"status": "scheduled"}'),
 
             'include_unpublished' => JsonSchema::boolean()
-                ->description('Include draft/unpublished entries in list results. Default: false'),
+                ->description('Include draft/unpublished entries in list results. Default: false, which still lists scheduled and expired entries because they are published; read each entry\'s status, or filter by it'),
 
             'limit' => JsonSchema::integer()
                 ->description('Maximum results to return (default: 100, max: 500)'),
@@ -245,13 +249,29 @@ class EntriesRouter extends BaseRouter
                 ->where('collection', $collection)
                 ->where('site', $site);
 
-            if (! $includeUnpublished) {
+            $filters = is_array($arguments['filters'] ?? null) ? $arguments['filters'] : [];
+
+            // An entry's status is computed from published, its date and the collection's
+            // date behavior, so it has to go through whereStatus(); where('status') throws.
+            // Asking for a status is explicit, so include_unpublished doesn't narrow it.
+            $status = $filters['status'] ?? null;
+            unset($filters['status']);
+
+            if ($status !== null) {
+                if (! is_string($status) || ! in_array($status, self::ENTRY_STATUSES, true)) {
+                    return $this->createErrorResponse(
+                        'Invalid status filter. Use one of: ' . implode(', ', self::ENTRY_STATUSES)
+                    )->toArray();
+                }
+
+                $query->whereStatus($status);
+            } elseif (! $includeUnpublished) {
                 $query->where('published', true);
             }
 
             // Apply filters if provided (only allow string field names)
-            if (! empty($arguments['filters']) && is_array($arguments['filters'])) {
-                foreach ($arguments['filters'] as $field => $value) {
+            if (! empty($filters)) {
+                foreach ($filters as $field => $value) {
                     if (! is_string($field) || $field === '') {
                         continue;
                     }
@@ -268,6 +288,7 @@ class EntriesRouter extends BaseRouter
                     'slug' => $entry->slug(),
                     'title' => $entry->get('title', $entry->slug()),
                     'published' => $entry->published(),
+                    'status' => $entry->status(),
                     'date' => $entry->date()?->toISOString(),
                     'last_modified' => $entry->lastModified()?->toISOString(),
                     'url' => $entry->url(),
@@ -339,6 +360,7 @@ class EntriesRouter extends BaseRouter
                     'site' => $entryVersion->site()->handle(),
                     'slug' => $entryVersion->slug(),
                     'published' => $entryVersion->published(),
+                    'status' => $entryVersion->status(),
                     'date' => $entryVersion->date()?->toISOString(),
                     'last_modified' => $entryVersion->lastModified()?->toISOString(),
                     'url' => $entryVersion->url(),
@@ -527,6 +549,7 @@ class EntriesRouter extends BaseRouter
                     'collection' => $entry->collectionHandle(),
                     'site' => $entry->site()->handle(),
                     'published' => $entry->published(),
+                    'status' => $entry->status(),
                     'url' => $entry->url(),
                     'title' => $entry->get('title'),
                     'data' => $entry->data()->all(),
@@ -820,6 +843,7 @@ class EntriesRouter extends BaseRouter
                     'site' => $localization->site()->handle(),
                     'origin_site' => $entry->site()->handle(),
                     'published' => $localization->published(),
+                    'status' => $localization->status(),
                     'url' => $localization->url(),
                     'title' => $localization->get('title'),
                     'data' => $localization->data()->all(),
@@ -1048,6 +1072,7 @@ class EntriesRouter extends BaseRouter
                     'collection' => $entry->collectionHandle(),
                     'site' => $entry->site()->handle(),
                     'published' => $entry->published(),
+                    'status' => $entry->status(),
                     'last_modified' => $entry->lastModified()?->toISOString(),
                     'url' => $entry->url(),
                 ],
@@ -1154,6 +1179,8 @@ class EntriesRouter extends BaseRouter
                     'id' => $entry->id(),
                     'slug' => $entry->slug(),
                     'published' => $entry->published(),
+                    'status' => $entry->status(),
+                    'date' => $entry->date()?->toISOString(),
                     'url' => $entry->url(),
                 ],
                 'published' => true,
@@ -1209,6 +1236,7 @@ class EntriesRouter extends BaseRouter
                     'id' => $entry->id(),
                     'slug' => $entry->slug(),
                     'published' => $entry->published(),
+                    'status' => $entry->status(),
                 ],
                 'unpublished' => true,
             ];

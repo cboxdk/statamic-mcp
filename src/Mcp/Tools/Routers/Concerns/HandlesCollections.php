@@ -106,6 +106,8 @@ trait HandlesCollections
                 'sort_field' => $collection->sortField(),
                 'sort_direction' => $collection->sortDirection(),
                 'dated' => $collection->dated(),
+                'past_date_behavior' => $collection->pastDateBehavior(),
+                'future_date_behavior' => $collection->futureDateBehavior(),
                 'orderable' => $collection->orderable(),
                 'taxonomies' => $collection->taxonomies()->map->handle()->all(),
                 'sites' => $collection->sites()->all(),
