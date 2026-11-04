@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Structure actions check the resource policy against the resource they actually use.** A conflicting or empty `data.handle` could make `get`, `update`, `delete` or `configure` check a different handle, or skip the policy, while acting on the top-level `handle`. Create checks the effective handle after denied-field filtering. This closes resource-allowlist bypasses; it does not bypass authentication, token scopes or Statamic permissions. Thanks to Eelko Sterk for privately reporting the collection-read case.
+- **Structure lists honour the read allowlist**, including their totals and pagination. Collections, taxonomies, navigations, global sets and sites outside the policy are no longer disclosed through list results.
+
 ### Added
 
 - **Entries report their `status`** (published, scheduled, expired or draft) on `list`, `get`, `create`, `update`, `localize`, `publish` and `unpublish`, so a client can tell a scheduled entry from a live one; `published` alone is true for both. `publish` also returns the entry's `date`.

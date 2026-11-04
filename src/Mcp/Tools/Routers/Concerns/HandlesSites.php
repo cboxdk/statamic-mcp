@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns;
 
+use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Illuminate\Support\Collection;
 use Statamic\Facades\Site;
 
@@ -39,7 +40,10 @@ trait HandlesSites
         try {
             /** @var Collection<string, \Statamic\Sites\Site> $allSites */
             $allSites = Site::all();
-            $sites = $allSites->map(function ($site) {
+            $policy = app(ResourcePolicy::class);
+            $sites = $allSites->filter(
+                fn ($site): bool => $policy->canAccess('structures', $site->handle(), 'read')
+            )->map(function ($site) {
                 /** @var \Statamic\Sites\Site $site */
                 $data = [
                     'handle' => $site->handle(),
@@ -57,7 +61,7 @@ trait HandlesSites
 
             return [
                 'sites' => $sites,
-                'default' => $defaultSite->handle(),
+                'default' => $policy->canAccess('structures', $defaultSite->handle(), 'read') ? $defaultSite->handle() : null,
             ];
         } catch (\Exception $e) {
             return $this->createErrorResponse("Failed to list sites: {$e->getMessage()}")->toArray();

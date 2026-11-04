@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns;
 
+use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
+use Statamic\Contracts\Entries\Collection as CollectionContract;
 use Statamic\Facades\Collection;
 
 /**
@@ -44,11 +46,15 @@ trait HandlesCollections
             $limit = $pagination['limit'];
             $offset = $pagination['offset'];
 
-            $allCollections = Collection::all();
+            $policy = app(ResourcePolicy::class);
+            $allCollections = Collection::all()->filter(
+                fn ($collection): bool => $collection instanceof CollectionContract
+                    && $policy->canAccess('structures', $collection->handle(), 'read')
+            );
             $total = $allCollections->count();
 
             $collections = $allCollections->skip($offset)->take($limit)->map(function ($collection) use ($includeDetails) {
-                /** @var \Statamic\Contracts\Entries\Collection $collection */
+                /** @var CollectionContract $collection */
                 $data = [
                     'handle' => $collection->handle(),
                     'title' => $collection->title(),

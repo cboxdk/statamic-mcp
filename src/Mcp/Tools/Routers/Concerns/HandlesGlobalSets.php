@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns;
 
+use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
+use Statamic\Contracts\Globals\GlobalSet as GlobalSetContract;
 use Statamic\Facades\GlobalSet;
 use Statamic\Facades\Site;
 
@@ -41,8 +43,12 @@ trait HandlesGlobalSets
     {
         try {
             $includeDetails = $this->getBooleanArgument($arguments, 'include_details', true);
-            $globalSets = GlobalSet::all()->map(function ($globalSet) use ($includeDetails) {
-                /** @var \Statamic\Contracts\Globals\GlobalSet $globalSet */
+            $policy = app(ResourcePolicy::class);
+            $globalSets = GlobalSet::all()->filter(
+                fn ($globalSet): bool => $globalSet instanceof GlobalSetContract
+                    && $policy->canAccess('structures', $globalSet->handle(), 'read')
+            )->map(function ($globalSet) use ($includeDetails) {
+                /** @var GlobalSetContract $globalSet */
                 $data = [
                     'handle' => $globalSet->handle(),
                     'title' => $globalSet->title(),
