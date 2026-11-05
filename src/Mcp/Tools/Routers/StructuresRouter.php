@@ -82,7 +82,7 @@ class StructuresRouter extends BaseRouter
                     . 'create (resource_type, handle, data), '
                     . 'update (resource_type, handle, data), '
                     . 'delete (resource_type, handle), '
-                    . 'configure (resource_type, handle, data)'
+                    . 'configure (resource_type, handle, config)'
                 )
                 ->enum(['list', 'get', 'create', 'update', 'delete', 'configure'])
                 ->required(),
@@ -91,14 +91,17 @@ class StructuresRouter extends BaseRouter
                 ->enum(['collection', 'taxonomy', 'navigation', 'site', 'globalset'])
                 ->required(),
             'handle' => JsonSchema::string()
-                ->description('Structure identifier in snake_case. Required for get, create, update, delete. Example: "blog" for collection, "tags" for taxonomy'),
+                ->description('Structure identifier in snake_case. Required for get, create, update, delete, configure. Example: "blog" for collection, "tags" for taxonomy'),
             'data' => JsonSchema::object()
-                ->description('Structure configuration. Fields depend on resource_type. Use statamic-structures action "get" to see current configuration before updating. '
+                ->description('Structure data for create/update. Fields depend on resource_type. Use statamic-structures action "get" to see current configuration before updating. '
                     . 'Navigation: title, max_depth, collections, and the menu itself as trees — the same [{site, items}] list "get" returns, so edit it and send it back — '
                     . 'or tree (a list of items) with an optional site. Each item is {id?, entry? | url? | title?, data?, children?}; an item without an id gets one. '
                     . 'A tree replaces the whole menu for its site. Unknown keys are refused. Collection: update with data {entry: id, parent: id|null} moves one branch; requires reorder permission and both entries:write and structures:write. Collection tree replacement is not supported.'),
             'site' => JsonSchema::string()->description('Collection site for tree reads and moves; defaults to the default site.'),
             'include_tree' => JsonSchema::boolean()->description('On collection get, include the selected site tree. Requires entries:read and structures:read.'),
+            'config' => JsonSchema::object()
+                ->description('Settings for configure on collections, taxonomies, navigations, and global sets. Use action "get" to inspect current configuration. '
+                    . 'Navigation accepts the settings and trees described under data; config takes precedence, with data used only when config is omitted.'),
             'include_details' => JsonSchema::boolean()
                 ->description('Include detailed configuration and statistics in response'),
             'filters' => JsonSchema::object()
