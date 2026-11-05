@@ -55,6 +55,7 @@ class FieldFormatSpec
         }
 
         return match ($field->type()) {
+            'seo_pro', 'seo_pro_source' => SeoProFieldData::spec($field),
             'bard' => $this->bardSpec($field, $depth),
             'replicator' => $this->replicatorSpec($field, $depth),
             'grid' => $this->gridSpec($field, $depth),

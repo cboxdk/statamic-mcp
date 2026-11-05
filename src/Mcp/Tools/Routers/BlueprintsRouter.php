@@ -406,6 +406,14 @@ class BlueprintsRouter extends BaseRouter
                 return $this->createErrorResponse('Blueprint not found: ' . $handle)->toArray();
             }
 
+            // Resolve through the section so Entry/TermBlueprintFound listeners can add runtime fields.
+            $resolvedNamespace = $blueprint->namespace();
+            if (is_string($resolvedNamespace) && str_starts_with($resolvedNamespace, 'collections.')) {
+                $blueprint = Collection::find(substr($resolvedNamespace, 12))?->entryBlueprint($blueprint->handle()) ?? $blueprint;
+            } elseif (is_string($resolvedNamespace) && str_starts_with($resolvedNamespace, 'taxonomies.')) {
+                $blueprint = Taxonomy::find(substr($resolvedNamespace, 11))?->termBlueprint($blueprint->handle()) ?? $blueprint;
+            }
+
             $formatSpec = $includeFormatSpec ? new FieldFormatSpec($maxFormatDepth) : null;
 
             $fieldPath = isset($arguments['field']) && is_string($arguments['field']) && $arguments['field'] !== ''

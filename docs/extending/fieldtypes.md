@@ -109,3 +109,31 @@ what the field accepts.
 sanitizer. `FieldtypeExtensions::flush()` drops every registration — the
 registry is static, so a test that registers should flush in `setUp()` and
 `tearDown()` to avoid leaking into other tests.
+
+## SEO Pro
+
+When `statamic/seo-pro` is installed, entries and terms accept its stored SEO
+format. For example, an update with `"data": {"seo": {"title": "New title"}}`
+changes the title and preserves other stored SEO handles. Each supplied handle
+replaces its complete value, including arrays; omitted handles are preserved.
+
+Use `"@seo:title"` to reference another field, `null` to inherit a value, or
+`false` for an individual source that SEO Pro marks as disableable. Use
+`"seo": false` to disable SEO for the whole record. An SEO object enables SEO
+unless it explicitly contains `"enabled": false`. Control Panel input with
+`{ "source": "custom", "value": "New title" }` is also accepted; omitting
+`enabled` no longer disables SEO. Invalid objects and unknown SEO handles are
+rejected before saving. A whole-field `"seo": null` is rejected: set individual
+handles to null to restore inheritance. Empty strings, zero values and empty
+lists remain explicit overrides. Creating an entry or term without an SEO
+payload leaves SEO unset so section defaults apply.
+
+`statamic-blueprints get` includes runtime SEO fields and their format guidance.
+`statamic-entries get` and `statamic-terms get` return stored values that can be
+sent back in an update.
+
+The real-addon integration tests run in the SEO Pro CI job. To run them in an
+isolated checkout, install `statamic/seo-pro:7.16.0` as a dev dependency with
+Composer's `-W` option, then run
+`vendor/bin/pest tests/Feature/Routers/SeoProWritesTest.php`. SEO Pro remains an
+optional runtime dependency.

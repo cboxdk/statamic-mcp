@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.0] - 2026-11-05
+
 ### Security
 
 - Structure `configure` actions apply `denied_fields` to the `config` argument before saving. This covers collections, taxonomies, navigations, and global sets, including nested fields. Authentication, token scopes, Statamic permissions, and resource allowlists still apply.
@@ -20,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Parent writes fail explicitly when unsupported instead of reporting success without moving the entry. Route collisions are checked against proposed field values before content is saved; an explicit null parent works when creating the collection root. Parent and tree responses respect field deny lists for every caller.
 - The structures schema documents `config` for `configure`, while preserving navigation's `data` fallback.
 - Global-set `configure` returns the saved configuration instead of failing after saving with a call to the nonexistent `GlobalSet::toArray()` method.
+- **SEO Pro writes preserve existing metadata** (#84). Entries and terms accept stored SEO values and Control Panel input, preserve omitted handles on partial updates, and keep empty strings and lists through a read/write round trip. Disabling SEO requires explicit `seo: false` or `enabled: false`; creating a term without an SEO payload leaves it unset. Invalid payloads are rejected before saving, and blueprint reads include runtime SEO fields and their format guidance.
 
 ## [3.5.1] - 2026-11-04
 
