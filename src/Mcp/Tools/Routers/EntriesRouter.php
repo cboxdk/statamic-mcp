@@ -521,6 +521,7 @@ class EntriesRouter extends BaseRouter
                     // merged into their validation payload and failed on.
                     /** @var array<string, mixed> $processed */
                     $processed = $fields->process()->values()->except(['slug', 'date'])->all();
+                    $processed = SeoProFieldData::restoreEmptyValues($blueprint, $processed, $data);
 
                     $entry->data($this->withPassthroughKeys(array_intersect_key($processed, $data), $data, $blueprint));
                 } catch (ValidationException $e) {
@@ -817,6 +818,7 @@ class EntriesRouter extends BaseRouter
                     // validates the stored data merged with the incoming and
                     // those nulls fail rules the field would otherwise skip.
                     $processed = $fields->process()->values()->except(['slug', 'date'])->all();
+                    $processed = SeoProFieldData::restoreEmptyValues($blueprint, $processed, $data);
 
                     $localization->data(
                         $this->withPassthroughKeys(array_intersect_key($processed, $data), $data, $blueprint)
@@ -1054,6 +1056,7 @@ class EntriesRouter extends BaseRouter
                     ->only($incomingKeys)
                     ->all();
 
+                $processedData = SeoProFieldData::restoreEmptyValues($blueprint, $processedData, $data);
                 $processedData = SeoProFieldData::preserveOmitted($blueprint, $processedData, $incomingSeoData, $entry->data()->all());
                 $data = $this->withPassthroughKeys($processedData, $data, $blueprint);
             }

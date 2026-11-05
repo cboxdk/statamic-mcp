@@ -16,6 +16,7 @@ use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Attributes\Title;
 use Statamic\Facades\Taxonomy;
 use Statamic\Facades\Term;
+use Statamic\Fields\Field;
 use Statamic\Fields\Validator as FieldsValidator;
 use Statamic\Rules\UniqueTermValue;
 use Statamic\Support\Str;
@@ -364,9 +365,15 @@ class TermsRouter extends BaseRouter
                         ->validate();
 
                     // Process through fieldtypes for storage format
-                    $term->data(
-                        $fields->process()->values()->except(['slug'])->all()
-                    );
+                    $processed = $fields->process()->values()->except(['slug']);
+                    // SEO Pro processes an absent value as false. Leave omitted
+                    // SEO fields unset so new terms inherit their section defaults.
+                    foreach ($blueprint->fields()->all() as $handle => $field) {
+                        if ($field instanceof Field && $field->type() === 'seo_pro' && ! array_key_exists($handle, $data)) {
+                            $processed->forget($handle);
+                        }
+                    }
+                    $term->data(SeoProFieldData::restoreEmptyValues($blueprint, $processed->all(), $data));
                 } catch (ValidationException $e) {
                     return $this->formatValidationError($e);
                 } catch (\Throwable $e) {
@@ -511,6 +518,7 @@ class TermsRouter extends BaseRouter
                     ->only($incomingKeys)
                     ->all();
 
+                $processedData = SeoProFieldData::restoreEmptyValues($blueprint, $processedData, $validatedData);
                 $processedData = SeoProFieldData::preserveOmitted($blueprint, $processedData, $incomingSeoData, $term->data()->all());
                 $validatedData = $processedData;
             }

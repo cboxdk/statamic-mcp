@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **SEO Pro writes preserve existing metadata** (#84). Entries and terms accept stored SEO values and Control Panel input, preserve omitted handles on partial updates, and keep empty strings and lists through a read/write round trip. Disabling SEO requires explicit `seo: false` or `enabled: false`; creating a term without an SEO payload leaves it unset. Invalid payloads are rejected before saving, and blueprint reads include runtime SEO fields and their format guidance.
+
 ## [3.5.1] - 2026-11-04
 
 ### Security

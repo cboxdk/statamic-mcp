@@ -163,11 +163,74 @@ class SeoProWritesTest extends TestCase
     {
         [$router, $args] = $this->fixture($kind);
         unset($args['id']);
-        foreach ([['title' => 'SEO title', 'description' => 'Description'], false] as $index => $seo) {
+        $cases = [
+            [['title' => 'SEO title', 'description' => 'Description'], ['title' => 'SEO title', 'description' => 'Description']],
+            [false, false],
+            [['title' => '', 'description' => '0', 'robots' => []], ['title' => '', 'description' => '0', 'robots' => []]],
+            [['enabled' => false], false],
+            // An empty SEO object inherits defaults; Statamic omits empty root arrays.
+            [[], null],
+            [['title' => ['source' => 'custom', 'value' => '']], ['title' => '']],
+        ];
+        foreach ($cases as $index => [$seo, $expected]) {
             $result = $router->execute([...$args, 'action' => 'create', 'slug' => 'new-' . $index, 'data' => ['title' => 'New', 'seo' => $seo]]);
             $this->assertTrue($result['success'], json_encode($result));
             $record = $kind === 'entries' ? Entry::query()->where('slug', 'new-' . $index)->first() : Term::query()->where('slug', 'new-' . $index)->first();
-            $this->assertSame($seo, $record->get('seo'));
+            $actual = $record->get('seo');
+            if (is_array($expected) && is_array($actual)) {
+                ksort($expected);
+                ksort($actual);
+            }
+            $this->assertSame($expected, $actual);
         }
+    }
+
+    #[DataProvider('records')]
+    public function test_stored_seo_round_trips_without_losing_empty_values(string $kind): void
+    {
+        [$router, $args] = $this->fixture($kind);
+        $before = $this->storedSeo($router, $args, $kind);
+        $result = $router->execute([...$args, 'action' => 'update', 'data' => ['seo' => $before]]);
+        $this->assertTrue($result['success'], json_encode($result));
+        $after = $this->storedSeo($router, $args, $kind);
+        ksort($before);
+        ksort($after);
+        $this->assertSame($before, $after);
+    }
+
+    #[DataProvider('records')]
+    public function test_empty_values_are_explicit_overrides_and_null_restores_inheritance(string $kind): void
+    {
+        [$router, $args] = $this->fixture($kind);
+        $result = $router->execute([...$args, 'action' => 'update', 'data' => ['seo' => [
+            'title' => '', 'description' => '0', 'robots' => [],
+        ]]]);
+        $this->assertTrue($result['success'], json_encode($result));
+        $seo = $this->storedSeo($router, $args, $kind);
+        $this->assertSame('', $seo['title']);
+        $this->assertSame('0', $seo['description']);
+        $this->assertSame([], $seo['robots']);
+        $this->assertSame('@seo:title', $seo['og_title']);
+
+        $result = $router->execute([...$args, 'action' => 'update', 'data' => ['seo' => [
+            'title' => null, 'description' => null, 'robots' => null,
+        ]]]);
+        $this->assertTrue($result['success'], json_encode($result));
+        $seo = $this->storedSeo($router, $args, $kind);
+        foreach (['title', 'description', 'robots'] as $handle) {
+            $this->assertArrayNotHasKey($handle, $seo);
+        }
+        $this->assertSame('@seo:title', $seo['og_title']);
+    }
+
+    #[DataProvider('records')]
+    public function test_create_without_seo_leaves_it_unset(string $kind): void
+    {
+        [$router, $args] = $this->fixture($kind);
+        unset($args['id']);
+        $result = $router->execute([...$args, 'action' => 'create', 'slug' => 'no-seo', 'data' => ['title' => 'No SEO payload']]);
+        $this->assertTrue($result['success'], json_encode($result));
+        $record = $kind === 'entries' ? Entry::query()->where('slug', 'no-seo')->first() : Term::query()->where('slug', 'no-seo')->first();
+        $this->assertArrayNotHasKey('seo', $record->data()->all());
     }
 }

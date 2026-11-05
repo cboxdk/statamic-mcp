@@ -124,7 +124,9 @@ unless it explicitly contains `"enabled": false`. Control Panel input with
 `{ "source": "custom", "value": "New title" }` is also accepted; omitting
 `enabled` no longer disables SEO. Invalid objects and unknown SEO handles are
 rejected before saving. A whole-field `"seo": null` is rejected: set individual
-handles to null to restore inheritance.
+handles to null to restore inheritance. Empty strings, zero values and empty
+lists remain explicit overrides. Creating an entry or term without an SEO
+payload leaves SEO unset so section defaults apply.
 
 `statamic-blueprints get` includes runtime SEO fields and their format guidance.
 `statamic-entries get` and `statamic-terms get` return stored values that can be

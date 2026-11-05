@@ -61,6 +61,44 @@ final class SeoProFieldData
         return $processed;
     }
 
+    /**
+     * SEO Pro removes empty strings and arrays after processing its children.
+     * Restore only explicitly custom values, after validation, using the child's
+     * storage conversion so editor objects (such as code) never reach storage.
+     *
+     * @param  array<string, mixed>  $processed
+     * @param  array<string, mixed>  $sanitized
+     *
+     * @return array<string, mixed>
+     */
+    public static function restoreEmptyValues(Blueprint $blueprint, array $processed, array $sanitized): array
+    {
+        foreach ($blueprint->fields()->all() as $handle => $field) {
+            if (! $field instanceof Field || $field->type() !== 'seo_pro'
+                || ! is_array($processed[$handle] ?? null)
+                || ! is_array($sanitized[$handle] ?? null)) {
+                continue;
+            }
+            $children = self::fields($field)->all();
+            foreach ($sanitized[$handle] as $childHandle => $value) {
+                if (array_key_exists($childHandle, $processed[$handle])
+                    || ! is_array($value) || ($value['source'] ?? null) !== 'custom') {
+                    continue;
+                }
+                $child = $children->get($childHandle);
+                if (! $child instanceof Field || $child->type() !== 'seo_pro_source') {
+                    continue;
+                }
+                $stored = $child->setValue($value)->process()->value();
+                if ($stored === '' || $stored === []) {
+                    $processed[$handle][$childHandle] = $stored;
+                }
+            }
+        }
+
+        return $processed;
+    }
+
     public static function sanitize(Field $field, mixed $value, string $path): mixed
     {
         if ($field->type() === 'seo_pro_source') {
@@ -120,7 +158,17 @@ final class SeoProFieldData
             self::validateSourceValue($field, $value, $path);
         }
 
-        return $field->setValue($value)->preProcess()->value();
+        $normalized = $field->setValue($value)->preProcess()->value();
+
+        // SEO Pro treats falsey form values as inheritance. On the wire, null
+        // requests inheritance; an explicit empty string, zero or list is custom.
+        // Keep its underlying fieldtype conversion (e.g. the code editor shape).
+        if (in_array($value, ['', '0', 0, 0.0, []], true)
+            && is_array($normalized) && ($normalized['source'] ?? null) === 'inherit') {
+            $normalized['source'] = 'custom';
+        }
+
+        return $normalized;
     }
 
     private static function validateSourceValue(Field $field, mixed $value, string $path): void
