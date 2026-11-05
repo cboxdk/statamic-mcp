@@ -7,6 +7,7 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Concerns;
 use Carbon\Exceptions\InvalidFormatException;
 use Cboxdk\StatamicMcp\Mcp\Exceptions\FieldFormatException;
 use Cboxdk\StatamicMcp\Mcp\Support\FieldtypeExtensions;
+use Cboxdk\StatamicMcp\Mcp\Support\SeoProFieldData;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Statamic\Fields\Blueprint;
@@ -236,6 +237,10 @@ trait SanitizesFieldData
      */
     private function sanitizeFieldValue(Field $field, mixed $value, bool $allowLegacyCoercion, string $path): mixed
     {
+        if (in_array($field->type(), ['seo_pro', 'seo_pro_source'], true)) {
+            return SeoProFieldData::sanitize($field, $value, $path);
+        }
+
         if ($value === null) {
             return null;
         }

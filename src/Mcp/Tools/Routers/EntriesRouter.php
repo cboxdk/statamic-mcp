@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\Exceptions\FieldFormatException;
+use Cboxdk\StatamicMcp\Mcp\Support\SeoProFieldData;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\HandlesRevisions;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ParsesDateValues;
@@ -966,6 +967,8 @@ class EntriesRouter extends BaseRouter
                 }
 
                 // Strip entry-level metadata and coerce values to expected types
+                $incomingSeoData = $data;
+                $data = SeoProFieldData::merge($blueprint, $data, $entry->data()->all());
                 $data = $this->sanitizeIncomingFieldData($blueprint, $data);
 
                 // Validate incoming data against blueprint.
@@ -1051,6 +1054,7 @@ class EntriesRouter extends BaseRouter
                     ->only($incomingKeys)
                     ->all();
 
+                $processedData = SeoProFieldData::preserveOmitted($blueprint, $processedData, $incomingSeoData, $entry->data()->all());
                 $data = $this->withPassthroughKeys($processedData, $data, $blueprint);
             }
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
+use Cboxdk\StatamicMcp\Mcp\Support\SeoProFieldData;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\SanitizesFieldData;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
@@ -457,6 +458,8 @@ class TermsRouter extends BaseRouter
 
             if (! empty($validatedData)) {
                 // Strip entry-level metadata and coerce values to expected types
+                $incomingSeoData = $validatedData;
+                $validatedData = SeoProFieldData::merge($blueprint, $validatedData, $term->data()->all());
                 $validatedData = $this->sanitizeIncomingFieldData($blueprint, $validatedData);
 
                 // Merge new data with existing for full blueprint validation,
@@ -508,6 +511,7 @@ class TermsRouter extends BaseRouter
                     ->only($incomingKeys)
                     ->all();
 
+                $processedData = SeoProFieldData::preserveOmitted($blueprint, $processedData, $incomingSeoData, $term->data()->all());
                 $validatedData = $processedData;
             }
 
