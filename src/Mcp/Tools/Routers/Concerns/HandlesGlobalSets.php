@@ -264,7 +264,7 @@ trait HandlesGlobalSets
                 'globalset' => [
                     'handle' => $globalSet->handle(),
                     'title' => $globalSet->title(),
-                    'config' => $globalSet->toArray(),
+                    'config' => $globalSet->fileData(),
                 ],
                 'configured' => true,
             ];

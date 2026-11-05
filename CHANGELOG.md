@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Structure `configure` actions apply `denied_fields` to the `config` argument before saving. This covers collections, taxonomies, navigations, and global sets, including nested fields. Authentication, token scopes, Statamic permissions, and resource allowlists still apply.
+
+### Fixed
+
+- The structures schema documents `config` for `configure`, while preserving navigation's `data` fallback.
+- Global-set `configure` returns the saved configuration instead of failing after saving with a call to the nonexistent `GlobalSet::toArray()` method.
+
 ## [3.5.1] - 2026-11-04
 
 ### Security

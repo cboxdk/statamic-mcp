@@ -71,6 +71,13 @@ trait EnforcesResourcePolicy
             $arguments['data'] = $policy->filterFields($domain, $data);
         }
 
+        // Structure configure actions read 'config' instead of 'data'.
+        if (isset($arguments['config']) && is_array($arguments['config'])) {
+            /** @var array<string, mixed> $config */
+            $config = $arguments['config'];
+            $arguments['config'] = $policy->filterFields($domain, $config);
+        }
+
         // Filter 'fields' key if present (blueprints)
         if (isset($arguments['fields']) && is_array($arguments['fields'])) {
             /** @var array<string, mixed> $fields */
