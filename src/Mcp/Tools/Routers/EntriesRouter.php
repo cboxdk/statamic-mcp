@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
+use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
+use Cboxdk\StatamicMcp\Contracts\CollectionTreeEditor;
 use Cboxdk\StatamicMcp\Mcp\Exceptions\FieldFormatException;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\HandlesRevisions;
@@ -40,6 +42,41 @@ class EntriesRouter extends BaseRouter
 
     use ParsesDateValues;
     use SanitizesFieldData;
+
+    protected function filterOutputFields(array $result): array
+    {
+        $result = parent::filterOutputFields($result);
+
+        // Parent is metadata beside entry.data, which the base filter handles.
+        foreach (['entries', 'structures'] as $domain) {
+            if (in_array('parent', app(ResourcePolicy::class)->getDeniedFields($domain), true)
+                && isset($result['entry']) && is_array($result['entry'])) {
+                unset($result['entry']['parent']);
+            }
+        }
+
+        return $result;
+    }
+
+    protected function filterInputFields(array $arguments): array
+    {
+        $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
+        if (array_key_exists('parent', $data)) {
+            if (! in_array($arguments['action'] ?? '', ['create', 'update'], true)) {
+                throw ValidationException::withMessages(['parent' => 'Parent is supported only on create and update.']);
+            }
+            foreach (['entries', 'structures'] as $domain) {
+                if (in_array('parent', app(ResourcePolicy::class)->getDeniedFields($domain), true)) {
+                    throw ValidationException::withMessages(['parent' => 'Parent changes are denied by resource policy.']);
+                }
+            }
+        }
+        if (array_key_exists('parent', $arguments)) {
+            throw ValidationException::withMessages(['parent' => 'Send the parent inside data.parent.']);
+        }
+
+        return parent::filterInputFields($arguments);
+    }
 
     protected function getDomain(): string
     {
@@ -83,7 +120,7 @@ class EntriesRouter extends BaseRouter
 
             'data' => JsonSchema::object()
                 ->description(
-                    'Entry field values. Structure must match the collection blueprint including nested types '
+                    'Parent: data.parent is an entry id in this collection/site, or null for the top level. Create and update persist it in the collection tree; requires reorder permission plus entries:write and structures:write. Parent cannot be combined with other changes on a published entry using revisions. Entry field values. Structure must match the collection blueprint including nested types '
                     . '(bard, replicator, grid). Use statamic-blueprints action "get" with the collection\'s '
                     . 'blueprint handle to see required fields, types, and nesting before sending data.'
                 ),
@@ -357,6 +394,7 @@ class EntriesRouter extends BaseRouter
                 'entry' => [
                     'id' => $entryVersion->id(),
                     'collection' => $entryVersion->collectionHandle(),
+                    'parent' => app(CollectionTreeEditor::class)->parent($entryVersion),
                     'site' => $entryVersion->site()->handle(),
                     'slug' => $entryVersion->slug(),
                     'published' => $entryVersion->published(),
@@ -395,6 +433,9 @@ class EntriesRouter extends BaseRouter
         $site = $this->resolveSiteHandle($arguments);
         /** @var array<string, mixed> $data */
         $data = is_array($arguments['data'] ?? []) ? ($arguments['data'] ?? []) : [];
+        $parentRequested = array_key_exists('parent', $data);
+        $requestedParent = $data['parent'] ?? null;
+        unset($data['parent']);
 
         try {
             $entry = Entry::make()
@@ -531,12 +572,26 @@ class EntriesRouter extends BaseRouter
                 $entry->data($data);
             }
 
+            if ($parentRequested) {
+                app(CollectionTreeEditor::class)->validate($entry, $requestedParent);
+            }
+
             // Revision-aware create: use store() which saves as unpublished
             // and creates an initial revision (matches CP behavior)
             if ($this->entryRevisionsEnabled($entry)) {
                 $entry->store($this->revisionOptions($arguments));
             } else {
                 $this->touchedBy($entry)->save();
+            }
+
+            if ($parentRequested) {
+                try {
+                    app(CollectionTreeEditor::class)->move($entry, $requestedParent);
+                } catch (\Throwable $e) {
+                    // This call created the entry; do not leave a partial creation behind.
+                    $entry->delete();
+                    throw $e;
+                }
             }
 
             // Clear relevant caches
@@ -547,6 +602,7 @@ class EntriesRouter extends BaseRouter
                     'id' => $entry->id(),
                     'slug' => $entry->slug(),
                     'collection' => $entry->collectionHandle(),
+                    'parent' => app(CollectionTreeEditor::class)->parent($entry),
                     'site' => $entry->site()->handle(),
                     'published' => $entry->published(),
                     'status' => $entry->status(),
@@ -873,6 +929,9 @@ class EntriesRouter extends BaseRouter
         $id = is_string($arguments['id']) ? $arguments['id'] : '';
         $site = $this->resolveSiteHandle($arguments);
         $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
+        $parentRequested = array_key_exists('parent', $data);
+        $requestedParent = $data['parent'] ?? null;
+        unset($data['parent']);
 
         try {
             $entry = $this->resolveEntryInCollection($id, $arguments);
@@ -888,11 +947,21 @@ class EntriesRouter extends BaseRouter
             // Get entry for specific site
             if ($entry->site()->handle() !== $site) {
                 $localizedEntry = $entry->in($site);
-                if ($localizedEntry) {
+                if ($localizedEntry instanceof EntryContract) {
                     $entry = $localizedEntry;
                 } else {
                     return $this->createErrorResponse("Entry not available in site: {$site}")->toArray();
                 }
+            }
+
+            if ($parentRequested && $this->entryRevisionsEnabled($entry) && $entry->published()) {
+                if ($data !== []) {
+                    return $this->createErrorResponse('Move a published entry separately from content edits when revisions are enabled.')->toArray();
+                }
+                $parent = app(CollectionTreeEditor::class)->move($entry, $requestedParent);
+                $this->clearCachesAfterWrite(['stache', 'static']);
+
+                return ['entry' => ['id' => $entry->id(), 'parent' => $parent], 'updated' => true];
             }
 
             // Extract published — it's a first-class entry property
@@ -1008,6 +1077,7 @@ class EntriesRouter extends BaseRouter
                 $ruleReplacements = [
                     'id' => $entry->id(),
                     'collection' => $entry->collectionHandle(),
+                    'parent' => app(CollectionTreeEditor::class)->parent($entry),
                     'site' => $site,
                 ];
 
@@ -1054,6 +1124,14 @@ class EntriesRouter extends BaseRouter
                 $data = $this->withPassthroughKeys($processedData, $data, $blueprint);
             }
 
+            if ($parentRequested) {
+                // Routes can depend on fields such as title, not only slug.
+                // Validate the final values without changing the stored entry.
+                $proposedEntry = clone $entry;
+                $proposedEntry->merge($data);
+                app(CollectionTreeEditor::class)->validate($proposedEntry, $requestedParent);
+            }
+
             // Revision-aware save: if revisions enabled and entry is published,
             // save to working copy instead of directly modifying the published entry
             if ($this->entryRevisionsEnabled($entry) && $entry->published()) {
@@ -1061,6 +1139,10 @@ class EntriesRouter extends BaseRouter
             }
 
             $this->touchedBy($entry->merge($data))->save();
+
+            if ($parentRequested) {
+                app(CollectionTreeEditor::class)->move($entry, $requestedParent);
+            }
 
             // Clear relevant caches
             $this->clearCachesAfterWrite(['stache', 'static']);
@@ -1070,6 +1152,7 @@ class EntriesRouter extends BaseRouter
                     'id' => $entry->id(),
                     'slug' => $entry->slug(),
                     'collection' => $entry->collectionHandle(),
+                    'parent' => app(CollectionTreeEditor::class)->parent($entry),
                     'site' => $entry->site()->handle(),
                     'published' => $entry->published(),
                     'status' => $entry->status(),
@@ -1122,6 +1205,7 @@ class EntriesRouter extends BaseRouter
                 'id' => $entry->id(),
                 'slug' => $entry->slug(),
                 'collection' => $entry->collectionHandle(),
+                'parent' => app(CollectionTreeEditor::class)->parent($entry),
                 'site' => $entry->site()->handle(),
             ];
 

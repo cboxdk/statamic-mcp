@@ -13,6 +13,7 @@ use Cboxdk\StatamicMcp\Console\PruneAuditCommand;
 use Cboxdk\StatamicMcp\Console\PruneExpiredTokensCommand;
 use Cboxdk\StatamicMcp\Console\PruneOAuthCommand;
 use Cboxdk\StatamicMcp\Contracts\AuditStore;
+use Cboxdk\StatamicMcp\Contracts\CollectionTreeEditor;
 use Cboxdk\StatamicMcp\Http\Controllers\OAuth\AuthorizeController;
 use Cboxdk\StatamicMcp\Http\Middleware\AuthenticateForMcp;
 use Cboxdk\StatamicMcp\Http\Middleware\EnsureSecureTransport;
@@ -185,6 +186,8 @@ class ServiceProvider extends AddonServiceProvider
 
         // Register resource policy
         $this->app->singleton(ResourcePolicy::class);
+
+        $this->app->bind(CollectionTreeEditor::class, Support\CollectionTreeEditor::class);
 
         // Register auth services
         $this->app->register(AuthServiceProvider::class);

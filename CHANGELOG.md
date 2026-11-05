@@ -11,8 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Structure `configure` actions apply `denied_fields` to the `config` argument before saving. This covers collections, taxonomies, navigations, and global sets, including nested fields. Authentication, token scopes, Statamic permissions, and resource allowlists still apply.
 
+### Added
+
+- **Collection trees and entry parents** (#85, thanks @eelko-sterk for the report and initial patch): editors can list collections they may view, read a site's tree with `include_tree`, and move a branch using entry `data.parent` or collection `data.entry`/`data.parent`. Moves retain descendants and enforce entry/site permissions, both domains' token scopes and resource policies, depth limits, cycles and URI uniqueness. Collection configuration remains administrator-only.
+
 ### Fixed
 
+- Parent writes fail explicitly when unsupported instead of reporting success without moving the entry. Route collisions are checked against proposed field values before content is saved; an explicit null parent works when creating the collection root. Parent and tree responses respect field deny lists for every caller.
 - The structures schema documents `config` for `configure`, while preserving navigation's `data` fallback.
 - Global-set `configure` returns the saved configuration instead of failing after saving with a call to the nonexistent `GlobalSet::toArray()` method.
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
+use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesCollections;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesGlobalSets;
@@ -12,6 +13,7 @@ use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesSites;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesTaxonomies;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
+use Illuminate\Validation\ValidationException;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Attributes\Title;
@@ -26,6 +28,20 @@ class StructuresRouter extends BaseRouter
     use HandlesNavigations;
     use HandlesSites;
     use HandlesTaxonomies;
+
+    protected function filterInputFields(array $arguments): array
+    {
+        $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
+        if (($arguments['resource_type'] ?? '') === 'collection' && (array_key_exists('entry', $data) || array_key_exists('parent', $data))) {
+            foreach (['entries', 'structures'] as $domain) {
+                if (array_intersect(['entry', 'parent'], app(ResourcePolicy::class)->getDeniedFields($domain))) {
+                    throw ValidationException::withMessages(['parent' => 'Tree changes are denied by resource policy.']);
+                }
+            }
+        }
+
+        return parent::filterInputFields($arguments);
+    }
 
     protected function getDomain(): string
     {
@@ -80,7 +96,9 @@ class StructuresRouter extends BaseRouter
                 ->description('Structure data for create/update. Fields depend on resource_type. Use statamic-structures action "get" to see current configuration before updating. '
                     . 'Navigation: title, max_depth, collections, and the menu itself as trees — the same [{site, items}] list "get" returns, so edit it and send it back — '
                     . 'or tree (a list of items) with an optional site. Each item is {id?, entry? | url? | title?, data?, children?}; an item without an id gets one. '
-                    . 'A tree replaces the whole menu for its site. Unknown keys are refused.'),
+                    . 'A tree replaces the whole menu for its site. Unknown keys are refused. Collection: update with data {entry: id, parent: id|null} moves one branch; requires reorder permission and both entries:write and structures:write. Collection tree replacement is not supported.'),
+            'site' => JsonSchema::string()->description('Collection site for tree reads and moves; defaults to the default site.'),
+            'include_tree' => JsonSchema::boolean()->description('On collection get, include the selected site tree. Requires entries:read and structures:read.'),
             'config' => JsonSchema::object()
                 ->description('Settings for configure on collections, taxonomies, navigations, and global sets. Use action "get" to inspect current configuration. '
                     . 'Navigation accepts the settings and trees described under data; config takes precedence, with data used only when config is omitted.'),
@@ -134,6 +152,13 @@ class StructuresRouter extends BaseRouter
         if ($type === 'collection') {
             $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
 
+            if ($action === 'list') {
+                return []; // Each collection is filtered by policy and view permission.
+            }
+            $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
+            if ($action === 'update' && $handle !== '' && (array_key_exists('entry', $data) || array_key_exists('parent', $data))) {
+                return [['configure collections', "reorder {$handle} entries"]];
+            }
             if ($action === 'get' && $handle !== '') {
                 return [['configure collections', "view {$handle} entries"]];
             }
