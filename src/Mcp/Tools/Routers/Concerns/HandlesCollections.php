@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns;
 
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
+use Cboxdk\StatamicMcp\Contracts\CollectionTreeEditor;
 use Illuminate\Support\Facades\Gate;
 use Statamic\Contracts\Auth\User;
 use Statamic\Contracts\Entries\Collection as CollectionContract;
 use Statamic\Facades\Collection;
+use Statamic\Facades\Entry;
 
 /**
  * Collection operations for the StructuresRouter.
@@ -35,6 +37,53 @@ trait HandlesCollections
         };
     }
 
+    private function canConfigureCollections(): bool
+    {
+        $user = auth()->user();
+
+        return $this->isCliContext() || ($user instanceof User && ($user->isSuper() || $user->hasPermission('configure collections')));
+    }
+
+    private function canViewCollection(CollectionContract $collection): bool
+    {
+        $user = auth()->user();
+
+        return $this->isCliContext() || ($user instanceof User && Gate::forUser($user)->allows('view', $collection));
+    }
+
+    /**
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string, mixed>
+     */
+    private function collectionTreeDetails(CollectionContract $collection, array $arguments): array
+    {
+        return ($arguments['include_tree'] ?? false)
+            ? app(CollectionTreeEditor::class)->read($collection, $this->resolveSiteHandle($arguments))
+            : [];
+    }
+
+    /**
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string, mixed>
+     */
+    private function moveCollectionEntry(array $arguments): array
+    {
+        $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
+        if (array_diff(array_keys($data), ['entry', 'parent']) !== [] || isset($arguments['config']) || ! is_string($data['entry'] ?? null) || ! array_key_exists('parent', $data)) {
+            return $this->createErrorResponse('A collection move accepts only data.entry and data.parent (id or null). Do not combine it with collection settings.')->toArray();
+        }
+        $entry = Entry::find($data['entry']);
+        if (! $entry || $entry->collectionHandle() !== $arguments['handle'] || $entry->locale() !== $this->resolveSiteHandle($arguments)) {
+            return $this->createErrorResponse('Entry must exist in the requested collection and site.')->toArray();
+        }
+        $parent = app(CollectionTreeEditor::class)->move($entry, $data['parent']);
+        $this->clearCachesAfterWrite(['stache', 'static']);
+
+        return ['collection' => ['handle' => $entry->collectionHandle()], 'entry' => $entry->id(), 'parent' => $parent, 'updated' => true];
+    }
+
     /**
      * @param  array<string, mixed>  $arguments
      *
@@ -52,6 +101,7 @@ trait HandlesCollections
             $allCollections = Collection::all()->filter(
                 fn ($collection): bool => $collection instanceof CollectionContract
                     && $policy->canAccess('structures', $collection->handle(), 'read')
+                    && $this->canViewCollection($collection)
             );
             $total = $allCollections->count();
 
@@ -63,7 +113,7 @@ trait HandlesCollections
                     'blueprint' => $collection->entryBlueprints()->first()?->handle(),
                 ];
 
-                if ($includeDetails) {
+                if ($includeDetails && $this->canConfigureCollections()) {
                     $data = array_merge($data, [
                         'route' => $collection->route($collection->sites()->first() ?? 'default'),
                         'dated' => $collection->dated(),
@@ -75,7 +125,7 @@ trait HandlesCollections
                     ]);
                 }
 
-                return $data;
+                return app(ResourcePolicy::class)->filterFields('structures', $data);
             })->values()->all();
 
             return [
@@ -125,7 +175,7 @@ trait HandlesCollections
                     'default_status' => $collection->defaultPublishState(),
                 ];
 
-                return ['collection' => app(ResourcePolicy::class)->filterFields('structures', $viewerData)];
+                return ['collection' => app(ResourcePolicy::class)->filterFields('structures', array_merge($viewerData, $this->collectionTreeDetails($collection, $arguments)))];
             }
 
             $data = [
@@ -151,7 +201,7 @@ trait HandlesCollections
                     : null,
             ];
 
-            return ['collection' => $data];
+            return ['collection' => app(ResourcePolicy::class)->filterFields('structures', array_merge($data, $this->collectionTreeDetails($collection, $arguments)))];
         } catch (\Exception $e) {
             return $this->createErrorResponse("Failed to get collection: {$e->getMessage()}")->toArray();
         }
@@ -252,6 +302,13 @@ trait HandlesCollections
      */
     private function updateCollection(array $arguments): array
     {
+        $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
+        if (array_key_exists('entry', $data) || array_key_exists('parent', $data)) {
+            return $this->moveCollectionEntry($arguments);
+        }
+        if (array_intersect(array_keys($data), ['tree', 'trees']) !== []) {
+            return $this->createErrorResponse('Unsupported collection fields. Move a page using data.entry and data.parent; replacing a collection tree is not supported.')->toArray();
+        }
         if (! $this->hasPermission('edit', 'collections')) {
             return $this->createErrorResponse('Permission denied: Cannot update collections')->toArray();
         }
@@ -368,6 +425,11 @@ trait HandlesCollections
      */
     private function configureCollection(array $arguments): array
     {
+        foreach (['data', 'config'] as $key) {
+            if (is_array($arguments[$key] ?? null) && array_intersect(array_keys($arguments[$key]), ['tree', 'trees', 'parent', 'entry'])) {
+                return $this->createErrorResponse('Use collection update with data.entry and data.parent to move a page.')->toArray();
+            }
+        }
         try {
             $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
             $config = is_array($arguments['config'] ?? null) ? $arguments['config'] : [];

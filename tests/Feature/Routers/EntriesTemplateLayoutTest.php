@@ -158,11 +158,10 @@ class EntriesTemplateLayoutTest extends TestCase
         $this->assertSame('pages/declared', Entry::find('declared')->template());
     }
 
-    public function test_parent_is_not_treated_as_writable_entry_data(): void
+    public function test_parent_on_an_unstructured_collection_is_rejected_before_saving_content(): void
     {
-        // Entry::parent() derives from the structure tree, so storing a parent
-        // key would be inert. It stays dropped rather than being passed through
-        // and giving the caller the impression the entry was moved.
+        // Reject unsupported moves explicitly instead of silently dropping parent.
+        $before = Entry::find('home')->data()->all();
         $result = $this->router->execute([
             'action' => 'update',
             'collection' => $this->collectionHandle,
@@ -170,7 +169,9 @@ class EntriesTemplateLayoutTest extends TestCase
             'data' => ['title' => 'Home', 'parent' => 'some-other-entry'],
         ]);
 
-        $this->assertTrue($result['success'], json_encode($result['errors'] ?? []));
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('structured collection', $result['errors'][0]);
+        $this->assertSame($before, Entry::find('home')->data()->all());
         $this->assertNull(Entry::find('home')->get('parent'));
     }
 }

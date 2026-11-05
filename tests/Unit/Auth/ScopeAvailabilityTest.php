@@ -201,3 +201,11 @@ it('offers entry viewers structure reads without structure writes', function () 
 
     expect($this->availability->allows($viewer, TokenScope::StructuresRead))->toBeFalse();
 });
+
+it('offers structure writes to collection reorderers without navigation permission', function () {
+    $editor = userHolding(['view blog entries', 'edit blog entries', 'reorder blog entries']);
+
+    expect($this->availability->allows($editor, TokenScope::StructuresWrite))->toBeTrue();
+    Config::set('statamic.mcp.tools.structures.resources.write', []);
+    expect($this->availability->allows($editor, TokenScope::StructuresWrite))->toBeFalse();
+});

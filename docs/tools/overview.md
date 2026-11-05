@@ -180,8 +180,10 @@ An entry viewer receives `handle`, `title`, `blueprints`, `dated`, `orderable`,
 `past_date_behavior`, `future_date_behavior` and `default_status`. This describes
 how to create and schedule entries without exposing administrative configuration,
 configured sites or an entry count across sites. Collection administrators, super
-admins and local CLI callers retain the full response. Listing collections and
-all collection writes still require `configure collections` in web context.
+admins and local CLI callers retain the full response. Collection configuration
+writes still require `configure collections` in web context.
+Collection listing is filtered by each collection's view permission. Editors with
+reorder rights can move branches; see [Collection trees](collection-trees.md).
 
 #### Navigation trees
 

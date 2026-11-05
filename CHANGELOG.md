@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Collection trees and entry parents** (#85, thanks @eelko-sterk for the report and initial patch): editors can list collections they may view, read a site's tree with `include_tree`, and move a branch using entry `data.parent` or collection `data.entry`/`data.parent`. Moves retain descendants and enforce entry/site permissions, both domains' token scopes and resource policies, depth limits, cycles and URI uniqueness. Collection configuration remains administrator-only.
+
+### Fixed
+
+- Parent writes fail explicitly when unsupported instead of reporting success without moving the entry. Route collisions are checked against proposed field values before content is saved; an explicit null parent works when creating the collection root. Parent and tree responses respect field deny lists for every caller.
+
 ## [3.5.1] - 2026-11-04
 
 ### Security

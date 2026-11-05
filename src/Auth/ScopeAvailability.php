@@ -156,6 +156,7 @@ class ScopeAvailability
                 || $this->holdsForAny($user, $this->collectionHandles(), fn (string $h): array => ["view {$h} entries"])
                 || $this->holdsForAny($user, $this->navHandles(), fn (string $h): array => ["view {$h} nav"]),
             TokenScope::StructuresWrite => $this->holdsAny($user, ['configure collections', 'configure taxonomies', 'configure navs', 'configure sites', 'configure globals'])
+                || $this->holdsForAny($user, $this->collectionHandles(), fn (string $h): array => ["reorder {$h} entries"])
                 || $this->holdsForAny($user, $this->navHandles(), fn (string $h): array => ["edit {$h} nav"]),
 
             // Reads follow the statamic://blueprints rule: a configure

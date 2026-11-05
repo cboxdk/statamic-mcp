@@ -142,11 +142,26 @@ class CollectionViewerPermissionTest extends TestCase
         $this->assertArrayNotHasKey('collection', $result['data'] ?? []);
     }
 
-    public function test_entry_viewer_still_cannot_list_or_write_collections(): void
+    public function test_entry_viewer_can_list_only_accessible_collection_metadata(): void
+    {
+        $this->actAs(["view {$this->handle} entries"]);
+        Collection::make('hidden_collection')->title('Hidden')->sites(['default'])->save();
+        $result = $this->router->execute(['action' => 'list', 'resource_type' => 'collection', 'limit' => 1]);
+        $this->assertTrue($result['success'], json_encode($result) ?: '');
+        $this->assertSame(1, $result['data']['total']);
+        $this->assertSame($this->handle, $result['data']['collections'][0]['handle']);
+        $this->assertSame(['handle', 'title', 'blueprint'], array_keys($result['data']['collections'][0]));
+        config(['statamic.mcp.tools.structures.resources.read' => ['hidden_collection']]);
+        $result = $this->router->execute(['action' => 'list', 'resource_type' => 'collection']);
+        $this->assertSame(0, $result['data']['total']);
+        $this->assertSame([], $result['data']['collections']);
+    }
+
+    public function test_entry_viewer_still_cannot_write_collection_settings(): void
     {
         $this->actAs(["view {$this->handle} entries"], ['structures:read', 'structures:write']);
 
-        foreach (['list', 'create', 'update', 'configure', 'delete'] as $action) {
+        foreach (['create', 'update', 'configure', 'delete'] as $action) {
             $result = $this->getCollection(['action' => $action, 'data' => ['title' => 'Changed']]);
 
             $this->assertFalse($result['success'], $action . ' must require configure collections');
