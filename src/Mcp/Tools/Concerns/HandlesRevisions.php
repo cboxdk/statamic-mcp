@@ -20,7 +20,7 @@ use Statamic\Revisions\Revision;
 trait HandlesRevisions
 {
     /**
-     * The user a write is attributed to: the token's or Basic Auth user over
+     * The user a write is attributed to: the token's authenticated user over
      * the web, nobody on the local stdio server.
      *
      * Statamic's Revisable methods take the user as an option and do not fall
@@ -64,6 +64,22 @@ trait HandlesRevisions
 
         /** @var Entry $entry */
         return $entry->updateLastModified($user);
+    }
+
+    /**
+     * Statamic store() can overwrite a failed entry save with the revision save
+     * result. Stop at the first veto before creating the initial revision.
+     *
+     * @param  array<string, mixed>  $arguments
+     */
+    protected function storeInitialRevision(EntryContract $entry, array $arguments): void
+    {
+        $this->persistStatamic(fn () => $entry->published(false)->updateLastModified($this->actingUser())->save());
+        $revision = $entry->makeRevision()->user($this->actingUser());
+        if (is_string($arguments['revision_message'] ?? null)) {
+            $revision->message($arguments['revision_message']);
+        }
+        $this->persistStatamic(fn () => $revision->save());
     }
 
     /**
@@ -111,13 +127,7 @@ trait HandlesRevisions
     private function saveAsWorkingCopy(EntryContract $entry, array $processedData, ?string $message): array
     {
         /** @var Entry $entry */
-
-        // Preserve the live entry state so we don't leak draft-only values back
-        // into the published entry object after creating the working copy.
-        $originalData = $entry->data()->all();
-        $originalSlug = $entry->slug();
-        $originalPublished = $entry->published();
-        $originalDate = $entry->collection()->dated() ? $entry->date() : null;
+        $entry = clone $entry;
 
         // Merge processed data onto the entry so makeWorkingCopy() captures the new state
         $entry->merge($processedData);
@@ -129,18 +139,10 @@ trait HandlesRevisions
             $workingCopy->message($message);
         }
 
-        $workingCopy->save();
+        $this->persistStatamic(fn () => $workingCopy->save());
 
         /** @var Entry $workingCopyEntry */
         $workingCopyEntry = $entry->makeFromRevision($workingCopy);
-
-        // Restore the published entry state in-memory to prevent stache contamination.
-        $entry->data($originalData);
-        $entry->slug($originalSlug);
-        $entry->published($originalPublished);
-        if ($entry->collection()->dated()) {
-            $entry->date($originalDate);
-        }
 
         return [
             'entry' => [
@@ -174,6 +176,10 @@ trait HandlesRevisions
 
             if ($entry === null) {
                 return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
+            }
+
+            if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
+                return $policyError;
             }
 
             /** @var Entry $entry */
@@ -216,6 +222,10 @@ trait HandlesRevisions
 
             if ($entry === null) {
                 return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
+            }
+
+            if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
+                return $policyError;
             }
 
             /** @var Entry $entry */
@@ -276,6 +286,10 @@ trait HandlesRevisions
                 return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
             }
 
+            if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
+                return $policyError;
+            }
+
             /** @var Entry $entry */
             $revisionsError = $this->requireRevisionsEnabled($entry);
             if ($revisionsError) {
@@ -290,12 +304,12 @@ trait HandlesRevisions
 
             if ($entry->published()) {
                 // Published: create a working copy from the revision
-                $revision->toWorkingCopy()->user($this->actingUser())->date(now())->save();
+                $this->persistStatamic(fn () => $revision->toWorkingCopy()->user($this->actingUser())->date(now())->save());
             } else {
                 // Unpublished: directly update the entry from the revision
                 /** @var Entry $restoredEntry */
                 $restoredEntry = $entry->makeFromRevision($revision);
-                $restoredEntry->published(false)->save();
+                $this->persistStatamic(fn () => $restoredEntry->published(false)->save());
             }
 
             // Clear relevant caches
@@ -338,6 +352,10 @@ trait HandlesRevisions
                 return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
             }
 
+            if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
+                return $policyError;
+            }
+
             /** @var Entry $entry */
             $revisionsError = $this->requireRevisionsEnabled($entry);
             if ($revisionsError) {
@@ -348,7 +366,7 @@ trait HandlesRevisions
                 return $this->createErrorResponse('No working copy exists to publish')->toArray();
             }
 
-            $entry->publish($this->revisionOptions($arguments));
+            $this->persistStatamic(fn () => $entry->publish($this->revisionOptions($arguments)));
 
             // Clear relevant caches
             $this->clearCachesAfterWrite(['stache', 'static']);

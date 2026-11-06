@@ -93,7 +93,7 @@ describe('EnsureSecureTransport', function () {
 
 describe('HandleMcpCors', function () {
 
-    it('adds no CORS headers when allowed_origins is empty', function () {
+    it('rejects cross-origin requests when allowed_origins is empty', function () {
         config()->set('statamic.mcp.web.allowed_origins', []);
 
         $middleware = new HandleMcpCors;
@@ -102,7 +102,7 @@ describe('HandleMcpCors', function () {
 
         $response = $middleware->handle($request, $this->passThrough);
 
-        expect($response->getStatusCode())->toBe(200);
+        expect($response->getStatusCode())->toBe(403);
         expect($response->headers->has('Access-Control-Allow-Origin'))->toBeFalse();
     });
 
@@ -120,7 +120,7 @@ describe('HandleMcpCors', function () {
         expect($response->headers->get('Vary'))->toBe('Origin');
     });
 
-    it('does not add CORS headers for disallowed origin', function () {
+    it('rejects requests from disallowed origins', function () {
         config()->set('statamic.mcp.web.allowed_origins', ['https://allowed.example.com']);
 
         $middleware = new HandleMcpCors;
@@ -129,7 +129,7 @@ describe('HandleMcpCors', function () {
 
         $response = $middleware->handle($request, $this->passThrough);
 
-        expect($response->getStatusCode())->toBe(200);
+        expect($response->getStatusCode())->toBe(403);
         expect($response->headers->has('Access-Control-Allow-Origin'))->toBeFalse();
     });
 
@@ -164,7 +164,7 @@ describe('HandleMcpCors', function () {
         expect($response->headers->get('Access-Control-Max-Age'))->toBe('86400');
     });
 
-    it('returns empty preflight response for disallowed origin', function () {
+    it('rejects preflight requests from disallowed origins', function () {
         config()->set('statamic.mcp.web.allowed_origins', ['https://allowed.example.com']);
 
         $middleware = new HandleMcpCors;
@@ -173,7 +173,7 @@ describe('HandleMcpCors', function () {
 
         $response = $middleware->handle($request, $this->passThrough);
 
-        expect($response->getStatusCode())->toBe(204);
+        expect($response->getStatusCode())->toBe(403);
         expect($response->headers->has('Access-Control-Allow-Origin'))->toBeFalse();
     });
 

@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\OAuth\Drivers;
 
 use Carbon\Carbon;
+use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\OAuth\Concerns\ValidatesRedirectUris;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
+use Cboxdk\StatamicMcp\OAuth\Contracts\RevokesUserGrants;
 use Cboxdk\StatamicMcp\OAuth\Exceptions\OAuthException;
 use Cboxdk\StatamicMcp\OAuth\OAuthAuthCode;
 use Cboxdk\StatamicMcp\OAuth\OAuthClient;
@@ -19,7 +21,7 @@ use Symfony\Component\Yaml\Yaml;
  * reliably on local filesystems. For horizontally scaled deployments (multiple
  * servers, NFS, or container shared volumes), use a database-backed driver instead.
  */
-class BuiltInOAuthDriver implements OAuthDriver
+class BuiltInOAuthDriver implements OAuthDriver, RevokesUserGrants
 {
     use ValidatesRedirectUris;
 
@@ -303,11 +305,17 @@ class BuiltInOAuthDriver implements OAuthDriver
     /** @param array<int, string> $scopes */
     public function createRefreshToken(string $userId, string $clientId, array $scopes): string
     {
-        $token = bin2hex(random_bytes(32));
-        $tokenHash = hash('sha256', $token);
-
         /** @var int $refreshTtl */
         $refreshTtl = config('statamic.mcp.oauth.refresh_token_ttl', 2592000);
+
+        return $this->issueRefreshToken($userId, $clientId, $scopes, Carbon::now()->addSeconds($refreshTtl));
+    }
+
+    /** @param array<int, string> $scopes */
+    private function issueRefreshToken(string $userId, string $clientId, array $scopes, Carbon $expiresAt): string
+    {
+        $token = bin2hex(random_bytes(32));
+        $tokenHash = hash('sha256', $token);
 
         /** @var array<string, mixed> $data */
         $data = [
@@ -315,7 +323,7 @@ class BuiltInOAuthDriver implements OAuthDriver
             'user_id' => $userId,
             'client_id' => $clientId,
             'scopes' => $scopes,
-            'expires_at' => Carbon::now()->addSeconds($refreshTtl)->toIso8601String(),
+            'expires_at' => $expiresAt->toIso8601String(),
             'used' => false,
         ];
 
@@ -365,21 +373,19 @@ class BuiltInOAuthDriver implements OAuthDriver
                 throw new OAuthException('invalid_grant', 'Refresh token not found');
             }
 
-            // Check if already used (single-use rotation)
-            if (($data['used'] ?? false) === true) {
-                throw new OAuthException('invalid_grant', 'Refresh token has already been used');
-            }
-
-            // Check expiry
-            $expiresAt = is_string($data['expires_at'] ?? null) ? $data['expires_at'] : '';
-
-            if ($expiresAt !== '' && Carbon::parse($expiresAt)->isPast()) {
-                throw new OAuthException('invalid_grant', 'Refresh token has expired');
-            }
-
-            // Check client_id
+            // Client binding precedes replay handling, so another client cannot revoke a grant.
             if (($data['client_id'] ?? '') !== $clientId) {
                 throw new OAuthException('invalid_client', 'Client ID mismatch');
+            }
+            $userId = is_string($data['user_id'] ?? null) ? $data['user_id'] : '';
+            $expiresAt = is_string($data['expires_at'] ?? null) ? $data['expires_at'] : '';
+            if ($expiresAt === '' || Carbon::parse($expiresAt)->isPast()) {
+                throw new OAuthException('invalid_grant', 'Refresh token has expired');
+            }
+            if (($data['used'] ?? false) === true) {
+                $this->revokeRefreshTokensFor($userId, $clientId);
+                app(TokenService::class)->revokeOAuthTokens($userId, $clientId);
+                throw new OAuthException('invalid_grant', 'Refresh token has already been used; grant revoked');
             }
 
             // Mark as used (rotation) — fflush before releasing lock to
@@ -398,13 +404,11 @@ class BuiltInOAuthDriver implements OAuthDriver
                 userId: is_string($data['user_id'] ?? null) ? $data['user_id'] : '',
                 scopes: $scopes,
                 redirectUri: '',
+                refreshToken: $this->issueRefreshToken($userId, $clientId, $scopes, Carbon::parse($expiresAt)),
             );
         } finally {
             flock($handle, LOCK_UN);
             fclose($handle);
-
-            // Delete the used refresh token file (single-use rotation)
-            @unlink($filePath);
         }
     }
 
@@ -433,6 +437,21 @@ class BuiltInOAuthDriver implements OAuthDriver
         return $revoked;
     }
 
+    public function revokeGrantsForUser(string $userId): int
+    {
+        $removed = 0;
+        foreach ([$this->refreshDir, $this->codesDir] as $directory) {
+            foreach (glob($directory . '/*.json') ?: [] as $file) {
+                $data = json_decode((string) file_get_contents($file), true);
+                if (is_array($data) && ($data['user_id'] ?? null) === $userId && unlink($file)) {
+                    $removed++;
+                }
+            }
+        }
+
+        return $removed;
+    }
+
     public function revokeRefreshToken(string $refreshToken): bool
     {
         $tokenHash = hash('sha256', $refreshToken);
@@ -442,7 +461,14 @@ class BuiltInOAuthDriver implements OAuthDriver
             return false;
         }
 
-        return unlink($filePath);
+        $data = json_decode((string) file_get_contents($filePath), true);
+        if (! is_array($data) || ! is_string($data['user_id'] ?? null) || ! is_string($data['client_id'] ?? null)) {
+            return false;
+        }
+        $this->revokeRefreshTokensFor($data['user_id'], $data['client_id']);
+        app(TokenService::class)->revokeOAuthTokens($data['user_id'], $data['client_id']);
+
+        return true;
     }
 
     public function prune(): int
@@ -521,7 +547,7 @@ class BuiltInOAuthDriver implements OAuthDriver
             }
         }
 
-        // Prune used or expired refresh tokens
+        // Retain used refresh tokens until expiry to detect replay.
         $refreshFiles = glob($this->refreshDir . '/*.json');
 
         if ($refreshFiles !== false) {
@@ -540,11 +566,6 @@ class BuiltInOAuthDriver implements OAuthDriver
                 }
 
                 $shouldPrune = false;
-
-                // Prune if used
-                if (($data['used'] ?? false) === true) {
-                    $shouldPrune = true;
-                }
 
                 // Prune if expired
                 $expiresAt = is_string($data['expires_at'] ?? null) ? $data['expires_at'] : null;

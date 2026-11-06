@@ -208,7 +208,7 @@ class AssetsRouterTest extends TestCase
         $this->assertArrayHasKey('asset', $result['data']);
     }
 
-    public function test_upload_asset(): void
+    public function test_upload_rejects_non_json_php_file_objects(): void
     {
         $this->createContainerWithPermissions('uploads', 'Uploads', 'assets', [
             'allow_uploads' => true,
@@ -224,9 +224,18 @@ class AssetsRouterTest extends TestCase
             'path' => 'uploads/uploaded.jpg',
         ]);
 
-        // Upload requires source_url, content or file_path
         $this->assertFalse($result['success']);
-        $this->assertNotEmpty($result['errors']);
+        $this->assertStringContainsString('JSON values', $result['error']);
+    }
+
+    public function test_upload_requires_a_supported_source(): void
+    {
+        $this->createContainerWithPermissions('uploads', 'Uploads', 'assets', ['allow_uploads' => true]);
+        $result = $this->router->execute([
+            'action' => 'upload', 'resource_type' => 'asset', 'container' => 'uploads',
+            'path' => 'uploads/uploaded.jpg',
+        ]);
+        $this->assertFalse($result['success']);
         $this->assertStringContainsString('One of source_url', $result['errors'][0]);
     }
 

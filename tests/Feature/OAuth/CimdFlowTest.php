@@ -335,10 +335,7 @@ class CimdFlowTest extends TestCase
             'code_verifier' => $pkce['verifier'],
         ]);
 
-        // Non-URL client_ids that don't match DCR or CIMD still get tokens
-        // with generic 'OAuth Client' name — the error case is for valid
-        // CIMD URLs that fail resolution
-        $response->assertOk();
+        $response->assertStatus(400)->assertJson(['error' => 'invalid_client']);
     }
 
     // --- Token endpoint with unreachable CIMD URL returns invalid_client ---
@@ -483,6 +480,7 @@ class CimdFlowTest extends TestCase
 
         /** @var OAuthDriver $driver */
         $driver = $this->app->make(OAuthDriver::class);
+        $this->authenticatedUser('dcr-user', 'dcr@example.test');
         $client = $driver->registerClient('DCR Flow Client', ['https://dcr.example.com/callback']);
 
         $pkce = $this->generatePkce();

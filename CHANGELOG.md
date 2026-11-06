@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Remove Basic Auth, including the legacy enable flag. Use scoped Bearer tokens or OAuth. The HTTP MCP endpoint now requires explicit activation.
+- Require custom OAuth drivers to implement user-wide grant revocation, including orphan refresh tokens and pending authorization codes.
+- Authorize global values against their concrete Statamic site policy.
+- Enforce entry publish permissions on status updates and working copies, and authorize localized entries and revision actions against their actual site and author. Reject entry list reads from inaccessible sites.
+- End OAuth refresh access when scopes or expiry change, revoke orphan grants on user deactivation, and detect replay across the refresh chain. Rotated tokens retain the original grant expiry. Multi-node deployments must use a shared, lock-capable `oauth.lock_store`.
+- Restrict user data to profile/blueprint fields and omit authentication secrets. Reject disallowed browser origins before executing a request; require HTTPS even when older published configuration omits the setting.
+- Limit outbound downloads while cURL receives bytes, preserving DNS pinning and SSRF checks.
+- Require Statamic 6.35.1+ and Laravel MCP 1.1.2+.
+
+### Fixed
+
+- Respect Statamic save/delete vetoes on entry, term, global, user, role and group writes; isolate entry candidates from live repository objects.
+- Register cache cleanup before content writes, report failed cache command exit codes, and preserve successful outcomes when completed calls exceed the duration budget.
+- Allow editors to restore revisions as drafts or working copies without requiring publication rights, matching Statamic's control panel.
+- Use Statamic's actual role and user-group permissions for all corresponding MCP operations, including non-super administrators.
+
 ## [3.6.0] - 2026-11-05
 
 ### Security

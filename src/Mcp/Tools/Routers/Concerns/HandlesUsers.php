@@ -259,7 +259,7 @@ trait HandlesUsers
                 return $this->createErrorResponse('Permission denied: Assigning roles requires the assign roles permission')->toArray();
             }
 
-            $user->save();
+            $this->persistStatamic(fn () => $user->save(), ['stache']);
 
             // Assign roles if provided
             if (isset($data['roles']) && is_array($data['roles'])) {
@@ -269,7 +269,7 @@ trait HandlesUsers
                         $user->assignRole($role);
                     }
                 }
-                $user->save();
+                $this->persistStatamic(fn () => $user->save(), ['stache']);
             }
 
             // Clear caches
@@ -349,7 +349,7 @@ trait HandlesUsers
                 $user->makeSuper();
             }
 
-            $user->save();
+            $this->persistStatamic(fn () => $user->save(), ['stache']);
 
             // Clear caches
             $this->clearCachesAfterWrite(['stache']);
@@ -405,7 +405,7 @@ trait HandlesUsers
 
             $userId = $user->id();
             $userEmail = $user->email();
-            $user->delete();
+            $this->persistStatamic(fn () => $user->delete(), ['stache']);
 
             // Clear caches
             $this->clearCachesAfterWrite(['stache']);
@@ -450,7 +450,7 @@ trait HandlesUsers
             // Activate user by ensuring they are not blocked/suspended
             // In Statamic, users can be activated by removing any 'blocked' status or similar
             $user->set('status', 'active');
-            $user->save();
+            $this->persistStatamic(fn () => $user->save(), ['stache']);
 
             // Clear caches
             $this->clearCachesAfterWrite(['stache']);
@@ -504,11 +504,11 @@ trait HandlesUsers
             $user->set('status', 'inactive');
             $user->set('deactivation_reason', $reason);
             $user->set('deactivated_at', now()->toISOString());
-            $user->save();
+            $this->persistStatamic(fn () => $user->save(), ['stache']);
 
             // Deactivation must actually cut off access: revoke the user's MCP
             // tokens so existing bearer tokens stop working. AuthenticateForMcp
-            // also refuses an inactive user, which covers Basic Auth.
+            // also refuses an inactive user holding a previously issued token.
             app(TokenService::class)->revokeAllForUser((string) $user->id());
 
             // Clear caches
@@ -561,7 +561,7 @@ trait HandlesUsers
             }
 
             $user->assignRole($role);
-            $user->save();
+            $this->persistStatamic(fn () => $user->save(), ['stache']);
 
             // Clear caches
             $this->clearCachesAfterWrite(['stache']);
@@ -610,7 +610,7 @@ trait HandlesUsers
             }
 
             $user->removeRole($role);
-            $user->save();
+            $this->persistStatamic(fn () => $user->save(), ['stache']);
 
             // Clear caches
             $this->clearCachesAfterWrite(['stache']);
@@ -649,7 +649,13 @@ trait HandlesUsers
                 'last_login' => $user->lastLogin()?->timestamp,
                 'avatar' => $user->avatar(),
                 'initials' => $user->initials(),
-                'data' => $user->data()->except(['password', 'remember_token'])->all(),
+                'data' => $user->data()->only(array_merge(
+                    ['name', 'email', 'avatar', 'status'],
+                    $user->blueprint()->fields()->all()->keys()->all(),
+                ))->except([
+                    'password', 'remember_token', 'two_factor_secret', 'two_factor_recovery_codes',
+                    'two_factor_confirmed_at', 'passkeys', 'webauthn', 'recovery_codes',
+                ])->all(),
             ]);
         }
 

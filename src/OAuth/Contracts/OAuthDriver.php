@@ -8,7 +8,7 @@ use Cboxdk\StatamicMcp\OAuth\Exceptions\OAuthException;
 use Cboxdk\StatamicMcp\OAuth\OAuthAuthCode;
 use Cboxdk\StatamicMcp\OAuth\OAuthClient;
 
-interface OAuthDriver
+interface OAuthDriver extends RevokesUserGrants
 {
     /** @param array<int, string> $redirectUris */
     public function registerClient(string $clientName, array $redirectUris, ?string $registeredIp = null): OAuthClient;

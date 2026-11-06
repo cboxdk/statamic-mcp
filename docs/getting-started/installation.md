@@ -9,9 +9,9 @@ weight: 1
 ## Requirements
 
 - **PHP** 8.3 or higher
-- **Statamic CMS** v6.6+
+- **Statamic CMS** v6.35.1+
 - **Laravel** 12.0+
-- **laravel/mcp** ^1.0 (installed automatically as a dependency)
+- **laravel/mcp** ^1.1.2 (installed automatically as a dependency)
 
 ## Install via Composer
 
@@ -46,7 +46,7 @@ Visit **Tools > MCP** in the Statamic Control Panel. You should see the dashboar
 
 ## Web Endpoint
 
-The web MCP endpoint is **enabled by default**. After installation, the endpoint is available at the path configured in `STATAMIC_MCP_WEB_PATH` (default: `/mcp/statamic`).
+The web MCP endpoint is **disabled by default**. Enable it explicitly with `STATAMIC_MCP_WEB_ENABLED=true`. The endpoint then uses the path configured in `STATAMIC_MCP_WEB_PATH` (default: `/mcp/statamic`).
 
 To disable it, set in your `.env`:
 

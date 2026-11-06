@@ -13,8 +13,8 @@ resolver allows it, it is listed; if it does not, it is not.
 | Package | Constraint |
 |---------|------------|
 | `php` | `^8.3` |
-| `statamic/cms` | `^6.6` |
-| `laravel/mcp` | `^1.0` |
+| `statamic/cms` | `^6.35.1` |
+| `laravel/mcp` | `^1.1.2` |
 | `symfony/yaml` | `^7.0 || ^8.0` |
 
 ## Laravel

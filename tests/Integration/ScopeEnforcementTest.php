@@ -15,6 +15,7 @@ use Cboxdk\StatamicMcp\Tests\TestCase;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
+use Statamic\Facades\User;
 
 class ScopeEnforcementTest extends TestCase
 {
@@ -48,7 +49,7 @@ class ScopeEnforcementTest extends TestCase
 
     public function test_content_read_token_allows_list_but_denies_create(): void
     {
-        $user = $this->createMockSuperUser();
+        $user = $this->createSuperUser();
         auth()->shouldUse('web');
         auth()->setUser($user);
 
@@ -76,7 +77,7 @@ class ScopeEnforcementTest extends TestCase
 
     public function test_wildcard_token_allows_create(): void
     {
-        $user = $this->createMockSuperUser();
+        $user = $this->createSuperUser();
         auth()->shouldUse('web');
         auth()->setUser($user);
 
@@ -97,7 +98,7 @@ class ScopeEnforcementTest extends TestCase
 
     public function test_blueprints_read_token_allows_list_but_denies_create(): void
     {
-        $user = $this->createMockSuperUser();
+        $user = $this->createSuperUser();
         auth()->shouldUse('web');
         auth()->setUser($user);
 
@@ -149,54 +150,14 @@ class ScopeEnforcementTest extends TestCase
     }
 
     /**
-     * Create a mock super admin user for web context testing.
+     * Create a real Statamic super admin so site and entry policies run in web context.
      */
-    private function createMockSuperUser(): Authenticatable
+    private function createSuperUser(): Authenticatable
     {
-        return new class implements Authenticatable
-        {
-            public function isSuper(): bool
-            {
-                return true;
-            }
+        $user = User::make()->id('scope-test-user')->email('scope-test@example.test')->makeSuper();
+        $user->save();
 
-            public function hasPermission(string $permission): bool
-            {
-                return true;
-            }
-
-            public function getAuthIdentifierName(): string
-            {
-                return 'id';
-            }
-
-            public function getAuthIdentifier(): string
-            {
-                return 'scope-test-user';
-            }
-
-            public function getAuthPasswordName(): string
-            {
-                return 'password';
-            }
-
-            public function getAuthPassword(): string
-            {
-                return 'hashed';
-            }
-
-            public function getRememberToken(): ?string
-            {
-                return null;
-            }
-
-            public function setRememberToken($value): void {}
-
-            public function getRememberTokenName(): string
-            {
-                return 'remember_token';
-            }
-        };
+        return $user;
     }
 
     /**

@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\OAuth\Drivers;
 
 use Carbon\Carbon;
+use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\OAuth\Concerns\ValidatesRedirectUris;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
+use Cboxdk\StatamicMcp\OAuth\Contracts\RevokesUserGrants;
 use Cboxdk\StatamicMcp\OAuth\Exceptions\OAuthException;
 use Cboxdk\StatamicMcp\OAuth\Models\OAuthClientModel;
 use Cboxdk\StatamicMcp\OAuth\Models\OAuthCodeModel;
@@ -21,7 +23,7 @@ use Cboxdk\StatamicMcp\OAuth\OAuthClient;
  * making it safe for horizontally scaled deployments with multiple
  * servers or container instances.
  */
-class DatabaseOAuthDriver implements OAuthDriver
+class DatabaseOAuthDriver implements OAuthDriver, RevokesUserGrants
 {
     use ValidatesRedirectUris;
 
@@ -179,18 +181,24 @@ class DatabaseOAuthDriver implements OAuthDriver
     /** @param array<int, string> $scopes */
     public function createRefreshToken(string $userId, string $clientId, array $scopes): string
     {
-        $token = bin2hex(random_bytes(32));
-        $tokenHash = hash('sha256', $token);
-
         /** @var int $refreshTtl */
         $refreshTtl = config('statamic.mcp.oauth.refresh_token_ttl', 2592000);
+
+        return $this->issueRefreshToken($userId, $clientId, $scopes, Carbon::now()->addSeconds($refreshTtl));
+    }
+
+    /** @param array<int, string> $scopes */
+    private function issueRefreshToken(string $userId, string $clientId, array $scopes, Carbon $expiresAt): string
+    {
+        $token = bin2hex(random_bytes(32));
+        $tokenHash = hash('sha256', $token);
 
         OAuthRefreshTokenModel::create([
             'token_hash' => $tokenHash,
             'client_id' => $clientId,
             'user_id' => $userId,
             'scopes' => $scopes,
-            'expires_at' => Carbon::now()->addSeconds($refreshTtl),
+            'expires_at' => $expiresAt,
             'used' => false,
         ]);
 
@@ -217,8 +225,13 @@ class DatabaseOAuthDriver implements OAuthDriver
                 throw new OAuthException('invalid_grant', 'Refresh token not found');
             }
 
+            if ($tokenRecord->client_id !== $clientId) {
+                throw new OAuthException('invalid_client', 'Client ID mismatch');
+            }
             if ($tokenRecord->used) {
-                throw new OAuthException('invalid_grant', 'Refresh token has already been used');
+                $this->revokeRefreshTokensFor($tokenRecord->user_id, $clientId);
+                app(TokenService::class)->revokeOAuthTokens($tokenRecord->user_id, $clientId);
+                throw new OAuthException('invalid_grant', 'Refresh token has already been used; grant revoked');
             }
 
             if ($tokenRecord->expires_at->isPast()) {
@@ -228,7 +241,7 @@ class DatabaseOAuthDriver implements OAuthDriver
             throw new OAuthException('invalid_client', 'Client ID mismatch');
         }
 
-        // Fetch the consumed record for scopes/userId, then delete (single-use rotation)
+        // Retain the consumed record and issue a successor with the original grant expiry.
         $model = OAuthRefreshTokenModel::where('token_hash', $tokenHash)->first();
 
         if (! $model instanceof OAuthRefreshTokenModel) {
@@ -240,10 +253,8 @@ class DatabaseOAuthDriver implements OAuthDriver
             userId: $model->user_id,
             scopes: $model->scopes,
             redirectUri: '',
+            refreshToken: $this->issueRefreshToken($model->user_id, $clientId, $model->scopes, Carbon::parse($model->expires_at)),
         );
-
-        // Delete the used refresh token
-        $model->delete();
 
         return $authCode;
     }
@@ -257,11 +268,26 @@ class DatabaseOAuthDriver implements OAuthDriver
         return is_int($deleted) ? $deleted : 0;
     }
 
+    public function revokeGrantsForUser(string $userId): int
+    {
+        $refresh = OAuthRefreshTokenModel::where('user_id', $userId)->delete();
+        $codes = OAuthCodeModel::where('user_id', $userId)->delete();
+
+        return (is_int($refresh) ? $refresh : 0) + (is_int($codes) ? $codes : 0);
+    }
+
     public function revokeRefreshToken(string $refreshToken): bool
     {
         $tokenHash = hash('sha256', $refreshToken);
 
-        return OAuthRefreshTokenModel::where('token_hash', $tokenHash)->delete() > 0;
+        $model = OAuthRefreshTokenModel::where('token_hash', $tokenHash)->first();
+        if (! $model instanceof OAuthRefreshTokenModel) {
+            return false;
+        }
+        $this->revokeRefreshTokensFor($model->user_id, $model->client_id);
+        app(TokenService::class)->revokeOAuthTokens($model->user_id, $model->client_id);
+
+        return true;
     }
 
     public function prune(): int
@@ -275,10 +301,9 @@ class DatabaseOAuthDriver implements OAuthDriver
             ->delete();
         $pruned += $codePruned;
 
-        // Prune used or expired refresh tokens
+        // Retain used refresh tokens until expiry to detect replay.
         /** @var int $refreshPruned */
-        $refreshPruned = OAuthRefreshTokenModel::where('used', true)
-            ->orWhere('expires_at', '<', Carbon::now())
+        $refreshPruned = OAuthRefreshTokenModel::where('expires_at', '<', Carbon::now())
             ->delete();
         $pruned += $refreshPruned;
 

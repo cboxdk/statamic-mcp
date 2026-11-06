@@ -38,7 +38,7 @@ trait HandlesRoles
      */
     private function listRoles(array $arguments): array
     {
-        if (! $this->hasPermission('view', 'roles')) {
+        if (! $this->hasPermission('edit', 'roles')) {
             return $this->createErrorResponse('Permission denied: Cannot list roles')->toArray();
         }
 
@@ -74,7 +74,7 @@ trait HandlesRoles
      */
     private function getRole(array $arguments): array
     {
-        if (! $this->hasPermission('view', 'roles')) {
+        if (! $this->hasPermission('edit', 'roles')) {
             return $this->createErrorResponse('Permission denied: Cannot view roles')->toArray();
         }
 
@@ -115,7 +115,7 @@ trait HandlesRoles
      */
     private function createRole(array $arguments): array
     {
-        if (! $this->hasPermission('create', 'roles')) {
+        if (! $this->hasPermission('edit', 'roles')) {
             return $this->createErrorResponse('Permission denied: Cannot create roles')->toArray();
         }
 
@@ -151,7 +151,7 @@ trait HandlesRoles
                 $role->permissions($permissions);
             }
 
-            $role->save();
+            $this->persistStatamic(fn () => $role->save(), ['stache']);
 
             // Clear caches
             $this->clearCachesAfterWrite(['stache']);
@@ -209,7 +209,7 @@ trait HandlesRoles
                 $role->permissions($permissions);
             }
 
-            $role->save();
+            $this->persistStatamic(fn () => $role->save(), ['stache']);
 
             // Clear caches
             $this->clearCachesAfterWrite(['stache']);
@@ -233,7 +233,7 @@ trait HandlesRoles
      */
     private function deleteRole(array $arguments): array
     {
-        if (! $this->hasPermission('delete', 'roles')) {
+        if (! $this->hasPermission('edit', 'roles')) {
             return $this->createErrorResponse('Permission denied: Cannot delete roles')->toArray();
         }
 
@@ -258,7 +258,7 @@ trait HandlesRoles
                 return $this->createErrorResponse("Cannot delete role '{$handle}' - it is assigned to {$userCount} users")->toArray();
             }
 
-            $role->delete();
+            $this->persistStatamic(fn () => $role->delete(), ['stache']);
 
             // Clear caches
             $this->clearCachesAfterWrite(['stache']);

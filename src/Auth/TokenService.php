@@ -9,6 +9,7 @@ use Cboxdk\StatamicMcp\Contracts\TokenStore;
 use Cboxdk\StatamicMcp\Events\McpTokenDeleted;
 use Cboxdk\StatamicMcp\Events\McpTokenSaved;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
+use Cboxdk\StatamicMcp\OAuth\OAuthMutationLock;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -112,30 +113,41 @@ class TokenService
      */
     public function updateToken(string $tokenId, ?string $name = null, ?array $scopes = null, ?Carbon $expiresAt = null, bool $clearExpiry = false): ?McpTokenData
     {
-        /** @var array<string, mixed> $data */
-        $data = [];
+        return app(OAuthMutationLock::class)->run(function () use ($tokenId, $name, $scopes, $expiresAt, $clearExpiry): ?McpTokenData {
+            /** @var array<string, mixed> $data */
+            $data = [];
 
-        if ($name !== null) {
-            $data['name'] = $name;
-        }
+            if ($name !== null) {
+                $data['name'] = $name;
+            }
 
-        if ($scopes !== null) {
-            $data['scopes'] = array_map(fn (TokenScope $scope): string => $scope->value, $scopes);
-        }
+            if ($scopes !== null) {
+                $data['scopes'] = array_map(fn (TokenScope $scope): string => $scope->value, $scopes);
+            }
 
-        if ($expiresAt !== null) {
-            $data['expiresAt'] = Carbon::parse($expiresAt);
-        } elseif ($clearExpiry) {
-            $data['expiresAt'] = null;
-        }
+            if ($expiresAt !== null) {
+                $data['expiresAt'] = Carbon::parse($expiresAt);
+            } elseif ($clearExpiry) {
+                $data['expiresAt'] = null;
+            }
 
-        $updated = $this->tokenStore->update($tokenId, $data);
+            $existing = $this->tokenStore->find($tokenId);
+            $scopeValues = $scopes === null ? null : array_map(fn (TokenScope $scope): string => $scope->value, $scopes);
+            $scopesChanged = $existing !== null && $scopeValues !== null
+                && (array_diff($scopeValues, $existing->scopes) !== [] || array_diff($existing->scopes, $scopeValues) !== []);
+            $expiryChanged = $existing !== null && (($expiresAt !== null && ($existing->expiresAt === null || ! $expiresAt->equalTo($existing->expiresAt)))
+                || ($clearExpiry && $existing->expiresAt !== null));
+            if ($existing !== null && $existing->oauthClientId !== null && ($scopesChanged || $expiryChanged)) {
+                app(OAuthDriver::class)->revokeRefreshTokensFor($existing->userId, $existing->oauthClientId);
+            }
+            $updated = $this->tokenStore->update($tokenId, $data);
 
-        if ($updated !== null) {
-            McpTokenSaved::dispatch($updated);
-        }
+            if ($updated !== null) {
+                McpTokenSaved::dispatch($updated);
+            }
 
-        return $updated;
+            return $updated;
+        });
     }
 
     /**
@@ -213,14 +225,30 @@ class TokenService
      */
     public function revokeToken(string $tokenId): bool
     {
+        return app(OAuthMutationLock::class)->run(fn (): bool => $this->deleteToken($tokenId));
+    }
+
+    /** Revoke a presented token without racing concurrent refresh rotation. */
+    public function revokePlainTextToken(#[\SensitiveParameter] string $plainTextToken): void
+    {
+        app(OAuthMutationLock::class)->run(function () use ($plainTextToken): void {
+            $token = $this->findByPlainText($plainTextToken);
+            if ($token !== null) {
+                $this->deleteToken($token->id);
+            } else {
+                app(OAuthDriver::class)->revokeRefreshToken($plainTextToken);
+            }
+        });
+    }
+
+    /** Caller must hold the OAuth mutation lock. */
+    private function deleteToken(string $tokenId): bool
+    {
         $existing = $this->tokenStore->find($tokenId);
         $deleted = $this->tokenStore->delete($tokenId);
 
-        // Revoking an OAuth access token must end the whole grant, or the
-        // client could renew it from the refresh token the revoke left behind.
         if ($existing !== null && $existing->oauthClientId !== null) {
-            app(OAuthDriver::class)
-                ->revokeRefreshTokensFor($existing->userId, $existing->oauthClientId);
+            app(OAuthDriver::class)->revokeRefreshTokensFor($existing->userId, $existing->oauthClientId);
         }
 
         if ($deleted && $existing !== null) {
@@ -235,7 +263,12 @@ class TokenService
      */
     public function revokeAllForUser(string $userId): int
     {
-        return $this->tokenStore->deleteForUser($userId);
+        return app(OAuthMutationLock::class)->run(function () use ($userId): int {
+            $driver = app(OAuthDriver::class);
+            $driver->revokeGrantsForUser($userId);
+
+            return $this->tokenStore->deleteForUser($userId);
+        });
     }
 
     /**

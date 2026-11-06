@@ -868,7 +868,7 @@ class EntriesRevisionTest extends TestCase
         $reflection->setAccessible(true);
 
         $permissions = $reflection->invoke($this->router, 'restore_revision', ['collection' => $this->collectionHandle]);
-        $this->assertEquals(["publish {$this->collectionHandle} entries"], $permissions);
+        $this->assertEquals(["edit {$this->collectionHandle} entries"], $permissions);
     }
 
     public function test_correct_permissions_for_publish_working_copy(): void

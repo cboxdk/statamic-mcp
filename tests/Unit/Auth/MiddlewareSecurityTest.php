@@ -21,6 +21,7 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 uses(RefreshDatabase::class);
 
 beforeEach(function () {
+    config(['statamic.mcp.web.basic_auth_enabled' => true]);
     $this->loadMigrationsFrom(__DIR__ . '/../../../database/migrations/tokens');
 
     $this->tokenService = app(TokenService::class);
@@ -187,21 +188,13 @@ describe('AuthenticateForMcp', function () {
         expect($wwwAuth)->toContain('Bearer');
     });
 
-    it('authenticates via Basic Auth with valid credentials', function () {
-        $mockUser = createMockStatamicUser(
-            email: 'admin@example.com',
+    it('rejects Basic Auth even when legacy configuration enables it', function () {
+        config(['statamic.mcp.web.basic_auth_enabled' => true]);
+        User::shouldReceive('findByEmail')->never();
+        $response = (new AuthenticateForMcp($this->tokenService))->handle(
+            createBasicAuthRequest('admin@example.com', 'secret-password'), $this->passThrough
         );
-
-        User::shouldReceive('findByEmail')->with('admin@example.com')->andReturn($mockUser);
-
-        $middleware = new AuthenticateForMcp($this->tokenService);
-        $request = createBasicAuthRequest('admin@example.com', 'secret-password');
-
-        $response = $middleware->handle($request, $this->passThrough);
-
-        expect($response->getStatusCode())->toBe(200);
-        expect($request->attributes->get('statamic_user'))->toBe($mockUser);
-        expect($request->attributes->get('mcp_token'))->toBeNull();
+        expect($response->getStatusCode())->toBe(401);
     });
 
     it('returns 401 for Basic Auth with an invalid password', function () {
@@ -347,19 +340,13 @@ describe('AuthenticateForMcp Rate Limiting', function () {
     });
 
     it('does not increment counter on successful authentication', function () {
-        $mockUser = createMockStatamicUser(email: 'admin@example.com');
-
-        User::shouldReceive('findByEmail')->with('admin@example.com')->andReturn($mockUser);
-
-        $middleware = new AuthenticateForMcp($this->tokenService);
-        $request = createBasicAuthRequest('admin@example.com', 'secret-password');
-        $response = $middleware->handle($request, $this->passThrough);
-
+        $mockUser = createMockStatamicUser();
+        $token = $this->tokenService->createToken('user-123', 'Test', [TokenScope::EntriesRead]);
+        User::shouldReceive('find')->with('user-123')->andReturn($mockUser);
+        $request = createBearerRequest($token['token']);
+        $response = (new AuthenticateForMcp($this->tokenService))->handle($request, $this->passThrough);
         expect($response->getStatusCode())->toBe(200);
-
-        $ip = $request->ip() ?? 'unknown';
-        $rateLimitKey = "mcp_auth:{$ip}";
-        expect(RateLimiter::tooManyAttempts($rateLimitKey, 1))->toBeFalse();
+        expect(RateLimiter::tooManyAttempts('mcp_auth:' . ($request->ip() ?? 'unknown'), 1))->toBeFalse();
     });
 
     it('increments counter on failed Bearer token attempt', function () {
@@ -419,9 +406,9 @@ describe('RequireMcpPermission', function () {
         // No mcp_token — simulates Basic Auth path
 
         $middleware->handle($request, $this->passThrough);
-    })->throws(HttpException::class, 'CP access required for MCP operations');
+    })->throws(HttpException::class, 'A valid scoped MCP token is required.');
 
-    it('passes through when Basic Auth user has CP access', function () {
+    it('rejects tokenless users even with CP access', function () {
         $mockUser = createMockStatamicUser(canAccessCp: true);
 
         $middleware = new RequireMcpPermission;
@@ -429,8 +416,7 @@ describe('RequireMcpPermission', function () {
         $request->attributes->set('statamic_user', $mockUser);
         // No mcp_token — simulates Basic Auth path
 
-        $response = $middleware->handle($request, $this->passThrough);
-
-        expect($response->getStatusCode())->toBe(200);
+        expect(fn () => $middleware->handle($request, $this->passThrough))
+            ->toThrow(HttpException::class);
     });
 });

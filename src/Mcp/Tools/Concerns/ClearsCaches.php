@@ -17,6 +17,51 @@ trait ClearsCaches
      */
     private array $pendingCacheClears = [];
 
+    /** @var array<string, string> */
+    private array $completedCacheClears = [];
+
+    private ?string $writeEffects = null;
+
+    /** @return array<string, mixed> */
+    protected function writeMetadata(bool $success): array
+    {
+        $meta = [];
+        if ($this->writeEffects !== null) {
+            $meta['write_effects'] = $this->writeEffects;
+            $meta['retry_requires_reconciliation'] = ! $success;
+        }
+        if ($this->completedCacheClears !== []) {
+            $meta['cache'] = $this->completedCacheClears;
+        }
+
+        return $meta;
+    }
+
+    /**
+     * Register cleanup before invoking native events: a saved listener may
+     * throw after persistence. Only an explicit false is a Statamic veto.
+     *
+     * @template T
+     *
+     * @param  callable(): T  $write
+     * @param  list<string>  $cacheTypes
+     *
+     * @return T
+     */
+    protected function persistStatamic(callable $write, array $cacheTypes = ['stache', 'static']): mixed
+    {
+        $this->clearCachesAfterWrite($cacheTypes);
+        $this->writeEffects = 'unknown';
+        $result = $write();
+        if ($result === false) {
+            throw new \RuntimeException('Statamic refused the write.');
+        }
+
+        $this->writeEffects = 'committed';
+
+        return $result;
+    }
+
     /**
      * Ask for a cache clear once the current tool call is done.
      *
@@ -67,7 +112,10 @@ trait ClearsCaches
         $types = $this->pendingCacheClears;
         $this->pendingCacheClears = [];
 
-        return $this->clearStatamicCaches($types);
+        $results = $this->clearStatamicCaches($types);
+        $this->completedCacheClears = [...$this->completedCacheClears, ...$results];
+
+        return $results;
     }
 
     /**
@@ -113,15 +161,22 @@ trait ClearsCaches
 
         foreach ($types as $type) {
             try {
-                match ($type) {
+                $exitCode = match ($type) {
                     'stache' => Artisan::call('statamic:stache:clear'),
                     'static' => Artisan::call('statamic:static:clear'),
                     'images' => Artisan::call('statamic:glide:clear'),
                     'views' => Artisan::call('view:clear'),
                     'application' => Artisan::call('cache:clear'),
-                    default => null,
+                    default => 1,
                 };
-                $results[$type] = 'cleared';
+                $results[$type] = match (true) {
+                    $exitCode === 0 => 'cleared',
+                    $type === 'static' && ! config('statamic.static_caching.strategy') => 'disabled',
+                    default => 'failed',
+                };
+                if ($results[$type] === 'failed') {
+                    Log::warning("MCP cache clear failed for type '{$type}'", ['exit_code' => $exitCode]);
+                }
             } catch (\Throwable $e) {
                 // Throwable, not Exception: a StacheCleared listener raising a
                 // TypeError would otherwise escape and cost the caller its

@@ -12,7 +12,7 @@ use Symfony\Component\HttpFoundation\Response;
 /**
  * Handles CORS for browser-based MCP clients.
  *
- * Only active when statamic.mcp.web.allowed_origins is non-empty.
+ * Validates every supplied Origin against the application URL or explicit allowlist.
  * Desktop MCP clients (Claude Desktop, Cursor, etc.) don't need CORS.
  */
 class HandleMcpCors
@@ -47,6 +47,18 @@ class HandleMcpCors
     {
         /** @var array<int, string> $allowedOrigins */
         $allowedOrigins = config('statamic.mcp.web.allowed_origins', []);
+
+        // Origin is a request security boundary, not merely a response header.
+        // Native clients omit it. Same-origin browser clients need no CORS opt-in.
+        $origin = $request->header('Origin');
+        $appUrl = config('app.url');
+        $parts = is_string($appUrl) ? parse_url($appUrl) : false;
+        $sameOrigin = is_array($parts) && isset($parts['scheme'], $parts['host'])
+            ? $parts['scheme'] . '://' . $parts['host'] . (isset($parts['port']) ? ':' . $parts['port'] : '')
+            : null;
+        if ($origin !== null && $origin !== $sameOrigin && ! $this->isOriginAllowed($origin, $allowedOrigins)) {
+            return $this->addSecurityHeaders(response()->json(['error' => 'Origin not allowed'], 403));
+        }
 
         // No CORS config = no CORS headers (desktop clients don't need them)
         if (empty($allowedOrigins)) {

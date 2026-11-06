@@ -14,14 +14,14 @@ Controls the HTTP-accessible MCP endpoint.
 
 | Key | Env Variable | Default | Description |
 |-----|-------------|---------|-------------|
-| `web.enabled` | `STATAMIC_MCP_WEB_ENABLED` | `true` | Enable the web MCP endpoint |
+| `web.enabled` | `STATAMIC_MCP_WEB_ENABLED` | `false` | Enable the web MCP endpoint |
 | `web.path` | `STATAMIC_MCP_WEB_PATH` | `/mcp/statamic` | URL path for the endpoint |
 | `web.require_https` | `STATAMIC_MCP_WEB_REQUIRE_HTTPS` | `true` | Reject plain HTTP requests (skipped in local/testing) |
-| `web.allowed_origins` | — | `[]` | CORS allowed origins for browser-based clients. Empty = no CORS headers |
+| `web.allowed_origins` | — | `[]` | Allowed browser origins. Unknown origins receive 403; same-origin and requests without Origin remain allowed |
 
 ```php
 'web' => [
-    'enabled' => env('STATAMIC_MCP_WEB_ENABLED', true),
+    'enabled' => env('STATAMIC_MCP_WEB_ENABLED', false),
     'path' => env('STATAMIC_MCP_WEB_PATH', '/mcp/statamic'),
     'require_https' => env('STATAMIC_MCP_WEB_REQUIRE_HTTPS', true),
     'allowed_origins' => [], // e.g. ['https://your-app.com'] or ['*']
@@ -50,10 +50,13 @@ Controls authentication enforcement, audit logging, and system hardening.
 |-----|-------------|---------|-------------|
 | `security.force_web_mode` | `STATAMIC_MCP_FORCE_WEB_MODE` | `false` | Require token auth even in CLI context |
 | `security.audit_logging` | `STATAMIC_MCP_AUDIT_LOGGING` | `true` | Log all MCP tool calls |
+| `security.max_input_bytes` | — | `16777216` | Input traversal byte budget, including encoded asset content |
+| `security.max_input_values` | — | `20000` | Maximum nested input values |
+| `security.max_input_depth` | — | `64` | Maximum input nesting depth |
 | `security.max_upload_size` | `STATAMIC_MCP_MAX_UPLOAD_SIZE` | `10485760` | Max upload size in bytes (10MB) |
 | `security.expose_versions` | `STATAMIC_MCP_EXPOSE_VERSIONS` | `false` | Include Statamic/Laravel versions in responses |
 | `security.max_token_lifetime_days` | `STATAMIC_MCP_MAX_TOKEN_LIFETIME` | `365` | Maximum token lifetime in days |
-| `security.tool_timeout_seconds` | `STATAMIC_MCP_TOOL_TIMEOUT` | `30` | Maximum execution time per tool call |
+| `security.tool_timeout_seconds` | `STATAMIC_MCP_TOOL_TIMEOUT` | `30` | Duration warning budget; does not interrupt PHP or turn completed writes into failures |
 | `security.max_response_size` | `STATAMIC_MCP_MAX_RESPONSE_SIZE` | `100000` | Largest tool response in bytes before it is refused; `0` disables the guard |
 | `security.reject_unknown_fields` | `STATAMIC_MCP_REJECT_UNKNOWN_FIELDS` | `true` | Refuse writes carrying keys that are not field handles inside a set, grid row or group |
 | `security.url_import.enabled` | `STATAMIC_MCP_URL_IMPORT_ENABLED` | `true` | Let `statamic-assets` upload fetch a file from a URL (`source_url`) |
@@ -81,6 +84,8 @@ Controls authentication enforcement, audit logging, and system hardening.
     ],
 ],
 ```
+
+Input budgets apply before field processing on HTTP and stdio. They do not replace HTTP body limits before JSON parsing. Keep `max_input_bytes` large enough for base64 expansion when raising `max_upload_size`; all three input limits must be positive.
 
 ### `max_response_size`
 
@@ -293,7 +298,8 @@ Configure the OAuth 2.1 authorization server for browser-based MCP client regist
 | `oauth.code_ttl` | `STATAMIC_MCP_OAUTH_CODE_TTL` | `600` | Authorization code TTL in seconds (10 min) |
 | `oauth.client_ttl` | `STATAMIC_MCP_OAUTH_CLIENT_TTL` | `2592000` | Client registration TTL in seconds (30 days) |
 | `oauth.token_ttl` | `STATAMIC_MCP_OAUTH_TOKEN_TTL` | `604800` | Access token TTL in seconds (7 days) |
-| `oauth.refresh_token_ttl` | `STATAMIC_MCP_OAUTH_REFRESH_TOKEN_TTL` | `2592000` | Refresh token TTL in seconds (30 days) |
+| `oauth.lock_store` | `STATAMIC_MCP_OAUTH_LOCK_STORE` | application default | Shared, lock-capable cache store for issuance and revocation |
+| `oauth.refresh_token_ttl` | `STATAMIC_MCP_OAUTH_REFRESH_TOKEN_TTL` | `2592000` | Maximum grant lifetime in seconds, including rotated successors (30 days) |
 | `oauth.default_scopes` | `STATAMIC_MCP_OAUTH_DEFAULT_SCOPES` | every `:read` scope | Comma-separated scopes offered when a client requests none |
 | `oauth.max_clients` | `STATAMIC_MCP_OAUTH_MAX_CLIENTS` | `50` | Maximum number of registered OAuth clients |
 | `oauth.max_clients_per_ip` | `STATAMIC_MCP_OAUTH_MAX_CLIENTS_PER_IP` | `5` | Maximum client registrations per IP address |

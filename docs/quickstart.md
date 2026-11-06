@@ -8,13 +8,14 @@ weight: 2
 
 Connect an AI assistant to your Statamic site in three steps.
 
-## 1. Verify the Web Endpoint
+## 1. Enable the Web Endpoint
 
-The web MCP endpoint is **enabled by default** after installation. Your MCP endpoint is available at `https://your-site.test/mcp/statamic`.
+The web MCP endpoint is **disabled by default**. Enable it explicitly to make it available at `https://your-site.test/mcp/statamic`.
 
-To customize the path, set in your `.env`:
+Set the following in your `.env`:
 
 ```env
+STATAMIC_MCP_WEB_ENABLED=true
 STATAMIC_MCP_WEB_PATH="/mcp/statamic"
 ```
 

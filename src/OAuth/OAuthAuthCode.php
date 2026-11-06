@@ -12,5 +12,6 @@ class OAuthAuthCode
         public readonly string $userId,
         public readonly array $scopes,
         public readonly string $redirectUri,
+        public readonly ?string $refreshToken = null,
     ) {}
 }

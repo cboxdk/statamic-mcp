@@ -10,6 +10,7 @@ use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\SuccessResponse;
 use Cboxdk\StatamicMcp\Mcp\Exceptions\FieldFormatException;
 use Cboxdk\StatamicMcp\Mcp\Support\ToolLogger;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
+use Cboxdk\StatamicMcp\Support\InputBudget;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\Support\Facades\Log;
@@ -19,6 +20,7 @@ use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\ResponseFactory;
 use Laravel\Mcp\Server\Tool;
+use Statamic\Auth\PermissionCache;
 use Statamic\Exceptions\BlueprintNotFoundException;
 use Statamic\Exceptions\FieldtypeNotFoundException;
 use Statamic\Facades\Blink;
@@ -70,6 +72,7 @@ abstract class BaseStatamicTool extends Tool
     private function startFromAFreshRequestState(): void
     {
         Blink::flush();
+        app(PermissionCache::class)->clear();
     }
 
     /**
@@ -175,15 +178,25 @@ abstract class BaseStatamicTool extends Tool
     final public function execute(array $arguments): array
     {
         $this->startFromAFreshRequestState();
+        $this->writeEffects = null;
+        $this->completedCacheClears = [];
 
         try {
-            return $this->runToolCall($arguments);
+            $result = $this->runToolCall($arguments);
         } finally {
             // Normally a no-op: the happy path already flushed inside the call.
             // This catches the throwing path, where a write may well have
             // landed before the throw and left its indexes stale.
             $this->flushPendingCacheClears();
         }
+
+        $writeMetadata = $this->writeMetadata(($result['success'] ?? false) === true);
+        if ($writeMetadata !== []) {
+            $meta = is_array($result['meta'] ?? null) ? $result['meta'] : [];
+            $result['meta'] = [...$meta, ...$writeMetadata];
+        }
+
+        return $result;
     }
 
     /**
@@ -194,7 +207,7 @@ abstract class BaseStatamicTool extends Tool
     private function runToolCall(array $arguments): array
     {
         $toolName = $this->name();
-        $startTime = microtime(true);
+        $startTime = hrtime(true);
 
         // Propagate correlation ID from middleware if available
         $requestCorrelationId = null;
@@ -216,26 +229,21 @@ abstract class BaseStatamicTool extends Tool
             // keeps it inside the timing, the audit record and the error
             // handling below: the caller waits for it, so it is part of the
             // call in every sense that is reported.
-            $this->flushPendingCacheClears();
+            $standardized['meta'] = is_array($standardized['meta'] ?? null) ? $standardized['meta'] : [];
+            $cacheResults = $this->flushPendingCacheClears();
+            if ($cacheResults !== []) {
+                $standardized['meta']['cache'] = $cacheResults;
+            }
 
-            $duration = microtime(true) - $startTime;
+            $duration = (hrtime(true) - $startTime) / 1_000_000_000;
 
-            // Enforce configurable timeout
-            /** @var int|float $timeout */
-            $timeout = config('statamic.mcp.security.tool_timeout_seconds', 30);
-            if ($duration > (float) $timeout) {
-                ToolLogger::logToolCall(
-                    $toolName, $arguments, 'timeout', $duration * 1000,
-                    action: $this->extractAction($arguments),
-                    result: $standardized,
-                    correlationId: $correlationId,
-                );
-                ToolLogger::performanceWarning($toolName, "Tool execution exceeded {$timeout}s timeout", $duration);
-
-                return $this->createSafeErrorResponse(
-                    "Tool '{$toolName}' timed out after " . round($duration, 1) . "s (limit: {$timeout}s). Use pagination or filters to reduce scope.",
-                    $correlationId
-                );
+            // Execution has finished: a slow successful write is still successful.
+            // This is an observation, not a claim that PHP interrupted the handler.
+            $configuredTimeout = config('statamic.mcp.security.tool_timeout_seconds', 30);
+            $timeout = is_numeric($configuredTimeout) ? (float) $configuredTimeout : 30.0;
+            if ($duration > $timeout) {
+                $standardized['meta']['duration_budget_exceeded'] = true;
+                ToolLogger::performanceWarning($toolName, "Tool execution exceeded {$timeout}s budget", $duration);
             }
 
             // Routers report a refused write — blueprint validation, a missing
@@ -258,7 +266,7 @@ abstract class BaseStatamicTool extends Tool
 
             return $standardized;
         } catch (\Throwable $e) {
-            $duration = microtime(true) - $startTime;
+            $duration = (hrtime(true) - $startTime) / 1_000_000_000;
             $status = ($e instanceof \InvalidArgumentException) ? 'validation_error' : 'error';
 
             ToolLogger::logToolCall(
@@ -504,32 +512,9 @@ abstract class BaseStatamicTool extends Tool
      */
     protected function validateAndSanitizeArguments(array $arguments): array
     {
-        foreach ($arguments as $key => $value) {
-            if ($this->containsNullByte($value)) {
-                throw new \InvalidArgumentException("Argument '{$key}' contains invalid null bytes");
-            }
-        }
+        (new InputBudget)->check($arguments);
 
         return $arguments;
-    }
-
-    /**
-     * Recursively check if a value contains null bytes.
-     */
-    private function containsNullByte(mixed $value): bool
-    {
-        if (is_string($value)) {
-            return str_contains($value, "\x00");
-        }
-        if (is_array($value)) {
-            foreach ($value as $v) {
-                if ($this->containsNullByte($v)) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
     }
 
     /**

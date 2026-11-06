@@ -16,6 +16,8 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
 use Statamic\Facades\Collection;
+use Statamic\Facades\Role;
+use Statamic\Facades\User;
 
 uses(RefreshDatabase::class);
 
@@ -39,56 +41,16 @@ afterEach(function () {
 // ---------------------------------------------------------------------------
 function createMockUser(bool $isSuper = false, array $permissions = []): Authenticatable
 {
-    return new class($isSuper, $permissions) implements Authenticatable
-    {
-        /** @param array<string> $permissions */
-        public function __construct(
-            private readonly bool $isSuper,
-            private readonly array $permissions,
-        ) {}
+    config(['statamic.editions.pro' => true]);
+    $handle = 'permission-test-' . bin2hex(random_bytes(4));
+    Role::make()->handle($handle)->permissions($permissions)->save();
+    $user = User::make()->id('test-user-id')->email('permissions@example.test')->assignRole($handle);
+    if ($isSuper) {
+        $user->makeSuper();
+    }
+    $user->save();
 
-        public function isSuper(): bool
-        {
-            return $this->isSuper;
-        }
-
-        public function hasPermission(string $permission): bool
-        {
-            return in_array($permission, $this->permissions, true);
-        }
-
-        public function getAuthIdentifierName(): string
-        {
-            return 'id';
-        }
-
-        public function getAuthIdentifier(): string
-        {
-            return 'test-user-id';
-        }
-
-        public function getAuthPasswordName(): string
-        {
-            return 'password';
-        }
-
-        public function getAuthPassword(): string
-        {
-            return 'hashed-password';
-        }
-
-        public function getRememberToken(): ?string
-        {
-            return null;
-        }
-
-        public function setRememberToken($value): void {}
-
-        public function getRememberTokenName(): string
-        {
-            return 'remember_token';
-        }
-    };
+    return $user;
 }
 
 // ---------------------------------------------------------------------------

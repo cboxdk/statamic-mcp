@@ -1,0 +1,95 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Cboxdk\StatamicMcp\Actions;
+
+use Cboxdk\StatamicMcp\Actions\Contracts\ActionHandler;
+use Cboxdk\StatamicMcp\Actions\Contracts\ActionPolicy;
+use Cboxdk\StatamicMcp\Actions\Contracts\Authorizer;
+use Cboxdk\StatamicMcp\Actions\Events\ExecutionEvent;
+use Cboxdk\StatamicMcp\Actions\Operations\OperationCoordinator;
+use Illuminate\Contracts\Container\Container;
+use Illuminate\Support\Str;
+use Statamic\Auth\PermissionCache;
+use Statamic\Facades\Blink;
+
+/** Internal V01 prototype. Write admission requires the V04 operation store. */
+final class ActionExecutor
+{
+    public function __construct(
+        private readonly CapabilityRegistry $registry,
+        private readonly Authorizer $authorizer,
+        private readonly SchemaValidator $schemas,
+        private readonly LifecycleObservers $observers,
+        private readonly Container $container,
+        private readonly OperationCoordinator $operations,
+    ) {}
+
+    /** @param array<string, mixed> $input
+     * @return array<string, mixed>
+     */
+    public function execute(string $id, array $input, ExecutionContext $context): array
+    {
+        Blink::flush();
+        $this->container->make(PermissionCache::class)->clear();
+        $action = $this->registry->get($id);
+        $started = false;
+        $start = hrtime(true);
+        try {
+            $this->authorizer->authorize($action, $context);
+            $context->checkDeadline();
+            $this->schemas->validate($input, $action->inputSchema);
+            $policy = $this->container->make($action->policy);
+            if (! $policy instanceof ActionPolicy) {
+                throw new \LogicException('Invalid action policy binding.');
+            }
+            $policy->authorize($input, $context);
+            $this->authorizer->authorize($action, $context);
+            $context->checkDeadline();
+            $handler = $this->container->make($action->handler);
+            if (! $handler instanceof ActionHandler) {
+                throw new \LogicException('Invalid action handler binding.');
+            }
+            if (! in_array($action->effect, [ActionEffect::Read, ActionEffect::Edit], true)) {
+                throw new \LogicException('This prototype does not admit actions requiring approval.');
+            }
+            $execute = function () use ($handler, $policy, $input, $context, $action, $start, &$started): array {
+                $this->authorizer->authorize($action, $context);
+                $policy->authorize($input, $context);
+                $context->checkDeadline();
+                $started = true;
+                $this->emit($action, $context, 'started', 'none', $start);
+                $result = $handler->execute($input, $context);
+                $result = $policy->filterResult($input, $result, $context);
+                $this->schemas->validate($result, $action->outputSchema);
+
+                return $result;
+            };
+            if ($action->effect === ActionEffect::Read) {
+                $result = $execute();
+                $this->emit($action, $context, 'completed', 'none', $start);
+
+                return $result;
+            }
+            $result = $this->operations->execute($action, $input, $context, $execute);
+            $visible = $policy->filterResult($input, $result->data, $context);
+            $this->schemas->validate($visible, $action->outputSchema);
+            $this->emit($action, $context, $result->replayed ? 'replayed' : 'completed', $result->replayed ? 'none' : 'committed', $start);
+
+            return $visible;
+        } catch (\Throwable $error) {
+            $this->emit($action, $context, $started ? 'failed' : 'denied', $started && $action->effect !== ActionEffect::Read ? 'unknown' : 'none', $start);
+            throw $error;
+        }
+    }
+
+    private function emit(ActionDefinition $action, ExecutionContext $context, string $outcome, string $effects, int $start): void
+    {
+        $this->observers->dispatch(new ExecutionEvent(
+            (string) Str::uuid(), $context->operationId, $action->id(), $action->version,
+            $context->transport, $outcome, $effects, (hrtime(true) - $start) / 1_000_000,
+            gmdate('Y-m-d\TH:i:s\Z'),
+        ));
+    }
+}
