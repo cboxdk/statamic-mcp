@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Authorization;
 
 use Cboxdk\StatamicMcp\Support\McpContext;
-use Statamic\Facades\Entry;
-use Statamic\Facades\Site;
 
 /** Installation limits only: never a replacement for scopes or Statamic policies. */
 final class InstallationProfile
@@ -53,23 +51,6 @@ final class InstallationProfile
         }
         if (array_key_exists('parent', $data)) {
             return 'Tree changes require the operator installation profile.';
-        }
-        if ($action === 'update') {
-            $id = $arguments['id'] ?? null;
-            $entry = is_string($id) ? Entry::find($id) : null;
-            $defaultSite = Site::default();
-            $site = is_string($arguments['site'] ?? null) ? $arguments['site']
-                : ($defaultSite instanceof \Statamic\Sites\Site ? $defaultSite->handle() : null);
-            if ($site === null) {
-                return 'Editor updates require a valid site.';
-            }
-            if ($entry !== null && $entry->site()->handle() !== $site) {
-                $entry = $entry->in($site);
-            }
-            // Until the working-copy adapter is wired, fail closed for live entries.
-            if ($entry === null || $entry->published()) {
-                return 'Editor updates require an existing unpublished entry.';
-            }
         }
 
         return null;

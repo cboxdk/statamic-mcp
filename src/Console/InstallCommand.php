@@ -639,7 +639,7 @@ class InstallCommand extends Command
 
         $this->info('🚀 Next Steps:');
         $this->line('  1. Restart your AI assistant (Claude Code, Cursor, etc.)');
-        $this->line('  2. Test the MCP connection: php artisan mcp:start statamic');
+        $this->line('  2. Test the MCP connection: STATAMIC_MCP_STDIO_PROFILE=' . $this->stdioProfile . ' php artisan mcp:start statamic');
         $this->line('  3. Verify MCP registration: claude mcp list');
         $this->line('  4. Ask your AI: "What Statamic MCP tools are available?"');
         $this->newLine();
@@ -980,11 +980,11 @@ MARKDOWN;
                     $this->line('  Error: ' . $result->errorOutput());
                     $this->line('  Output: ' . $result->output());
                 }
-                $this->line('  💡 You can manually register with: claude mcp add statamic "php artisan mcp:start statamic" --scope project');
+                $this->line('  💡 You can manually register with: claude mcp add --scope project statamic --env STATAMIC_MCP_STDIO_PROFILE=' . $this->stdioProfile . ' -- php artisan mcp:start statamic');
             }
         } catch (\Exception $e) {
             $this->warn('⚠️  Error during Claude CLI registration: ' . $e->getMessage());
-            $this->line('  💡 You can manually register with: claude mcp add statamic "php artisan mcp:start statamic" --scope project');
+            $this->line('  💡 You can manually register with: claude mcp add --scope project statamic --env STATAMIC_MCP_STDIO_PROFILE=' . $this->stdioProfile . ' -- php artisan mcp:start statamic');
         }
     }
 

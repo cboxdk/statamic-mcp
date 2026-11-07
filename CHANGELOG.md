@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Verify asset file placement after native moves, and report an unknown outcome if the filesystem did not move the file.
+
 - Respect Statamic save/delete vetoes on entry, term, global, user, role, group, asset and structure writes; isolate entry candidates from live repository objects.
 - Register cache cleanup before content writes, report failed cache command exit codes, and preserve successful outcomes when completed calls exceed the duration budget.
 - Allow editors to restore revisions as drafts or working copies without requiring publication rights, matching Statamic's control panel.

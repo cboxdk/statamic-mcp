@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
+use Cboxdk\StatamicMcp\Authorization\InstallationProfile;
 use Cboxdk\StatamicMcp\Contracts\CollectionTreeEditor;
 use Cboxdk\StatamicMcp\Mcp\Exceptions\FieldFormatException;
 use Cboxdk\StatamicMcp\Mcp\Support\SeoProFieldData;
@@ -981,6 +982,12 @@ class EntriesRouter extends BaseRouter
 
             if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
                 return $policyError;
+            }
+
+            // Resource-dependent profile checks follow authentication and the
+            // concrete site/author policy, so denials cannot reveal draft state.
+            if (app(InstallationProfile::class)->name() === 'editor' && $entry->published()) {
+                return $this->createErrorResponse('Editor updates require an unpublished entry.')->toArray();
             }
 
             $entry = clone $entry;

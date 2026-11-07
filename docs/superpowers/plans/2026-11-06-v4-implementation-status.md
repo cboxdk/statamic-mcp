@@ -7,6 +7,7 @@ description: "Verified work and remaining release gates"
 
 Branch: `sd/release/v4`. Worktree: `security-review-hardening/statamic-mcp`.
 Status: implementation in progress, not release-ready. No public release or tag.
+Draft PR: https://github.com/cboxdk/statamic-mcp/pull/88.
 
 ## V00 compatibility inventory
 
@@ -90,3 +91,22 @@ agreed; no browser tool interface is published.
 
 The remaining V02–V10 work above remains required. These fixes do not convert the
 internal action/operation prototype into the final public v4 execution pipeline.
+
+### Completed follow-up verification
+
+The replacement full run completed: **1621 passed, 18 skipped, 7361 assertions**,
+1292.26 seconds on local PHP 8.5.7. This precedes the final asset-rename postcondition
+and relocation of the resource-dependent editor guard; those receive targeted checks.
+The full Pint check passed, as did PHPStan level 9 and the dependency gates.
+
+On commit `ec39f7e`, GitHub CI passed Code Quality (including SBOM/audit), browser
+E2E, SEO Pro integration, and PHP 8.3/Laravel 12/MySQL. Other matrix jobs were still
+running when recorded. A new head requires its own remote checks; these results do
+not certify future commits or the unimplemented V02–V10 functionality.
+
+The late asset guard verifies file location after Statamic's native move, because
+that method ignores false returns from filesystem rename. The editor's live-entry
+restriction now runs after the concrete entry/site/author authorization, rather than
+performing an entry lookup before access checks. The final focused run passed **22
+tests / 84 assertions**, including these cases. Installer recovery commands carry
+the selected profile, and CI deduplicates push/PR runs on the same branch.

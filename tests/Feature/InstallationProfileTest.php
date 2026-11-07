@@ -62,10 +62,12 @@ class InstallationProfileTest extends TestCase
         Collection::make($handle)->save();
         $entry = Entry::make()->collection($handle)->slug('live')->published(true)->data(['title' => 'Original']);
         $entry->save();
-        $result = (new EntriesRouter)->execute(['action' => 'update', 'collection' => $handle, 'id' => $entry->id(), 'data' => ['title' => 'Changed']]);
-        $this->assertFalse($result['success']);
-        $this->assertTrue(Entry::find($entry->id())->published());
-        $this->assertSame('Original', Entry::find($entry->id())->get('title'));
+        foreach ([['title' => 'Changed'], ['published' => false, 'title' => 'Changed']] as $data) {
+            $result = (new EntriesRouter)->execute(['action' => 'update', 'collection' => $handle, 'id' => $entry->id(), 'data' => $data]);
+            $this->assertFalse($result['success']);
+            $this->assertTrue(Entry::find($entry->id())->published());
+            $this->assertSame('Original', Entry::find($entry->id())->get('title'));
+        }
     }
 
     public function test_editor_can_update_a_draft_but_cannot_publish_it(): void
@@ -80,6 +82,16 @@ class InstallationProfileTest extends TestCase
         $result = (new EntriesRouter)->execute(['action' => 'publish', 'collection' => $handle, 'id' => $entry->id()]);
         $this->assertFalse($result['success']);
         $this->assertFalse(Entry::find($entry->id())->published());
+    }
+
+    public function test_editor_profile_does_not_resolve_entries_before_authentication(): void
+    {
+        config(['statamic.mcp.profiles.http' => 'editor', 'statamic.mcp.security.force_web_mode' => true]);
+        auth()->logout();
+        Entry::shouldReceive('find')->never();
+        $result = (new EntriesRouter)->execute(['action' => 'update', 'id' => 'private-entry', 'data' => ['title' => 'Changed']]);
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('Authentication required', implode(' ', $result['errors']));
     }
 
     public function test_web_request_cannot_inherit_the_stdio_operator_profile(): void

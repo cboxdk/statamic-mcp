@@ -737,7 +737,15 @@ class AssetsRouter extends BaseRouter
             }
 
             $oldPath = $asset->path();
-            $this->persistStatamic(fn () => $asset->move($target['folder'], $target['filename']));
+            $this->persistStatamic(function () use ($asset, $target, $oldPath): void {
+                $asset->move($target['folder'], $target['filename']);
+                // Native move() ignores a filesystem adapter's false return.
+                // Verify the file rather than reporting a metadata-only move.
+                $disk = $asset->container()->disk();
+                if (! $disk->exists($asset->path()) || ($oldPath !== $asset->path() && $disk->exists($oldPath))) {
+                    throw new \RuntimeException('Asset move could not be verified. Reconcile the source and destination before retrying.');
+                }
+            });
             $this->persistStatamic(fn () => $asset->save());
 
             // Clear caches

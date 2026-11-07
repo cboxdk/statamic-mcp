@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main, develop, sd/release/v4]
 
+# A push and its pull-request event verify the same branch; keep the newest run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 # This workflow only reads the repo and reports status; it never needs a
 # write-scoped token.
 permissions:
