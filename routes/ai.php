@@ -15,8 +15,8 @@ use Laravel\Mcp\Server\Registrar;
 |
 */
 
-// Only register if MCP is available and not in testing
-if (! app()->runningUnitTests() && class_exists('Laravel\Mcp\Facades\Mcp')) {
+// Registration is in memory and must run even when HTTP routes are cached.
+if (class_exists('Laravel\Mcp\Facades\Mcp')) {
     try {
         // Capture any output during registration
         ob_start();

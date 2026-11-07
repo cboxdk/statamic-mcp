@@ -7,7 +7,6 @@ namespace Cboxdk\StatamicMcp\Http\Controllers\OAuth;
 use Cboxdk\StatamicMcp\Actions\CapabilityRegistry;
 use Cboxdk\StatamicMcp\Actions\CapabilitySnapshot;
 use Cboxdk\StatamicMcp\Auth\ScopeAvailability;
-use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\OAuth\Cimd\CimdClientId;
 use Cboxdk\StatamicMcp\OAuth\Cimd\CimdFetchException;
 use Cboxdk\StatamicMcp\OAuth\Cimd\CimdResolver;
@@ -156,12 +155,8 @@ class AuthorizeController extends Controller
             $defaultScopeValues = config('statamic.mcp.oauth.default_scopes', []);
 
             foreach ($defaultScopeValues as $scopeValue) {
-                $tokenScope = TokenScope::tryFrom($scopeValue);
-                if ($tokenScope !== null) {
-                    $requestedScopes[] = [
-                        'value' => $tokenScope->value,
-                        'label' => $tokenScope->label(),
-                    ];
+                if (in_array($scopeValue, $validScopeValues, true)) {
+                    $requestedScopes[] = ['value' => $scopeValue, 'label' => $availability->label($scopeValue)];
                 }
             }
         }

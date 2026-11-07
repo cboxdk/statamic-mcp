@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Register the stdio server even when Laravel HTTP routes are cached; honor registered addon scopes in OAuth defaults.
 - Reject expired refresh-token replays before grant revocation in both storage drivers.
 - Add isolated, typed execution and grant lifecycle observations; credential rotation does not masquerade as grant revocation. Legacy Git listener failures cannot veto an already persisted token change.
 - Bound HTTP/stdio JSON before decoding, preserve fragmented stdio frames, and apply configured tool input budgets.

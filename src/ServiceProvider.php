@@ -77,7 +77,7 @@ class ServiceProvider extends AddonServiceProvider
 
         // Only load routes if MCP is available
         if (class_exists('Laravel\Mcp\Facades\Mcp')) {
-            $this->loadRoutesFrom(__DIR__ . '/../routes/ai.php');
+            $this->registerLocalMcp();
 
             // Register per-token rate limiter
             RateLimiter::for('mcp', function (Request $request) {
@@ -426,6 +426,12 @@ class ServiceProvider extends AddonServiceProvider
         }
 
         return $ceiling > 0 ? $ceiling * 3 + 4096 : PHP_INT_MAX;
+    }
+
+    /** Local registrar state is not part of Laravel's cached HTTP routes. */
+    protected function registerLocalMcp(): void
+    {
+        require __DIR__ . '/../routes/ai.php';
     }
 
     /**

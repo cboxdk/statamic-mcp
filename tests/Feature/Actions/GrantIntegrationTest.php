@@ -157,6 +157,21 @@ class GrantIntegrationTest extends TestCase
         }
     }
 
+    public function test_registered_scopes_can_be_configured_as_oauth_defaults(): void
+    {
+        $this->deploy();
+        $actor = User::make()->email('default-scope@example.test')->makeSuper();
+        $actor->save();
+        $this->actingAs($actor, 'web');
+        config()->set('statamic.mcp.oauth.default_scopes', ['fixture:status']);
+        $client = app(OAuthDriver::class)->registerClient('Defaults', ['https://example.com/callback']);
+        $response = $this->get(cp_route('statamic-mcp.oauth.authorize') . '?' . http_build_query([
+            'client_id' => $client->clientId, 'redirect_uri' => 'https://example.com/callback',
+            'response_type' => 'code', 'code_challenge' => str_repeat('a', 43), 'code_challenge_method' => 'S256',
+        ]));
+        $response->assertOk()->assertSee('fixture:status');
+    }
+
     public function test_control_panel_tokens_capture_only_displayed_integration_actions(): void
     {
         $this->deploy();

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Cboxdk\StatamicMcp\Http\Middleware\BoundMcpInput;
+use Cboxdk\StatamicMcp\ServiceProvider;
 use Cboxdk\StatamicMcp\Support\InputBudget;
 use Cboxdk\StatamicMcp\Support\WireInputBudget;
 use Illuminate\Contracts\Http\Kernel as KernelContract;
@@ -10,6 +11,8 @@ use Illuminate\Foundation\Http\Kernel;
 use Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull;
 use Illuminate\Foundation\Http\Middleware\TrimStrings;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\File;
+use Laravel\Mcp\Server\Registrar;
 use Symfony\Component\Process\Process;
 
 it('guards the raw body before global Laravel JSON transformations', function () {
@@ -96,4 +99,25 @@ it('rejects a million-value frame without allocating its decoded array', functio
     $result = json_decode($process->getOutput(), true, flags: JSON_THROW_ON_ERROR);
     expect($result['rejected'])->toBeTrue();
     expect($result['peak_bytes'])->toBeLessThan(32 * 1024 * 1024);
+});
+
+it('registers the stdio handle even with cached HTTP routes', function () {
+    $directory = sys_get_temp_dir() . '/mcp-routes-' . bin2hex(random_bytes(8));
+    $original = app()->bootstrapPath();
+    try {
+        mkdir($directory . '/cache', 0700, true);
+        app()->useBootstrapPath($directory);
+        file_put_contents(app()->getCachedRoutesPath(), '<?php return [];');
+        app()->forgetInstance('routes.cached');
+        expect(app()->routesAreCached())->toBeTrue();
+        $registrar = new Registrar;
+        app()->instance(Registrar::class, $registrar);
+        $provider = new ServiceProvider(app());
+        (new ReflectionMethod($provider, 'registerLocalMcp'))->invoke($provider);
+        expect($registrar->getLocalServer('statamic'))->toBeCallable();
+    } finally {
+        app()->useBootstrapPath($original);
+        app()->forgetInstance('routes.cached');
+        File::deleteDirectory($directory);
+    }
 });

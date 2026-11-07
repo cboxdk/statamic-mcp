@@ -188,3 +188,8 @@ Verification: **124 tests / 368 assertions** across actions, observers, token se
 and both OAuth driver contracts; PHPStan level 9 and Pint passed. Execution events
 still describe the internal executor: migrating legacy public routers and adding
 approval events, durable audit and the optional telemetry adapter remain required.
+
+The local MCP registration now runs independently of the HTTP route cache.
+OAuth default scopes include registered integration scopes. The new grant-default
+case passed with the seven existing grant integration tests; the final transport
+run passed 9 tests / 25 assertions, and PHPStan/Pint passed.
