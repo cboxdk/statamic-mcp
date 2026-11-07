@@ -6,8 +6,11 @@ namespace Cboxdk\StatamicMcp\Tests\Feature\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\AssetsRouter;
 use Cboxdk\StatamicMcp\Tests\TestCase;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Storage;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Statamic\Events\AssetDeleting;
+use Statamic\Events\AssetSaving;
 use Statamic\Facades\Asset;
 use Statamic\Facades\AssetContainer;
 
@@ -52,6 +55,28 @@ class AssetMoveCopyTest extends TestCase
             'path' => 'hero.txt',
             'destination' => $destination,
         ]);
+    }
+
+    public function test_asset_metadata_save_veto_is_not_success(): void
+    {
+        Event::listen(AssetSaving::class, fn () => false);
+        $result = $this->router->execute([
+            'action' => 'update', 'resource_type' => 'asset', 'container' => 'images',
+            'path' => 'hero.txt', 'data' => ['alt' => 'Refused'],
+        ]);
+        $this->assertFalse($result['success']);
+        $this->assertTrue($result['meta']['retry_requires_reconciliation']);
+        $this->assertSame('A hero', Asset::find('images::hero.txt')->get('alt'));
+    }
+
+    public function test_asset_delete_veto_preserves_file(): void
+    {
+        Event::listen(AssetDeleting::class, fn () => false);
+        $result = $this->router->execute([
+            'action' => 'delete', 'resource_type' => 'asset', 'container' => 'images', 'path' => 'hero.txt',
+        ]);
+        $this->assertFalse($result['success']);
+        $this->assertSame('hero', Storage::disk('assets')->get('hero.txt'));
     }
 
     public function test_move_puts_the_asset_at_the_destination_path(): void

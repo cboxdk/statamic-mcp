@@ -16,7 +16,7 @@ A comprehensive MCP (Model Context Protocol) server for Statamic CMS v6 that pro
 composer require cboxdk/statamic-mcp
 
 # Run the installation command
-php artisan mcp:statamic:install
+php artisan mcp:statamic:install --profile=read_only
 ```
 
 ### Recommended: Laravel Boost Integration
@@ -35,6 +35,7 @@ The web MCP endpoint is **disabled by default**. Enable it explicitly and choose
 
 ```env
 STATAMIC_MCP_WEB_ENABLED=true
+STATAMIC_MCP_HTTP_PROFILE=read_only
 STATAMIC_MCP_WEB_PATH="/mcp/statamic"
 ```
 

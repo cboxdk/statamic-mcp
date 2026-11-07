@@ -2,9 +2,9 @@ name: Browser Tests
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, sd/release/v4]
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, sd/release/v4]
 
 # Read-only token: this workflow builds and exercises the addon, it never
 # writes to the repo.

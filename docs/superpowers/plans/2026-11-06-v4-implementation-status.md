@@ -21,7 +21,9 @@ Status: implementation in progress, not release-ready. No public release or tag.
 | HTTP default disabled | Breaking installation default; published explicit enable remains explicit | v4 only |
 | Mandatory OAuth user-grant revocation method | Breaking custom driver contract | v4 only |
 | Action/scope registry, execution and durable operation prototype | Internal, not exposed to clients yet | v4 only |
-| New profiles, granular scopes, immutable grants, approvals | Not implemented yet | v4 only |
+| Explicit HTTP/stdio profiles | Breaking; missing profiles disable execution, installer requires selection | v4 only |
+| Forced collection/taxonomy cascades | Breaking; content must be deleted explicitly before the parent | v4 only |
+| Granular scopes, immutable grants, approvals | Not implemented yet | v4 only |
 
 Backports are candidates, not completed branches. Do not cherry-pick the combined
 v4 tree into v3: Basic Auth removal and the mandatory driver method require separation.
@@ -44,8 +46,9 @@ These records do not certify V02–V10. The main plan remains the release checkl
 
 - V02: connect dynamic scopes and immutable capability snapshots to token issuance,
   OAuth consent, refresh and both token stores. The current registry is internal.
-- V03: explicit HTTP/stdio profiles and a production authorizer across tools,
-  resources and prompts. Existing routers still enforce their existing checks.
+- V03: profiles now restrict the existing tools/resources/prompts and installer.
+  A production authorizer with immutable grants across all surfaces is still missing.
+  Editor currently handles unpublished entries only; live working-copy editing is refused.
 - V04: integrate operation storage into all writes; wire the supplied SQL migration and add
   retention/quota/recovery and multi-node database concurrency coverage.
 - V05: durable approvals, CP UI, revocation and atomic consumption. Existing
@@ -62,3 +65,28 @@ The prototype has no service-provider binding or public MCP registration. This i
 intentional: it must not admit production writes before authorization and approvals
 are wired. High-impact prototype actions are refused. WebMCP remains deferred as
 agreed; no browser tool interface is published.
+
+## Follow-up implementation — 2026-11-07
+
+- Missing/unknown transport profiles fail closed. Stdio and HTTP profiles are
+  independent; HTTP does not inherit the local operator profile.
+- Installer requires profile selection and no longer sets `APP_ENV=local` in client
+  configurations. Prompts no longer advise switching to CLI to bypass permissions.
+- Runtime extra-tool registration is container-owned. A two-container test verifies
+  that registrations do not cross application instances.
+- Asset and structure writes register cache cleanup before native events and check
+  explicit false returns. Asset updates clone candidates before changing metadata.
+- Nonempty collection/taxonomy deletion is refused even with force. Parent vetoes
+  preserve blueprints; successful parent deletion precedes blueprint cleanup.
+- CI workflows include the release branch, and SQLite has an additional job pinned
+  to the declared minimum Statamic version. These remote jobs have not been run here.
+- Focused surface tests: 46 passed / 166 assertions. Asset contracts and permissions:
+  61 passed / 168 assertions. Structures, trees and extra tools: 117 passed / 490
+  assertions, before the final stricter cascade rejection and draft-profile adjustment.
+- Final profile, asset veto and cascade contracts: 20 passed / 72 assertions.
+  PHPStan level 9, Pint, Composer validation/audit and dependency licenses passed.
+- The follow-up full-suite process ended without a final summary during the session
+  interruption. It is not counted as a completed verification run.
+
+The remaining V02–V10 work above remains required. These fixes do not convert the
+internal action/operation prototype into the final public v4 execution pipeline.

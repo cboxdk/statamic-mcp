@@ -24,7 +24,7 @@ composer require cboxdk/statamic-mcp
 The install command publishes configuration and (when using the database storage driver) creates the necessary database tables, and publishes the dashboard assets:
 
 ```bash
-php artisan mcp:statamic:install
+php artisan mcp:statamic:install --profile=read_only
 ```
 
 This creates:
@@ -46,7 +46,7 @@ Visit **Tools > MCP** in the Statamic Control Panel. You should see the dashboar
 
 ## Web Endpoint
 
-The web MCP endpoint is **disabled by default**. Enable it explicitly with `STATAMIC_MCP_WEB_ENABLED=true`. The endpoint then uses the path configured in `STATAMIC_MCP_WEB_PATH` (default: `/mcp/statamic`).
+The web MCP endpoint is **disabled by default**. Enable it explicitly with `STATAMIC_MCP_WEB_ENABLED=true` and select `STATAMIC_MCP_HTTP_PROFILE=read_only`, `editor` or `operator`. The endpoint then uses the path configured in `STATAMIC_MCP_WEB_PATH` (default: `/mcp/statamic`).
 
 To disable it, set in your `.env`:
 

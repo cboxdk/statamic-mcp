@@ -273,7 +273,7 @@ trait HandlesCollections
                 $collection->taxonomies($data['taxonomies']);
             }
 
-            $collection->save();
+            $this->persistStatamic(fn () => $collection->save());
 
             // CollectionSaved does not reach Statamic's static-cache
             // invalidator, so a template or layout change would otherwise leave
@@ -341,7 +341,7 @@ trait HandlesCollections
                 };
             }
 
-            $collection->save();
+            $this->persistStatamic(fn () => $collection->save());
 
             // CollectionSaved does not reach Statamic's static-cache
             // invalidator, so a template or layout change would otherwise leave
@@ -382,27 +382,22 @@ trait HandlesCollections
                 return $this->createErrorResponse("Collection not found: {$handle}")->toArray();
             }
 
-            $force = $this->getBooleanArgument($arguments, 'force', false);
             $entryCount = $collection->queryEntries()->count();
 
-            if ($entryCount > 0 && ! $force) {
+            if ($entryCount > 0) {
                 return $this->createErrorResponse(
                     "Cannot delete collection '{$handle}' — it contains {$entryCount} entries. "
-                    . 'Use force: true to delete the collection with all its entries and blueprints.'
+                    . 'Delete its content explicitly first. V4 does not support forced cascading deletion.'
                 )->toArray();
             }
 
-            // Cascade: delete entries first
-            if ($entryCount > 0) {
-                $collection->queryEntries()->get()->each->delete();
+            // Resolve blueprints before removing their parent, but preserve them
+            // when the native parent deletion is vetoed or throws.
+            $blueprints = $collection->entryBlueprints();
+            $this->persistStatamic(fn () => $collection->delete());
+            foreach ($blueprints as $blueprint) {
+                $this->persistStatamic(fn () => $blueprint->delete());
             }
-
-            // Cascade: delete blueprints
-            foreach ($collection->entryBlueprints() as $blueprint) {
-                $blueprint->delete();
-            }
-
-            $collection->delete();
 
             // Clear caches
             $this->clearCachesAfterWrite(['stache', 'static']);
@@ -489,7 +484,7 @@ trait HandlesCollections
             }
 
             // Save the collection
-            $collection->save();
+            $this->persistStatamic(fn () => $collection->save());
 
             // CollectionSaved does not reach Statamic's static-cache
             // invalidator, so a template or layout change would otherwise leave

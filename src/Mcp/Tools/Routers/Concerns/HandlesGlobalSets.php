@@ -131,7 +131,7 @@ trait HandlesGlobalSets
                 $globalSet->title($data['title']);
             }
 
-            $globalSet->save();
+            $this->persistStatamic(fn () => $globalSet->save());
 
             // Initialize global variables for default site
             $defaultSiteForGlobal = Site::default();
@@ -139,7 +139,7 @@ trait HandlesGlobalSets
             $variables = $globalSet->in($defaultSiteHandleForGlobal);
             if (! $variables) {
                 $variables = $globalSet->makeLocalization($defaultSiteHandleForGlobal);
-                $variables->save();
+                $this->persistStatamic(fn () => $variables->save());
             }
 
             // Clear caches
@@ -181,7 +181,7 @@ trait HandlesGlobalSets
                 $globalSet->title($data['title']);
             }
 
-            $globalSet->save();
+            $this->persistStatamic(fn () => $globalSet->save());
 
             // Clear caches
             $this->clearCachesAfterWrite(['stache', 'static']);
@@ -217,7 +217,7 @@ trait HandlesGlobalSets
                 return $this->createErrorResponse("Global set not found: {$handle}")->toArray();
             }
 
-            $globalSet->delete();
+            $this->persistStatamic(fn () => $globalSet->delete());
 
             // Clear caches
             $this->clearCachesAfterWrite(['stache', 'static']);
@@ -255,7 +255,7 @@ trait HandlesGlobalSets
             }
 
             // Save the global set
-            $globalSet->save();
+            $this->persistStatamic(fn () => $globalSet->save());
 
             // Clear caches
             $this->clearCachesAfterWrite(['stache']);

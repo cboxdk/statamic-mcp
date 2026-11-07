@@ -2,9 +2,9 @@ name: Tests
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, sd/release/v4]
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, sd/release/v4]
 
 # This workflow only reads the repo and reports status; it never needs a
 # write-scoped token.
@@ -81,7 +81,12 @@ jobs:
         # both are exercised so the claim stays honest. Testbench 10 and
         # Laravel 12 both allow php ^8.2, so the full grid is valid.
         testbench: ['^10.0', '^11.0']
-    name: PHP ${{ matrix.php }} - Laravel ${{ matrix.testbench == '^10.0' && '12' || '13' }} - SQLite
+        statamic: ['^6.35.1']
+        include:
+          - php: '8.3'
+            testbench: '^10.0'
+            statamic: '6.35.1'
+    name: PHP ${{ matrix.php }} - Laravel ${{ matrix.testbench == '^10.0' && '12' || '13' }} - SQLite - Statamic ${{ matrix.statamic }}
 
     steps:
       - name: Checkout code
@@ -108,6 +113,7 @@ jobs:
       - name: Install dependencies
         run: |
           composer require --dev --no-update "orchestra/testbench:${{ matrix.testbench }}"
+          composer require --no-update "statamic/cms:${{ matrix.statamic }}"
           composer update --prefer-dist --no-progress
 
       - name: Create temporary .env file

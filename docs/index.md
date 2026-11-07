@@ -10,7 +10,7 @@ weight: 1
 
 ## Overview
 
-The server registers a set of domain routers — each handling a specific Statamic concern — and makes them available over both CLI (`php artisan mcp:serve`) and web (HTTP endpoint) transports. All web access is gated by scoped API tokens with 21 granular permissions.
+The server registers a set of domain routers — each handling a specific Statamic concern — and makes them available over both CLI (`php artisan mcp:start statamic`) and web (HTTP endpoint) transports. All web access is gated by scoped API tokens with 21 granular permissions.
 
 ```json
 {

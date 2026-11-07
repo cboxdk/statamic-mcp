@@ -16,18 +16,20 @@ resolver allows it, it is listed; if it does not, it is not.
 | `statamic/cms` | `^6.35.1` |
 | `laravel/mcp` | `^1.1.2` |
 | `symfony/yaml` | `^7.0 || ^8.0` |
+| `opis/json-schema` | `^2.6.1` |
 
 ## Laravel
 
 Laravel is a transitive requirement via `statamic/cms`, which requires
-`laravel/framework: ^12.40 || ^13.0`. Both majors are exercised in CI (the test
-matrix runs `orchestra/testbench` `^10.0` and `^11.0`), so support for either is
-verified rather than assumed.
+`laravel/framework: ^12.40 || ^13.0`. CI is configured to exercise both majors (the test
+matrix runs `orchestra/testbench` `^10.0` and `^11.0`). A green run of that matrix on the release commit is required before release.
 
 ## PHP
 
 The package requires `^8.3`. CI runs the suite on PHP 8.3, 8.4, and 8.5
-against both Laravel majors.
+against both Laravel majors. An additional SQLite job pins Statamic to the declared
+minimum, 6.35.1. These jobs also run on the v4 release branch; local verification
+on one PHP/Statamic version does not substitute for that matrix.
 
 ## Database
 

@@ -14,6 +14,8 @@ use Cboxdk\StatamicMcp\Tests\Fixtures\ExtraTools\KeywordedExtraRouter;
 use Cboxdk\StatamicMcp\Tests\Fixtures\ExtraTools\PermissionedExtraRouter;
 use Cboxdk\StatamicMcp\Tests\Fixtures\ExtraTools\SystemScopedExtraRouter;
 use Cboxdk\StatamicMcp\Tests\Fixtures\ExtraTools\UnscopedExtraRouter;
+use Illuminate\Config\Repository;
+use Illuminate\Container\Container;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Mcp\Server\Contracts\Transport;
 use Laravel\Mcp\Server\ServerContext;
@@ -338,3 +340,19 @@ it('still fails closed when an extra tool is registered under a non-canonical cl
     'leading backslash' => ['\\' . UnscopedExtraRouter::class],
     'lowercase' => [strtolower(UnscopedExtraRouter::class)],
 ]);
+
+it('isolates runtime tool registrations between application containers', function () {
+    ExtraTools::register(UnscopedExtraRouter::class);
+    $original = app();
+    $other = new Container;
+    $other->instance('config', new Repository);
+    try {
+        Container::setInstance($other);
+        expect(ExtraTools::all())->toBe([]);
+        ExtraTools::register(PermissionedExtraRouter::class);
+        expect(array_keys(ExtraTools::all()))->toBe([PermissionedExtraRouter::class]);
+    } finally {
+        Container::setInstance($original);
+    }
+    expect(array_keys(ExtraTools::all()))->toBe([UnscopedExtraRouter::class]);
+});

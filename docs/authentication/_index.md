@@ -6,7 +6,7 @@ weight: 20
 
 # Authentication
 
-The Statamic MCP Server uses scoped API tokens for fine-grained access control over HTTP. CLI access bypasses authentication entirely.
+The Statamic MCP Server uses scoped API tokens for fine-grained access control over HTTP. Stdio uses local process authority and requires an explicitly selected installation profile.
 
 ## Guides
 

@@ -432,3 +432,22 @@ STATAMIC_MCP_TOOL_USERS_ENABLED=true
 STATAMIC_MCP_TOOL_SYSTEM_ENABLED=true
 STATAMIC_MCP_TOOL_CONTENT_FACADE_ENABLED=true
 ```
+
+## V4 installation profiles
+
+Set `profiles.http` and `profiles.stdio` separately. Missing or unknown values
+reject execution, including resource and prompt requests. An HTTP request cannot
+inherit the local stdio profile. Environment variables are
+`STATAMIC_MCP_HTTP_PROFILE` and `STATAMIC_MCP_STDIO_PROFILE`.
+
+- `read_only`: content/model reads; users, system diagnostics and unknown extension
+  domains are excluded. Existing scope, site and field restrictions still apply.
+- `editor`: the same reads plus entry creation with `data.published: false` and draft
+  updates. Omit the publication flag on updates; changing it to true is refused. Updates require an already unpublished localized entry. Live entries, publishing,
+  deletion and tree moves are refused. Working-copy editing is not enabled yet.
+- `operator`: permits the existing action surface, still subject to HTTP token,
+  Statamic permission, resource and confirmation checks. Stdio runs with the local
+  operator's authority; select this only for a trusted local client.
+
+Example for local administration: `STATAMIC_MCP_STDIO_PROFILE=operator`.
+Selecting a profile does not enable the HTTP endpoint by itself.

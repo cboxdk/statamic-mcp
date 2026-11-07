@@ -5,6 +5,13 @@ use Cboxdk\StatamicMcp\Storage\Audit\FileAuditStore;
 use Cboxdk\StatamicMcp\Storage\Tokens\FileTokenStore;
 
 return [
+    // Explicit transport limits. Unknown/missing values disable execution.
+    // Profiles restrict access; HTTP still requires a token and Statamic rights.
+    'profiles' => [
+        'http' => env('STATAMIC_MCP_HTTP_PROFILE'),
+        'stdio' => env('STATAMIC_MCP_STDIO_PROFILE'),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Statamic MCP Server v2.0 Configuration

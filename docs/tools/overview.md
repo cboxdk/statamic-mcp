@@ -370,3 +370,12 @@ Tools declare behavior annotations:
 
 Tools also declare a **`#[Title]`** — the human-readable name a client shows in its
 UI, distinct from the protocol name (`statamic-entries` → "Statamic Entries").
+
+### V4 structure deletion
+
+Collections and taxonomies must be empty before they can be deleted. `force: true`
+does not bypass this requirement. Delete content explicitly through the corresponding
+entry or term actions, with their normal permission and resource checks. MCP does not
+provide a transaction across these individual deletions. Blueprint cleanup occurs only
+after the parent accepts deletion; an unknown write outcome requires reconciliation
+before retrying.

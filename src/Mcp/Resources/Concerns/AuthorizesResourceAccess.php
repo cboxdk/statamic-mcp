@@ -7,6 +7,7 @@ namespace Cboxdk\StatamicMcp\Mcp\Resources\Concerns;
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
+use Cboxdk\StatamicMcp\Authorization\InstallationProfile;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Cboxdk\StatamicMcp\Support\McpContext;
 use Illuminate\Support\Facades\Log;
@@ -40,6 +41,10 @@ trait AuthorizesResourceAccess
      */
     protected function denyReason(?string $handle = null): ?string
     {
+        $denial = app(InstallationProfile::class)->denial($this->domain(), 'get');
+        if ($denial !== null) {
+            return $denial;
+        }
         // CLI runs as the site operator; the resource policy still applies below.
         $isCli = McpContext::isCli();
 

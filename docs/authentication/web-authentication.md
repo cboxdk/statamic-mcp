@@ -122,7 +122,7 @@ STATAMIC_MCP_RATE_LIMIT_MAX=120
 
 ### Force Web Mode
 
-By default, CLI access bypasses authentication. To require tokens even in CLI context:
+The following flag forces HTTP-style security checks, including the HTTP profile, in console-based HTTP runtimes. It does not provide a token-login flow for stdio:
 
 ```env
 STATAMIC_MCP_FORCE_WEB_MODE=true

@@ -42,6 +42,11 @@ class DiscoveryTool extends BaseStatamicTool
     /** @var list<string>|null */
     private ?array $catalogToolNames = null;
 
+    protected function getToolDomain(): ?string
+    {
+        return 'guidance';
+    }
+
     protected function defineSchema(JsonSchemaContract $schema): array
     {
         return [

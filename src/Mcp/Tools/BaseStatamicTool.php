@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools;
 
+use Cboxdk\StatamicMcp\Authorization\InstallationProfile;
 use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorResponse;
 use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ResponseMeta;
 use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\SuccessResponse;
@@ -178,6 +179,11 @@ abstract class BaseStatamicTool extends Tool
     final public function execute(array $arguments): array
     {
         $this->startFromAFreshRequestState();
+        $action = is_string($arguments['action'] ?? null) ? $arguments['action'] : 'get';
+        $denial = app(InstallationProfile::class)->denial($this->getToolDomain(), $action, $arguments);
+        if ($denial !== null) {
+            return $this->createErrorResponse($denial)->toArray();
+        }
         $this->writeEffects = null;
         $this->completedCacheClears = [];
 

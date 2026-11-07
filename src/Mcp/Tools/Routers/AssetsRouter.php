@@ -304,7 +304,7 @@ class AssetsRouter extends BaseRouter
             // Set permissions
             $this->setContainerPermissions($container, $data);
 
-            $container->save();
+            $this->persistStatamic(fn () => $container->save());
 
             // Clear caches
             $this->clearCachesAfterWrite(['stache']);
@@ -348,7 +348,7 @@ class AssetsRouter extends BaseRouter
             // Update permissions
             $this->setContainerPermissions($container, $data);
 
-            $container->save();
+            $this->persistStatamic(fn () => $container->save());
 
             // Clear caches
             $this->clearCachesAfterWrite(['stache']);
@@ -386,7 +386,7 @@ class AssetsRouter extends BaseRouter
                 return $this->createErrorResponse("Cannot delete container '{$handle}' - it contains {$assetCount} assets")->toArray();
             }
 
-            $container->delete();
+            $this->persistStatamic(fn () => $container->delete());
 
             // Clear caches
             $this->clearCachesAfterWrite(['stache']);
@@ -589,7 +589,7 @@ class AssetsRouter extends BaseRouter
                 $asset->set($key, $value);
             }
 
-            $asset->save();
+            $this->persistStatamic(fn () => $asset->save());
 
             // Clear caches
             $this->clearCachesAfterWrite(['stache']);
@@ -634,6 +634,9 @@ class AssetsRouter extends BaseRouter
                 return $this->createErrorResponse("Asset not found: {$container}::{$path}")->toArray();
             }
 
+            // Keep a rejected candidate out of the repository-held instance.
+            $asset = clone $asset;
+
             // Update asset data
             foreach ($data as $key => $value) {
                 match ($key) {
@@ -643,7 +646,7 @@ class AssetsRouter extends BaseRouter
                 };
             }
 
-            $asset->save();
+            $this->persistStatamic(fn () => $asset->save());
 
             // Clear caches
             $this->clearCachesAfterWrite(['stache']);
@@ -681,7 +684,7 @@ class AssetsRouter extends BaseRouter
             }
 
             $assetId = $asset->id();
-            $asset->delete();
+            $this->persistStatamic(fn () => $asset->delete());
 
             // Clear caches
             $this->clearCachesAfterWrite(['stache']);
@@ -734,8 +737,8 @@ class AssetsRouter extends BaseRouter
             }
 
             $oldPath = $asset->path();
-            $asset->move($target['folder'], $target['filename']);
-            $asset->save();
+            $this->persistStatamic(fn () => $asset->move($target['folder'], $target['filename']));
+            $this->persistStatamic(fn () => $asset->save());
 
             // Clear caches
             $this->clearCachesAfterWrite(['stache']);
@@ -788,11 +791,11 @@ class AssetsRouter extends BaseRouter
                 return $this->createErrorResponse("An asset already exists at {$container}::{$newPath}")->toArray();
             }
 
-            $disk->copy($asset->path(), $newPath);
+            $this->persistStatamic(fn () => $disk->copy($asset->path(), $newPath));
 
             $newAsset = $asset->container()->makeAsset($newPath);
             $newAsset->data($asset->data()->all());
-            $newAsset->save();
+            $this->persistStatamic(fn () => $newAsset->save());
 
             // Clear caches
             $this->clearCachesAfterWrite(['stache']);
@@ -932,7 +935,7 @@ class AssetsRouter extends BaseRouter
                 $asset->set($key, $value);
             }
 
-            $asset->save();
+            $this->persistStatamic(fn () => $asset->save());
 
             // Clear caches
             $this->clearCachesAfterWrite(['stache']);
@@ -1064,7 +1067,7 @@ class AssetsRouter extends BaseRouter
             return $refused;
         }
 
-        $asset = $container->makeAsset($folder === '' ? $filename : "{$folder}/{$filename}")->upload($file);
+        $asset = $this->persistStatamic(fn () => $container->makeAsset($folder === '' ? $filename : "{$folder}/{$filename}")->upload($file));
 
         if (! $asset instanceof AssetContract) {
             return 'The upload was cancelled by an AssetCreating listener.';

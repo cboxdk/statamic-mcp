@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Refuse forced cascading deletion of nonempty collections and taxonomies. Delete entries/terms explicitly first; a rejected parent deletion preserves its blueprints.
+- Keep runtime extension registrations within their application container instead of sharing them across the PHP process.
+
+- Require an explicit HTTP/stdio installation profile. Read-only and editor profiles reject sensitive domains and unsupported actions; editor writes are limited to unpublished entries.
+
 - Remove Basic Auth, including the legacy enable flag. Use scoped Bearer tokens or OAuth. The HTTP MCP endpoint now requires explicit activation.
 - Require custom OAuth drivers to implement user-wide grant revocation, including orphan refresh tokens and pending authorization codes.
 - Authorize global values against their concrete Statamic site policy.
@@ -20,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Respect Statamic save/delete vetoes on entry, term, global, user, role and group writes; isolate entry candidates from live repository objects.
+- Respect Statamic save/delete vetoes on entry, term, global, user, role, group, asset and structure writes; isolate entry candidates from live repository objects.
 - Register cache cleanup before content writes, report failed cache command exit codes, and preserve successful outcomes when completed calls exceed the duration budget.
 - Allow editors to restore revisions as drafts or working copies without requiring publication rights, matching Statamic's control panel.
 - Use Statamic's actual role and user-group permissions for all corresponding MCP operations, including non-super administrators.

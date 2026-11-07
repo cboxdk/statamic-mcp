@@ -84,13 +84,13 @@ Only super admins can hold `*`, `system:write` and the content-facade scopes.
 See [`security.scopes_follow_permissions`](../configuration/reference.md#scopes_follow_permissions)
 for the details and the switch to turn it off.
 
-### CLI Bypass
+### Stdio profiles
 
-CLI access (`php artisan mcp:serve`) bypasses all scope checks. No token is needed. To force token authentication even in CLI mode, set:
-
-```env
-STATAMIC_MCP_FORCE_WEB_MODE=true
-```
+Local access (`php artisan mcp:start statamic`) requires an explicit
+`STATAMIC_MCP_STDIO_PROFILE=read_only`, `editor` or `operator`. It runs with local
+process authority, without an HTTP token. Profiles and site-wide resource policies
+still restrict execution. Only `operator` enables administration. Missing or unknown
+profiles reject calls. Never switch transports to evade an HTTP permission denial.
 
 ### Domain Mapping
 
