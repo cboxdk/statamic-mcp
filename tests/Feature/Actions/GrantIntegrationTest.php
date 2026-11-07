@@ -11,6 +11,7 @@ use Cboxdk\StatamicMcp\Actions\CapabilityRegistry;
 use Cboxdk\StatamicMcp\Actions\Contracts\ActionHandler;
 use Cboxdk\StatamicMcp\Actions\Contracts\ActionPolicy;
 use Cboxdk\StatamicMcp\Actions\Contracts\ActorScope;
+use Cboxdk\StatamicMcp\Actions\ExecutionAudit;
 use Cboxdk\StatamicMcp\Actions\ExecutionContext;
 use Cboxdk\StatamicMcp\Actions\LifecycleObservers;
 use Cboxdk\StatamicMcp\Actions\Operations\FileOperationStore;
@@ -136,7 +137,7 @@ class GrantIntegrationTest extends TestCase
             new LifecycleObservers(new NullLogger, [$events]), $this->app,
             new OperationCoordinator(
                 new FileOperationStore($directory),
-                app(Encrypter::class)), app(ActorScope::class));
+                app(Encrypter::class)), app(ActorScope::class), app(ExecutionAudit::class));
         GrantFixtureHandler::$calls = 0;
         $operation = $executor->prepare($action->id(), [], $context);
         $this->assertSame(0, GrantFixtureHandler::$calls);

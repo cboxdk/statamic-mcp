@@ -26,6 +26,7 @@ final class ActionExecutor
         private readonly Container $container,
         private readonly OperationCoordinator $operations,
         private readonly ActorScope $actors,
+        private readonly ExecutionAudit $audit,
     ) {}
 
     /** Authorize and validate intent without invoking its handler.
@@ -86,6 +87,7 @@ final class ActionExecutor
         $action = $this->registry->get($id);
         $executionId = (string) Str::uuid();
         $started = false;
+        $effects = 'none';
         $start = hrtime(true);
         try {
             $this->authorizer->authorize($action, $context);
@@ -105,11 +107,19 @@ final class ActionExecutor
             if (! in_array($action->effect, [ActionEffect::Read, ActionEffect::Edit], true)) {
                 throw new \LogicException('Actions requiring approval are not yet enabled.');
             }
-            $execute = function () use ($handler, $policy, $input, $context, $action, $start, $executionId, &$started): array {
+            $beforeExecute = function () use ($policy, $input, $context, $action, $executionId): void {
                 $this->authorizer->authorize($action, $context);
                 $policy->authorize($input, $context);
                 $context->checkDeadline();
+                if ($action->effect !== ActionEffect::Read) {
+                    $this->audit->admit($action, $context, $executionId);
+                    $this->authorizer->authorize($action, $context);
+                    $context->checkDeadline();
+                }
+            };
+            $execute = function () use ($handler, $policy, $input, $context, $action, $start, $executionId, &$started, &$effects): array {
                 $started = true;
+                $effects = $action->effect === ActionEffect::Read ? 'none' : 'unknown';
                 $this->emit($action, $context, 'started', 'none', $start, $executionId);
                 $result = $handler->execute($input, $context);
                 $result = $policy->filterResult($input, $result, $context);
@@ -118,19 +128,25 @@ final class ActionExecutor
                 return $result;
             };
             if ($action->effect === ActionEffect::Read) {
+                $beforeExecute();
                 $result = $execute();
                 $this->emit($action, $context, 'completed', 'none', $start, $executionId);
 
                 return $result;
             }
-            $result = $this->operations->execute($action, $input, $context, $execute);
+            $result = $this->operations->execute($action, $input, $context, $execute, $beforeExecute);
+            $effects = $result->replayed ? 'none' : 'committed';
             $visible = $policy->filterResult($input, $result->data, $context);
             $this->schemas->validate($visible, $action->outputSchema);
+            $this->audit->outcome($action, $context, $executionId, $result->replayed ? 'replayed' : 'completed', $result->replayed ? 'none' : 'committed');
             $this->emit($action, $context, $result->replayed ? 'replayed' : 'completed', $result->replayed ? 'none' : 'committed', $start, $executionId);
 
             return $visible;
         } catch (\Throwable $error) {
-            $this->emit($action, $context, $started ? 'failed' : 'denied', $started && $action->effect !== ActionEffect::Read ? 'unknown' : 'none', $start, $executionId);
+            if ($action->effect !== ActionEffect::Read) {
+                $this->audit->outcome($action, $context, $executionId, $started ? 'failed' : 'denied', $effects);
+            }
+            $this->emit($action, $context, $started ? 'failed' : 'denied', $effects, $start, $executionId);
             throw $error;
         }
     }

@@ -247,27 +247,32 @@ abstract class BaseStatamicTool extends Tool
             // This is an observation, not a claim that PHP interrupted the handler.
             $configuredTimeout = config('statamic.mcp.security.tool_timeout_seconds', 30);
             $timeout = is_numeric($configuredTimeout) ? (float) $configuredTimeout : 30.0;
-            if ($duration > $timeout) {
-                $standardized['meta']['duration_budget_exceeded'] = true;
-                ToolLogger::performanceWarning($toolName, "Tool execution exceeded {$timeout}s budget", $duration);
-            }
+            try {
+                if ($duration > $timeout) {
+                    $standardized['meta']['duration_budget_exceeded'] = true;
+                    ToolLogger::performanceWarning($toolName, "Tool execution exceeded {$timeout}s budget", $duration);
+                }
 
-            // Routers report a refused write — blueprint validation, a missing
-            // entry, a denied resource — as an error envelope rather than by
-            // throwing, so the audit status has to come from the envelope. A
-            // save rejected on "The Entry field must be an array" used to be
-            // logged as success, with the refusal only in response_summary.
-            $status = ($standardized['success'] ?? true) === false ? 'error' : 'success';
+                // Routers report a refused write — blueprint validation, a missing
+                // entry, a denied resource — as an error envelope rather than by
+                // throwing, so the audit status has to come from the envelope. A
+                // save rejected on "The Entry field must be an array" used to be
+                // logged as success, with the refusal only in response_summary.
+                $status = ($standardized['success'] ?? true) === false ? 'error' : 'success';
 
-            ToolLogger::logToolCall(
-                $toolName, $arguments, $status, $duration * 1000,
-                action: $this->extractAction($arguments),
-                result: $standardized,
-                correlationId: $correlationId,
-            );
+                ToolLogger::logToolCall(
+                    $toolName, $arguments, $status, $duration * 1000,
+                    action: $this->extractAction($arguments),
+                    result: $standardized,
+                    correlationId: $correlationId,
+                );
 
-            if ($duration > 5.0) {
-                ToolLogger::performanceWarning($toolName, 'Tool execution exceeded 5 seconds', $duration);
+                if ($duration > 5.0) {
+                    ToolLogger::performanceWarning($toolName, 'Tool execution exceeded 5 seconds', $duration);
+                }
+            } catch (\Throwable) {
+                // The handler has finished. A logging failure cannot undo its effect.
+                $standardized['meta']['audit_status'] = 'unavailable';
             }
 
             return $standardized;
@@ -275,12 +280,16 @@ abstract class BaseStatamicTool extends Tool
             $duration = (hrtime(true) - $startTime) / 1_000_000_000;
             $status = ($e instanceof \InvalidArgumentException) ? 'validation_error' : 'error';
 
-            ToolLogger::logToolCall(
-                $toolName, $arguments, $status, $duration * 1000,
-                action: $this->extractAction($arguments),
-                error: $e,
-                correlationId: $correlationId,
-            );
+            try {
+                ToolLogger::logToolCall(
+                    $toolName, $arguments, $status, $duration * 1000,
+                    action: $this->extractAction($arguments),
+                    error: $e,
+                    correlationId: $correlationId,
+                );
+            } catch (\Throwable) {
+                // Preserve the original execution error if audit is unavailable.
+            }
 
             $prefix = match (true) {
                 $e instanceof \TypeError => 'Type error',
@@ -289,12 +298,15 @@ abstract class BaseStatamicTool extends Tool
                 default => 'Exception',
             };
 
-            // Always log the full error server-side
-            Log::error("MCP tool error in {$toolName}", [
-                'exception' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-            ]);
+            try {
+                Log::error("MCP tool error in {$toolName}", [
+                    'exception' => $e->getMessage(),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
+                ]);
+            } catch (\Throwable) {
+                // A failing fallback logger must not replace the original outcome.
+            }
 
             $rawMessage = $this->sanitizeErrorMessage($e->getMessage());
             $errorMessage = ($this->isClientSafeException($e) || app()->environment('local', 'testing'))

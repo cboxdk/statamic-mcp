@@ -50,8 +50,9 @@ final class OperationCoordinator
 
     /** @param array<string, mixed> $input
      * @param  callable(): array<string, mixed>  $execute
+     * @param  (callable(): void)|null  $beforeExecute  Runs after claim, before side effects are allowed.
      */
-    public function execute(ActionDefinition $action, array $input, ExecutionContext $context, callable $execute): OperationResult
+    public function execute(ActionDefinition $action, array $input, ExecutionContext $context, callable $execute, ?callable $beforeExecute = null): OperationResult
     {
         if (! preg_match('/^[a-f0-9]{64}$/D', $context->operationId)) {
             throw new \RuntimeException('A server-issued prepared operation handle is required.');
@@ -101,6 +102,13 @@ final class OperationCoordinator
             $context->checkDeadline();
             if ($executing->expiresAt <= now()->getTimestamp()) {
                 throw new \RuntimeException('Operation expired before execution.');
+            }
+            if ($beforeExecute !== null) {
+                $beforeExecute();
+            }
+            $context->checkDeadline();
+            if ($executing->expiresAt <= now()->getTimestamp()) {
+                throw new \RuntimeException('Operation expired during admission.');
             }
             $callbackStarted = true;
             $data = $execute();

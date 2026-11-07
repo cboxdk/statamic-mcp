@@ -128,6 +128,24 @@ it('inspects recovery identity without leaking content or changing an unknown ou
         ->expectsOutputToContain('Absence is not proof')->assertFailed();
 });
 
+it('does not begin effects when an operation expires during admission', function () {
+    $store = new FileOperationStore($this->directory);
+    $coordinator = new OperationCoordinator($store, app(Encrypter::class), 60);
+    $operation = $coordinator->prepare($this->action, [], $this->context);
+    $calls = 0;
+    $write = function () use (&$calls): array {
+        $calls++;
+
+        return [];
+    };
+    $admit = function (): void {
+        $this->travel(61)->seconds();
+    };
+    expect(fn () => $coordinator->execute($this->action, [], $this->context->withOperationId($operation->id), $write, $admit))
+        ->toThrow(RuntimeException::class, 'expired during admission');
+    expect($calls)->toBe(0)->and($store->find($operation->id)->state)->toBe(OperationState::FailedNoEffect);
+});
+
 final class IntentHandler implements ActionHandler
 {
     public function execute(array $input, ExecutionContext $context): array

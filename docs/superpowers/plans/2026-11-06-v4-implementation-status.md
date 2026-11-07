@@ -329,3 +329,38 @@ state and recovery identity as JSON without raw input/results or credential IDs.
 It never changes state, retries a handler or treats a missing record as proof of no
 effect. The intent/inspection suite passed **10 tests / 73 assertions**. This does
 not yet provide manual outcome resolution or substitute for durable audit.
+
+
+### Durable audit admission and bounded history reads
+
+Registered writes now require `DurableAuditStore::writeDurable()` before invoking
+the handler. This requirement does not follow telemetry sampling or the legacy
+`audit_logging` flag. Admission runs after the operation claim, while the coordinator
+still knows no handler effect has begun. Failure, revocation or expiry during this
+phase leaves a terminal `failed_no_effect` operation. Read actions do not require
+write admission. Unsupported custom audit drivers fail closed for registered writes.
+
+File audit append, rotation, queries and purge use one permanent process lock.
+Entries and directory changes are fsynced, file permissions are private, and purge
+checks write/flush/rename results. An interrupted JSON tail is preserved and separated
+from the next complete entry. Pagination performs two streaming passes and retains
+only the requested page; 12,000 approximately 2 KiB records are queried in a separate
+32 MiB PHP process. Queries retain the existing active-file/50 MiB window semantics.
+The file backend remains single-node; old and new workers must not run concurrently.
+
+SQL durable admission rejects a caller transaction rather than promising persistence
+that could later roll back; use a dedicated durable driver when the host wraps work
+in a transaction. Native model vetoes are reported as failures. The operation record
+is authoritative for outcome: secondary terminal-audit failure cannot undo a successful
+write or reopen its handle. Known committed effects stay explicit when final output
+filtering fails, and replay still applies current field visibility. Legacy tool
+outcome logging is isolated and adds `meta.audit_status=unavailable` on failure;
+this does not yet migrate legacy tools to mandatory pre-write admission.
+
+Verification: action/operation/audit contracts **86 / 541** before the final admission
+cases; focused durable admission, expiry, SQL veto, storage and stress **40 / 183**;
+final output-filter and legacy outcome tests **9 / 51**. These runs overlap.
+Native SQL admission is also tested outside transactions and against a listener
+that opens an uncommitted transaction. PHPStan level 9 and Pint passed without
+suppressions. A complete regression run for this head remains
+required. Resource-versioned approvals and builtin migration are still outstanding.

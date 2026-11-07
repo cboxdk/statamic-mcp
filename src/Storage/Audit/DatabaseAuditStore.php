@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Storage\Audit;
 
 use Carbon\Carbon;
-use Cboxdk\StatamicMcp\Contracts\AuditStore;
+use Cboxdk\StatamicMcp\Contracts\DurableAuditStore;
 
-class DatabaseAuditStore implements AuditStore
+class DatabaseAuditStore implements DurableAuditStore
 {
     /** @var list<string> */
     private const KNOWN_COLUMNS = ['level', 'message', 'tool', 'action', 'status', 'correlation_id', 'duration_ms'];
@@ -40,7 +40,25 @@ class DatabaseAuditStore implements AuditStore
             $data['context'] = $context;
         }
 
-        McpAuditEntry::create($data);
+        $model = McpAuditEntry::create($data);
+        if (! $model->exists) {
+            throw new \RuntimeException('Audit entry persistence was vetoed.');
+        }
+    }
+
+    public function writeDurable(array $entry): void
+    {
+        $this->requireCommittedConnection();
+        $this->write($entry);
+        // Creating/saved listeners may have changed the connection's transaction state.
+        $this->requireCommittedConnection();
+    }
+
+    private function requireCommittedConnection(): void
+    {
+        if ((new McpAuditEntry)->getConnection()->transactionLevel() !== 0) {
+            throw new \LogicException('Durable audit cannot join an uncommitted transaction.');
+        }
     }
 
     public function query(?string $tool, ?string $status, int $page, int $perPage): AuditResult

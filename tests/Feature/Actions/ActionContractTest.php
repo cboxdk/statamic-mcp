@@ -14,6 +14,7 @@ use Cboxdk\StatamicMcp\Actions\Contracts\ActorScope;
 use Cboxdk\StatamicMcp\Actions\Contracts\Authorizer;
 use Cboxdk\StatamicMcp\Actions\Contracts\LifecycleEvent;
 use Cboxdk\StatamicMcp\Actions\Contracts\LifecycleObserver;
+use Cboxdk\StatamicMcp\Actions\ExecutionAudit;
 use Cboxdk\StatamicMcp\Actions\ExecutionContext;
 use Cboxdk\StatamicMcp\Actions\LifecycleObservers;
 use Cboxdk\StatamicMcp\Actions\Operations\FileOperationStore;
@@ -146,7 +147,7 @@ class ActionContractTest extends TestCase
             new OperationCoordinator(
                 new FileOperationStore($this->operationDirectory),
                 $this->app->make(Encrypter::class),
-            ), app(ActorScope::class));
+            ), app(ActorScope::class), app(ExecutionAudit::class));
         $this->assertSame(['title' => 'Before'], $executor->execute('fixture/addon/read', ['id' => $entry->id()], $context));
         $writes = 0;
         $observedActors = [];

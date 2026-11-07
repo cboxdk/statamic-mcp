@@ -6,9 +6,11 @@ namespace Cboxdk\StatamicMcp\Tests\Unit\Storage\Audit;
 
 use Cboxdk\StatamicMcp\Contracts\AuditStore;
 use Cboxdk\StatamicMcp\Storage\Audit\DatabaseAuditStore;
+use Cboxdk\StatamicMcp\Storage\Audit\McpAuditEntry;
 use Cboxdk\StatamicMcp\Tests\Concerns\AuditStoreContractTests;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 
 class DatabaseAuditStoreTest extends TestCase
 {
@@ -46,5 +48,33 @@ class DatabaseAuditStoreTest extends TestCase
         $this->assertSame('2026-03-15T12:00:00+00:00', $result->entries[0]['timestamp']);
         $this->assertSame('2026-03-15T11:00:00+00:00', $result->entries[1]['timestamp']);
         $this->assertSame('2026-03-15T10:00:00+00:00', $result->entries[2]['timestamp']);
+    }
+
+    public function test_durable_audit_refuses_an_uncommitted_caller_transaction(): void
+    {
+        $connection = DB::connection();
+        $connection->beginTransaction();
+        try {
+            try {
+                (new DatabaseAuditStore)->writeDurable($this->makeEntry('statamic-entries', 'admitted'));
+                $this->fail('Uncommitted audit must not admit a write.');
+            } catch (\LogicException $exception) {
+                $this->assertStringContainsString('uncommitted', $exception->getMessage());
+            }
+            $this->assertSame(0, McpAuditEntry::count());
+        } finally {
+            $connection->rollBack();
+        }
+    }
+
+    public function test_audit_model_veto_is_reported_as_a_failure(): void
+    {
+        McpAuditEntry::creating(fn (): bool => false);
+        try {
+            $this->expectException(\RuntimeException::class);
+            (new DatabaseAuditStore)->write($this->makeEntry('statamic-entries', 'admitted'));
+        } finally {
+            McpAuditEntry::flushEventListeners();
+        }
     }
 }

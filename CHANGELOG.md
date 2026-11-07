@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Require durable audit admission before registered writes, independently of telemetry and the legacy logging flag. Custom audit drivers must implement `DurableAuditStore`; SQL admission refuses uncommitted caller transactions.
+- Serialize audit append, rotation and purge across processes. Flush durable writes, preserve interrupted tail evidence, and paginate without loading the complete history into memory.
+
 - Persist encrypted recovery identity before preparing a write. Bind it to the handle and request, preserve it on unknown outcomes, and refuse missing or corrupted intent before execution. Raw input and credentials are not retained. Add `mcp:inspect-operation` for read-only local recovery inspection.
 
 - Serialize complete file-token mutations, including usage timestamps and revocation. Atomically replace token files and refuse failed deletions; a concurrent last-used update cannot recreate a revoked credential.
@@ -41,6 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Require Statamic 6.35.1+ and Laravel MCP 1.1.2+.
 
 ### Fixed
+
+- Preserve committed operation effects when final output filtering fails. Audit/exporter/fallback logger failures after a write cannot turn its stored success into a retryable failure; legacy tool envelopes report unavailable outcome audit separately.
 
 - Respect configured input budgets for registered actions, including 10 MiB asset uploads. Align encrypted result storage with output validation for deep and Unicode-heavy content.
 
