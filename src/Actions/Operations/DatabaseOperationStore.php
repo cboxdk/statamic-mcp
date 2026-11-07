@@ -61,6 +61,7 @@ final class DatabaseOperationStore implements OperationStore
     public function transition(Operation $expected, Operation $next): bool
     {
         if ($next->id !== $expected->id || $next->bindingDigest !== $expected->bindingDigest
+            || $next->encryptedIntent !== $expected->encryptedIntent
             || $next->expiresAt !== $expected->expiresAt || $next->version !== $expected->version + 1
             || ! $expected->state->canTransitionTo($next->state)) {
             throw new \InvalidArgumentException('Invalid operation transition binding.');

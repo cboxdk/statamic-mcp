@@ -30,8 +30,12 @@ final class OperationCoordinator
             throw new \InvalidArgumentException('Read actions do not require preparation.');
         }
         $context->checkDeadline();
-        $prepared = new Operation(bin2hex(random_bytes(32)), self::binding($action, $input, $context),
-            OperationState::Prepared, 1, now()->getTimestamp() + $this->retrySeconds);
+        $id = bin2hex(random_bytes(32));
+        $binding = self::binding($action, $input, $context);
+        $intent = OperationIntent::capture($id, $binding, self::inputDigest($input), $action, $context);
+        $prepared = new Operation($id, $binding, OperationState::Prepared, 1,
+            now()->getTimestamp() + $this->retrySeconds,
+            encryptedIntent: $this->encrypter->encrypt($intent->toJson(), false));
         if (! $this->store->create($prepared)) {
             throw new \RuntimeException('Cannot reserve operation handle.');
         }
@@ -59,6 +63,8 @@ final class OperationCoordinator
         if (! hash_equals(self::binding($action, $input, $context), $existing->bindingDigest)) {
             throw new \RuntimeException('Operation handle conflicts with this request.');
         }
+        // Legacy/corrupt records cannot enter the handler without durable recovery context.
+        $this->intent($existing);
         if ($existing->expiresAt <= now()->getTimestamp()) {
             throw new \RuntimeException('Operation retry window expired. Reconcile the previous outcome.');
         }
@@ -119,6 +125,31 @@ final class OperationCoordinator
             }
             throw $error;
         }
+    }
+
+    /** Trusted recovery API, not an authorization decision or a public MCP response. */
+    public function intent(Operation $operation): OperationIntent
+    {
+        if ($operation->encryptedIntent === null) {
+            throw new \RuntimeException('Operation has no recovery intent. Reconcile its outcome.');
+        }
+        $json = $this->encrypter->decrypt($operation->encryptedIntent, false);
+        if (! is_string($json)) {
+            throw new \RuntimeException('Invalid stored operation intent.');
+        }
+        $intent = OperationIntent::fromJson($json);
+        if (! hash_equals($operation->id, $intent->operationId)
+            || ! hash_equals($operation->bindingDigest, $intent->bindingDigest)) {
+            throw new \RuntimeException('Operation intent belongs to a different operation.');
+        }
+
+        return $intent;
+    }
+
+    /** @param array<string, mixed> $input */
+    private static function inputDigest(array $input): string
+    {
+        return hash('sha256', json_encode(self::canonical($input), JSON_THROW_ON_ERROR));
     }
 
     /** @param array<string, mixed> $input */

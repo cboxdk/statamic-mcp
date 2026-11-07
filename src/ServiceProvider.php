@@ -128,6 +128,7 @@ class ServiceProvider extends AddonServiceProvider
                 PruneOAuthCommand::class,
                 Console\PruneOperationsCommand::class,
                 Console\RepairOperationCapacityCommand::class,
+                Console\InspectOperationCommand::class,
             ]);
         }
 

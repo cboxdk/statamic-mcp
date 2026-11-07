@@ -15,7 +15,7 @@ use Illuminate\Support\Str;
 use Statamic\Auth\PermissionCache;
 use Statamic\Facades\Blink;
 
-/** Internal V01 prototype. Write admission requires the V04 operation store. */
+/** Shared action boundary. Only reads are currently exposed through MCP adapters. */
 final class ActionExecutor
 {
     public function __construct(
@@ -103,7 +103,7 @@ final class ActionExecutor
                 throw new \LogicException('Invalid action handler binding.');
             }
             if (! in_array($action->effect, [ActionEffect::Read, ActionEffect::Edit], true)) {
-                throw new \LogicException('This prototype does not admit actions requiring approval.');
+                throw new \LogicException('Actions requiring approval are not yet enabled.');
             }
             $execute = function () use ($handler, $policy, $input, $context, $action, $start, $executionId, &$started): array {
                 $this->authorizer->authorize($action, $context);

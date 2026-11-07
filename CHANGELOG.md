@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Persist encrypted recovery identity before preparing a write. Bind it to the handle and request, preserve it on unknown outcomes, and refuse missing or corrupted intent before execution. Raw input and credentials are not retained. Add `mcp:inspect-operation` for read-only local recovery inspection.
+
 - Serialize complete file-token mutations, including usage timestamps and revocation. Atomically replace token files and refuse failed deletions; a concurrent last-used update cannot recreate a revoked credential.
 
 - Expose explicitly consented registered read actions through HTTP, stdio and tool search. Stdio requires a configured v4 token; catalog visibility and invocation recheck native site permissions.

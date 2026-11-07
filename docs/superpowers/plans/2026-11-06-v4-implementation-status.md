@@ -301,3 +301,31 @@ also proves that replacement preserves a complete old snapshot. Token contracts,
 file-store stress and dataset scaling passed **50 tests / 811 assertions**. The
 counting filesystem test wrapper now forwards actual locks and chmod. PHPStan 9
 passed. This is single-node POSIX behavior, not a distributed filesystem guarantee.
+
+
+### Durable recovery identity
+
+Prepared operations now include encrypted, bounded metadata identifying actor,
+stable grant, exact action/version/fingerprint, effect, site, transport/profile,
+preparation time and a digest of canonical input. Neither the credential nor raw
+input is retained. A 10 MiB upload therefore does not enlarge the recovery record.
+The ciphertext is immutable through store transitions and bound to the operation
+ID and request binding; copying it between handles is rejected. Missing/damaged
+metadata fails before claim or handler invocation. Legacy prototype handles without
+this metadata cannot be executed by this version and require outcome investigation.
+
+This identifies a retained unknown outcome; it is not yet a resource-versioned
+preview, approval record, complete durable audit or an outcome-reconciliation UI.
+The operation/retention/contract run passed **36 tests / 301 assertions**, including
+both backends, encryption failure before reservation, corrupted/missing intent,
+cross-handle ciphertext reuse and retention after a throwing handler. PHPStan 9 and
+Pint passed. The initial test run exposed two test-harness mistakes (arrow-function
+value capture and Pest's exception-class assertion); both were corrected before
+the successful run.
+
+
+The local administrator command `mcp:inspect-operation HANDLE` returns retained
+state and recovery identity as JSON without raw input/results or credential IDs.
+It never changes state, retries a handler or treats a missing record as proof of no
+effect. The intent/inspection suite passed **10 tests / 73 assertions**. This does
+not yet provide manual outcome resolution or substitute for durable audit.
