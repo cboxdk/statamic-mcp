@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\OAuth\Drivers;
 
 use Carbon\Carbon;
+use Cboxdk\StatamicMcp\Actions\CapabilitySnapshot;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\OAuth\Concerns\ValidatesRedirectUris;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
@@ -174,6 +175,7 @@ class BuiltInOAuthDriver implements OAuthDriver, RevokesUserGrants
         string $codeChallenge,
         string $codeChallengeMethod,
         string $redirectUri,
+        ?CapabilitySnapshot $capabilities = null,
     ): string {
         $code = bin2hex(random_bytes(32));
         $codeHash = hash('sha256', $code);
@@ -187,6 +189,7 @@ class BuiltInOAuthDriver implements OAuthDriver, RevokesUserGrants
             'client_id' => $clientId,
             'user_id' => $userId,
             'scopes' => $scopes,
+            'capabilities' => $capabilities?->toStored(),
             'code_challenge' => $codeChallenge,
             'code_challenge_method' => $codeChallengeMethod,
             'redirect_uri' => $redirectUri,
@@ -295,6 +298,7 @@ class BuiltInOAuthDriver implements OAuthDriver, RevokesUserGrants
                 userId: is_string($data['user_id'] ?? null) ? $data['user_id'] : '',
                 scopes: $scopes,
                 redirectUri: is_string($data['redirect_uri'] ?? null) ? $data['redirect_uri'] : '',
+                capabilities: CapabilitySnapshot::fromStored($data['capabilities'] ?? null),
             );
         } finally {
             flock($handle, LOCK_UN);
@@ -303,16 +307,16 @@ class BuiltInOAuthDriver implements OAuthDriver, RevokesUserGrants
     }
 
     /** @param array<int, string> $scopes */
-    public function createRefreshToken(string $userId, string $clientId, array $scopes): string
+    public function createRefreshToken(string $userId, string $clientId, array $scopes, ?CapabilitySnapshot $capabilities = null): string
     {
         /** @var int $refreshTtl */
         $refreshTtl = config('statamic.mcp.oauth.refresh_token_ttl', 2592000);
 
-        return $this->issueRefreshToken($userId, $clientId, $scopes, Carbon::now()->addSeconds($refreshTtl));
+        return $this->issueRefreshToken($userId, $clientId, $scopes, Carbon::now()->addSeconds($refreshTtl), $capabilities);
     }
 
     /** @param array<int, string> $scopes */
-    private function issueRefreshToken(string $userId, string $clientId, array $scopes, Carbon $expiresAt): string
+    private function issueRefreshToken(string $userId, string $clientId, array $scopes, Carbon $expiresAt, ?CapabilitySnapshot $capabilities): string
     {
         $token = bin2hex(random_bytes(32));
         $tokenHash = hash('sha256', $token);
@@ -323,6 +327,7 @@ class BuiltInOAuthDriver implements OAuthDriver, RevokesUserGrants
             'user_id' => $userId,
             'client_id' => $clientId,
             'scopes' => $scopes,
+            'capabilities' => $capabilities?->toStored(),
             'expires_at' => $expiresAt->toIso8601String(),
             'used' => false,
         ];
@@ -404,7 +409,8 @@ class BuiltInOAuthDriver implements OAuthDriver, RevokesUserGrants
                 userId: is_string($data['user_id'] ?? null) ? $data['user_id'] : '',
                 scopes: $scopes,
                 redirectUri: '',
-                refreshToken: $this->issueRefreshToken($userId, $clientId, $scopes, Carbon::parse($expiresAt)),
+                refreshToken: $this->issueRefreshToken($userId, $clientId, $scopes, Carbon::parse($expiresAt), CapabilitySnapshot::fromStored($data['capabilities'] ?? null)),
+                capabilities: CapabilitySnapshot::fromStored($data['capabilities'] ?? null),
             );
         } finally {
             flock($handle, LOCK_UN);

@@ -187,6 +187,7 @@ const { router } = __STATAMIC__.inertia;
 const props = defineProps({
     tokens: { type: Array, default: () => [] },
     availableScopes: { type: Array, default: () => [] },
+    capabilityOffer: { type: String, default: null },
     maxTokenLifetimeDays: { type: Number, default: null },
 });
 
@@ -321,6 +322,7 @@ function toggleGroup(groupName) {
 async function handleCreate() {
     form.value.errors = {};
     const result = await createToken({
+        capability_offer: props.capabilityOffer,
         name: form.value.name,
         scopes: form.value.scopes,
         expires_at: form.value.expires_at || null,

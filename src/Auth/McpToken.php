@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property string $name
  * @property string $token
  * @property array<int, string> $scopes
+ * @property array{grant_id: string, actions: array<string, string>, scopes: array<string, string>}|null $capabilities
  * @property string|null $oauth_client_id
  * @property string|null $oauth_client_name
  * @property Carbon|null $last_used_at
@@ -42,6 +43,7 @@ class McpToken extends Model
         'name',
         'token',
         'scopes',
+        'capabilities',
         'oauth_client_id',
         'oauth_client_name',
         'last_used_at',
@@ -66,6 +68,7 @@ class McpToken extends Model
     {
         return [
             'scopes' => 'array',
+            'capabilities' => 'array',
             'last_used_at' => 'datetime',
             'expires_at' => 'datetime',
         ];

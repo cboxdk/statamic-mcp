@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Tests\Concerns;
 
 use Carbon\Carbon;
+use Cboxdk\StatamicMcp\Actions\CapabilitySnapshot;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
 use Cboxdk\StatamicMcp\OAuth\Contracts\RevokesUserGrants;
 use Cboxdk\StatamicMcp\OAuth\Exceptions\OAuthException;
@@ -19,6 +20,24 @@ use Cboxdk\StatamicMcp\OAuth\OAuthClient;
 trait OAuthDriverContractTests
 {
     abstract protected function createDriver(): OAuthDriver;
+
+    public function test_consent_snapshot_survives_code_exchange_and_every_refresh_rotation(): void
+    {
+        $driver = $this->createDriver();
+        $client = $driver->registerClient('Consent', ['https://example.com/callback']);
+        $snapshot = new CapabilitySnapshot(['example/addon/draft' => hash('sha256', 'approved-definition')]);
+        $verifier = bin2hex(random_bytes(32));
+        $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+        $code = $driver->createAuthCode($client->clientId, 'user-1', ['entries:write'], $challenge, 'S256', 'https://example.com/callback', $snapshot);
+        $exchanged = $driver->exchangeCode($code, $verifier, $client->clientId, 'https://example.com/callback');
+        $this->assertSame($snapshot->toStored(), $exchanged->capabilities->toStored());
+        $refresh = $driver->createRefreshToken('user-1', $client->clientId, ['entries:write'], $exchanged->capabilities);
+        for ($i = 0; $i < 3; $i++) {
+            $rotated = $driver->exchangeRefreshToken($refresh, $client->clientId);
+            $this->assertSame($snapshot->toStored(), $rotated->capabilities->toStored());
+            $refresh = $rotated->refreshToken;
+        }
+    }
 
     public function test_refresh_replay_revokes_successor_but_not_other_client(): void
     {

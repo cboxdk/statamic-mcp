@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\OAuth\Drivers;
 
 use Carbon\Carbon;
+use Cboxdk\StatamicMcp\Actions\CapabilitySnapshot;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\OAuth\Concerns\ValidatesRedirectUris;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
@@ -86,6 +87,7 @@ class DatabaseOAuthDriver implements OAuthDriver, RevokesUserGrants
         string $codeChallenge,
         string $codeChallengeMethod,
         string $redirectUri,
+        ?CapabilitySnapshot $capabilities = null,
     ): string {
         $code = bin2hex(random_bytes(32));
         $codeHash = hash('sha256', $code);
@@ -98,6 +100,7 @@ class DatabaseOAuthDriver implements OAuthDriver, RevokesUserGrants
             'client_id' => $clientId,
             'user_id' => $userId,
             'scopes' => $scopes,
+            'capabilities' => $capabilities?->toStored(),
             'code_challenge' => $codeChallenge,
             'code_challenge_method' => $codeChallengeMethod,
             'redirect_uri' => $redirectUri,
@@ -175,20 +178,21 @@ class DatabaseOAuthDriver implements OAuthDriver, RevokesUserGrants
             userId: $model->user_id,
             scopes: $model->scopes,
             redirectUri: $model->redirect_uri,
+            capabilities: CapabilitySnapshot::fromStored($model->capabilities),
         );
     }
 
     /** @param array<int, string> $scopes */
-    public function createRefreshToken(string $userId, string $clientId, array $scopes): string
+    public function createRefreshToken(string $userId, string $clientId, array $scopes, ?CapabilitySnapshot $capabilities = null): string
     {
         /** @var int $refreshTtl */
         $refreshTtl = config('statamic.mcp.oauth.refresh_token_ttl', 2592000);
 
-        return $this->issueRefreshToken($userId, $clientId, $scopes, Carbon::now()->addSeconds($refreshTtl));
+        return $this->issueRefreshToken($userId, $clientId, $scopes, Carbon::now()->addSeconds($refreshTtl), $capabilities);
     }
 
     /** @param array<int, string> $scopes */
-    private function issueRefreshToken(string $userId, string $clientId, array $scopes, Carbon $expiresAt): string
+    private function issueRefreshToken(string $userId, string $clientId, array $scopes, Carbon $expiresAt, ?CapabilitySnapshot $capabilities): string
     {
         $token = bin2hex(random_bytes(32));
         $tokenHash = hash('sha256', $token);
@@ -198,6 +202,7 @@ class DatabaseOAuthDriver implements OAuthDriver, RevokesUserGrants
             'client_id' => $clientId,
             'user_id' => $userId,
             'scopes' => $scopes,
+            'capabilities' => $capabilities?->toStored(),
             'expires_at' => $expiresAt,
             'used' => false,
         ]);
@@ -253,7 +258,8 @@ class DatabaseOAuthDriver implements OAuthDriver, RevokesUserGrants
             userId: $model->user_id,
             scopes: $model->scopes,
             redirectUri: '',
-            refreshToken: $this->issueRefreshToken($model->user_id, $clientId, $model->scopes, Carbon::parse($model->expires_at)),
+            refreshToken: $this->issueRefreshToken($model->user_id, $clientId, $model->scopes, Carbon::parse($model->expires_at), CapabilitySnapshot::fromStored($model->capabilities)),
+            capabilities: CapabilitySnapshot::fromStored($model->capabilities),
         );
 
         return $authCode;

@@ -42,6 +42,32 @@ final class CapabilityRegistry
         return $this->actions[$id] ?? throw new \InvalidArgumentException('Unknown action.');
     }
 
+    /** @param list<string> $scopes */
+    public function forScopes(array $scopes): CapabilitySnapshot
+    {
+        if (! $this->frozen) {
+            throw new \LogicException('Freeze the registry before issuing grants.');
+        }
+
+        $actions = [];
+        foreach ($this->actions as $action) {
+            // A wildcard for legacy core scopes never grants addon capabilities.
+            if (array_diff($action->scopes, $scopes) === []) {
+                $actions[$action->id()] = $action->fingerprint();
+            }
+        }
+
+        $definitions = [];
+        foreach ($scopes as $scope) {
+            $fingerprint = $this->scopes->fingerprint($scope);
+            if ($fingerprint !== null) {
+                $definitions[$scope] = $fingerprint;
+            }
+        }
+
+        return new CapabilitySnapshot($actions, scopes: $definitions);
+    }
+
     /** Capture only the actions the issuer actually approved, never '*'.
      * @param  list<string>  $ids
      *

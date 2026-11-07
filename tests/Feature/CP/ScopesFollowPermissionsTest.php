@@ -8,6 +8,7 @@ use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
 use Cboxdk\StatamicMcp\OAuth\OAuthClient;
+use Cboxdk\StatamicMcp\Tests\Concerns\InteractsWithOAuthConsent;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Inertia\Testing\AssertableInertia;
 use Statamic\Contracts\Auth\User as UserContract;
@@ -22,6 +23,8 @@ use Statamic\Facades\User;
  */
 class ScopesFollowPermissionsTest extends TestCase
 {
+    use InteractsWithOAuthConsent;
+
     /** RFC 7636 appendix B pair. */
     private const CODE_VERIFIER = 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk';
 
@@ -168,7 +171,7 @@ class ScopesFollowPermissionsTest extends TestCase
     public function test_approval_cannot_grant_more_than_was_offered(): void
     {
         $approve = $this->actingAs($this->editor, 'web')
-            ->post($this->authorizeUrl(), [
+            ->post($this->authorizeUrl(), $this->withConsentOffer($this->authorizeUrl(), [
                 'decision' => 'approve',
                 'client_id' => $this->client->clientId,
                 'redirect_uri' => $this->redirectUri,
@@ -177,7 +180,7 @@ class ScopesFollowPermissionsTest extends TestCase
                 'code_challenge_method' => 'S256',
                 'scope' => 'entries:read users:write *',
                 'scopes' => ['*', 'users:write', 'entries:read'],
-            ]);
+            ]));
 
         $approve->assertRedirect();
         parse_str((string) parse_url($approve->headers->get('Location', ''), PHP_URL_QUERY), $query);
@@ -240,7 +243,7 @@ class ScopesFollowPermissionsTest extends TestCase
     public function test_approving_a_wildcard_grants_the_editors_reach_not_more(): void
     {
         $approve = $this->actingAs($this->editor, 'web')
-            ->post($this->authorizeUrl(), [
+            ->post($this->authorizeUrl(), $this->withConsentOffer($this->authorizeUrl(), [
                 'decision' => 'approve',
                 'client_id' => $this->client->clientId,
                 'redirect_uri' => $this->redirectUri,
@@ -248,7 +251,8 @@ class ScopesFollowPermissionsTest extends TestCase
                 'code_challenge' => self::CODE_CHALLENGE,
                 'code_challenge_method' => 'S256',
                 'scope' => '*',
-            ]);
+                'scopes' => ['content:read', 'content:write', 'structures:read', 'entries:read', 'entries:write'],
+            ]));
 
         $approve->assertRedirect();
         parse_str((string) parse_url($approve->headers->get('Location', ''), PHP_URL_QUERY), $query);

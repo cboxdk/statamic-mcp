@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Storage\Tokens;
 
 use Carbon\Carbon;
+use Cboxdk\StatamicMcp\Actions\CapabilitySnapshot;
 
 /**
  * Shared helpers for TokenStore implementations.
@@ -15,6 +16,33 @@ use Carbon\Carbon;
  */
 abstract class BaseTokenStore
 {
+    /** @return list<string> */
+    protected function scopeValues(mixed $value): array
+    {
+        if (! is_array($value) || ! array_is_list($value)) {
+            throw new \UnexpectedValueException('Token scopes must be a list of strings.');
+        }
+        $scopes = [];
+        foreach ($value as $scope) {
+            if (! is_string($scope) || $scope === '') {
+                throw new \UnexpectedValueException('Token scopes must be a list of strings.');
+            }
+            $scopes[] = $scope;
+        }
+
+        return array_values(array_unique($scopes));
+    }
+
+    protected function scopesChanged(mixed $requested, mixed $existing): bool
+    {
+        $next = $this->scopeValues($requested);
+        $previous = $this->scopeValues($existing);
+        sort($next);
+        sort($previous);
+
+        return $next !== $previous;
+    }
+
     /**
      * Parse a mixed value into a Carbon instance, or null.
      *
@@ -51,8 +79,7 @@ abstract class BaseTokenStore
      */
     protected function arrayToTokenData(array $data): McpTokenData
     {
-        /** @var array<int, string> $scopes */
-        $scopes = is_array($data['scopes'] ?? null) ? $data['scopes'] : [];
+        $scopes = $this->scopeValues($data['scopes'] ?? []);
 
         return new McpTokenData(
             id: is_string($data['id'] ?? null) ? $data['id'] : '',
@@ -66,6 +93,7 @@ abstract class BaseTokenStore
             updatedAt: $this->parseCarbon($data['updated_at'] ?? null),
             oauthClientId: is_string($data['oauth_client_id'] ?? null) ? $data['oauth_client_id'] : null,
             oauthClientName: is_string($data['oauth_client_name'] ?? null) ? $data['oauth_client_name'] : null,
+            capabilities: CapabilitySnapshot::fromStored($data['capabilities'] ?? null),
         );
     }
 }

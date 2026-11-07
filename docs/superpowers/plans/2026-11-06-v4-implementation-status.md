@@ -24,7 +24,7 @@ Draft PR: https://github.com/cboxdk/statamic-mcp/pull/88.
 | Action/scope registry, execution and durable operation prototype | Internal, not exposed to clients yet | v4 only |
 | Explicit HTTP/stdio profiles | Breaking; missing profiles disable execution, installer requires selection | v4 only |
 | Forced collection/taxonomy cascades | Breaking; content must be deleted explicitly before the parent | v4 only |
-| Granular scopes, immutable grants, approvals | Not implemented yet | v4 only |
+| Immutable addon consent in CP/OAuth and storage | Implemented foundation; built-in granular scopes and approvals remain | v4 only |
 
 Backports are candidates, not completed branches. Do not cherry-pick the combined
 v4 tree into v3: Basic Auth removal and the mandatory driver method require separation.
@@ -45,10 +45,12 @@ These records do not certify V02–V10. The main plan remains the release checkl
 
 ## Remaining implementation (not release gates alone)
 
-- V02: connect dynamic scopes and immutable capability snapshots to token issuance,
-  OAuth consent, refresh and both token stores. The current registry is internal.
+- V02: addon scopes and immutable snapshots now reach CP/OAuth issuance, refresh and
+  both token stores. Built-in granular edit/publish/delete/admin scopes and migration
+  remain. Legacy core-only tokens do not authorize registered actions.
 - V03: profiles now restrict the existing tools/resources/prompts and installer.
-  A production authorizer with immutable grants across all surfaces is still missing.
+  The registered-action authorizer now reloads credentials, scopes, consent and site
+  access. Wiring it across all public MCP surfaces is still missing.
   Editor currently handles unpublished entries only; live working-copy editing is refused.
 - V04: integrate operation storage into all writes; wire the supplied SQL migration and add
   retention/quota/recovery and multi-node database concurrency coverage.
@@ -110,3 +112,42 @@ restriction now runs after the concrete entry/site/author authorization, rather 
 performing an entry lookup before access checks. The final focused run passed **22
 tests / 84 assertions**, including these cases. Installer recovery commands carry
 the selected profile, and CI deduplicates push/PR runs on the same branch.
+
+### Grant and consent implementation — 2026-11-07
+
+- Application-owned scope/capability registries freeze after provider boot. Addon
+  scopes require registered native Statamic permissions (or super users when none
+  are declared); reserved core scope names cannot be captured by another package.
+- Immutable snapshots contain action fingerprints, scope-definition fingerprints
+  and a stable grant ID. OAuth access-token rotation changes the credential ID,
+  not the grant ID used for deduplication. Generic scope edits discard consent;
+  rename, reordered scopes, secret rotation and storage import preserve it.
+- CP and OAuth capture the displayed definitions before submission. User/session
+  bindings prevent cross-user reuse. OAuth also binds client/redirect/state/PKCE,
+  expires after ten minutes and atomically records nonce consumption in the cache.
+  That cache must be shared across HTTP workers; this is not the durable write
+  ApprovalStore. CP offers expire after an hour and allow separate explicit token
+  creations with separate grant IDs. A page reload renews the displayed offer.
+- The production registered-action authorizer reloads the current credential and
+  checks grant ownership, expiry, exact capabilities/scopes, profile, actor status
+  and native site access. Addon policies can narrow its decision. The legacy MCP
+  surfaces are not yet migrated; no new production write path is exposed here.
+- Verification before the final scope-definition binding: 184 OAuth/contract tests
+  (713 assertions), 87 CP/token tests (369 assertions), 118 stable-grant tests
+  (450 assertions), and 20 CP/consent tests (91 assertions). These overlap and are
+  not a new complete-suite total. PHPStan 9, Pint and the frontend build passed;
+  npm reported no vulnerabilities in the installed development dependencies.
+
+V03–V10 remain required. This checkpoint is not a release certification.
+
+### Complete grant-checkpoint verification
+
+The unchanged grant/consent checkpoint passed the complete local suite on PHP
+8.5.7: **1640 passed, 18 skipped, 7477 assertions**, 1560.25 seconds. Full Pint,
+PHPStan level 9, the frontend build, Composer audit and the 180-package license
+check passed. Regenerating the SBOM produced no diff. The 18 optional integration
+skips remain visible; this is not certification of unimplemented V03–V10 work.
+
+CI at preceding commit `ecd1f09` passed browser E2E, SEO Pro, code quality,
+PHP 8.3/8.4/8.5 SQLite jobs and several MySQL jobs. The remaining matrix jobs
+were still running at this checkpoint; new changes require their own CI run.

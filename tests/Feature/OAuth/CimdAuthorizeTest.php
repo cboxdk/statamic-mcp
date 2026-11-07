@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Tests\Feature\OAuth;
 
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
+use Cboxdk\StatamicMcp\Tests\Concerns\InteractsWithOAuthConsent;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
@@ -12,6 +13,8 @@ use Statamic\Facades\User;
 
 class CimdAuthorizeTest extends TestCase
 {
+    use InteractsWithOAuthConsent;
+
     private string $cimdClientId = 'https://app.example.com/oauth/metadata.json';
 
     private string $cimdRedirectUri = 'https://app.example.com/callback';
@@ -159,7 +162,7 @@ class CimdAuthorizeTest extends TestCase
         $user = $this->authenticatedUser('cimd-5', 'cimd5@example.com');
 
         $response = $this->actingAs($user, 'web')
-            ->post($this->authorizeUrl(), [
+            ->post($this->authorizeUrl(), $this->withConsentOffer($this->authorizeUrl(), [
                 'client_id' => $this->cimdClientId,
                 'redirect_uri' => $this->cimdRedirectUri,
                 'state' => 'cimd-state-approve',
@@ -168,7 +171,7 @@ class CimdAuthorizeTest extends TestCase
                 'scope' => 'content:read',
                 'scopes' => ['content:read'],
                 'decision' => 'approve',
-            ]);
+            ]));
 
         $response->assertRedirect();
         $location = $response->headers->get('Location', '');

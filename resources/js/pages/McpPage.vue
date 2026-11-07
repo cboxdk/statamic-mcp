@@ -31,6 +31,7 @@
                     ref="tokenListRef"
                     :tokens="tokens"
                     :available-scopes="availableScopes"
+                    :capability-offer="capabilityOffer"
                     :max-token-lifetime-days="maxTokenLifetimeDays"
                 />
             </ui-tab-content>
@@ -47,6 +48,7 @@ import TokenList from '../components/TokenList.vue';
 const props = defineProps({
     tokens: { type: Array, default: () => [] },
     availableScopes: { type: Array, default: () => [] },
+    capabilityOffer: { type: String, default: null },
     clients: { type: Object, default: () => ({}) },
     webEnabled: { type: Boolean, default: false },
     mcpEndpoint: { type: String, default: '' },

@@ -11,6 +11,7 @@ final readonly class ActionDefinition
 {
     /** @param class-string<ActionHandler> $handler
      * @param  class-string<ActionPolicy>  $policy
+     * @param  list<string>  $profiles
      * @param  list<string>  $scopes
      * @param  array<string, mixed>  $inputSchema
      * @param  array<string, mixed>  $outputSchema
@@ -26,11 +27,13 @@ final readonly class ActionDefinition
         public array $outputSchema,
         public string $handler,
         public string $policy,
+        public array $profiles = ['operator'],
     ) {
         if (! preg_match('/^[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9-]*$/D', $package)
             || ! preg_match('/^[a-z][a-z0-9_-]{0,63}$/D', $name)
             || $version < 1 || trim($description) === '' || strlen($description) > 2000
             || $scopes === [] || count(array_unique($scopes)) !== count($scopes)
+            || $profiles === [] || array_diff($profiles, ['read_only', 'editor', 'operator']) !== []
             || ! is_subclass_of($handler, ActionHandler::class)
             || ! is_subclass_of($policy, ActionPolicy::class)) {
             throw new \InvalidArgumentException('Invalid action definition.');
@@ -54,7 +57,7 @@ final readonly class ActionDefinition
     {
         return hash('sha256', json_encode([
             $this->id(), $this->version, $this->effect->value, $this->scopes,
-            $this->inputSchema, $this->outputSchema, $this->handler, $this->policy,
+            $this->inputSchema, $this->outputSchema, $this->handler, $this->policy, $this->profiles,
         ], JSON_THROW_ON_ERROR));
     }
 }

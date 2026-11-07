@@ -367,6 +367,7 @@
                         </template>
                     </div>
                     <ui-error-message v-if="form.errors.scopes" :text="form.errors.scopes" class="mt-1" />
+                    <ui-error-message v-if="form.errors.capability_offer" :text="form.errors.capability_offer" class="mt-1" />
                 </div>
 
                 <div>
@@ -408,6 +409,7 @@ const { router } = __STATAMIC__.inertia;
 const props = defineProps({
     allTokens: { type: Array, default: () => [] },
     availableScopes: { type: Array, default: () => [] },
+    capabilityOffer: { type: String, default: null },
     availableUsers: { type: Array, default: () => [] },
     availableTools: { type: Array, default: () => [] },
     systemStats: { type: Object, default: () => ({}) },
@@ -600,7 +602,7 @@ async function createToken() {
         const response = await fetch(cp_url('mcp/tokens'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': Statamic.$config.get('csrfToken') },
-            body: JSON.stringify({ name: form.value.name, scopes: form.value.scopes, expires_at: form.value.expires_at || null }),
+            body: JSON.stringify({ name: form.value.name, scopes: form.value.scopes, expires_at: form.value.expires_at || null, capability_offer: props.capabilityOffer }),
         });
         const data = await response.json();
         if (!response.ok) {

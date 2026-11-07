@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Storage\Tokens;
 
 use Carbon\Carbon;
+use Cboxdk\StatamicMcp\Actions\CapabilitySnapshot;
 use Cboxdk\StatamicMcp\Auth\McpToken;
 use Cboxdk\StatamicMcp\Contracts\TokenStore;
 use Illuminate\Support\Collection;
@@ -22,12 +23,14 @@ class DatabaseTokenStore extends BaseTokenStore implements TokenStore
         ?Carbon $expiresAt,
         ?string $oauthClientId = null,
         ?string $oauthClientName = null,
+        ?CapabilitySnapshot $capabilities = null,
     ): McpTokenData {
         $model = McpToken::create([
             'user_id' => $userId,
             'name' => $name,
             'token' => $tokenHash,
             'scopes' => $scopes,
+            'capabilities' => $capabilities?->toStored(),
             'expires_at' => $expiresAt,
             'oauth_client_id' => $oauthClientId,
             'oauth_client_name' => $oauthClientName,
@@ -77,6 +80,9 @@ class DatabaseTokenStore extends BaseTokenStore implements TokenStore
             }
         }
 
+        if (array_key_exists('scopes', $data) && $this->scopesChanged($data['scopes'], $model->scopes)) {
+            $attributes['capabilities'] = null;
+        }
         if ($attributes !== []) {
             $model->fill($attributes)->save();
         }
@@ -128,6 +134,7 @@ class DatabaseTokenStore extends BaseTokenStore implements TokenStore
             'name' => $token->name,
             'token' => $token->tokenHash,
             'scopes' => $token->scopes,
+            'capabilities' => $token->capabilities?->toStored(),
             'oauth_client_id' => $token->oauthClientId,
             'oauth_client_name' => $token->oauthClientName,
             'last_used_at' => $token->lastUsedAt,
@@ -168,6 +175,7 @@ class DatabaseTokenStore extends BaseTokenStore implements TokenStore
             updatedAt: $this->parseCarbon($model->updated_at),
             oauthClientId: $model->oauth_client_id,
             oauthClientName: $model->oauth_client_name,
+            capabilities: CapabilitySnapshot::fromStored($model->capabilities),
         );
     }
 }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Tests\Concerns;
 
 use Carbon\Carbon;
+use Cboxdk\StatamicMcp\Actions\CapabilitySnapshot;
 use Cboxdk\StatamicMcp\Contracts\TokenStore;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 
@@ -16,6 +17,26 @@ use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 trait TokenStoreContractTests
 {
     abstract protected function createStore(): TokenStore;
+
+    public function test_capability_consent_survives_storage_import_and_secret_rotation(): void
+    {
+        $store = $this->createStore();
+        $snapshot = new CapabilitySnapshot(['example/addon/draft' => hash('sha256', 'definition')]);
+        $token = $store->create('user-1', 'Consent', 'old-hash', ['entries:write', 'entries:read'], null, capabilities: $snapshot);
+        $this->assertSame($snapshot->toStored(), $store->find($token->id)->capabilities->toStored());
+        $updated = $store->update($token->id, ['name' => 'Renamed', 'tokenHash' => 'new-hash']);
+        $this->assertSame($snapshot->toStored(), $updated->capabilities->toStored());
+        $store->delete($token->id);
+        $imported = $store->import($updated);
+        $this->assertSame($snapshot->toStored(), $imported->capabilities->toStored());
+        $this->assertSame($snapshot->toStored(), $store->findByHash('new-hash')->capabilities->toStored());
+        $forged = $store->update($token->id, ['capabilities' => ['example/addon/admin' => hash('sha256', 'other')]]);
+        $this->assertSame($snapshot->toStored(), $forged->capabilities->toStored());
+        $reordered = $store->update($token->id, ['scopes' => ['entries:read', 'entries:write']]);
+        $this->assertSame($snapshot->toStored(), $reordered->capabilities->toStored());
+        $changed = $store->update($token->id, ['scopes' => ['entries:read']]);
+        $this->assertNull($changed->capabilities);
+    }
 
     public function test_create_and_find_by_hash(): void
     {

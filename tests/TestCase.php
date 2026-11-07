@@ -48,10 +48,12 @@ abstract class TestCase extends AddonTestCase
 
         self::sweepLeakedBlueprints();
 
-        // Clean OAuth file storage between tests to prevent cross-test pollution
-        $oauthBasePath = storage_path('statamic-mcp/oauth');
-        if (is_dir($oauthBasePath)) {
-            File::deleteDirectory($oauthBasePath);
+        // Grants and OAuth fixtures must not survive into another test or run.
+        foreach (['statamic-mcp/oauth', 'statamic-mcp/tokens'] as $path) {
+            $directory = storage_path($path);
+            if (is_dir($directory)) {
+                File::deleteDirectory($directory);
+            }
         }
     }
 

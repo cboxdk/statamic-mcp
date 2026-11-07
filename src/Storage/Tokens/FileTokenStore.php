@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Storage\Tokens;
 
 use Carbon\Carbon;
+use Cboxdk\StatamicMcp\Actions\CapabilitySnapshot;
 use Cboxdk\StatamicMcp\Contracts\TokenStore;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -53,6 +54,7 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
         ?Carbon $expiresAt,
         ?string $oauthClientId = null,
         ?string $oauthClientName = null,
+        ?CapabilitySnapshot $capabilities = null,
     ): McpTokenData {
         $id = (string) Str::uuid();
         $now = Carbon::now();
@@ -63,6 +65,7 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
             'name' => $name,
             'token_hash' => $tokenHash,
             'scopes' => $scopes,
+            'capabilities' => $capabilities?->toStored(),
             'oauth_client_id' => $oauthClientId,
             'oauth_client_name' => $oauthClientName,
             'last_used_at' => null,
@@ -134,7 +137,13 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
             'lastUsedAt' => 'last_used_at',
         ];
 
+        if (array_key_exists('scopes', $data) && $this->scopesChanged($data['scopes'], $existing['scopes'] ?? [])) {
+            $existing['capabilities'] = null;
+        }
         foreach ($data as $key => $value) {
+            if (! in_array($key, ['name', 'scopes', 'tokenHash', 'expiresAt', 'lastUsedAt'], true)) {
+                continue;
+            }
             $yamlKey = $keyMap[$key] ?? $key;
 
             if ($value instanceof Carbon) {
@@ -234,6 +243,7 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
             'name' => $token->name,
             'token_hash' => $token->tokenHash,
             'scopes' => $token->scopes,
+            'capabilities' => $token->capabilities?->toStored(),
             'oauth_client_id' => $token->oauthClientId,
             'oauth_client_name' => $token->oauthClientName,
             'last_used_at' => $token->lastUsedAt?->toIso8601String(),

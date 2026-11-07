@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Auth;
 
 use Carbon\Carbon;
+use Cboxdk\StatamicMcp\Actions\CapabilitySnapshot;
 use Cboxdk\StatamicMcp\Contracts\TokenStore;
 use Cboxdk\StatamicMcp\Events\McpTokenDeleted;
 use Cboxdk\StatamicMcp\Events\McpTokenSaved;
@@ -23,11 +24,11 @@ class TokenService
     /**
      * Create a new MCP token for a user.
      *
-     * @param  array<int, TokenScope>  $scopes
+     * @param  array<int, TokenScope|string>  $scopes
      *
      * @return array{token: string, model: McpTokenData}
      */
-    public function createToken(string $userId, string $name, array $scopes, ?Carbon $expiresAt = null, ?string $oauthClientId = null, ?string $oauthClientName = null): array
+    public function createToken(string $userId, string $name, array $scopes, ?Carbon $expiresAt = null, ?string $oauthClientId = null, ?string $oauthClientName = null, ?CapabilitySnapshot $capabilities = null): array
     {
         // Enforce max token lifetime if configured
         /** @var int|null $maxDays */
@@ -43,7 +44,14 @@ class TokenService
 
         $plainTextToken = Str::random(64);
         $hash = hash('sha256', $plainTextToken);
-        $scopeStrings = array_map(fn (TokenScope $scope): string => $scope->value, $scopes);
+        $scopeStrings = array_map(fn (TokenScope|string $scope): string => $scope instanceof TokenScope ? $scope->value : $scope, $scopes);
+        if (array_diff($scopeStrings, app(ScopeAvailability::class)->names()) !== []) {
+            throw new \InvalidArgumentException('Cannot issue a token with unregistered scopes.');
+        }
+
+        if ($capabilities === null && array_filter($scopeStrings, fn (string $scope): bool => TokenScope::tryFrom($scope) === null) !== []) {
+            throw new \InvalidArgumentException('Registered actions require explicit capability consent.');
+        }
 
         $tokenData = $this->tokenStore->create(
             $userId,
@@ -53,6 +61,7 @@ class TokenService
             $expiresAt !== null ? Carbon::parse($expiresAt) : null,
             $oauthClientId,
             $oauthClientName,
+            $capabilities,
         );
 
         McpTokenSaved::dispatch($tokenData);
@@ -103,13 +112,14 @@ class TokenService
             updatedAt: $tokenData->updatedAt,
             oauthClientId: $tokenData->oauthClientId,
             oauthClientName: $tokenData->oauthClientName,
+            capabilities: $tokenData->capabilities,
         );
     }
 
     /**
      * Update an existing token's name, scopes, and/or expiration.
      *
-     * @param  array<int, TokenScope>|null  $scopes
+     * @param  array<int, TokenScope|string>|null  $scopes
      */
     public function updateToken(string $tokenId, ?string $name = null, ?array $scopes = null, ?Carbon $expiresAt = null, bool $clearExpiry = false): ?McpTokenData
     {
@@ -122,7 +132,7 @@ class TokenService
             }
 
             if ($scopes !== null) {
-                $data['scopes'] = array_map(fn (TokenScope $scope): string => $scope->value, $scopes);
+                $data['scopes'] = array_map(fn (TokenScope|string $scope): string => $scope instanceof TokenScope ? $scope->value : $scope, $scopes);
             }
 
             if ($expiresAt !== null) {
@@ -132,7 +142,7 @@ class TokenService
             }
 
             $existing = $this->tokenStore->find($tokenId);
-            $scopeValues = $scopes === null ? null : array_map(fn (TokenScope $scope): string => $scope->value, $scopes);
+            $scopeValues = $scopes === null ? null : array_map(fn (TokenScope|string $scope): string => $scope instanceof TokenScope ? $scope->value : $scope, $scopes);
             $scopesChanged = $existing !== null && $scopeValues !== null
                 && (array_diff($scopeValues, $existing->scopes) !== [] || array_diff($existing->scopes, $scopeValues) !== []);
             $expiryChanged = $existing !== null && (($expiresAt !== null && ($existing->expiresAt === null || ! $expiresAt->equalTo($existing->expiresAt)))

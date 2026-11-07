@@ -15,6 +15,7 @@ final readonly class ExecutionContext
         public string $transport,
         public string $operationId,
         public int $deadlineNanoseconds,
+        public ?string $credentialId = null,
     ) {
         if (strlen($operationId) > 128 || strlen($actorId) > 255 || strlen($grantId) > 255
             || $actorId === '' || $grantId === '' || $site === '' || $operationId === ''

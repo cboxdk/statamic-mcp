@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Bind OAuth consent to the displayed scope/capability definitions, authenticated user, session, client and PKCE. Reject missing, expired, tampered or reused consent; an empty selection never grants all scopes.
+- Persist registered-action consent and a stable grant identity through file/SQL token stores, OAuth refresh, secret rotation and storage import. Adding or changing an integration does not expand old grants; changed scopes require renewed consent.
+- Show registered integration scopes in the Control Panel and OAuth picker. Personal-token creation uses the displayed capability snapshot; scope updates discard old capability consent rather than silently expanding it.
+- Require custom token and OAuth storage drivers to preserve the new optional capability snapshot arguments and fields.
+
 - Refuse forced cascading deletion of nonempty collections and taxonomies. Delete entries/terms explicitly first; a rejected parent deletion preserves its blueprints.
 - Keep runtime extension registrations within their application container instead of sharing them across the PHP process.
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Auth;
 
+use Cboxdk\StatamicMcp\Actions\ScopeRegistry;
 use Statamic\Contracts\Assets\AssetContainer as AssetContainerContract;
 use Statamic\Contracts\Auth\User;
 use Statamic\Contracts\Globals\GlobalSet as GlobalSetContract;
@@ -27,6 +28,41 @@ use Statamic\Facades\Taxonomy;
  */
 class ScopeAvailability
 {
+    /** @return list<string> */
+    public function names(): array
+    {
+        return array_values(array_unique(array_merge(
+            array_map(fn (TokenScope $scope): string => $scope->value, TokenScope::cases()),
+            app(ScopeRegistry::class)->names(),
+        )));
+    }
+
+    /** @return list<array{value: string, label: string, description: string, group: string}> */
+    public function options(?User $user): array
+    {
+        return array_map(function (string $value): array {
+            $core = TokenScope::tryFrom($value);
+
+            return ['value' => $value, 'label' => $this->label($value),
+                'description' => $core?->description() ?? 'Access to the integration actions shown when this token was created.',
+                'group' => $core?->group() ?? 'integrations'];
+        }, $this->filterValues($user, $this->names()));
+    }
+
+    public function label(string $value): string
+    {
+        return TokenScope::tryFrom($value)?->label()
+            ?? app(ScopeRegistry::class)->label($value)
+            ?? throw new \InvalidArgumentException('Unknown scope.');
+    }
+
+    public function allowsValue(?User $user, string $value): bool
+    {
+        $scope = TokenScope::tryFrom($value);
+
+        return $scope !== null ? $this->allows($user, $scope) : app(ScopeRegistry::class)->allows($user, $value);
+    }
+
     public function enabled(): bool
     {
         return (bool) config('statamic.mcp.security.scopes_follow_permissions', true);
@@ -64,15 +100,11 @@ class ScopeAvailability
      *
      * @param  array<int, string>  $values
      *
-     * @return array<int, string>
+     * @return list<string>
      */
     public function filterValues(?User $user, array $values): array
     {
-        return array_values(array_filter($values, function (string $value) use ($user): bool {
-            $scope = TokenScope::tryFrom($value);
-
-            return $scope !== null && $this->allows($user, $scope);
-        }));
+        return array_values(array_filter($values, fn (string $value): bool => $this->allowsValue($user, $value)));
     }
 
     /**
@@ -85,7 +117,7 @@ class ScopeAvailability
      *
      * @param  array<int, string>  $values
      *
-     * @return array<int, string>
+     * @return list<string>
      */
     public function grantable(?User $user, array $values): array
     {

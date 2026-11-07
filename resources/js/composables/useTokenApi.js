@@ -33,13 +33,13 @@ function parseValidationErrors(data) {
 export function useTokenApi() {
     const submitting = ref(false);
 
-    async function createToken({ name, scopes, expires_at }) {
+    async function createToken({ name, scopes, expires_at, capability_offer }) {
         submitting.value = true;
         try {
             const response = await fetch(cp_url('mcp/tokens'), {
                 method: 'POST',
                 headers: jsonHeaders(),
-                body: JSON.stringify({ name, scopes, expires_at: expires_at || null }),
+                body: JSON.stringify({ name, scopes, expires_at: expires_at || null, capability_offer }),
             });
             const data = await response.json();
             if (!response.ok) {

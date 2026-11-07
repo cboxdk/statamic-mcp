@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Storage\Tokens;
 
 use Carbon\Carbon;
+use Cboxdk\StatamicMcp\Actions\CapabilitySnapshot;
 
 /**
  * Immutable data transfer object for MCP tokens.
@@ -29,6 +30,7 @@ class McpTokenData
         public readonly ?Carbon $updatedAt = null,
         public readonly ?string $oauthClientId = null,
         public readonly ?string $oauthClientName = null,
+        public readonly ?CapabilitySnapshot $capabilities = null,
     ) {}
 
     /**

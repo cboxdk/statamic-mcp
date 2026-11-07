@@ -178,6 +178,13 @@ class ServiceProvider extends AddonServiceProvider
             return $instance;
         });
 
+        $this->app->bind(Actions\Contracts\Authorizer::class, Authorization\GrantAuthorizer::class);
+        $this->app->singleton(Actions\ScopeRegistry::class);
+        $this->app->singleton(Actions\CapabilityRegistry::class);
+        $this->app->booted(function (): void {
+            $this->app->make(Actions\CapabilityRegistry::class)->freeze();
+        });
+
         // Register CIMD resolver
         $this->app->singleton(CimdResolver::class);
 

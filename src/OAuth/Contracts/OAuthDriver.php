@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\OAuth\Contracts;
 
+use Cboxdk\StatamicMcp\Actions\CapabilitySnapshot;
 use Cboxdk\StatamicMcp\OAuth\Exceptions\OAuthException;
 use Cboxdk\StatamicMcp\OAuth\OAuthAuthCode;
 use Cboxdk\StatamicMcp\OAuth\OAuthClient;
@@ -28,6 +29,7 @@ interface OAuthDriver extends RevokesUserGrants
         string $codeChallenge,
         string $codeChallengeMethod,
         string $redirectUri,
+        ?CapabilitySnapshot $capabilities = null,
     ): string;
 
     /**
@@ -45,7 +47,7 @@ interface OAuthDriver extends RevokesUserGrants
      *
      * @param  array<int, string>  $scopes
      */
-    public function createRefreshToken(string $userId, string $clientId, array $scopes): string;
+    public function createRefreshToken(string $userId, string $clientId, array $scopes, ?CapabilitySnapshot $capabilities = null): string;
 
     /**
      * Exchange a refresh token for a new OAuthAuthCode (with userId and scopes).
