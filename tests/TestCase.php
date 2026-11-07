@@ -19,8 +19,12 @@ abstract class TestCase extends AddonTestCase
     /** @var list<string> */
     private array $permissionFixtureDirectories = [];
 
-    /** @param Application $app */
-    protected function getEnvironmentSetUp($app): void
+    /**
+     * @param  Application  $app
+     *
+     * @return void
+     */
+    protected function getEnvironmentSetUp($app)
     {
         parent::getEnvironmentSetUp($app);
 
