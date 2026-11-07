@@ -20,12 +20,18 @@ schema. Installed PHP packages remain trusted code, not sandboxed tenants.
 `Authorizer`, validates input, invokes the resource policy, rechecks authorization
 and the deadline, then calls the handler once, filters fields under the current policy and validates output. Replayed results are filtered and validated again; a changed field policy cannot reveal previously cached fields. The transport
 constructs `ExecutionContext`; clients cannot supply an actor or grant by setting
-tool arguments. The prototype is deliberately not registered as a public MCP tool:
-production admission still requires grants, approvals and built-in adapter wiring. The internal executor now uses the operation coordinator for edit actions; publish/delete/admin remain refused.
+tool arguments. Registered read actions are exposed through HTTP, stdio and tool
+search. Their catalog visibility and invocation require an explicit immutable grant.
+Stdio reads require `STATAMIC_MCP_STDIO_TOKEN`; an ambient CLI identity is not a grant.
+Registered writes remain unexposed pending resource versions and approvals. The
+internal executor uses the operation coordinator for edit actions; publish/delete/admin
+remain refused. Built-in routers have not yet migrated to this boundary.
 
 JSON Schema validation uses Opis 2.6.1+, with no network/file resolvers registered.
 Schemas are bounded, JSON-only object schemas; external references and executable
-extensions are rejected. Payloads are bounded to 1 MiB and depth 32 in this prototype.
+extensions are rejected. Input follows the configured transport budgets (16 MiB
+by default); output is bounded to 1 MiB, 20,000 values and depth 256. Result storage
+uses the same JSON encoding and nesting budget as validation.
 The transport must additionally enforce budgets before parsing input; post-allocation
 validation alone does not bound worker memory. Empty nested PHP arrays have JSON
 array semantics: adapters must preserve object/list distinctions when decoding.
@@ -38,19 +44,22 @@ and does not replace production Statamic blueprint processing or cache handling.
 Lifecycle observers receive metadata without arguments/results/exceptions. Observer
 and logger failures are isolated. An exception after a write begins has unknown effects;
 output-schema validation failure cannot assert rollback. These events are at-least-once
-integration observations, not durable audit. Approval and grant events will be added
-with their owning implementations rather than emitted from unused scaffolding.
+integration observations, not durable audit. Typed grant events are emitted by issuance, revocation and refresh-replay paths.
+Approval events will be added with the approval implementation.
 
-Remaining before the API can be frozen: persistent grant snapshots and dynamic scope
-consent; production authorizer and explicit profiles; OperationStore and ApprovalStore;
-first built-in action migration; request-state isolation; transport tests; adapter and
-telemetry version contracts. WebMCP remains a later opt-in CP adapter.
+Implemented foundations include immutable grant consent, the production authorizer,
+profiles, native actor isolation, bounded operation stores and the optional telemetry
+adapter. Remaining before the API can be frozen: built-in action migration, resource
+versions, durable approvals/audit, complete public lifecycle coverage and the final
+compatibility matrix. WebMCP remains a later opt-in CP adapter.
 
 The operation prototype uses immutable bindings and compare-and-set state changes.
 The file implementation holds a process lock across file fsync and atomic rename;
 it is single-node and does not claim power-loss durability across every filesystem.
-The SQL implementation uses a monotonically increasing version in a conditional update, not a lease. It compares record bytes before that update so case-insensitive database collations cannot weaken the comparison. A standalone migration is provided but is not yet loaded by production wiring. A crashed executing
+The SQL implementation uses a monotonically increasing version in a conditional update, not a lease. It compares record bytes before that update so case-insensitive database collations cannot weaken the comparison. The migration is conditionally loaded when the SQL backend is configured. A crashed executing
 record never automatically returns to ready. Results are encrypted through Laravel's
 Encrypter and are replayed only after current authorization and policy checks.
-Production wiring still needs bounded retention/quota, migration registration and recovery
-operations; the synthetic addon does not establish those release guarantees.
+Admission is bounded, with pruning and capacity-repair commands. Executing and
+unknown operations are retained for investigation. Resource versions and complete
+outcome reconciliation remain required; the synthetic addon does not establish
+those release guarantees.

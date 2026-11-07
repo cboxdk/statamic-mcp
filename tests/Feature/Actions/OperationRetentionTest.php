@@ -13,6 +13,7 @@ use Cboxdk\StatamicMcp\Actions\Operations\FileOperationStore;
 use Cboxdk\StatamicMcp\Actions\Operations\Operation;
 use Cboxdk\StatamicMcp\Actions\Operations\OperationCoordinator;
 use Cboxdk\StatamicMcp\Actions\Operations\OperationState;
+use Cboxdk\StatamicMcp\Actions\SchemaValidator;
 use Illuminate\Contracts\Encryption\Encrypter;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
@@ -191,3 +192,28 @@ it('keeps orphan recovery candidates reserved during capacity repair', function 
     $next = new Operation(bin2hex(random_bytes(32)), hash('sha256', 'binding'), OperationState::Prepared, 1, now()->addHour()->getTimestamp());
     expect(fn () => $store->create($next))->toThrow(RuntimeException::class);
 });
+
+it('stores and replays valid deep and unicode results without repeating a write', function (string $driver) {
+    $store = $driver === 'file' ? new FileOperationStore($this->directory) : new DatabaseOperationStore(DB::connection());
+    $coordinator = new OperationCoordinator($store, app(Encrypter::class));
+    $action = new ActionDefinition('fixture/retention', 'edit', 1, 'Edit a draft.', ActionEffect::Edit, ['fixture:edit'],
+        ['type' => 'object'], ['type' => 'object'], RetentionHandler::class, RetentionPolicy::class);
+    $context = new ExecutionContext('actor', 'grant', 'default', 'editor', 'http', 'prepare', hrtime(true) + 10_000_000_000);
+    $result = ['content' => str_repeat('æ/', 200000)];
+    for ($i = 0; $i < 40; $i++) {
+        $result = ['nested' => $result];
+    }
+    app(SchemaValidator::class)->validate($result, $action->outputSchema);
+    $prepared = $coordinator->prepare($action, [], $context);
+    $context = $context->withOperationId($prepared->id);
+    $calls = 0;
+    $write = function () use (&$calls, $result): array {
+        $calls++;
+
+        return $result;
+    };
+    expect($coordinator->execute($action, [], $context, $write)->data)->toBe($result);
+    expect($store->find($prepared->id)->state)->toBe(OperationState::Succeeded);
+    $replay = $coordinator->execute($action, [], $context, $write);
+    expect($replay->replayed)->toBeTrue()->and($replay->data)->toBe($result)->and($calls)->toBe(1);
+})->with(['file', 'database']);

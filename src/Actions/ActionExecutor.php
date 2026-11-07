@@ -6,6 +6,7 @@ namespace Cboxdk\StatamicMcp\Actions;
 
 use Cboxdk\StatamicMcp\Actions\Contracts\ActionHandler;
 use Cboxdk\StatamicMcp\Actions\Contracts\ActionPolicy;
+use Cboxdk\StatamicMcp\Actions\Contracts\ActorScope;
 use Cboxdk\StatamicMcp\Actions\Contracts\Authorizer;
 use Cboxdk\StatamicMcp\Actions\Operations\Operation;
 use Cboxdk\StatamicMcp\Actions\Operations\OperationCoordinator;
@@ -24,6 +25,7 @@ final class ActionExecutor
         private readonly LifecycleObservers $observers,
         private readonly Container $container,
         private readonly OperationCoordinator $operations,
+        private readonly ActorScope $actors,
     ) {}
 
     /** Authorize and validate intent without invoking its handler.
@@ -31,12 +33,18 @@ final class ActionExecutor
      */
     public function prepare(string $id, array $input, ExecutionContext $context): Operation
     {
+        return $this->actors->run($context, fn (): Operation => $this->prepareAsActor($id, $input, $context));
+    }
+
+    /** @param array<string, mixed> $input */
+    private function prepareAsActor(string $id, array $input, ExecutionContext $context): Operation
+    {
         Blink::flush();
         $this->container->make(PermissionCache::class)->clear();
         $action = $this->registry->get($id);
         $this->authorizer->authorize($action, $context);
         $context->checkDeadline();
-        $this->schemas->validate($input, $action->inputSchema);
+        $this->schemas->validateInput($input, $action->inputSchema);
         $policy = $this->container->make($action->policy);
         if (! $policy instanceof ActionPolicy) {
             throw new \LogicException('Invalid action policy binding.');
@@ -52,6 +60,27 @@ final class ActionExecutor
      */
     public function execute(string $id, array $input, ExecutionContext $context): array
     {
+        $entered = false;
+        $start = hrtime(true);
+        try {
+            return $this->actors->run($context, function () use ($id, $input, $context, &$entered): array {
+                $entered = true;
+
+                return $this->executeAsActor($id, $input, $context);
+            });
+        } catch (\Throwable $error) {
+            if (! $entered) {
+                $this->emit($this->registry->get($id), $context, 'denied', 'none', $start, (string) Str::uuid());
+            }
+            throw $error;
+        }
+    }
+
+    /** @param array<string, mixed> $input
+     * @return array<string, mixed>
+     */
+    private function executeAsActor(string $id, array $input, ExecutionContext $context): array
+    {
         Blink::flush();
         $this->container->make(PermissionCache::class)->clear();
         $action = $this->registry->get($id);
@@ -61,7 +90,7 @@ final class ActionExecutor
         try {
             $this->authorizer->authorize($action, $context);
             $context->checkDeadline();
-            $this->schemas->validate($input, $action->inputSchema);
+            $this->schemas->validateInput($input, $action->inputSchema);
             $policy = $this->container->make($action->policy);
             if (! $policy instanceof ActionPolicy) {
                 throw new \LogicException('Invalid action policy binding.');

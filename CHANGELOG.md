@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Serialize complete file-token mutations, including usage timestamps and revocation. Atomically replace token files and refuse failed deletions; a concurrent last-used update cannot recreate a revoked credential.
+
+- Expose explicitly consented registered read actions through HTTP, stdio and tool search. Stdio requires a configured v4 token; catalog visibility and invocation recheck native site permissions.
+- Run registered actions under their verified native Statamic actor, restoring ambient authentication after success, failure and nested calls. Freeze registries after deferred addon boot registration.
+
 - Require server-issued prepared handles for writes in the registered-action executor. Add bounded operation admission, safe expiry cleanup and capacity repair; unknown or pruned handles never recreate a write.
 - Register the stdio server even when Laravel HTTP routes are cached; honor registered addon scopes in OAuth defaults.
 - Reject expired refresh-token replays before grant revocation in both storage drivers.
@@ -34,6 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Require Statamic 6.35.1+ and Laravel MCP 1.1.2+.
 
 ### Fixed
+
+- Respect configured input budgets for registered actions, including 10 MiB asset uploads. Align encrypted result storage with output validation for deep and Unicode-heavy content.
 
 - Verify asset file placement after native moves, and report an unknown outcome if the filesystem did not move the file.
 

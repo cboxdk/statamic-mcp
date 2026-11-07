@@ -47,6 +47,14 @@ final readonly class ActionDefinition
         SchemaValidator::checkSchema($outputSchema);
     }
 
+    /** Stable MCP-compatible name, independent of descriptions and content. */
+    public function toolName(): string
+    {
+        $slug = str_replace(['/', '-'], '_', $this->id());
+
+        return 'action_' . substr($slug, 0, 36) . '_' . substr(hash('sha256', $this->id()), 0, 16);
+    }
+
     public function id(): string
     {
         return $this->package . '/' . $this->name;

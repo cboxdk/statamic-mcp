@@ -156,9 +156,7 @@ class CountingStreamWrapper
 
     public function stream_lock(int $operation): bool
     {
-        // Single-process tests; real locking would need the underlying handle
-        // and adds nothing here.
-        return true;
+        return $this->handle !== null && flock($this->handle, $operation);
     }
 
     /** @return array<int|string, int>|false */
@@ -175,6 +173,14 @@ class CountingStreamWrapper
         }
     }
 
+    public function stream_metadata(string $path, int $option, mixed $value): bool
+    {
+        $real = self::real($path);
+
+        return $option === STREAM_META_ACCESS && is_int($value)
+            && self::unwrapped(fn () => chmod($real, $value));
+    }
+
     public function stream_set_option(int $option, int $arg1, int $arg2): bool
     {
         return false;
@@ -185,7 +191,13 @@ class CountingStreamWrapper
     {
         $real = self::real($path);
 
-        return self::unwrapped(fn () => ($flags & STREAM_URL_STAT_LINK) ? @lstat($real) : @stat($real));
+        return self::unwrapped(function () use ($real, $flags): array|false {
+            if (! file_exists($real) && ! is_link($real)) {
+                return false;
+            }
+
+            return ($flags & STREAM_URL_STAT_LINK) ? lstat($real) : stat($real);
+        });
     }
 
     public function unlink(string $path): bool

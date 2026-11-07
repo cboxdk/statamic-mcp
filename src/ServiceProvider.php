@@ -169,6 +169,10 @@ class ServiceProvider extends AddonServiceProvider
             config()->integer('statamic.mcp.security.max_input_values', 20000),
             config()->integer('statamic.mcp.security.max_input_depth', 64),
         ));
+        $this->app->bind(Actions\SchemaValidator::class, fn (): Actions\SchemaValidator => new Actions\SchemaValidator(
+            $this->app->make(Support\InputBudget::class),
+            config()->integer('statamic.mcp.security.max_input_bytes', 16777216),
+        ));
         $this->app->bind(Support\WireInputBudget::class, function (): Support\WireInputBudget {
             $values = config()->integer('statamic.mcp.security.max_input_values', 20000);
             $depth = config()->integer('statamic.mcp.security.max_input_depth', 64);
@@ -238,6 +242,7 @@ class ServiceProvider extends AddonServiceProvider
         ));
 
         $this->app->bind(Actions\Contracts\Authorizer::class, Authorization\GrantAuthorizer::class);
+        $this->app->scoped(Actions\Contracts\ActorScope::class, Authorization\ExecutionActorScope::class);
         $this->app->singleton(Actions\ObserverRegistry::class);
         $this->app->bind(Actions\LifecycleObservers::class, fn (): Actions\LifecycleObservers => Actions\LifecycleObservers::fromRegistry(
             $this->app->make(Actions\ObserverRegistry::class), $this->app, $this->app->make(LoggerInterface::class),
@@ -245,8 +250,13 @@ class ServiceProvider extends AddonServiceProvider
         $this->app->singleton(Actions\ScopeRegistry::class);
         $this->app->singleton(Actions\CapabilityRegistry::class);
         $this->app->booted(function (): void {
-            $this->app->make(Actions\CapabilityRegistry::class)->freeze();
-            $this->app->make(Actions\ObserverRegistry::class)->freeze();
+            // AddonServiceProvider defers bootAddon to Statamic's booted queue.
+            // Append after all provider boot methods have registered their callbacks,
+            // but before Statamic drains that queue. Addons can register normally.
+            Statamic::booted(function (): void {
+                $this->app->make(Actions\CapabilityRegistry::class)->freeze();
+                $this->app->make(Actions\ObserverRegistry::class)->freeze();
+            });
         });
 
         // Register CIMD resolver

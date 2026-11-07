@@ -12,21 +12,16 @@ use Illuminate\Support\Str;
 use Symfony\Component\Yaml\Yaml;
 
 /**
- * File-based token store that persists tokens as YAML files on disk.
- *
- * Locking strategy: individual token files are written with exclusive flock
- * (LOCK_EX) to prevent torn writes under concurrent requests. The index file
- * uses the same exclusive-lock pattern for every read-modify-write cycle.
- *
- * Atomic index rebuild: rebuildIndex() writes to a sibling .index.tmp file
- * first and then calls rename(), which is atomic on local POSIX filesystems.
- * On NFS mounts rename() is NOT guaranteed to be atomic — two concurrent
- * rebuilds may interleave. If you are running on NFS, prefer the
- * DatabaseTokenStore instead.
+ * Single-node token storage. A permanent store lock protects complete read/modify/
+ * write operations, including last-used updates, revocation and index rebuilding.
+ * Token files are replaced atomically so a failed write preserves the old record.
+ * Use DatabaseTokenStore with shared SQL for multi-node deployments.
  */
 class FileTokenStore extends BaseTokenStore implements TokenStore
 {
     private readonly string $storagePath;
+
+    private bool $locked = false;
 
     public function __construct(?string $storagePath = null)
     {
@@ -56,62 +51,68 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
         ?string $oauthClientName = null,
         ?CapabilitySnapshot $capabilities = null,
     ): McpTokenData {
-        $id = (string) Str::uuid();
-        $now = Carbon::now();
+        return $this->withLock(function () use ($userId, $name, $tokenHash, $scopes, $expiresAt, $oauthClientId, $oauthClientName, $capabilities): McpTokenData {
+            $id = (string) Str::uuid();
+            $now = Carbon::now();
 
-        $data = [
-            'id' => $id,
-            'user_id' => $userId,
-            'name' => $name,
-            'token_hash' => $tokenHash,
-            'scopes' => $scopes,
-            'capabilities' => $capabilities?->toStored(),
-            'oauth_client_id' => $oauthClientId,
-            'oauth_client_name' => $oauthClientName,
-            'last_used_at' => null,
-            'expires_at' => $expiresAt?->toIso8601String(),
-            'created_at' => $now->toIso8601String(),
-            'updated_at' => null,
-        ];
+            $data = [
+                'id' => $id,
+                'user_id' => $userId,
+                'name' => $name,
+                'token_hash' => $tokenHash,
+                'scopes' => $scopes,
+                'capabilities' => $capabilities?->toStored(),
+                'oauth_client_id' => $oauthClientId,
+                'oauth_client_name' => $oauthClientName,
+                'last_used_at' => null,
+                'expires_at' => $expiresAt?->toIso8601String(),
+                'created_at' => $now->toIso8601String(),
+                'updated_at' => null,
+            ];
 
-        $this->writeYamlFile($id, $data);
-        $this->updateIndex($tokenHash, $id);
+            $this->writeYamlFile($id, $data);
+            $this->updateIndex($tokenHash, $id);
 
-        return $this->arrayToTokenData($data);
+            return $this->arrayToTokenData($data);
+        });
     }
 
     public function findByHash(string $tokenHash): ?McpTokenData
     {
-        $index = $this->readIndex();
-
-        if (! isset($index[$tokenHash])) {
-            // Index might be stale or missing, rebuild
-            $this->rebuildIndex();
+        return $this->withLock(function () use ($tokenHash): ?McpTokenData {
             $index = $this->readIndex();
 
             if (! isset($index[$tokenHash])) {
-                return null;
+                // Index might be stale or missing, rebuild
+                $this->rebuildIndex();
+                $index = $this->readIndex();
+
+                if (! isset($index[$tokenHash])) {
+                    return null;
+                }
             }
-        }
 
-        /** @var string $id */
-        $id = $index[$tokenHash];
+            /** @var string $id */
+            $id = $index[$tokenHash];
 
-        return $this->find($id);
+            return $this->find($id);
+        });
     }
 
     public function find(string $id): ?McpTokenData
     {
-        $filePath = $this->tokenFilePath($id);
+        return $this->withLock(function () use ($id): ?McpTokenData {
+            $filePath = $this->tokenFilePath($id);
 
-        if (! file_exists($filePath)) {
-            return null;
-        }
+            if (! file_exists($filePath)) {
+                return null;
+            }
 
-        /** @var array<string, mixed> $data */
-        $data = Yaml::parseFile($filePath);
+            /** @var array<string, mixed> $data */
+            $data = Yaml::parseFile($filePath);
 
-        return $this->arrayToTokenData($data);
+            return $this->arrayToTokenData($data);
+        });
     }
 
     /**
@@ -119,99 +120,109 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
      */
     public function update(string $id, array $data): ?McpTokenData
     {
-        $filePath = $this->tokenFilePath($id);
+        return $this->withLock(function () use ($id, $data): ?McpTokenData {
+            $filePath = $this->tokenFilePath($id);
 
-        if (! file_exists($filePath)) {
-            return null;
-        }
-
-        /** @var array<string, mixed> $existing */
-        $existing = Yaml::parseFile($filePath);
-
-        $oldHash = is_string($existing['token_hash'] ?? null) ? $existing['token_hash'] : '';
-
-        // Map camelCase keys to snake_case YAML keys
-        $keyMap = [
-            'tokenHash' => 'token_hash',
-            'expiresAt' => 'expires_at',
-            'lastUsedAt' => 'last_used_at',
-        ];
-
-        if (array_key_exists('scopes', $data) && $this->scopesChanged($data['scopes'], $existing['scopes'] ?? [])) {
-            $existing['capabilities'] = null;
-        }
-        foreach ($data as $key => $value) {
-            if (! in_array($key, ['name', 'scopes', 'tokenHash', 'expiresAt', 'lastUsedAt'], true)) {
-                continue;
+            if (! file_exists($filePath)) {
+                return null;
             }
-            $yamlKey = $keyMap[$key] ?? $key;
 
-            if ($value instanceof Carbon) {
-                $existing[$yamlKey] = $value->toIso8601String();
-            } elseif ($yamlKey === 'expires_at' && $value === null) {
-                $existing[$yamlKey] = null;
-            } else {
-                $existing[$yamlKey] = $value;
+            /** @var array<string, mixed> $existing */
+            $existing = Yaml::parseFile($filePath);
+
+            $oldHash = is_string($existing['token_hash'] ?? null) ? $existing['token_hash'] : '';
+
+            // Map camelCase keys to snake_case YAML keys
+            $keyMap = [
+                'tokenHash' => 'token_hash',
+                'expiresAt' => 'expires_at',
+                'lastUsedAt' => 'last_used_at',
+            ];
+
+            if (array_key_exists('scopes', $data) && $this->scopesChanged($data['scopes'], $existing['scopes'] ?? [])) {
+                $existing['capabilities'] = null;
             }
-        }
+            foreach ($data as $key => $value) {
+                if (! in_array($key, ['name', 'scopes', 'tokenHash', 'expiresAt', 'lastUsedAt'], true)) {
+                    continue;
+                }
+                $yamlKey = $keyMap[$key] ?? $key;
 
-        $existing['updated_at'] = Carbon::now()->toIso8601String();
+                if ($value instanceof Carbon) {
+                    $existing[$yamlKey] = $value->toIso8601String();
+                } elseif ($yamlKey === 'expires_at' && $value === null) {
+                    $existing[$yamlKey] = null;
+                } else {
+                    $existing[$yamlKey] = $value;
+                }
+            }
 
-        $this->writeYamlFile($id, $existing);
+            $existing['updated_at'] = Carbon::now()->toIso8601String();
 
-        // Update index if token hash changed
-        $newHash = is_string($existing['token_hash'] ?? null) ? $existing['token_hash'] : '';
+            $this->writeYamlFile($id, $existing);
 
-        if (isset($data['tokenHash']) && $oldHash !== $newHash) {
-            $this->removeFromIndex($oldHash);
-            $this->updateIndex($newHash, $id);
-        }
+            // Update index if token hash changed
+            $newHash = is_string($existing['token_hash'] ?? null) ? $existing['token_hash'] : '';
 
-        return $this->arrayToTokenData($existing);
+            if (isset($data['tokenHash']) && $oldHash !== $newHash) {
+                $this->removeFromIndex($oldHash);
+                $this->updateIndex($newHash, $id);
+            }
+
+            return $this->arrayToTokenData($existing);
+        });
     }
 
     public function delete(string $id): bool
     {
-        $filePath = $this->tokenFilePath($id);
+        return $this->withLock(function () use ($id): bool {
+            $filePath = $this->tokenFilePath($id);
 
-        if (! file_exists($filePath)) {
-            return false;
-        }
+            if (! file_exists($filePath)) {
+                return false;
+            }
 
-        /** @var array<string, mixed> $data */
-        $data = Yaml::parseFile($filePath);
-        $hash = is_string($data['token_hash'] ?? null) ? $data['token_hash'] : '';
+            /** @var array<string, mixed> $data */
+            $data = Yaml::parseFile($filePath);
+            $hash = is_string($data['token_hash'] ?? null) ? $data['token_hash'] : '';
 
-        unlink($filePath);
-        $this->removeFromIndex($hash);
+            if (! unlink($filePath)) {
+                throw new \RuntimeException('Cannot revoke token.');
+            }
+            $this->removeFromIndex($hash);
 
-        return true;
+            return true;
+        });
     }
 
     public function deleteForUser(string $userId): int
     {
-        $deleted = 0;
-        /** @var list<string> $removedHashes */
-        $removedHashes = [];
+        return $this->withLock(function () use ($userId): int {
+            $deleted = 0;
+            /** @var list<string> $removedHashes */
+            $removedHashes = [];
 
-        foreach ($this->scanAllTokens() as $data) {
-            if (($data['user_id'] ?? '') === $userId) {
-                $id = is_string($data['id'] ?? null) ? $data['id'] : '';
-                $hash = is_string($data['token_hash'] ?? null) ? $data['token_hash'] : '';
+            foreach ($this->scanAllTokens() as $data) {
+                if (($data['user_id'] ?? '') === $userId) {
+                    $id = is_string($data['id'] ?? null) ? $data['id'] : '';
+                    $hash = is_string($data['token_hash'] ?? null) ? $data['token_hash'] : '';
 
-                $filePath = $this->tokenFilePath($id);
-                if (file_exists($filePath)) {
-                    unlink($filePath);
+                    $filePath = $this->tokenFilePath($id);
+                    if (file_exists($filePath)) {
+                        if (! unlink($filePath)) {
+                            throw new \RuntimeException('Cannot remove token.');
+                        }
+                    }
+
+                    $removedHashes[] = $hash;
+                    $deleted++;
                 }
-
-                $removedHashes[] = $hash;
-                $deleted++;
             }
-        }
 
-        $this->removeManyFromIndex($removedHashes);
+            $this->removeManyFromIndex($removedHashes);
 
-        return $deleted;
+            return $deleted;
+        });
     }
 
     /**
@@ -219,10 +230,12 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
      */
     public function listForUser(string $userId): Collection
     {
-        return $this->scanAllAsData()
-            ->filter(fn (McpTokenData $token): bool => $token->userId === $userId)
-            ->sortByDesc(fn (McpTokenData $token): string => $token->createdAt->toIso8601String())
-            ->values();
+        return $this->withLock(function () use ($userId): Collection {
+            return $this->scanAllAsData()
+                ->filter(fn (McpTokenData $token): bool => $token->userId === $userId)
+                ->sortByDesc(fn (McpTokenData $token): string => $token->createdAt->toIso8601String())
+                ->values();
+        });
     }
 
     /**
@@ -230,117 +243,156 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
      */
     public function listAll(): Collection
     {
-        return $this->scanAllAsData()
-            ->sortByDesc(fn (McpTokenData $token): string => $token->createdAt->toIso8601String())
-            ->values();
+        return $this->withLock(function (): Collection {
+            return $this->scanAllAsData()
+                ->sortByDesc(fn (McpTokenData $token): string => $token->createdAt->toIso8601String())
+                ->values();
+        });
     }
 
     public function import(McpTokenData $token): McpTokenData
     {
-        $data = [
-            'id' => $token->id,
-            'user_id' => $token->userId,
-            'name' => $token->name,
-            'token_hash' => $token->tokenHash,
-            'scopes' => $token->scopes,
-            'capabilities' => $token->capabilities?->toStored(),
-            'oauth_client_id' => $token->oauthClientId,
-            'oauth_client_name' => $token->oauthClientName,
-            'last_used_at' => $token->lastUsedAt?->toIso8601String(),
-            'expires_at' => $token->expiresAt?->toIso8601String(),
-            'created_at' => $token->createdAt->toIso8601String(),
-            'updated_at' => $token->updatedAt?->toIso8601String(),
-        ];
+        return $this->withLock(function () use ($token): McpTokenData {
+            $data = [
+                'id' => $token->id,
+                'user_id' => $token->userId,
+                'name' => $token->name,
+                'token_hash' => $token->tokenHash,
+                'scopes' => $token->scopes,
+                'capabilities' => $token->capabilities?->toStored(),
+                'oauth_client_id' => $token->oauthClientId,
+                'oauth_client_name' => $token->oauthClientName,
+                'last_used_at' => $token->lastUsedAt?->toIso8601String(),
+                'expires_at' => $token->expiresAt?->toIso8601String(),
+                'created_at' => $token->createdAt->toIso8601String(),
+                'updated_at' => $token->updatedAt?->toIso8601String(),
+            ];
 
-        $this->writeYamlFile($token->id, $data);
-        $this->updateIndex($token->tokenHash, $token->id);
+            $this->writeYamlFile($token->id, $data);
+            $this->updateIndex($token->tokenHash, $token->id);
 
-        return $this->arrayToTokenData($data);
+            return $this->arrayToTokenData($data);
+        });
     }
 
     public function pruneExpired(): int
     {
-        $pruned = 0;
-        /** @var list<string> $removedHashes */
-        $removedHashes = [];
+        return $this->withLock(function (): int {
+            $pruned = 0;
+            /** @var list<string> $removedHashes */
+            $removedHashes = [];
 
-        foreach ($this->scanAllTokens() as $data) {
-            $expiresAt = $data['expires_at'] ?? null;
+            foreach ($this->scanAllTokens() as $data) {
+                $expiresAt = $data['expires_at'] ?? null;
 
-            if ($expiresAt === null) {
-                continue;
-            }
-
-            if (! is_string($expiresAt)) {
-                continue;
-            }
-
-            $expiry = Carbon::parse($expiresAt);
-
-            if ($expiry->isPast()) {
-                $id = is_string($data['id'] ?? null) ? $data['id'] : '';
-                $hash = is_string($data['token_hash'] ?? null) ? $data['token_hash'] : '';
-
-                $filePath = $this->tokenFilePath($id);
-                if (file_exists($filePath)) {
-                    unlink($filePath);
+                if ($expiresAt === null) {
+                    continue;
                 }
 
-                $removedHashes[] = $hash;
-                $pruned++;
+                if (! is_string($expiresAt)) {
+                    continue;
+                }
+
+                $expiry = Carbon::parse($expiresAt);
+
+                if ($expiry->isPast()) {
+                    $id = is_string($data['id'] ?? null) ? $data['id'] : '';
+                    $hash = is_string($data['token_hash'] ?? null) ? $data['token_hash'] : '';
+
+                    $filePath = $this->tokenFilePath($id);
+                    if (file_exists($filePath)) {
+                        if (! unlink($filePath)) {
+                            throw new \RuntimeException('Cannot remove token.');
+                        }
+                    }
+
+                    $removedHashes[] = $hash;
+                    $pruned++;
+                }
             }
-        }
 
-        $this->removeManyFromIndex($removedHashes);
+            $this->removeManyFromIndex($removedHashes);
 
-        return $pruned;
+            return $pruned;
+        });
     }
 
     public function markAsUsed(string $id): void
     {
-        $filePath = $this->tokenFilePath($id);
+        $this->withLock(function () use ($id): void {
+            $filePath = $this->tokenFilePath($id);
 
-        if (! file_exists($filePath)) {
-            return;
-        }
+            if (! file_exists($filePath)) {
+                return;
+            }
 
-        /** @var array<string, mixed> $data */
-        $data = Yaml::parseFile($filePath);
-        $data['last_used_at'] = Carbon::now()->toIso8601String();
+            /** @var array<string, mixed> $data */
+            $data = Yaml::parseFile($filePath);
+            $data['last_used_at'] = Carbon::now()->toIso8601String();
 
-        $this->writeYamlFile($id, $data);
+            $this->writeYamlFile($id, $data);
+        });
     }
 
-    /**
-     * Write a token's YAML file with an exclusive file lock to prevent
-     * torn writes when multiple requests touch the same token concurrently.
-     *
-     * Falls back to an unlocked write if fopen/flock is unavailable
-     * (e.g. on some virtual filesystems used in tests).
-     *
-     * @param  array<string, mixed>  $data
-     */
+    /** @param array<string, mixed> $data */
     private function writeYamlFile(string $id, array $data): void
     {
         $filePath = $this->tokenFilePath($id);
         $yaml = Yaml::dump($data, 2, 4, Yaml::DUMP_NULL_AS_TILDE);
+        $temporary = $this->storagePath . '/.token.tmp';
+        if (is_link($temporary)) {
+            throw new \RuntimeException('Invalid token temporary file.');
+        }
+        $handle = fopen($temporary, 'w+b');
+        if ($handle === false) {
+            throw new \RuntimeException('Cannot create token temporary file.');
+        }
+        try {
+            if (! chmod($temporary, 0600) || fwrite($handle, $yaml) !== strlen($yaml) || ! fflush($handle)) {
+                throw new \RuntimeException('Cannot persist token record.');
+            }
+            if (! rename($temporary, $filePath)) {
+                throw new \RuntimeException('Cannot replace token record.');
+            }
+        } finally {
+            fclose($handle);
+            if (is_file($temporary)) {
+                unlink($temporary);
+            }
+        }
+    }
 
-        $handle = fopen($filePath, 'c');
+    /** @template T
+     * @param  callable(): T  $callback
+     *
+     * @return T
+     */
+    private function withLock(callable $callback): mixed
+    {
+        if ($this->locked) {
+            return $callback();
+        }
+        $handle = fopen($this->storagePath . '/.store.lock', 'c+b');
+        if ($handle === false) {
+            throw new \RuntimeException('Cannot open token store lock.');
+        }
+        try {
+            $deadline = hrtime(true) + 5_000_000_000;
+            while (! flock($handle, LOCK_EX | LOCK_NB)) {
+                if (hrtime(true) >= $deadline) {
+                    throw new \RuntimeException('Token storage is busy.');
+                }
+                usleep(10000);
+            }
+            $this->locked = true;
+            // Other workers may have renamed or removed a previously statted file.
+            clearstatcache();
 
-        if ($handle !== false && flock($handle, LOCK_EX)) {
-            ftruncate($handle, 0);
-            rewind($handle);
-            fwrite($handle, $yaml);
-            fflush($handle);
+            return $callback();
+        } finally {
+            $this->locked = false;
             flock($handle, LOCK_UN);
             fclose($handle);
-        } else {
-            if ($handle !== false) {
-                fclose($handle);
-            }
-
-            // Fallback: unlocked write (single-process or test environments)
-            file_put_contents($filePath, $yaml);
         }
     }
 

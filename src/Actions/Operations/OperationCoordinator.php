@@ -8,6 +8,7 @@ use Cboxdk\StatamicMcp\Actions\ActionDefinition;
 use Cboxdk\StatamicMcp\Actions\ActionEffect;
 use Cboxdk\StatamicMcp\Actions\Contracts\OperationStore;
 use Cboxdk\StatamicMcp\Actions\ExecutionContext;
+use Cboxdk\StatamicMcp\Support\InputBudget;
 use Illuminate\Contracts\Encryption\Encrypter;
 
 /** Authorization must be rechecked before entry, including result replay. */
@@ -66,7 +67,7 @@ final class OperationCoordinator
             if (! is_string($json)) {
                 throw new \RuntimeException('Invalid stored operation result.');
             }
-            $data = json_decode($json, true, 32, JSON_THROW_ON_ERROR);
+            $data = json_decode($json, true, 258, JSON_THROW_ON_ERROR);
             if (! is_array($data)) {
                 throw new \RuntimeException('Invalid stored operation result.');
             }
@@ -97,7 +98,9 @@ final class OperationCoordinator
             }
             $callbackStarted = true;
             $data = $execute();
-            $json = json_encode((object) $data, JSON_THROW_ON_ERROR, 32);
+            // Match the executor result budget before invoking any serializer.
+            (new InputBudget(1048576, 20000, 256))->check($data);
+            $json = json_encode((object) $data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE, 258);
             if (strlen($json) > 1048576) {
                 throw new \RuntimeException('Operation result exceeds storage budget.');
             }

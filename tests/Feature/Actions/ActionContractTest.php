@@ -10,6 +10,7 @@ use Cboxdk\StatamicMcp\Actions\ActionExecutor;
 use Cboxdk\StatamicMcp\Actions\CapabilityRegistry;
 use Cboxdk\StatamicMcp\Actions\Contracts\ActionHandler;
 use Cboxdk\StatamicMcp\Actions\Contracts\ActionPolicy;
+use Cboxdk\StatamicMcp\Actions\Contracts\ActorScope;
 use Cboxdk\StatamicMcp\Actions\Contracts\Authorizer;
 use Cboxdk\StatamicMcp\Actions\Contracts\LifecycleEvent;
 use Cboxdk\StatamicMcp\Actions\Contracts\LifecycleObserver;
@@ -145,11 +146,13 @@ class ActionContractTest extends TestCase
             new OperationCoordinator(
                 new FileOperationStore($this->operationDirectory),
                 $this->app->make(Encrypter::class),
-            ));
+            ), app(ActorScope::class));
         $this->assertSame(['title' => 'Before'], $executor->execute('fixture/addon/read', ['id' => $entry->id()], $context));
         $writes = 0;
-        Event::listen(EntrySaved::class, function () use (&$writes): void {
+        $observedActors = [];
+        Event::listen(EntrySaved::class, function () use (&$writes, &$observedActors): void {
             $writes++;
+            $observedActors[] = User::current()?->id();
         });
         $prepared = $executor->prepare('fixture/addon/edit', ['id' => $entry->id(), 'title' => 'After'], $context);
         $context = $context->withOperationId($prepared->id);
@@ -157,6 +160,8 @@ class ActionContractTest extends TestCase
         $this->assertSame(['title' => 'After'], $executor->execute('fixture/addon/edit', ['id' => $entry->id(), 'title' => 'After'], $context));
         $this->assertSame(['title' => 'After'], $executor->execute('fixture/addon/edit', ['id' => $entry->id(), 'title' => 'After'], $context));
         $this->assertSame(1, $writes, 'An idempotent replay must not invoke the handler again.');
+        $this->assertSame([$user->id()], $observedActors);
+        $this->assertNull(User::current());
         $this->assertSame('After', Entry::find($entry->id())->get('title'));
         $this->assertFalse(Entry::find($entry->id())->published());
         config(['statamic.mcp.tools.entries.denied_fields' => ['title']]);

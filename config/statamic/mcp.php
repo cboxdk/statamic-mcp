@@ -6,6 +6,9 @@ use Cboxdk\StatamicMcp\Storage\Audit\FileAuditStore;
 use Cboxdk\StatamicMcp\Storage\Tokens\FileTokenStore;
 
 return [
+
+    // Registered v4 actions require explicit consent over either transport.
+    'stdio' => ['token' => env('STATAMIC_MCP_STDIO_TOKEN')],
     // Explicit transport limits. Unknown/missing values disable execution.
     // Profiles restrict access; HTTP still requires a token and Statamic rights.
     'profiles' => [

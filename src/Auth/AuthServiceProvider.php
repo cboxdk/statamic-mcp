@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Auth;
 
+use Cboxdk\StatamicMcp\Authorization\ExecutionActorScope;
 use Cboxdk\StatamicMcp\Contracts\TokenStore;
 use Cboxdk\StatamicMcp\Services\ClientConfigGenerator;
 use Cboxdk\StatamicMcp\Services\StatsService;
 use Cboxdk\StatamicMcp\Storage\Tokens\FileTokenStore;
+use Illuminate\Auth\RequestGuard;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -20,6 +22,13 @@ class AuthServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        $guardKey = 'auth.guards.' . ExecutionActorScope::GUARD;
+        $guardConfig = ['driver' => ExecutionActorScope::GUARD];
+        if (config($guardKey) !== null && config($guardKey) !== $guardConfig) {
+            throw new \LogicException('The private MCP execution guard name is reserved.');
+        }
+        config()->set($guardKey, $guardConfig);
+
         // Bind TokenStore contract to configured driver
         $this->app->singleton(TokenStore::class, function (Application $app): TokenStore {
             /** @var class-string<TokenStore> $driver */
@@ -46,6 +55,8 @@ class AuthServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        Auth::extend(ExecutionActorScope::GUARD, fn (): RequestGuard => new RequestGuard(static fn () => null, new Request));
+
         Auth::extend('mcp', function (Application $app, string $name, array $config): McpTokenGuard {
             /** @var TokenService $tokenService */
             $tokenService = $app->make(TokenService::class);

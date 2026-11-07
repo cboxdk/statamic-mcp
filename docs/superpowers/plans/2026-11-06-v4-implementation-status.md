@@ -21,7 +21,7 @@ Draft PR: https://github.com/cboxdk/statamic-mcp/pull/88.
 | Basic Auth removal | Breaking; no legacy enable flag | v4 only |
 | HTTP default disabled | Breaking installation default; published explicit enable remains explicit | v4 only |
 | Mandatory OAuth user-grant revocation method | Breaking custom driver contract | v4 only |
-| Action/scope registry, execution and durable operation prototype | Internal, not exposed to clients yet | v4 only |
+| Action/scope registry, execution and durable operations | Registered reads exposed; writes remain internal | v4 only |
 | Explicit HTTP/stdio profiles | Breaking; missing profiles disable execution, installer requires selection | v4 only |
 | Forced collection/taxonomy cascades | Breaking; content must be deleted explicitly before the parent | v4 only |
 | Immutable addon consent in CP/OAuth and storage | Implemented foundation; built-in granular scopes and approvals remain | v4 only |
@@ -58,17 +58,18 @@ These records do not certify V02–V10. The main plan remains the release checkl
   Shared MySQL admission still needs CI coverage.
 - V05: durable approvals, CP UI, revocation and atomic consumption. Existing
   stateless confirmations have not yet been replaced.
-- V06/V07: complete public lifecycle events, durable audit and released-version
-  telemetry adapter. Prototype observers are isolated but not a telemetry integration.
+- V06/V07: complete public lifecycle events and durable audit. The optional
+  telemetry adapter is implemented in statamic-telemetry PR #5 against published
+  SDK 3.9.3; execution coverage still depends on the public router migration.
 - V08: migrate built-ins, close the remaining Statamic policy/data/cache matrix,
   and test supported third-party fieldtypes and repositories.
 - V09/V10: migration/doctor, rollback fixtures, dependency/client matrix, performance
   baseline and release candidate review. No support claim for Statamic 6.40 as a
   new minimum yet; the requirement remains 6.35.1 pending the matrix.
 
-The action services now have service-provider bindings, but no public MCP
-registration. This is intentional: it must not admit production writes before authorization and approvals
-are wired. High-impact prototype actions are refused. WebMCP remains deferred as
+Registered read actions now have public HTTP/stdio adapters and participate in
+tool search. Registered writes remain unexposed until resource versioning and
+approvals are wired. High-impact prototype actions are refused. WebMCP remains deferred as
 agreed; no browser tool interface is published.
 
 ## Follow-up implementation — 2026-11-07
@@ -223,3 +224,80 @@ assertions**, including real simultaneous process admission/claims on local POSI
 files and SQLite, crash retention, no re-execution after pruning, and CLI wiring.
 PHPStan level 9 and Pint passed. Public router migration, resource versions, durable
 approvals and full outcome reconciliation are still required.
+
+### Complete prepared-operation checkpoint verification
+
+Commit `8abcef1` passed the full local suite on PHP 8.5.7: **1673 passed,
+18 skipped, 7712 assertions**, 2086.34 seconds. The optional SEO skips remain
+visible. This run precedes the subsequent native actor-context and addon boot
+registration corrections; those need their own verification.
+
+### Native execution context and addon registration
+
+The action executor now uses a private non-session guard and restores the prior
+Auth default, user resolver and request resolver in `finally`. Native Statamic
+events observe the execution actor. Nested calls, anonymous callers, failures and
+new scoped worker lifecycles are covered, without login/logout events or changes
+to CP session guards. Missing/inactive actors cannot inherit an ambient super user.
+
+Registries freeze after Statamic's deferred addon boot callbacks, rather than
+before `bootAddon`. This fixes a real integration ordering failure found by the
+telemetry contract test. Registration after that phase still fails closed.
+
+Input schema validation now respects configured transport input budgets, including
+10 MiB base64 asset uploads and nesting beyond the prototype's hidden depth 32.
+The separate result budget stays at 1 MiB. Object serializers are refused before
+output validation can execute them.
+
+Focused verification: **22 action/grant/observer tests / 104 assertions**, then
+**12 boundary tests / 44 assertions**, with overlap. PHPStan 9 and Pint passed.
+The full 1673-test run above predates this follow-up.
+
+### Optional telemetry reference integration
+
+[statamic-telemetry PR #5](https://github.com/cboxdk/statamic-telemetry/pull/5)
+implements opt-in execution/grant observations using published laravel-telemetry
+3.9.3. HTTP spans keep their parent, stdio traces are isolated, metadata and metric
+labels are projected explicitly, and native content events remain separately
+configured. Real exporter/redactor failures do not change content-write/replay
+outcomes. It does not expose telemetry read tools or approve operations.
+
+Its full suite passed **188 tests / 898 assertions**. Physically removing MCP
+and rerunning passed **180 tests / 859 assertions**, with the 8 MCP tests skipped.
+Project PHPStan, adapter level 9, Pint, audit, licenses and deterministic SBOM
+passed. Remote matrix checks and the complete public MCP migration remain pending;
+neither package has been tagged or released.
+
+
+### Public registered reads and consistent replay encoding
+
+Registered reads now use the shared executor through HTTP, stdio and ToolSearch.
+Catalog visibility checks all configured sites; an actor permitted only on a
+non-default site is not hidden. Invocation still checks the requested site, current
+credential, immutable grant and native permissions. Wire arguments cannot select an
+actor/grant. Stdio requires `STATAMIC_MCP_STDIO_TOKEN` with explicit capability consent.
+Builtin router migration and all registered write adapters remain outstanding.
+
+The real protocol tests passed **27 tests / 218 assertions** including the existing
+HTTP/server tests; the final registered-adapter cases passed **6 / 49**. Result storage
+now uses the same nesting depth and unescaped Unicode encoding as schema validation,
+so a valid deep or Unicode-heavy result is not rejected after its write has landed.
+The combined action/operation suite passed **57 tests / 395 assertions**. PHPStan
+level 9 passed. These are focused checks, not a replacement full-suite result.
+
+
+### File-token mutation race
+
+File-token reads and complete mutations now share one permanent store lock.
+Previously, a last-used update could read the record before deletion and write it
+back after revocation. The lock covers the existence check, read, modification,
+replacement and index update. Token replacement uses a private temporary file and
+atomic rename; there is no unlocked-write fallback. Failed unlink operations are
+reported rather than acknowledged as successful revocation. All workers must run
+the new code; mixed old/new workers do not share this locking protocol.
+
+Separate-process tests cover usage, rename and delete contention; an open reader
+also proves that replacement preserves a complete old snapshot. Token contracts,
+file-store stress and dataset scaling passed **50 tests / 811 assertions**. The
+counting filesystem test wrapper now forwards actual locks and chmod. PHPStan 9
+passed. This is single-node POSIX behavior, not a distributed filesystem guarantee.

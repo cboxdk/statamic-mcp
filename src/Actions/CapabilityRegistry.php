@@ -9,13 +9,17 @@ final class CapabilityRegistry
     /** @var array<string, ActionDefinition> */
     private array $actions = [];
 
+    /** @var array<string, true> */
+    private array $toolNames = [];
+
     private bool $frozen = false;
 
     public function __construct(private readonly ScopeRegistry $scopes) {}
 
     public function register(ActionDefinition $action): void
     {
-        if ($this->frozen || isset($this->actions[$action->id()])) {
+        if ($this->frozen || isset($this->actions[$action->id()]) || isset($this->toolNames[$action->toolName()])
+            || count($this->actions) >= 1024) {
             throw new \LogicException('Action registration is duplicated or frozen.');
         }
         foreach ($action->scopes as $scope) {
@@ -24,6 +28,7 @@ final class CapabilityRegistry
             }
         }
         $this->actions[$action->id()] = $action;
+        $this->toolNames[$action->toolName()] = true;
     }
 
     public function freeze(): void
@@ -40,6 +45,16 @@ final class CapabilityRegistry
         }
 
         return $this->actions[$id] ?? throw new \InvalidArgumentException('Unknown action.');
+    }
+
+    /** @return list<ActionDefinition> */
+    public function definitions(): array
+    {
+        if (! $this->frozen) {
+            throw new \LogicException('Freeze the registry before serving actions.');
+        }
+
+        return array_values($this->actions);
     }
 
     /** @param list<string> $scopes */
