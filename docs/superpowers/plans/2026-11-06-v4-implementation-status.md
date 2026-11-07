@@ -364,3 +364,51 @@ Native SQL admission is also tested outside transactions and against a listener
 that opens an uncommitted transaction. PHPStan level 9 and Pint passed without
 suppressions. A complete regression run for this head remains
 required. Resource-versioned approvals and builtin migration are still outstanding.
+
+### Complete durable-audit checkpoint and isolated permission fixtures
+
+Unchanged commit `3e007b7` passed the full local suite: **1720 passed, 18 optional
+SEO skips, 7987 assertions**, 2753.16 seconds. Remote Laravel 12 SQLite jobs passed
+on PHP 8.3/8.4/8.5 and the pinned Statamic 6.35.1 job passed. MySQL exposed one
+fixture error: migrations ran after RefreshDatabase started a transaction, so DDL
+removed a nested savepoint. Audit/token migrations now use Testbench's pre-transaction
+hook. The new focused MySQL 8.0.46 run passed **48 tests / 281 assertions**.
+
+The local test resource file had retained 1409 roles from previous runs. Native
+Stache role-index construction dominated the sampled CPU time. Roles and groups
+now have private per-application files, cleaned after each test. An uninstrumented
+A/B run of the same four actor tests (33 assertions) fell from **13.17 seconds to
+0.21 seconds**. No production repository or vendor code was modified. The old vendor
+fixture was preserved; new tests no longer use it. This is test isolation and a
+local test-time measurement, not a production latency claim.
+
+### Terminal reconciliation and transaction durability
+
+`mcp:reconcile-operation` records an investigated `outcome_unknown` as terminal
+`reconciled`, using the inspected version and a bounded encrypted report. It is
+read-only unless `--apply` is supplied. Reported outcomes are no-effect, committed
+or partial; they are administrator assertions, not automated proof. Neither the
+command nor the trusted recovery service invokes a handler or reopens a handle.
+Executing records remain reserved. Evidence is bound to the operation and version;
+inspection prints its digest rather than its text. Reports retain their capacity
+slot for at least 30 days, then ordinary pruning can remove them.
+
+SQL operations now require a Laravel PDO connection outside both Laravel-tracked
+and raw PDO transactions, checked before and after access. This prevents host
+rollback or query-listener transactions from undoing an acknowledged claim. Durable
+SQL audit also rejects raw PDO transactions. Unsupported transaction wrappers must
+use a separate committed connection/driver rather than savepoints.
+
+The focused actions/storage run passed **162 tests / 975 assertions** on SQLite,
+including the new recovery and expiry cases. The separate MySQL run above covers
+transaction refusal, recovery, audit and token contracts. PHPStan level 9 passed.
+The full checkpoint precedes these changes; a new full run remains required.
+
+### Token expiry integrity
+
+File-token hydration refuses missing, malformed and non-absolute expiry metadata
+instead of silently converting it into unlimited lifetime. Explicit null still
+means deliberately non-expiring access; absolute offsets and fractional seconds
+remain supported. A token is expired at the exact expiry instant. Corrupt reads do
+not rewrite or repair the source credential. These checks do not complete granular
+builtin consent, resource versioning or approval migration.

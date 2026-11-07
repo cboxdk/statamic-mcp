@@ -63,6 +63,28 @@ abstract class BaseTokenStore
         return Carbon::parse($value);
     }
 
+    /** A damaged expiry must never turn into a non-expiring credential. */
+    protected function parseExpiry(mixed $value): ?Carbon
+    {
+        if ($value === null) {
+            return null;
+        }
+        if ($value instanceof \DateTimeInterface) {
+            return Carbon::instance($value);
+        }
+        if (! is_string($value) || ! preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/D', $value)) {
+            throw new \UnexpectedValueException('Invalid stored token expiry.');
+        }
+        $format = str_contains($value, '.') ? '!Y-m-d\TH:i:s.uP' : '!Y-m-d\TH:i:sP';
+        $parsed = \DateTimeImmutable::createFromFormat($format, $value);
+        $errors = \DateTimeImmutable::getLastErrors();
+        if ($parsed === false || ($errors !== false && ($errors['warning_count'] > 0 || $errors['error_count'] > 0))) {
+            throw new \UnexpectedValueException('Invalid stored token expiry.');
+        }
+
+        return Carbon::instance($parsed);
+    }
+
     /**
      * Convert a normalized associative array into an McpTokenData DTO.
      *
@@ -79,6 +101,9 @@ abstract class BaseTokenStore
      */
     protected function arrayToTokenData(array $data): McpTokenData
     {
+        if (! array_key_exists('expires_at', $data)) {
+            throw new \UnexpectedValueException('Stored token expiry is missing.');
+        }
         $scopes = $this->scopeValues($data['scopes'] ?? []);
 
         return new McpTokenData(
@@ -88,7 +113,7 @@ abstract class BaseTokenStore
             tokenHash: is_string($data['token_hash'] ?? null) ? $data['token_hash'] : '',
             scopes: $scopes,
             lastUsedAt: $this->parseCarbon($data['last_used_at'] ?? null),
-            expiresAt: $this->parseCarbon($data['expires_at'] ?? null),
+            expiresAt: $this->parseExpiry($data['expires_at']),
             createdAt: $this->parseCarbon($data['created_at'] ?? null) ?? Carbon::now(),
             updatedAt: $this->parseCarbon($data['updated_at'] ?? null),
             oauthClientId: is_string($data['oauth_client_id'] ?? null) ? $data['oauth_client_id'] : null,

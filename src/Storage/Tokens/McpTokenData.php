@@ -38,6 +38,6 @@ class McpTokenData
      */
     public function isExpired(): bool
     {
-        return $this->expiresAt !== null && now()->greaterThan($this->expiresAt);
+        return $this->expiresAt !== null && now()->greaterThanOrEqualTo($this->expiresAt);
     }
 }

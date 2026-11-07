@@ -170,7 +170,7 @@ class DatabaseTokenStore extends BaseTokenStore implements TokenStore
             tokenHash: $model->token,
             scopes: $scopes,
             lastUsedAt: $this->parseCarbon($model->last_used_at),
-            expiresAt: $this->parseCarbon($model->expires_at),
+            expiresAt: $this->parseExpiry($model->expires_at),
             createdAt: $this->parseCarbon($model->created_at) ?? Carbon::now(),
             updatedAt: $this->parseCarbon($model->updated_at),
             oauthClientId: $model->oauth_client_id,
