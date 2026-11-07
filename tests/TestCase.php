@@ -3,6 +3,7 @@
 namespace Cboxdk\StatamicMcp\Tests;
 
 use Cboxdk\StatamicMcp\ServiceProvider;
+use Illuminate\Filesystem\Filesystem;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\File;
 use Laravel\Mcp\Server\McpServiceProvider;
@@ -14,6 +15,36 @@ abstract class TestCase extends AddonTestCase
     use PreventsSavingStacheItemsToDisk;
 
     protected string $addonServiceProvider = ServiceProvider::class;
+
+    /** @var list<string> */
+    private array $permissionFixtureDirectories = [];
+
+    /** @param Application $app */
+    protected function getEnvironmentSetUp($app): void
+    {
+        parent::getEnvironmentSetUp($app);
+
+        // Statamic's Stache fixture trait does not isolate roles/groups. Their
+        // default resource files survive tests and can grant stale permissions.
+        $directory = sys_get_temp_dir() . '/mcp-test-permissions-' . bin2hex(random_bytes(8));
+        mkdir($directory, 0700, true);
+        $this->permissionFixtureDirectories[] = $directory;
+        $app['config']->set('statamic.users.repositories.file.paths.roles', $directory . '/roles.yaml');
+        $app['config']->set('statamic.users.repositories.file.paths.groups', $directory . '/groups.yaml');
+    }
+
+    protected function tearDown(): void
+    {
+        try {
+            parent::tearDown();
+        } finally {
+            $files = new Filesystem;
+            foreach ($this->permissionFixtureDirectories as $directory) {
+                $files->deleteDirectory($directory);
+            }
+            $this->permissionFixtureDirectories = [];
+        }
+    }
 
     /**
      * Register laravel/mcp's own provider alongside the addon's.

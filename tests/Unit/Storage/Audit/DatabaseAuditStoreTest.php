@@ -17,9 +17,8 @@ class DatabaseAuditStoreTest extends TestCase
     use AuditStoreContractTests;
     use RefreshDatabase;
 
-    protected function setUp(): void
+    protected function defineDatabaseMigrations(): void
     {
-        parent::setUp();
         $this->loadMigrationsFrom(__DIR__ . '/../../../../database/migrations/audit');
     }
 

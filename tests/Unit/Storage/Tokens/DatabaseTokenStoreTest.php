@@ -20,10 +20,8 @@ class DatabaseTokenStoreTest extends TestCase
         return new DatabaseTokenStore;
     }
 
-    protected function setUp(): void
+    protected function defineDatabaseMigrations(): void
     {
-        parent::setUp();
-
         $this->loadMigrationsFrom(__DIR__ . '/../../../../database/migrations/tokens');
     }
 }
