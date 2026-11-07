@@ -412,3 +412,42 @@ means deliberately non-expiring access; absolute offsets and fractional seconds
 remain supported. A token is expired at the exact expiry instant. Corrupt reads do
 not rewrite or repair the source credential. These checks do not complete granular
 builtin consent, resource versioning or approval migration.
+
+### Credential rotation and authoritative storage reads
+
+Commit `23af034` passed the complete local suite: **1751 passed, 18 optional SEO
+skips, 8149 assertions**, 187.91 seconds. This precedes the credential fixes below.
+
+Authenticated execution contexts now retain a non-secret credential revision.
+Regenerating a token invalidates already authenticated contexts, including a change
+during durable admission. A fresh credential with the same approved grant can
+still replay a completed operation. Revisions are not included in persisted intent
+or lifecycle events. Native SQL token and operation reads explicitly use the primary
+connection, preventing stale replicas from reviving revoked credentials or hiding
+claimed operations; ordinary application read routing is unchanged.
+
+Both credential-rotation cases and both independent primary/replica cases failed
+before their fixes. The actions suite now passes **96 tests / 659 assertions**.
+PHPStan level 9 and Pint pass. This does not yet cover authoritative native SQL
+actor/role reads or refreshing object-specific permissions after audit admission.
+
+### Fresh actor and object permissions at admission
+
+A regression reproduced target access being revoked during durable admission while
+the actor retained the grant's broader permission. The executor now refreshes its
+private actor guard and permission caches, then repeats the object policy after
+admission, before the handler. A refusal records `failed_no_effect`. Refresh requires
+the same active context and cannot replace an outer or nested actor.
+
+Native Eloquent user, role and pivot reads use their primary connections during
+authorization/execution. Nested scopes restore the original PDO or lazy resolver
+even after exceptions. Existing SQL transactions are refused because a transaction
+snapshot cannot establish current committed authorization. Custom user repositories
+remain responsible for authoritative reads; this does not silently replace them.
+Ordinary host reads outside execution retain their routing. These guarantees concern
+registered actions; legacy public router migration remains outstanding.
+
+Verification: OAuth/token/storage/protocol **579 tests / 1622 assertions**; final
+actions **103 tests / 690 assertions**, including separate user/role connections,
+stale replicas, raw/Laravel transaction ownership and nested guard restoration.
+PHPStan level 9 and Pint passed. Full regression for this combined change follows.

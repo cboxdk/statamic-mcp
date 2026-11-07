@@ -105,3 +105,27 @@ test('a new worker lifecycle resolves a fresh actor scope without retaining auth
     $second->run(actorScopeContext($actor->id()), fn () => expect(request()->user()->id())->toBe($actor->id()));
     expect(Auth::user())->toBeNull();
 });
+
+test('actor refresh cannot escape its active scope or replace a nested actor', function () {
+    $first = User::make()->email('refresh-first@example.test');
+    $first->save();
+    $second = User::make()->email('refresh-second@example.test');
+    $second->save();
+    $scope = app(ActorScope::class);
+    $outer = actorScopeContext($first->id());
+    $inner = actorScopeContext($second->id());
+    expect(fn () => $scope->refresh($outer))->toThrow(LogicException::class);
+    $scope->run($outer, function () use ($scope, $outer, $inner, $first, $second) {
+        $scope->refresh($outer);
+        expect(User::current()->id())->toBe($first->id());
+        $scope->run($inner, function () use ($scope, $outer, $inner, $second) {
+            expect(fn () => $scope->refresh($outer))->toThrow(LogicException::class);
+            $scope->refresh($inner);
+            expect(User::current()->id())->toBe($second->id());
+        });
+        $scope->refresh($outer);
+        expect(User::current()->id())->toBe($first->id());
+    });
+    expect(fn () => $scope->refresh($outer))->toThrow(LogicException::class);
+    expect(Auth::user())->toBeNull();
+});

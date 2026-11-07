@@ -108,12 +108,15 @@ final class ActionExecutor
                 throw new \LogicException('Actions requiring approval are not yet enabled.');
             }
             $beforeExecute = function () use ($policy, $input, $context, $action, $executionId): void {
+                $this->actors->refresh($context);
                 $this->authorizer->authorize($action, $context);
                 $policy->authorize($input, $context);
                 $context->checkDeadline();
                 if ($action->effect !== ActionEffect::Read) {
                     $this->audit->admit($action, $context, $executionId);
+                    $this->actors->refresh($context);
                     $this->authorizer->authorize($action, $context);
+                    $policy->authorize($input, $context);
                     $context->checkDeadline();
                 }
             };

@@ -63,3 +63,13 @@ Admission is bounded, with pruning and capacity-repair commands. Executing and
 unknown operations are retained for investigation. Resource versions and complete
 outcome reconciliation remain required; the synthetic addon does not establish
 those release guarantees.
+
+Native Eloquent authorization reads are pinned to primary user and role connections
+within the execution scope, restoring previous read routing on exit. Host transaction
+snapshots are refused. Custom repositories must supply current authoritative reads.
+`ActorScope::refresh` refreshes only its active context; the executor uses it before
+pre-execution policy checks and again after durable admission. Policy implementations
+must make fresh resource decisions on every invocation rather than retaining an
+authorization result from preparation. Credential revision binding invalidates an
+already authenticated context when its token secret changes; stable grant identity
+still permits replay with a newly authenticated replacement credential.

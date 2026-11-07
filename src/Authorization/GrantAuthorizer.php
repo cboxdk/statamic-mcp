@@ -12,16 +12,25 @@ use Cboxdk\StatamicMcp\Actions\ScopeRegistry;
 use Cboxdk\StatamicMcp\Auth\ScopeAvailability;
 use Cboxdk\StatamicMcp\Contracts\TokenStore;
 use Illuminate\Auth\Access\AuthorizationException;
+use Statamic\Auth\PermissionCache;
+use Statamic\Facades\Blink;
 use Statamic\Facades\Site;
 use Statamic\Facades\User;
 
 /** Required outer boundary. An addon policy may narrow this decision, never replace it. */
 final class GrantAuthorizer implements Authorizer
 {
-    public function __construct(private readonly TokenStore $tokens, private readonly ScopeAvailability $scopes, private readonly ScopeRegistry $registry) {}
+    public function __construct(private readonly TokenStore $tokens, private readonly ScopeAvailability $scopes, private readonly ScopeRegistry $registry, private readonly AuthoritativeAuthReads $reads) {}
 
     public function authorize(ActionDefinition $action, ExecutionContext $context): void
     {
+        $this->reads->run(fn () => $this->authorizeCurrent($action, $context));
+    }
+
+    private function authorizeCurrent(ActionDefinition $action, ExecutionContext $context): void
+    {
+        Blink::flush();
+        app(PermissionCache::class)->clear();
         $profile = config("statamic.mcp.profiles.{$context->transport}");
         if (! in_array($profile, ['read_only', 'editor', 'operator'], true)
             || $context->profile !== $profile || ! in_array($profile, $action->profiles, true)
@@ -33,6 +42,7 @@ final class GrantAuthorizer implements Authorizer
         // Always reload: the request's token DTO is not proof that a grant still exists.
         $grant = $context->credentialId === null ? null : $this->tokens->find($context->credentialId);
         if ($grant === null || $grant->isExpired() || $grant->userId !== $context->actorId
+            || $context->credentialRevision === null || ! hash_equals($grant->credentialRevision(), $context->credentialRevision)
             || $grant->capabilities === null || ! hash_equals($grant->capabilities->grantId, $context->grantId)
             || ! $grant->capabilities->permits($action)
             || array_diff($action->scopes, $grant->scopes) !== []) {

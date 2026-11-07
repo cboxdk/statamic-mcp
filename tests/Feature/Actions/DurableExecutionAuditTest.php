@@ -39,6 +39,7 @@ beforeEach(function () {
     $authorizer = Mockery::mock(Authorizer::class);
     $authorizer->shouldReceive('authorize');
     $actors = Mockery::mock(ActorScope::class);
+    $actors->shouldReceive('refresh');
     $actors->shouldReceive('run')->andReturnUsing(fn (ExecutionContext $context, Closure $callback): mixed => $callback());
     $this->executor = function (AuditStore $audit, ?LoggerInterface $logger = null) use ($registry, $authorizer, $actors): ActionExecutor {
         return new ActionExecutor($registry, $authorizer, app(SchemaValidator::class), new LifecycleObservers(new NullLogger),

@@ -46,6 +46,6 @@ final class ContextFactory
 
         return new ExecutionContext($token->userId, $token->capabilities->grantId,
             $site, $profile, $transport, $operationId ?? (string) Str::uuid(),
-            hrtime(true) + $timeout * 1_000_000_000, $token->id);
+            hrtime(true) + $timeout * 1_000_000_000, $token->id, $token->credentialRevision());
     }
 }

@@ -11,15 +11,20 @@ use Cboxdk\StatamicMcp\Actions\CapabilityRegistry;
 use Cboxdk\StatamicMcp\Actions\Contracts\ActionHandler;
 use Cboxdk\StatamicMcp\Actions\Contracts\ActionPolicy;
 use Cboxdk\StatamicMcp\Actions\Contracts\ActorScope;
+use Cboxdk\StatamicMcp\Actions\Contracts\OperationStore;
 use Cboxdk\StatamicMcp\Actions\ExecutionAudit;
 use Cboxdk\StatamicMcp\Actions\ExecutionContext;
 use Cboxdk\StatamicMcp\Actions\LifecycleObservers;
 use Cboxdk\StatamicMcp\Actions\Operations\FileOperationStore;
 use Cboxdk\StatamicMcp\Actions\Operations\OperationCoordinator;
+use Cboxdk\StatamicMcp\Actions\Operations\OperationState;
 use Cboxdk\StatamicMcp\Actions\SchemaValidator;
 use Cboxdk\StatamicMcp\Actions\ScopeRegistry;
+use Cboxdk\StatamicMcp\Actions\Transport\ContextFactory;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\Authorization\GrantAuthorizer;
+use Cboxdk\StatamicMcp\Contracts\AuditStore;
+use Cboxdk\StatamicMcp\Contracts\DurableAuditStore;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
 use Cboxdk\StatamicMcp\Testing\FakeLifecycleObserver;
 use Cboxdk\StatamicMcp\Tests\Concerns\InteractsWithOAuthConsent;
@@ -90,7 +95,7 @@ class GrantIntegrationTest extends TestCase
         $token = app(TokenService::class)->validateToken($exchange->json('access_token'));
         $this->assertSame(['fixture:status'], $token->scopes);
         $this->assertSame(['fixture/grants/read' => $this->definition()->fingerprint()], $token->capabilities->actions);
-        $context = new ExecutionContext($actor->id(), $token->capabilities->grantId, 'default', 'operator', 'http', 'read', hrtime(true) + 10_000_000_000, $token->id);
+        $context = new ExecutionContext($actor->id(), $token->capabilities->grantId, 'default', 'operator', 'http', 'read', hrtime(true) + 10_000_000_000, $token->id, $token->credentialRevision());
         $authorizer = app(GrantAuthorizer::class);
         $authorizer->authorize($this->definition(), $context);
         foreach ([$this->definition('new_action'), $this->definition('read', 2)] as $unapproved) {
@@ -108,7 +113,7 @@ class GrantIntegrationTest extends TestCase
         $renewed = app(TokenService::class)->validateToken($refresh->json('access_token'));
         $this->assertSame($token->capabilities->toStored(), $renewed->capabilities->toStored());
         $this->assertNotSame($token->id, $renewed->id);
-        $context = new ExecutionContext($actor->id(), $renewed->capabilities->grantId, 'default', 'operator', 'http', 'read', hrtime(true) + 10_000_000_000, $renewed->id);
+        $context = new ExecutionContext($actor->id(), $renewed->capabilities->grantId, 'default', 'operator', 'http', 'read', hrtime(true) + 10_000_000_000, $renewed->id, $renewed->credentialRevision());
         $actor->removeRole('integration-reader')->save();
         app(PermissionCache::class)->clear();
         $this->expectException(AuthorizationException::class);
@@ -129,7 +134,7 @@ class GrantIntegrationTest extends TestCase
         $snapshot = $registry->forScopes(['fixture:status']);
         $service = app(TokenService::class);
         $first = $service->createToken($actor->id(), 'First credential', ['fixture:status'], capabilities: $snapshot)['model'];
-        $context = new ExecutionContext($actor->id(), $snapshot->grantId, 'default', 'operator', 'http', 'same-write', hrtime(true) + 10_000_000_000, $first->id);
+        $context = new ExecutionContext($actor->id(), $snapshot->grantId, 'default', 'operator', 'http', 'same-write', hrtime(true) + 10_000_000_000, $first->id, $first->credentialRevision());
         $directory = storage_path('framework/testing/grant-rotation-' . bin2hex(random_bytes(8)));
         $events = new FakeLifecycleObserver;
         $executor = new ActionExecutor($registry, app(GrantAuthorizer::class),
@@ -146,7 +151,7 @@ class GrantIntegrationTest extends TestCase
             $this->assertSame(['ok' => true], $executor->execute($action->id(), [], $context));
             $service->revokeToken($first->id);
             $second = $service->createToken($actor->id(), 'Rotated credential', ['fixture:status'], capabilities: $snapshot)['model'];
-            $renewed = new ExecutionContext($actor->id(), $snapshot->grantId, 'default', 'operator', 'http', $operation->id, hrtime(true) + 10_000_000_000, $second->id);
+            $renewed = new ExecutionContext($actor->id(), $snapshot->grantId, 'default', 'operator', 'http', $operation->id, hrtime(true) + 10_000_000_000, $second->id, $second->credentialRevision());
             $this->assertSame(['ok' => true], $executor->execute($action->id(), [], $renewed));
             $this->assertSame(1, GrantFixtureHandler::$calls);
             $this->assertSame(['execution.started', 'execution.completed', 'execution.replayed'],
@@ -160,6 +165,126 @@ class GrantIntegrationTest extends TestCase
         } finally {
             File::deleteDirectory($directory);
         }
+    }
+
+    public function test_secret_rotation_invalidates_authenticated_snapshots_but_preserves_current_grant_replay(): void
+    {
+        [$action, $token, $context, $store, $directory] = $this->secretRotationFixture();
+        try {
+            $executor = app(ActionExecutor::class);
+            $operation = $executor->prepare($action->id(), [], $context);
+            $context = $context->withOperationId($operation->id);
+            $this->assertSame(['ok' => true], $executor->execute($action->id(), [], $context));
+            $rotated = app(TokenService::class)->regenerateToken($token->id)['model'];
+            $this->assertSame($token->id, $rotated->id);
+            $this->assertSame($token->capabilities->grantId, $rotated->capabilities->grantId);
+            try {
+                $executor->execute($action->id(), [], $context);
+                $this->fail('An old authenticated credential must not survive regeneration.');
+            } catch (AuthorizationException) {
+                $this->assertSame(1, GrantFixtureHandler::$calls);
+            }
+            request()->attributes->set('mcp_token', $rotated);
+            $fresh = app(ContextFactory::class)->create('default', $operation->id);
+            $this->assertSame(['ok' => true], $executor->execute($action->id(), [], $fresh));
+            $this->assertSame(1, GrantFixtureHandler::$calls);
+            $this->assertStringNotContainsString($fresh->credentialRevision, app(OperationCoordinator::class)->intent($store->find($operation->id))->toJson());
+        } finally {
+            File::deleteDirectory($directory);
+        }
+    }
+
+    public function test_secret_rotation_during_durable_admission_refuses_the_handler(): void
+    {
+        [$action, $token, $context, $store, $directory] = $this->secretRotationFixture();
+        $audit = \Mockery::mock(DurableAuditStore::class);
+        $admissions = 0;
+        $audit->shouldReceive('writeDurable')->andReturnUsing(function (array $entry) use ($token, &$admissions): void {
+            if ($entry['status'] === 'admitted') {
+                $admissions++;
+                app(TokenService::class)->regenerateToken($token->id);
+            }
+        });
+        $this->app->instance(AuditStore::class, $audit);
+        try {
+            $executor = app(ActionExecutor::class);
+            $operation = $executor->prepare($action->id(), [], $context);
+            try {
+                $executor->execute($action->id(), [], $context->withOperationId($operation->id));
+                $this->fail('Regeneration must stop the handler before effects.');
+            } catch (AuthorizationException) {
+                $this->assertSame(1, $admissions);
+                $this->assertSame(0, GrantFixtureHandler::$calls);
+                $this->assertSame(OperationState::FailedNoEffect, $store->find($operation->id)->state);
+            }
+        } finally {
+            File::deleteDirectory($directory);
+        }
+    }
+
+    public function test_object_permission_revocation_during_admission_refuses_the_handler(): void
+    {
+        [$action, $token, $context, $store, $directory] = $this->secretRotationFixture();
+        config(['statamic.editions.pro' => true]);
+        Role::make()->handle('keep-grant')->permissions(['view mcp dashboard'])->save();
+        Role::make()->handle('target-editor')->permissions(['edit target entries'])->save();
+        $actor = User::find($context->actorId);
+        $actor->makeSuper(false)->assignRole('keep-grant')->assignRole('target-editor')->save();
+        $policy = \Mockery::mock(ActionPolicy::class);
+        $policy->shouldReceive('authorize')->andReturnUsing(function (): void {
+            if (! User::current()->hasPermission('edit target entries')) {
+                throw new AuthorizationException('Target permission was revoked.');
+            }
+        });
+        $policy->shouldReceive('filterResult')->andReturnUsing(fn ($input, $result) => $result);
+        $this->app->instance(GrantFixturePolicy::class, $policy);
+        $audit = \Mockery::mock(DurableAuditStore::class);
+        $audit->shouldReceive('writeDurable')->andReturnUsing(function (array $entry) use ($context): void {
+            if ($entry['status'] === 'admitted') {
+                $changed = clone User::find($context->actorId);
+                $changed->removeRole('target-editor')->save();
+            }
+        });
+        $this->app->instance(AuditStore::class, $audit);
+        try {
+            $executor = app(ActionExecutor::class);
+            $operation = $executor->prepare($action->id(), [], $context);
+            try {
+                $executor->execute($action->id(), [], $context->withOperationId($operation->id));
+                $this->fail('Revoked target access must prevent the write.');
+            } catch (AuthorizationException) {
+                $this->assertSame(0, GrantFixtureHandler::$calls);
+                $this->assertSame(OperationState::FailedNoEffect, $store->find($operation->id)->state);
+            }
+        } finally {
+            File::deleteDirectory($directory);
+        }
+    }
+
+    private function secretRotationFixture(): array
+    {
+        $this->deploy();
+        config(['statamic.mcp.security.force_web_mode' => true]);
+        request()->headers->set('X-MCP-Remote', 'true');
+        $actor = User::make()->email('secret-rotation@example.test')->makeSuper();
+        $actor->save();
+        $action = new ActionDefinition('fixture/grants', 'edit', 1, 'Edit once.', ActionEffect::Edit,
+            ['fixture:status'], ['type' => 'object', 'additionalProperties' => false],
+            $this->definition()->outputSchema, GrantFixtureHandler::class, GrantFixturePolicy::class);
+        $registry = new CapabilityRegistry(app(ScopeRegistry::class));
+        $registry->register($action);
+        $registry->freeze();
+        $this->app->instance(CapabilityRegistry::class, $registry);
+        $token = app(TokenService::class)->createToken($actor->id(), 'Rotate secret', ['fixture:status'],
+            capabilities: $registry->forScopes(['fixture:status']))['model'];
+        request()->attributes->set('mcp_token', $token);
+        $context = app(ContextFactory::class)->create('default');
+        $directory = storage_path('framework/testing/secret-rotation-' . bin2hex(random_bytes(8)));
+        $store = new FileOperationStore($directory);
+        $this->app->instance(OperationStore::class, $store);
+        GrantFixtureHandler::$calls = 0;
+
+        return [$action, $token, $context, $store, $directory];
     }
 
     public function test_registered_scopes_can_be_configured_as_oauth_defaults(): void
@@ -214,7 +339,7 @@ class GrantIntegrationTest extends TestCase
         $actor->save();
         $snapshot = $registry->forScopes(['fixture:status']);
         $token = app(TokenService::class)->createToken($actor->id(), 'Scope binding', ['fixture:status'], capabilities: $snapshot)['model'];
-        $context = new ExecutionContext($actor->id(), $snapshot->grantId, 'default', 'operator', 'http', 'read', hrtime(true) + 10_000_000_000, $token->id);
+        $context = new ExecutionContext($actor->id(), $snapshot->grantId, 'default', 'operator', 'http', 'read', hrtime(true) + 10_000_000_000, $token->id, $token->credentialRevision());
         app(GrantAuthorizer::class)->authorize($this->definition(), $context);
         $changedScopes = new ScopeRegistry;
         $changedScopes->register('fixture/grants', 'fixture:status', 'Read integration status', ['access cp']);

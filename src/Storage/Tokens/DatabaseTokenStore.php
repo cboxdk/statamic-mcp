@@ -41,14 +41,14 @@ class DatabaseTokenStore extends BaseTokenStore implements TokenStore
 
     public function findByHash(string $tokenHash): ?McpTokenData
     {
-        $model = McpToken::where('token', $tokenHash)->first();
+        $model = McpToken::query()->useWritePdo()->where('token', $tokenHash)->first();
 
         return $model !== null ? $this->toData($model) : null;
     }
 
     public function find(string $id): ?McpTokenData
     {
-        $model = McpToken::find($id);
+        $model = McpToken::query()->useWritePdo()->find($id);
 
         return $model !== null ? $this->toData($model) : null;
     }
@@ -58,7 +58,7 @@ class DatabaseTokenStore extends BaseTokenStore implements TokenStore
      */
     public function update(string $id, array $data): ?McpTokenData
     {
-        $model = McpToken::find($id);
+        $model = McpToken::query()->useWritePdo()->find($id);
 
         if ($model === null) {
             return null;
@@ -107,7 +107,7 @@ class DatabaseTokenStore extends BaseTokenStore implements TokenStore
      */
     public function listForUser(string $userId): Collection
     {
-        return McpToken::where('user_id', $userId)
+        return McpToken::query()->useWritePdo()->where('user_id', $userId)
             ->orderByDesc('created_at')
             ->get()
             ->map(fn (McpToken $model): McpTokenData => $this->toData($model))
@@ -119,7 +119,7 @@ class DatabaseTokenStore extends BaseTokenStore implements TokenStore
      */
     public function listAll(): Collection
     {
-        return McpToken::orderByDesc('created_at')
+        return McpToken::query()->useWritePdo()->orderByDesc('created_at')
             ->get()
             ->map(fn (McpToken $model): McpTokenData => $this->toData($model))
             ->values();

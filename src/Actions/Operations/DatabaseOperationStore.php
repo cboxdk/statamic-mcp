@@ -28,7 +28,7 @@ final class DatabaseOperationStore implements OperationStore
         if ($operation->state !== OperationState::Prepared || $operation->version !== 1) {
             throw new \InvalidArgumentException('New operations must be prepared at version one.');
         }
-        if ($this->connection->table('mcp_operations')->where('id', $operation->id)->exists()) {
+        if ($this->connection->table('mcp_operations')->useWritePdo()->where('id', $operation->id)->exists()) {
             return false;
         }
         try {
@@ -57,7 +57,7 @@ final class DatabaseOperationStore implements OperationStore
 
     private function findCommitted(string $id): ?Operation
     {
-        $payload = $this->connection->table('mcp_operations')->where('id', $id)->value('payload');
+        $payload = $this->connection->table('mcp_operations')->useWritePdo()->where('id', $id)->value('payload');
         if ($payload === null) {
             return null;
         }
@@ -92,7 +92,7 @@ final class DatabaseOperationStore implements OperationStore
 
         // Compare bytes in PHP: database text collations may ignore case or spaces.
         // The monotonically increasing version makes the subsequent claim atomic.
-        $stored = $this->connection->table('mcp_operations')->where('id', $expected->id)->value('payload');
+        $stored = $this->connection->table('mcp_operations')->useWritePdo()->where('id', $expected->id)->value('payload');
         if (! is_string($stored) || ! hash_equals($this->encode($expected), $stored)) {
             return false;
         }

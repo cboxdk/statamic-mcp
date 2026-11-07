@@ -16,10 +16,12 @@ final readonly class ExecutionContext
         public string $operationId,
         public int $deadlineNanoseconds,
         public ?string $credentialId = null,
+        public ?string $credentialRevision = null,
     ) {
         if (strlen($operationId) > 128 || strlen($actorId) > 255 || strlen($grantId) > 255
             || $actorId === '' || $grantId === '' || $site === '' || $operationId === ''
-            || ! in_array($transport, ['http', 'stdio'], true)) {
+            || ! in_array($transport, ['http', 'stdio'], true)
+            || ($credentialRevision !== null && ! preg_match('/^[a-f0-9]{64}$/D', $credentialRevision))) {
             throw new \InvalidArgumentException('Invalid execution context.');
         }
     }
@@ -27,7 +29,7 @@ final readonly class ExecutionContext
     public function withOperationId(string $operationId): self
     {
         return new self($this->actorId, $this->grantId, $this->site, $this->profile,
-            $this->transport, $operationId, $this->deadlineNanoseconds, $this->credentialId);
+            $this->transport, $operationId, $this->deadlineNanoseconds, $this->credentialId, $this->credentialRevision);
     }
 
     public function checkDeadline(): void

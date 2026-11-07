@@ -33,6 +33,12 @@ class McpTokenData
         public readonly ?CapabilitySnapshot $capabilities = null,
     ) {}
 
+    /** Transport-private credential revision; never include in events or durable intent. */
+    public function credentialRevision(): string
+    {
+        return hash('sha256', 'mcp-credential:' . $this->id . ':' . $this->tokenHash);
+    }
+
     /**
      * Check whether this token has expired.
      */

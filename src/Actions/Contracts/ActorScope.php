@@ -20,4 +20,7 @@ interface ActorScope
      * @return T
      */
     public function run(ExecutionContext $context, Closure $callback): mixed;
+
+    /** Reload the current actor and permission caches inside this context's active scope. */
+    public function refresh(ExecutionContext $context): void;
 }
