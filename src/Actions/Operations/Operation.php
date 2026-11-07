@@ -14,6 +14,7 @@ final readonly class Operation
         public int $expiresAt,
         public ?string $encryptedResult = null,
         public ?string $encryptedIntent = null,
+        public ?string $encryptedReconciliation = null,
     ) {
         if (! preg_match('/^[a-f0-9]{64}$/D', $id) || ! preg_match('/^[a-f0-9]{64}$/D', $bindingDigest)
             || $version < 1 || $expiresAt < 1 || ($encryptedResult !== null && strlen($encryptedResult) > 2_097_152)) {
@@ -22,13 +23,20 @@ final readonly class Operation
         if ($encryptedIntent !== null && ($encryptedIntent === '' || strlen($encryptedIntent) > 32768)) {
             throw new \InvalidArgumentException('Invalid encrypted operation intent.');
         }
+        if (($state === OperationState::Reconciled) !== ($encryptedReconciliation !== null)
+            || ($encryptedReconciliation !== null && ($encryptedReconciliation === '' || strlen($encryptedReconciliation) > 32768))) {
+            throw new \InvalidArgumentException('A reconciled operation requires bounded recovery evidence.');
+        }
         if ($encryptedResult !== null && $state !== OperationState::Succeeded) {
             throw new \InvalidArgumentException('Only completed operations may contain a result.');
         }
     }
 
-    public function transition(OperationState $next, ?string $encryptedResult = null): self
+    public function transition(OperationState $next, ?string $encryptedResult = null, ?string $encryptedReconciliation = null, ?int $retainUntil = null): self
     {
+        if ($retainUntil !== null && ($next !== OperationState::Reconciled || $retainUntil < $this->expiresAt)) {
+            throw new \LogicException('Retention may only be extended for a reconciled operation.');
+        }
         if (! $this->state->canTransitionTo($next)) {
             throw new \LogicException('Invalid operation transition.');
         }
@@ -36,14 +44,20 @@ final readonly class Operation
             throw new \LogicException('Expired operation cannot start.');
         }
 
-        return new self($this->id, $this->bindingDigest, $next, $this->version + 1, $this->expiresAt, $encryptedResult, $this->encryptedIntent);
+        return new self($this->id, $this->bindingDigest, $next, $this->version + 1, $retainUntil ?? $this->expiresAt, $encryptedResult, $this->encryptedIntent, $encryptedReconciliation);
     }
 
-    /** @return array{id: string, binding: string, state: string, version: int, expires_at: int, result: ?string, intent: ?string} */
+    /** @return array{id: string, binding: string, state: string, version: int, expires_at: int, result: ?string, intent: ?string, reconciliation?: string} */
     public function toArray(): array
     {
-        return ['id' => $this->id, 'binding' => $this->bindingDigest, 'state' => $this->state->value,
+        $data = ['id' => $this->id, 'binding' => $this->bindingDigest, 'state' => $this->state->value,
             'version' => $this->version, 'expires_at' => $this->expiresAt, 'result' => $this->encryptedResult, 'intent' => $this->encryptedIntent];
+        // Preserve the exact serialization of existing v4 prepared records.
+        if ($this->encryptedReconciliation !== null) {
+            $data['reconciliation'] = $this->encryptedReconciliation;
+        }
+
+        return $data;
     }
 
     public static function fromJson(string $json): self
@@ -53,10 +67,11 @@ final readonly class Operation
             || ! is_string($value['state'] ?? null) || ! is_int($value['version'] ?? null)
             || ! is_int($value['expires_at'] ?? null) || ! array_key_exists('result', $value)
             || (! is_string($value['result']) && $value['result'] !== null)
-            || (isset($value['intent']) && ! is_string($value['intent']))) {
+            || (isset($value['intent']) && ! is_string($value['intent']))
+            || (isset($value['reconciliation']) && ! is_string($value['reconciliation']))) {
             throw new \RuntimeException('Corrupt operation record.');
         }
 
-        return new self($value['id'], $value['binding'], OperationState::from($value['state']), $value['version'], $value['expires_at'], $value['result'], $value['intent'] ?? null);
+        return new self($value['id'], $value['binding'], OperationState::from($value['state']), $value['version'], $value['expires_at'], $value['result'], $value['intent'] ?? null, $value['reconciliation'] ?? null);
     }
 }

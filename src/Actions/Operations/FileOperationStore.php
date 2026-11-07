@@ -47,7 +47,12 @@ final class FileOperationStore implements OperationStore
     {
         if ($next->id !== $expected->id || $next->bindingDigest !== $expected->bindingDigest
             || $next->encryptedIntent !== $expected->encryptedIntent
-            || $next->expiresAt !== $expected->expiresAt || $next->version !== $expected->version + 1
+            || ($next->encryptedReconciliation !== $expected->encryptedReconciliation
+                && ! ($expected->state === OperationState::OutcomeUnknown && $next->state === OperationState::Reconciled))
+            || ($next->expiresAt !== $expected->expiresAt
+                && ! ($expected->state === OperationState::OutcomeUnknown && $next->state === OperationState::Reconciled
+                    && $next->expiresAt >= $expected->expiresAt))
+            || $next->version !== $expected->version + 1
             || ! $expected->state->canTransitionTo($next->state)) {
             throw new \InvalidArgumentException('Invalid operation transition binding.');
         }

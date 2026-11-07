@@ -5,13 +5,13 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Actions\Operations;
 
 use Cboxdk\StatamicMcp\Actions\Contracts\OperationStore;
-use Illuminate\Database\ConnectionInterface;
+use Illuminate\Database\Connection;
 use Illuminate\Database\UniqueConstraintViolationException;
 
 /** Shared SQL storage; transitions use one compare-and-set statement. */
 final class DatabaseOperationStore implements OperationStore
 {
-    public function __construct(private readonly ConnectionInterface $connection, private readonly int $maxRecords = 256)
+    public function __construct(private readonly Connection $connection, private readonly int $maxRecords = 256)
     {
         if ($maxRecords < 1) {
             throw new \InvalidArgumentException('Operation capacity must be positive.');
@@ -19,6 +19,11 @@ final class DatabaseOperationStore implements OperationStore
     }
 
     public function create(Operation $operation): bool
+    {
+        return $this->committed(fn (): bool => $this->createCommitted($operation));
+    }
+
+    private function createCommitted(Operation $operation): bool
     {
         if ($operation->state !== OperationState::Prepared || $operation->version !== 1) {
             throw new \InvalidArgumentException('New operations must be prepared at version one.');
@@ -47,6 +52,11 @@ final class DatabaseOperationStore implements OperationStore
 
     public function find(string $id): ?Operation
     {
+        return $this->committed(fn (): ?Operation => $this->findCommitted($id));
+    }
+
+    private function findCommitted(string $id): ?Operation
+    {
         $payload = $this->connection->table('mcp_operations')->where('id', $id)->value('payload');
         if ($payload === null) {
             return null;
@@ -60,9 +70,19 @@ final class DatabaseOperationStore implements OperationStore
 
     public function transition(Operation $expected, Operation $next): bool
     {
+        return $this->committed(fn (): bool => $this->transitionCommitted($expected, $next));
+    }
+
+    private function transitionCommitted(Operation $expected, Operation $next): bool
+    {
         if ($next->id !== $expected->id || $next->bindingDigest !== $expected->bindingDigest
             || $next->encryptedIntent !== $expected->encryptedIntent
-            || $next->expiresAt !== $expected->expiresAt || $next->version !== $expected->version + 1
+            || ($next->encryptedReconciliation !== $expected->encryptedReconciliation
+                && ! ($expected->state === OperationState::OutcomeUnknown && $next->state === OperationState::Reconciled))
+            || ($next->expiresAt !== $expected->expiresAt
+                && ! ($expected->state === OperationState::OutcomeUnknown && $next->state === OperationState::Reconciled
+                    && $next->expiresAt >= $expected->expiresAt))
+            || $next->version !== $expected->version + 1
             || ! $expected->state->canTransitionTo($next->state)) {
             throw new \InvalidArgumentException('Invalid operation transition binding.');
         }
@@ -80,10 +100,16 @@ final class DatabaseOperationStore implements OperationStore
         return $this->connection->table('mcp_operations')->where('id', $expected->id)
             ->where('version', $expected->version)->update([
                 'version' => $next->version, 'payload' => $this->encode($next), 'state' => $next->state->value,
+                'expires_at' => $next->expiresAt,
             ]) === 1;
     }
 
     public function prune(int $limit = 100): int
+    {
+        return $this->committed(fn (): int => $this->pruneCommitted($limit));
+    }
+
+    private function pruneCommitted(int $limit = 100): int
     {
         if ($limit < 1 || $limit > 1000) {
             throw new \InvalidArgumentException('Prune batch must contain 1–1000 records.');
@@ -111,6 +137,11 @@ final class DatabaseOperationStore implements OperationStore
 
     public function reconcileCapacity(): int
     {
+        return $this->committed(fn (): int => $this->reconcileCapacityCommitted());
+    }
+
+    private function reconcileCapacityCommitted(): int
+    {
         return $this->connection->transaction(function (): int {
             $this->connection->table('mcp_operation_capacity')->where('id', 1)->increment('record_count', 0);
             if (! $this->connection->table('mcp_operation_capacity')->where('id', 1)->exists()) {
@@ -121,6 +152,32 @@ final class DatabaseOperationStore implements OperationStore
 
             return $count;
         }, 3);
+    }
+
+    /**
+     * Never acknowledge a claim that unrelated host work can roll back.
+     * Query listeners may begin a transaction too, hence the second check.
+     *
+     * @template T
+     *
+     * @param  callable(): T  $callback
+     *
+     * @return T
+     */
+    private function committed(callable $callback): mixed
+    {
+        $this->requireCommittedConnection();
+        $result = $callback();
+        $this->requireCommittedConnection();
+
+        return $result;
+    }
+
+    private function requireCommittedConnection(): void
+    {
+        if ($this->connection->transactionLevel() !== 0 || $this->connection->getPdo()->inTransaction()) {
+            throw new \LogicException('Operation storage requires an independent committed connection.');
+        }
     }
 
     private function encode(Operation $operation): string

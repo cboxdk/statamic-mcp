@@ -13,6 +13,7 @@ enum OperationState: string
     case Succeeded = 'succeeded';
     case FailedNoEffect = 'failed_no_effect';
     case OutcomeUnknown = 'outcome_unknown';
+    case Reconciled = 'reconciled';
     case Expired = 'expired';
     case Cancelled = 'cancelled';
 
@@ -23,6 +24,7 @@ enum OperationState: string
             self::AwaitingApproval => [self::Ready, self::Expired, self::Cancelled],
             self::Ready => [self::Executing, self::Expired, self::Cancelled],
             self::Executing => [self::Succeeded, self::FailedNoEffect, self::OutcomeUnknown],
+            self::OutcomeUnknown => [self::Reconciled],
             default => [],
         }, true);
     }

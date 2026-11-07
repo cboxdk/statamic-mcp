@@ -56,7 +56,8 @@ class DatabaseAuditStore implements DurableAuditStore
 
     private function requireCommittedConnection(): void
     {
-        if ((new McpAuditEntry)->getConnection()->transactionLevel() !== 0) {
+        $connection = (new McpAuditEntry)->getConnection();
+        if ($connection->transactionLevel() !== 0 || $connection->getPdo()->inTransaction()) {
             throw new \LogicException('Durable audit cannot join an uncommitted transaction.');
         }
     }
