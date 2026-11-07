@@ -17,6 +17,7 @@ use Cboxdk\StatamicMcp\OAuth\Models\OAuthCodeModel;
 use Cboxdk\StatamicMcp\OAuth\Models\OAuthRefreshTokenModel;
 use Cboxdk\StatamicMcp\OAuth\OAuthAuthCode;
 use Cboxdk\StatamicMcp\OAuth\OAuthClient;
+use Cboxdk\StatamicMcp\Support\CommittedDatabase;
 
 /**
  * Database-backed OAuth driver using Eloquent models.
@@ -32,52 +33,58 @@ class DatabaseOAuthDriver implements OAuthDriver, RevokesUserGrants
     /** @param array<int, string> $redirectUris */
     public function registerClient(string $clientName, array $redirectUris, ?string $registeredIp = null): OAuthClient
     {
-        foreach ($redirectUris as $uri) {
-            if (! $this->validateRedirectUri($uri)) {
+        return CommittedDatabase::run((new OAuthClientModel)->getConnection(), function () use ($clientName, $redirectUris, $registeredIp): OAuthClient {
+            foreach ($redirectUris as $uri) {
+                if (! $this->validateRedirectUri($uri)) {
+                    throw new OAuthException(
+                        'invalid_request',
+                        "Invalid redirect URI: {$uri}. Must be an absolute HTTPS URL (http allowed for localhost/127.0.0.1) with no fragment.",
+                    );
+                }
+            }
+
+            /** @var int $maxClients */
+            $maxClients = config('statamic.mcp.oauth.max_clients', 50);
+            $count = OAuthClientModel::query()->useWritePdo()->count();
+
+            if ($count >= $maxClients) {
                 throw new OAuthException(
                     'invalid_request',
-                    "Invalid redirect URI: {$uri}. Must be an absolute HTTPS URL (http allowed for localhost/127.0.0.1) with no fragment.",
+                    'Maximum client registrations exceeded',
                 );
             }
-        }
 
-        /** @var int $maxClients */
-        $maxClients = config('statamic.mcp.oauth.max_clients', 50);
-        $count = OAuthClientModel::count();
+            $clientId = 'mcp_' . bin2hex(random_bytes(16));
 
-        if ($count >= $maxClients) {
-            throw new OAuthException(
-                'invalid_request',
-                'Maximum client registrations exceeded',
-            );
-        }
+            $model = OAuthClientModel::create([
+                'client_id' => $clientId,
+                'client_name' => $clientName,
+                'redirect_uris' => $redirectUris,
+                'registered_ip' => $registeredIp,
+            ]);
 
-        $clientId = 'mcp_' . bin2hex(random_bytes(16));
-
-        $model = OAuthClientModel::create([
-            'client_id' => $clientId,
-            'client_name' => $clientName,
-            'redirect_uris' => $redirectUris,
-            'registered_ip' => $registeredIp,
-        ]);
-
-        return $this->modelToClient($model);
+            return $this->modelToClient($model);
+        });
     }
 
     public function countClientsByIp(string $ip): int
     {
-        return (int) OAuthClientModel::where('registered_ip', $ip)->count();
+        return CommittedDatabase::run((new OAuthClientModel)->getConnection(), function () use ($ip): int {
+            return (int) OAuthClientModel::query()->useWritePdo()->where('registered_ip', $ip)->count();
+        });
     }
 
     public function findClient(string $clientId): ?OAuthClient
     {
-        $model = OAuthClientModel::find($clientId);
+        return CommittedDatabase::run((new OAuthClientModel)->getConnection(), function () use ($clientId): ?OAuthClient {
+            $model = OAuthClientModel::query()->useWritePdo()->find($clientId);
 
-        if (! $model instanceof OAuthClientModel) {
-            return null;
-        }
+            if (! $model instanceof OAuthClientModel) {
+                return null;
+            }
 
-        return $this->modelToClient($model);
+            return $this->modelToClient($model);
+        });
     }
 
     /** @param array<int, string> $scopes */
@@ -90,26 +97,28 @@ class DatabaseOAuthDriver implements OAuthDriver, RevokesUserGrants
         string $redirectUri,
         ?CapabilitySnapshot $capabilities = null,
     ): string {
-        $code = bin2hex(random_bytes(32));
-        $codeHash = hash('sha256', $code);
+        return CommittedDatabase::run((new OAuthClientModel)->getConnection(), function () use ($clientId, $userId, $scopes, $codeChallenge, $codeChallengeMethod, $redirectUri, $capabilities): string {
+            $code = bin2hex(random_bytes(32));
+            $codeHash = hash('sha256', $code);
 
-        /** @var int $codeTtl */
-        $codeTtl = config('statamic.mcp.oauth.code_ttl', 600);
+            /** @var int $codeTtl */
+            $codeTtl = config('statamic.mcp.oauth.code_ttl', 600);
 
-        OAuthCodeModel::create([
-            'code' => $codeHash,
-            'client_id' => $clientId,
-            'user_id' => $userId,
-            'scopes' => $scopes,
-            'capabilities' => $capabilities?->toStored(),
-            'code_challenge' => $codeChallenge,
-            'code_challenge_method' => $codeChallengeMethod,
-            'redirect_uri' => $redirectUri,
-            'expires_at' => Carbon::now()->addSeconds($codeTtl),
-            'used' => false,
-        ]);
+            OAuthCodeModel::create([
+                'code' => $codeHash,
+                'client_id' => $clientId,
+                'user_id' => $userId,
+                'scopes' => $scopes,
+                'capabilities' => $capabilities?->toStored(),
+                'code_challenge' => $codeChallenge,
+                'code_challenge_method' => $codeChallengeMethod,
+                'redirect_uri' => $redirectUri,
+                'expires_at' => Carbon::now()->addSeconds($codeTtl),
+                'used' => false,
+            ]);
 
-        return $code;
+            return $code;
+        });
     }
 
     public function exchangeCode(
@@ -118,78 +127,82 @@ class DatabaseOAuthDriver implements OAuthDriver, RevokesUserGrants
         string $clientId,
         string $redirectUri,
     ): OAuthAuthCode {
-        $codeHash = hash('sha256', $code);
+        return CommittedDatabase::run((new OAuthClientModel)->getConnection(), function () use ($code, $codeVerifier, $clientId, $redirectUri): OAuthAuthCode {
+            $codeHash = hash('sha256', $code);
 
-        // Atomic mark-as-used: only consume the code if client_id, redirect_uri,
-        // and expiry all match — preventing an attacker from burning a code they
-        // possess without also knowing the correct client binding.
-        $affected = OAuthCodeModel::where('code', $codeHash)
-            ->where('used', false)
-            ->where('client_id', $clientId)
-            ->where('redirect_uri', $redirectUri)
-            ->where('expires_at', '>', now())
-            ->update(['used' => true]);
+            // Atomic mark-as-used: only consume the code if client_id, redirect_uri,
+            // and expiry all match — preventing an attacker from burning a code they
+            // possess without also knowing the correct client binding.
+            $affected = OAuthCodeModel::query()->useWritePdo()->where('code', $codeHash)
+                ->where('used', false)
+                ->where('client_id', $clientId)
+                ->where('redirect_uri', $redirectUri)
+                ->where('expires_at', '>', now())
+                ->update(['used' => true]);
 
-        if ($affected === 0) {
-            // Fetch the record to return a specific, meaningful error.
-            $codeRecord = OAuthCodeModel::where('code', $codeHash)->first();
+            if ($affected === 0) {
+                // Fetch the record to return a specific, meaningful error.
+                $codeRecord = OAuthCodeModel::query()->useWritePdo()->where('code', $codeHash)->first();
 
-            if (! $codeRecord instanceof OAuthCodeModel) {
+                if (! $codeRecord instanceof OAuthCodeModel) {
+                    throw new OAuthException('invalid_grant', 'Authorization code not found');
+                }
+
+                if ($codeRecord->used) {
+                    throw new OAuthException('invalid_grant', 'Authorization code has already been used');
+                }
+
+                if ($codeRecord->expires_at->isPast()) {
+                    throw new OAuthException('invalid_grant', 'Authorization code has expired');
+                }
+
+                if ($codeRecord->client_id !== $clientId) {
+                    throw new OAuthException('invalid_client', 'Client ID mismatch');
+                }
+
+                throw new OAuthException('invalid_request', 'Redirect URI mismatch');
+            }
+
+            // Fetch the consumed record for PKCE verification
+            $model = OAuthCodeModel::query()->useWritePdo()->where('code', $codeHash)->first();
+
+            if (! $model instanceof OAuthCodeModel) {
                 throw new OAuthException('invalid_grant', 'Authorization code not found');
             }
 
-            if ($codeRecord->used) {
-                throw new OAuthException('invalid_grant', 'Authorization code has already been used');
+            // Note: expiry, client_id, and redirect_uri were already validated atomically
+            // in the UPDATE WHERE clause above. Only PKCE remains to check.
+
+            // PKCE verification — only S256 is supported
+            if ($model->code_challenge_method !== 'S256') {
+                throw new OAuthException('invalid_request', 'Unsupported code challenge method: ' . $model->code_challenge_method);
             }
 
-            if ($codeRecord->expires_at->isPast()) {
-                throw new OAuthException('invalid_grant', 'Authorization code has expired');
+            $computedChallenge = rtrim(strtr(base64_encode(hash('sha256', $codeVerifier, true)), '+/', '-_'), '=');
+
+            if (! hash_equals($model->code_challenge, $computedChallenge)) {
+                throw new OAuthException('invalid_request', 'PKCE verification failed');
             }
 
-            if ($codeRecord->client_id !== $clientId) {
-                throw new OAuthException('invalid_client', 'Client ID mismatch');
-            }
-
-            throw new OAuthException('invalid_request', 'Redirect URI mismatch');
-        }
-
-        // Fetch the consumed record for PKCE verification
-        $model = OAuthCodeModel::where('code', $codeHash)->first();
-
-        if (! $model instanceof OAuthCodeModel) {
-            throw new OAuthException('invalid_grant', 'Authorization code not found');
-        }
-
-        // Note: expiry, client_id, and redirect_uri were already validated atomically
-        // in the UPDATE WHERE clause above. Only PKCE remains to check.
-
-        // PKCE verification — only S256 is supported
-        if ($model->code_challenge_method !== 'S256') {
-            throw new OAuthException('invalid_request', 'Unsupported code challenge method: ' . $model->code_challenge_method);
-        }
-
-        $computedChallenge = rtrim(strtr(base64_encode(hash('sha256', $codeVerifier, true)), '+/', '-_'), '=');
-
-        if (! hash_equals($model->code_challenge, $computedChallenge)) {
-            throw new OAuthException('invalid_request', 'PKCE verification failed');
-        }
-
-        return new OAuthAuthCode(
-            clientId: $model->client_id,
-            userId: $model->user_id,
-            scopes: $model->scopes,
-            redirectUri: $model->redirect_uri,
-            capabilities: CapabilitySnapshot::fromStored($model->capabilities),
-        );
+            return new OAuthAuthCode(
+                clientId: $model->client_id,
+                userId: $model->user_id,
+                scopes: $model->scopes,
+                redirectUri: $model->redirect_uri,
+                capabilities: CapabilitySnapshot::fromStored($model->capabilities),
+            );
+        });
     }
 
     /** @param array<int, string> $scopes */
     public function createRefreshToken(string $userId, string $clientId, array $scopes, ?CapabilitySnapshot $capabilities = null): string
     {
-        /** @var int $refreshTtl */
-        $refreshTtl = config('statamic.mcp.oauth.refresh_token_ttl', 2592000);
+        return CommittedDatabase::run((new OAuthClientModel)->getConnection(), function () use ($userId, $clientId, $scopes, $capabilities): string {
+            /** @var int $refreshTtl */
+            $refreshTtl = config('statamic.mcp.oauth.refresh_token_ttl', 2592000);
 
-        return $this->issueRefreshToken($userId, $clientId, $scopes, Carbon::now()->addSeconds($refreshTtl), $capabilities);
+            return $this->issueRefreshToken($userId, $clientId, $scopes, Carbon::now()->addSeconds($refreshTtl), $capabilities);
+        });
     }
 
     /** @param array<int, string> $scopes */
@@ -213,120 +226,130 @@ class DatabaseOAuthDriver implements OAuthDriver, RevokesUserGrants
 
     public function exchangeRefreshToken(string $refreshToken, string $clientId): OAuthAuthCode
     {
-        $tokenHash = hash('sha256', $refreshToken);
+        return CommittedDatabase::run((new OAuthClientModel)->getConnection(), function () use ($refreshToken, $clientId): OAuthAuthCode {
+            $tokenHash = hash('sha256', $refreshToken);
 
-        // Atomic mark-as-used: only consume the token if client_id and expiry
-        // match — preventing a token from being burned by the wrong client.
-        $affected = OAuthRefreshTokenModel::where('token_hash', $tokenHash)
-            ->where('used', false)
-            ->where('client_id', $clientId)
-            ->where('expires_at', '>', now())
-            ->update(['used' => true]);
+            // Atomic mark-as-used: only consume the token if client_id and expiry
+            // match — preventing a token from being burned by the wrong client.
+            $affected = OAuthRefreshTokenModel::query()->useWritePdo()->where('token_hash', $tokenHash)
+                ->where('used', false)
+                ->where('client_id', $clientId)
+                ->where('expires_at', '>', now())
+                ->update(['used' => true]);
 
-        if ($affected === 0) {
-            // Fetch the record to return a specific, meaningful error.
-            $tokenRecord = OAuthRefreshTokenModel::where('token_hash', $tokenHash)->first();
+            if ($affected === 0) {
+                // Fetch the record to return a specific, meaningful error.
+                $tokenRecord = OAuthRefreshTokenModel::query()->useWritePdo()->where('token_hash', $tokenHash)->first();
 
-            if (! $tokenRecord instanceof OAuthRefreshTokenModel) {
+                if (! $tokenRecord instanceof OAuthRefreshTokenModel) {
+                    throw new OAuthException('invalid_grant', 'Refresh token not found');
+                }
+
+                if ($tokenRecord->client_id !== $clientId) {
+                    throw new OAuthException('invalid_client', 'Client ID mismatch');
+                }
+                if ($tokenRecord->expires_at->isPast()) {
+                    throw new OAuthException('invalid_grant', 'Refresh token has expired');
+                }
+                if ($tokenRecord->used) {
+                    $this->revokeRefreshTokensFor($tokenRecord->user_id, $clientId);
+                    app(TokenService::class)->revokeOAuthTokens($tokenRecord->user_id, $clientId);
+                    LifecycleEvents::refreshReplay($tokenRecord->capabilities);
+                    throw new OAuthException('invalid_grant', 'Refresh token has already been used; grant revoked');
+                }
+
+                throw new OAuthException('invalid_client', 'Client ID mismatch');
+            }
+
+            // Retain the consumed record and issue a successor with the original grant expiry.
+            $model = OAuthRefreshTokenModel::query()->useWritePdo()->where('token_hash', $tokenHash)->first();
+
+            if (! $model instanceof OAuthRefreshTokenModel) {
                 throw new OAuthException('invalid_grant', 'Refresh token not found');
             }
 
-            if ($tokenRecord->client_id !== $clientId) {
-                throw new OAuthException('invalid_client', 'Client ID mismatch');
-            }
-            if ($tokenRecord->expires_at->isPast()) {
-                throw new OAuthException('invalid_grant', 'Refresh token has expired');
-            }
-            if ($tokenRecord->used) {
-                $this->revokeRefreshTokensFor($tokenRecord->user_id, $clientId);
-                app(TokenService::class)->revokeOAuthTokens($tokenRecord->user_id, $clientId);
-                LifecycleEvents::refreshReplay($tokenRecord->capabilities);
-                throw new OAuthException('invalid_grant', 'Refresh token has already been used; grant revoked');
-            }
+            $authCode = new OAuthAuthCode(
+                clientId: $model->client_id,
+                userId: $model->user_id,
+                scopes: $model->scopes,
+                redirectUri: '',
+                refreshToken: $this->issueRefreshToken($model->user_id, $clientId, $model->scopes, Carbon::parse($model->expires_at), CapabilitySnapshot::fromStored($model->capabilities)),
+                capabilities: CapabilitySnapshot::fromStored($model->capabilities),
+            );
 
-            throw new OAuthException('invalid_client', 'Client ID mismatch');
-        }
-
-        // Retain the consumed record and issue a successor with the original grant expiry.
-        $model = OAuthRefreshTokenModel::where('token_hash', $tokenHash)->first();
-
-        if (! $model instanceof OAuthRefreshTokenModel) {
-            throw new OAuthException('invalid_grant', 'Refresh token not found');
-        }
-
-        $authCode = new OAuthAuthCode(
-            clientId: $model->client_id,
-            userId: $model->user_id,
-            scopes: $model->scopes,
-            redirectUri: '',
-            refreshToken: $this->issueRefreshToken($model->user_id, $clientId, $model->scopes, Carbon::parse($model->expires_at), CapabilitySnapshot::fromStored($model->capabilities)),
-            capabilities: CapabilitySnapshot::fromStored($model->capabilities),
-        );
-
-        return $authCode;
+            return $authCode;
+        });
     }
 
     public function revokeRefreshTokensFor(string $userId, string $clientId): int
     {
-        $deleted = OAuthRefreshTokenModel::where('user_id', $userId)
-            ->where('client_id', $clientId)
-            ->delete();
+        return CommittedDatabase::run((new OAuthClientModel)->getConnection(), function () use ($userId, $clientId): int {
+            $deleted = OAuthRefreshTokenModel::query()->useWritePdo()->where('user_id', $userId)
+                ->where('client_id', $clientId)
+                ->delete();
 
-        return is_int($deleted) ? $deleted : 0;
+            return is_int($deleted) ? $deleted : 0;
+        });
     }
 
     public function revokeGrantsForUser(string $userId): int
     {
-        $refresh = OAuthRefreshTokenModel::where('user_id', $userId)->delete();
-        $codes = OAuthCodeModel::where('user_id', $userId)->delete();
+        return CommittedDatabase::run((new OAuthClientModel)->getConnection(), function () use ($userId): int {
+            $refresh = OAuthRefreshTokenModel::query()->useWritePdo()->where('user_id', $userId)->delete();
+            $codes = OAuthCodeModel::query()->useWritePdo()->where('user_id', $userId)->delete();
 
-        return (is_int($refresh) ? $refresh : 0) + (is_int($codes) ? $codes : 0);
+            return (is_int($refresh) ? $refresh : 0) + (is_int($codes) ? $codes : 0);
+        });
     }
 
     public function revokeRefreshToken(string $refreshToken): bool
     {
-        $tokenHash = hash('sha256', $refreshToken);
+        return CommittedDatabase::run((new OAuthClientModel)->getConnection(), function () use ($refreshToken): bool {
+            $tokenHash = hash('sha256', $refreshToken);
 
-        $model = OAuthRefreshTokenModel::where('token_hash', $tokenHash)->first();
-        if (! $model instanceof OAuthRefreshTokenModel) {
-            return false;
-        }
-        $this->revokeRefreshTokensFor($model->user_id, $model->client_id);
-        app(TokenService::class)->revokeOAuthTokens($model->user_id, $model->client_id);
+            $model = OAuthRefreshTokenModel::query()->useWritePdo()->where('token_hash', $tokenHash)->first();
+            if (! $model instanceof OAuthRefreshTokenModel) {
+                return false;
+            }
+            $this->revokeRefreshTokensFor($model->user_id, $model->client_id);
+            app(TokenService::class)->revokeOAuthTokens($model->user_id, $model->client_id);
 
-        return true;
+            return true;
+        });
     }
 
     public function prune(): int
     {
-        $pruned = 0;
+        return CommittedDatabase::run((new OAuthClientModel)->getConnection(), function (): int {
+            $pruned = 0;
 
-        // Prune used or expired codes
-        /** @var int $codePruned */
-        $codePruned = OAuthCodeModel::where('used', true)
-            ->orWhere('expires_at', '<', Carbon::now())
-            ->delete();
-        $pruned += $codePruned;
+            // Prune used or expired codes
+            /** @var int $codePruned */
+            $codePruned = OAuthCodeModel::query()->useWritePdo()->where('used', true)
+                ->orWhere('expires_at', '<', Carbon::now())
+                ->delete();
+            $pruned += $codePruned;
 
-        // Retain used refresh tokens until expiry to detect replay.
-        /** @var int $refreshPruned */
-        $refreshPruned = OAuthRefreshTokenModel::where('expires_at', '<', Carbon::now())
-            ->delete();
-        $pruned += $refreshPruned;
+            // Retain used refresh tokens until expiry to detect replay.
+            /** @var int $refreshPruned */
+            $refreshPruned = OAuthRefreshTokenModel::query()->useWritePdo()->where('expires_at', '<', Carbon::now())
+                ->delete();
+            $pruned += $refreshPruned;
 
-        // Prune expired clients (if client_ttl is configured)
-        /** @var int $clientTtl */
-        $clientTtl = config('statamic.mcp.oauth.client_ttl', 0);
+            // Prune expired clients (if client_ttl is configured)
+            /** @var int $clientTtl */
+            $clientTtl = config('statamic.mcp.oauth.client_ttl', 0);
 
-        if ($clientTtl > 0) {
-            $cutoff = Carbon::now()->subSeconds($clientTtl);
+            if ($clientTtl > 0) {
+                $cutoff = Carbon::now()->subSeconds($clientTtl);
 
-            /** @var int $clientPruned */
-            $clientPruned = OAuthClientModel::where('created_at', '<', $cutoff)->delete();
-            $pruned += $clientPruned;
-        }
+                /** @var int $clientPruned */
+                $clientPruned = OAuthClientModel::query()->useWritePdo()->where('created_at', '<', $cutoff)->delete();
+                $pruned += $clientPruned;
+            }
 
-        return $pruned;
+            return $pruned;
+        });
     }
 
     private function modelToClient(OAuthClientModel $model): OAuthClient

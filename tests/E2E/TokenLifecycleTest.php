@@ -8,12 +8,10 @@ use Cboxdk\StatamicMcp\Contracts\TokenStore;
 use Cboxdk\StatamicMcp\Storage\Tokens\DatabaseTokenStore;
 use Cboxdk\StatamicMcp\Tests\Concerns\CreatesAuthenticatedUser;
 use Cboxdk\StatamicMcp\Tests\TestCase;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 
 class TokenLifecycleTest extends TestCase
 {
     use CreatesAuthenticatedUser;
-    use RefreshDatabase;
 
     protected function setUp(): void
     {

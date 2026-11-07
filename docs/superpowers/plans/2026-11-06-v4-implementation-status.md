@@ -451,3 +451,41 @@ Verification: OAuth/token/storage/protocol **579 tests / 1622 assertions**; fina
 actions **103 tests / 690 assertions**, including separate user/role connections,
 stale replicas, raw/Laravel transaction ownership and nested guard restoration.
 PHPStan level 9 and Pint passed. Full regression for this combined change follows.
+
+### Complete authentication checkpoint and OAuth primary reads
+
+Unchanged `ccbb48e` passed the complete local suite: **1762 passed, 18 optional SEO
+skips, 8202 assertions**, 195.33 seconds. This precedes the following SQL-store changes.
+
+A stale refresh-token replica could hide the consumed flag when detecting replay,
+leaving the replacement family active. Native OAuth reads now use the primary.
+Native SQL token and OAuth operations also refuse ambient Laravel/raw PDO transactions
+before access and before acknowledging success. Otherwise a host rollback could
+undo token revocation or one-time authorization-code consumption after acknowledgement.
+The drivers do not roll back transactions they do not own. Installation guidance
+now documents this breaking transaction boundary. The SQL contract fixtures use
+Testbench migration cleanup without wrapping the behavior under test in a transaction.
+
+Five regression cases failed before the fixes: hidden refresh replay, Laravel/raw
+PDO token reads, and Laravel/raw PDO authorization-code consumption. The first
+focused replacement run passed **58 tests / 223 assertions**; broader and MySQL
+verification follow. Two additional listener tests cover a transaction opened during
+a token read. These fixes do not implement the remaining V02–V10 work.
+
+Final focused SQL/command checks: **15 tests / 55 assertions**; SQL service,
+pruning, CP token lifecycle, permission gating and migration roundtrip checks:
+**48 tests / 1416 assertions**. Native **MySQL 8.0.46 passed 87 tests / 1578
+assertions**, including OAuth, token storage/service and file/database roundtrips
+(287.26 seconds). These runs overlap. PHPStan level 9 and Pint passed.
+
+### Read-only installation preflight
+
+`mcp:doctor [--json]` checks explicit profiles, boolean HTTP enablement, HTTPS,
+Origin configuration, private-network fetch protection, input budgets, durable
+audit/OAuth driver contracts and local security stores/locks in multi-node mode.
+It does not print credentials or raw configuration/exception values, migrate
+grants, acquire test locks or perform test writes. Missing stdio credentials and
+deployment-only checks are reported separately. Ingress/proxy trust, actual store
+sharing/reachability, filesystem permissions, retention and recovery remain explicit
+verification tasks; a passing preflight is not a release or migration certificate.
+The command is partial V09 delivery, not the migration journal/rollback implementation.

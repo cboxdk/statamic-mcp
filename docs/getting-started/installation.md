@@ -34,6 +34,17 @@ This creates:
 
 By default, tokens are stored as YAML flat files. To use database storage instead, change the `stores.tokens` driver to `DatabaseTokenStore` in `config/statamic/mcp.php` and run `php artisan migrate`.
 
+Native SQL security stores require committed connections outside host transactions.
+This includes database tokens, OAuth, operation records and durable audit. They
+refuse both Laravel transactions and raw PDO transactions; the caller retains
+ownership and must close its own transaction. Run MCP authentication and execution
+outside transaction-wrapping middleware, or bind a custom driver using a dedicated
+committed connection. A savepoint is not an independent commit. Token and OAuth
+security reads use the primary database so replica lag cannot delay revocation or
+refresh replay detection. Native Eloquent actor/role authorization also uses primary
+reads and refuses existing transaction snapshots.
+
+
 ## Verify Installation
 
 Check that the package is registered:
@@ -98,3 +109,17 @@ composer require laravel/boost --dev
 
 - **[Quick Start](../quickstart.md)** — Create a token and connect your first AI assistant
 - **[AI Client Setup](ai-clients.md)** — Copy-paste config for your specific client
+
+## Configuration preflight
+
+Run `php artisan mcp:doctor` before exposing the endpoint. Use `--json` for a
+machine-readable report; exit code 1 indicates a failed configuration check.
+The command checks transport profiles, HTTPS/Origin settings, private-network fetch
+protection, input budgets, driver contracts and local stores/locks in multi-node mode.
+It prints no token values or raw configuration/exception messages.
+
+This is a read-only configuration check. It does not create test writes, acquire
+locks, contact exporters, validate the supplied token or migrate grants. Warnings
+identify checks that still require deployment verification, including trusted proxies,
+shared storage, file permissions, retention and recovery. A passing report does not
+certify complete v4 migration or release readiness.

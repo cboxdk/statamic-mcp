@@ -6,6 +6,8 @@ use Cboxdk\StatamicMcp\Actions\Operations\DatabaseOperationStore;
 use Cboxdk\StatamicMcp\Actions\Operations\Operation;
 use Cboxdk\StatamicMcp\Actions\Operations\OperationState;
 use Cboxdk\StatamicMcp\Auth\TokenService;
+use Cboxdk\StatamicMcp\OAuth\Drivers\DatabaseOAuthDriver;
+use Cboxdk\StatamicMcp\OAuth\Exceptions\OAuthException;
 use Cboxdk\StatamicMcp\Storage\Tokens\DatabaseTokenStore;
 use Illuminate\Database\SQLiteConnection;
 use Illuminate\Support\Facades\DB;
@@ -23,6 +25,9 @@ beforeEach(function () {
         require __DIR__ . '/../../../database/migrations/tokens/0004_add_capability_snapshot_to_mcp_tokens_table.php',
         require __DIR__ . '/../../../database/migrations/operations/0001_create_mcp_operations_table.php',
     ];
+    foreach (glob(__DIR__ . '/../../../database/migrations/oauth/*.php') as $path) {
+        $this->migrations[] = require $path;
+    }
     foreach ($this->migrations as $migration) {
         $migration->up();
     }
@@ -76,3 +81,61 @@ it('reads the committed operation claim from the primary without changing host r
         ->and($store->transition($ready, $executing))->toBeFalse();
     expect($this->primary->getReadPdo())->toBe($this->replica->getPdo());
 });
+
+it('revokes the refresh family when a stale replica hides token replay', function () {
+    $driver = new DatabaseOAuthDriver;
+    $original = $driver->createRefreshToken('user', 'client', ['entries:read']);
+    installMcpStaleReplica($this, 'mcp_oauth_refresh_tokens');
+    $replacement = $driver->exchangeRefreshToken($original, 'client');
+    expect($replacement->refreshToken)->not->toBeNull();
+    expect(fn () => $driver->exchangeRefreshToken($original, 'client'))
+        ->toThrow(OAuthException::class);
+    expect($this->primary->table('mcp_oauth_refresh_tokens')->useWritePdo()->count())->toBe(0);
+});
+
+it('refuses token authentication from an ambient transaction without rolling it back', function (bool $raw) {
+    $store = new DatabaseTokenStore;
+    $token = $store->create('user', 'Current', hash('sha256', 'current'), ['entries:read'], null);
+    $raw ? $this->primary->getPdo()->beginTransaction() : $this->primary->beginTransaction();
+    try {
+        expect(fn () => $store->find($token->id))->toThrow(LogicException::class);
+        expect(fn () => $store->findByHash($token->tokenHash))->toThrow(LogicException::class);
+        expect($this->primary->getPdo()->inTransaction())->toBeTrue();
+    } finally {
+        $raw ? $this->primary->getPdo()->rollBack() : $this->primary->rollBack();
+    }
+})->with([true, false]);
+
+it('refuses authorization code consumption inside an ambient transaction', function (bool $raw) {
+    $driver = new DatabaseOAuthDriver;
+    $verifier = str_repeat('v', 43);
+    $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+    $code = $driver->createAuthCode('client', 'user', ['entries:read'], $challenge, 'S256', 'https://example.test/callback');
+    $raw ? $this->primary->getPdo()->beginTransaction() : $this->primary->beginTransaction();
+    try {
+        expect(fn () => $driver->exchangeCode($code, $verifier, 'client', 'https://example.test/callback'))
+            ->toThrow(LogicException::class);
+        expect($this->primary->getPdo()->inTransaction())->toBeTrue();
+    } finally {
+        $raw ? $this->primary->getPdo()->rollBack() : $this->primary->rollBack();
+    }
+    expect($this->primary->table('mcp_oauth_codes')->value('used'))->toBe(0);
+})->with([true, false]);
+
+it('does not authenticate when a query listener opens a transaction during the read', function (bool $raw) {
+    $store = new DatabaseTokenStore;
+    $token = $store->create('user', 'Current', hash('sha256', 'current'), ['entries:read'], null);
+    $opened = false;
+    $this->primary->listen(function ($event) use (&$opened, $raw): void {
+        if (! $opened && $event->connection === $this->primary && str_starts_with($event->sql, 'select')) {
+            $opened = true;
+            $raw ? $this->primary->getPdo()->beginTransaction() : $this->primary->beginTransaction();
+        }
+    });
+    try {
+        expect(fn () => $store->find($token->id))->toThrow(LogicException::class);
+        expect($opened)->toBeTrue()->and($this->primary->getPdo()->inTransaction())->toBeTrue();
+    } finally {
+        $raw ? $this->primary->getPdo()->rollBack() : $this->primary->rollBack();
+    }
+})->with([true, false]);

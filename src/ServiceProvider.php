@@ -129,6 +129,7 @@ class ServiceProvider extends AddonServiceProvider
                 Console\PruneOperationsCommand::class,
                 Console\RepairOperationCapacityCommand::class,
                 Console\InspectOperationCommand::class,
+                Console\DoctorCommand::class,
                 Console\ReconcileOperationCommand::class,
             ]);
         }
