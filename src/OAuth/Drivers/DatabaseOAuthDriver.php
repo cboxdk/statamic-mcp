@@ -6,6 +6,7 @@ namespace Cboxdk\StatamicMcp\OAuth\Drivers;
 
 use Carbon\Carbon;
 use Cboxdk\StatamicMcp\Actions\CapabilitySnapshot;
+use Cboxdk\StatamicMcp\Actions\LifecycleEvents;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\OAuth\Concerns\ValidatesRedirectUris;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
@@ -233,14 +234,14 @@ class DatabaseOAuthDriver implements OAuthDriver, RevokesUserGrants
             if ($tokenRecord->client_id !== $clientId) {
                 throw new OAuthException('invalid_client', 'Client ID mismatch');
             }
+            if ($tokenRecord->expires_at->isPast()) {
+                throw new OAuthException('invalid_grant', 'Refresh token has expired');
+            }
             if ($tokenRecord->used) {
                 $this->revokeRefreshTokensFor($tokenRecord->user_id, $clientId);
                 app(TokenService::class)->revokeOAuthTokens($tokenRecord->user_id, $clientId);
+                LifecycleEvents::refreshReplay($tokenRecord->capabilities);
                 throw new OAuthException('invalid_grant', 'Refresh token has already been used; grant revoked');
-            }
-
-            if ($tokenRecord->expires_at->isPast()) {
-                throw new OAuthException('invalid_grant', 'Refresh token has expired');
             }
 
             throw new OAuthException('invalid_client', 'Client ID mismatch');

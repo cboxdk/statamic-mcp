@@ -58,6 +58,24 @@ trait OAuthDriverContractTests
         $driver->exchangeRefreshToken($rotated->refreshToken, $client->clientId);
     }
 
+    public function test_expired_used_refresh_cannot_revoke_a_new_grant(): void
+    {
+        $driver = $this->createDriver();
+        $client = $driver->registerClient('Expiry', ['https://example.com/callback']);
+        config()->set('statamic.mcp.oauth.refresh_token_ttl', 60);
+        $original = $driver->createRefreshToken('user-1', $client->clientId, ['entries:read']);
+        $driver->exchangeRefreshToken($original, $client->clientId);
+        $this->travel(61)->seconds();
+        $newGrant = $driver->createRefreshToken('user-1', $client->clientId, ['entries:read']);
+        try {
+            $driver->exchangeRefreshToken($original, $client->clientId);
+            $this->fail('Expired refresh must fail.');
+        } catch (OAuthException $error) {
+            $this->assertStringContainsString('expired', $error->getMessage());
+        }
+        $this->assertSame('user-1', $driver->exchangeRefreshToken($newGrant, $client->clientId)->userId);
+    }
+
     public function test_wrong_client_does_not_consume_refresh_token(): void
     {
         $driver = $this->createDriver();

@@ -7,7 +7,6 @@ namespace Cboxdk\StatamicMcp\Actions;
 use Cboxdk\StatamicMcp\Actions\Contracts\ActionHandler;
 use Cboxdk\StatamicMcp\Actions\Contracts\ActionPolicy;
 use Cboxdk\StatamicMcp\Actions\Contracts\Authorizer;
-use Cboxdk\StatamicMcp\Actions\Events\ExecutionEvent;
 use Cboxdk\StatamicMcp\Actions\Operations\OperationCoordinator;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Support\Str;
@@ -34,6 +33,7 @@ final class ActionExecutor
         Blink::flush();
         $this->container->make(PermissionCache::class)->clear();
         $action = $this->registry->get($id);
+        $executionId = (string) Str::uuid();
         $started = false;
         $start = hrtime(true);
         try {
@@ -54,12 +54,12 @@ final class ActionExecutor
             if (! in_array($action->effect, [ActionEffect::Read, ActionEffect::Edit], true)) {
                 throw new \LogicException('This prototype does not admit actions requiring approval.');
             }
-            $execute = function () use ($handler, $policy, $input, $context, $action, $start, &$started): array {
+            $execute = function () use ($handler, $policy, $input, $context, $action, $start, $executionId, &$started): array {
                 $this->authorizer->authorize($action, $context);
                 $policy->authorize($input, $context);
                 $context->checkDeadline();
                 $started = true;
-                $this->emit($action, $context, 'started', 'none', $start);
+                $this->emit($action, $context, 'started', 'none', $start, $executionId);
                 $result = $handler->execute($input, $context);
                 $result = $policy->filterResult($input, $result, $context);
                 $this->schemas->validate($result, $action->outputSchema);
@@ -68,28 +68,36 @@ final class ActionExecutor
             };
             if ($action->effect === ActionEffect::Read) {
                 $result = $execute();
-                $this->emit($action, $context, 'completed', 'none', $start);
+                $this->emit($action, $context, 'completed', 'none', $start, $executionId);
 
                 return $result;
             }
             $result = $this->operations->execute($action, $input, $context, $execute);
             $visible = $policy->filterResult($input, $result->data, $context);
             $this->schemas->validate($visible, $action->outputSchema);
-            $this->emit($action, $context, $result->replayed ? 'replayed' : 'completed', $result->replayed ? 'none' : 'committed', $start);
+            $this->emit($action, $context, $result->replayed ? 'replayed' : 'completed', $result->replayed ? 'none' : 'committed', $start, $executionId);
 
             return $visible;
         } catch (\Throwable $error) {
-            $this->emit($action, $context, $started ? 'failed' : 'denied', $started && $action->effect !== ActionEffect::Read ? 'unknown' : 'none', $start);
+            $this->emit($action, $context, $started ? 'failed' : 'denied', $started && $action->effect !== ActionEffect::Read ? 'unknown' : 'none', $start, $executionId);
             throw $error;
         }
     }
 
-    private function emit(ActionDefinition $action, ExecutionContext $context, string $outcome, string $effects, int $start): void
+    private function emit(ActionDefinition $action, ExecutionContext $context, string $outcome, string $effects, int $start, string $executionId): void
     {
-        $this->observers->dispatch(new ExecutionEvent(
+        $eventClass = match ($outcome) {
+            'started' => Events\ExecutionStarted::class,
+            'completed' => Events\ExecutionCompleted::class,
+            'denied' => Events\ExecutionDenied::class,
+            'failed' => Events\ExecutionFailed::class,
+            'replayed' => Events\ExecutionReplayed::class,
+            default => throw new \LogicException('Unknown execution outcome.'),
+        };
+        $this->observers->dispatch(new $eventClass(
             (string) Str::uuid(), $context->operationId, $action->id(), $action->version,
             $context->transport, $outcome, $effects, (hrtime(true) - $start) / 1_000_000,
-            gmdate('Y-m-d\TH:i:s\Z'),
+            gmdate('Y-m-d\TH:i:s\Z'), executionId: $executionId,
         ));
     }
 }

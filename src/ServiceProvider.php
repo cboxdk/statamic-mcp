@@ -38,6 +38,7 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Laravel\Mcp\Facades\Mcp;
 use Laravel\Mcp\Server\Middleware\AddWwwAuthenticateHeader;
+use Psr\Log\LoggerInterface;
 use Statamic\CP\Navigation\NavItem;
 use Statamic\Facades\CP\Nav;
 use Statamic\Facades\Git;
@@ -205,10 +206,15 @@ class ServiceProvider extends AddonServiceProvider
         });
 
         $this->app->bind(Actions\Contracts\Authorizer::class, Authorization\GrantAuthorizer::class);
+        $this->app->singleton(Actions\ObserverRegistry::class);
+        $this->app->bind(Actions\LifecycleObservers::class, fn (): Actions\LifecycleObservers => Actions\LifecycleObservers::fromRegistry(
+            $this->app->make(Actions\ObserverRegistry::class), $this->app, $this->app->make(LoggerInterface::class),
+        ));
         $this->app->singleton(Actions\ScopeRegistry::class);
         $this->app->singleton(Actions\CapabilityRegistry::class);
         $this->app->booted(function (): void {
             $this->app->make(Actions\CapabilityRegistry::class)->freeze();
+            $this->app->make(Actions\ObserverRegistry::class)->freeze();
         });
 
         // Register CIMD resolver

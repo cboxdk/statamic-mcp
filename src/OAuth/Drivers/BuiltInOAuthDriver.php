@@ -6,6 +6,7 @@ namespace Cboxdk\StatamicMcp\OAuth\Drivers;
 
 use Carbon\Carbon;
 use Cboxdk\StatamicMcp\Actions\CapabilitySnapshot;
+use Cboxdk\StatamicMcp\Actions\LifecycleEvents;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\OAuth\Concerns\ValidatesRedirectUris;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
@@ -390,6 +391,7 @@ class BuiltInOAuthDriver implements OAuthDriver, RevokesUserGrants
             if (($data['used'] ?? false) === true) {
                 $this->revokeRefreshTokensFor($userId, $clientId);
                 app(TokenService::class)->revokeOAuthTokens($userId, $clientId);
+                LifecycleEvents::refreshReplay($data['capabilities'] ?? null);
                 throw new OAuthException('invalid_grant', 'Refresh token has already been used; grant revoked');
             }
 

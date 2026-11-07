@@ -4,9 +4,8 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Actions\Contracts;
 
-use Cboxdk\StatamicMcp\Actions\Events\ExecutionEvent;
-
 interface LifecycleObserver
 {
-    public function observe(ExecutionEvent $event): void;
+    /** Delivery can repeat. Deduplicate durable consumers on eventId(). */
+    public function observe(LifecycleEvent $event): void;
 }

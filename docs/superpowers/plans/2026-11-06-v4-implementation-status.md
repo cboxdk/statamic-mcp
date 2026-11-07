@@ -168,3 +168,23 @@ The final input-focused run passed **19 tests / 35 assertions**. The existing
 in the new test harness were corrected (Inertia may precede the guard, while
 JSON transformers must follow it; an unrelated test route was caught by Statamic
 routing). PHPStan level 9 and Pint passed.
+
+### Typed lifecycle observations
+
+The internal action executor now emits typed start/completed/denied/failed/replayed
+events. A fresh execution ID correlates phases of one attempt; an operation ID
+may span attempts and is not a span key. Replay reports no new effects. An
+application-owned registry freezes observer classes at boot and isolates both
+construction and invocation failures, including failure of the fallback logger.
+`FakeLifecycleObserver` supports integration contract tests.
+
+Token issuance/revocation and both OAuth refresh-replay paths emit metadata-only
+grant events. Access-token rotation preserves the grant and does not emit a new
+issuance or revocation. Legacy Statamic Git notifications remain available, but
+exceptions after persistence no longer turn successful token changes into errors.
+Expired used refresh tokens cannot revoke a newer grant in either backend.
+
+Verification: **124 tests / 368 assertions** across actions, observers, token service
+and both OAuth driver contracts; PHPStan level 9 and Pint passed. Execution events
+still describe the internal executor: migrating legacy public routers and adding
+approval events, durable audit and the optional telemetry adapter remain required.

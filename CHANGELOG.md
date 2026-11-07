@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Reject expired refresh-token replays before grant revocation in both storage drivers.
+- Add isolated, typed execution and grant lifecycle observations; credential rotation does not masquerade as grant revocation. Legacy Git listener failures cannot veto an already persisted token change.
 - Bound HTTP/stdio JSON before decoding, preserve fragmented stdio frames, and apply configured tool input budgets.
 - Bind OAuth consent to the displayed scope/capability definitions, authenticated user, session, client and PKCE. Reject missing, expired, tampered or reused consent; an empty selection never grants all scopes.
 - Persist registered-action consent and a stable grant identity through file/SQL token stores, OAuth refresh, secret rotation and storage import. Adding or changing an integration does not expand old grants; changed scopes require renewed consent.

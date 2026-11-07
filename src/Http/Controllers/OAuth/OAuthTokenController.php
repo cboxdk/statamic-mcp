@@ -177,8 +177,8 @@ class OAuthTokenController extends Controller
             return response()->json(['error' => 'invalid_grant', 'error_description' => 'Consent must be renewed.'], 400);
         }
 
-        // Revoke previous access tokens for this client+user to prevent accumulation
-        $this->tokenService->revokeOAuthTokens($userId, $clientId);
+        // Credential rotation preserves the grant and must not report grant revocation.
+        $this->tokenService->revokeOAuthTokens($userId, $clientId, endGrant: $rotatedRefreshToken === null);
 
         $result = $this->tokenService->createToken(
             $userId,
@@ -188,6 +188,7 @@ class OAuthTokenController extends Controller
             $clientId,
             $clientName,
             $capabilities,
+            newGrant: $rotatedRefreshToken === null,
         );
 
         $refreshToken = $rotatedRefreshToken ?? $this->oauthDriver->createRefreshToken(

@@ -19,6 +19,7 @@ use Cboxdk\StatamicMcp\Actions\ScopeRegistry;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\Authorization\GrantAuthorizer;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
+use Cboxdk\StatamicMcp\Testing\FakeLifecycleObserver;
 use Cboxdk\StatamicMcp\Tests\Concerns\InteractsWithOAuthConsent;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -128,9 +129,10 @@ class GrantIntegrationTest extends TestCase
         $first = $service->createToken($actor->id(), 'First credential', ['fixture:status'], capabilities: $snapshot)['model'];
         $context = new ExecutionContext($actor->id(), $snapshot->grantId, 'default', 'operator', 'http', 'same-write', hrtime(true) + 10_000_000_000, $first->id);
         $directory = storage_path('framework/testing/grant-rotation-' . bin2hex(random_bytes(8)));
+        $events = new FakeLifecycleObserver;
         $executor = new ActionExecutor($registry, app(GrantAuthorizer::class),
             new SchemaValidator,
-            new LifecycleObservers(new NullLogger), $this->app,
+            new LifecycleObservers(new NullLogger, [$events]), $this->app,
             new OperationCoordinator(
                 new FileOperationStore($directory),
                 app(Encrypter::class)));
@@ -142,6 +144,11 @@ class GrantIntegrationTest extends TestCase
             $renewed = new ExecutionContext($actor->id(), $snapshot->grantId, 'default', 'operator', 'http', 'same-write', hrtime(true) + 10_000_000_000, $second->id);
             $this->assertSame(['ok' => true], $executor->execute($action->id(), [], $renewed));
             $this->assertSame(1, GrantFixtureHandler::$calls);
+            $this->assertSame(['execution.started', 'execution.completed', 'execution.replayed'],
+                array_map(fn ($event) => $event->eventName(), $events->events));
+            $this->assertSame($events->events[0]->executionId, $events->events[1]->executionId);
+            $this->assertNotSame($events->events[1]->executionId, $events->events[2]->executionId);
+            $this->assertSame('none', $events->events[2]->effects);
             $service->revokeToken($second->id);
             $this->expectException(AuthorizationException::class);
             $executor->execute($action->id(), [], $renewed);

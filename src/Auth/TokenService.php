@@ -6,6 +6,9 @@ namespace Cboxdk\StatamicMcp\Auth;
 
 use Carbon\Carbon;
 use Cboxdk\StatamicMcp\Actions\CapabilitySnapshot;
+use Cboxdk\StatamicMcp\Actions\Events\GrantIssued;
+use Cboxdk\StatamicMcp\Actions\Events\GrantRevoked;
+use Cboxdk\StatamicMcp\Actions\LifecycleEvents;
 use Cboxdk\StatamicMcp\Contracts\TokenStore;
 use Cboxdk\StatamicMcp\Events\McpTokenDeleted;
 use Cboxdk\StatamicMcp\Events\McpTokenSaved;
@@ -28,7 +31,7 @@ class TokenService
      *
      * @return array{token: string, model: McpTokenData}
      */
-    public function createToken(string $userId, string $name, array $scopes, ?Carbon $expiresAt = null, ?string $oauthClientId = null, ?string $oauthClientName = null, ?CapabilitySnapshot $capabilities = null): array
+    public function createToken(string $userId, string $name, array $scopes, ?Carbon $expiresAt = null, ?string $oauthClientId = null, ?string $oauthClientName = null, ?CapabilitySnapshot $capabilities = null, bool $newGrant = true): array
     {
         // Enforce max token lifetime if configured
         /** @var int|null $maxDays */
@@ -64,7 +67,12 @@ class TokenService
             $capabilities,
         );
 
-        McpTokenSaved::dispatch($tokenData);
+        LifecycleEvents::legacy(new McpTokenSaved($tokenData));
+
+        if ($newGrant) {
+            LifecycleEvents::dispatch(new GrantIssued((string) Str::uuid(), self::grantId($tokenData),
+                $oauthClientId === null ? 'internal' : 'http', gmdate('c'), count($tokenData->scopes)));
+        }
 
         return [
             'token' => $plainTextToken,
@@ -153,7 +161,10 @@ class TokenService
             $updated = $this->tokenStore->update($tokenId, $data);
 
             if ($updated !== null) {
-                McpTokenSaved::dispatch($updated);
+                LifecycleEvents::legacy(new McpTokenSaved($updated));
+                if ($existing !== null && $existing->capabilities !== null && $updated->capabilities === null) {
+                    $this->notifyRevoked($existing);
+                }
             }
 
             return $updated;
@@ -182,7 +193,7 @@ class TokenService
             return null;
         }
 
-        McpTokenSaved::dispatch($updated);
+        LifecycleEvents::legacy(new McpTokenSaved($updated));
 
         return [
             'token' => $plainTextToken,
@@ -214,15 +225,24 @@ class TokenService
      * Revoke all tokens for a specific OAuth client and user.
      * Used during token refresh to prevent accumulation of old access tokens.
      */
-    public function revokeOAuthTokens(string $userId, string $oauthClientId): int
+    public function revokeOAuthTokens(string $userId, string $oauthClientId, bool $endGrant = true): int
     {
         $tokens = $this->tokenStore->listForUser($userId);
         $revoked = 0;
 
         foreach ($tokens as $token) {
             if ($token->oauthClientId === $oauthClientId) {
-                $this->tokenStore->delete($token->id);
-                McpTokenDeleted::dispatch($token->name);
+                if (! $this->tokenStore->delete($token->id)) {
+                    if ($this->tokenStore->find($token->id) !== null) {
+                        throw new \RuntimeException('Access credential could not be revoked.');
+                    }
+
+                    continue;
+                }
+                LifecycleEvents::legacy(new McpTokenDeleted($token->name));
+                if ($endGrant) {
+                    $this->notifyRevoked($token);
+                }
                 $revoked++;
             }
         }
@@ -262,7 +282,8 @@ class TokenService
         }
 
         if ($deleted && $existing !== null) {
-            McpTokenDeleted::dispatch($existing->name);
+            LifecycleEvents::legacy(new McpTokenDeleted($existing->name));
+            $this->notifyRevoked($existing);
         }
 
         return $deleted;
@@ -277,7 +298,15 @@ class TokenService
             $driver = app(OAuthDriver::class);
             $driver->revokeGrantsForUser($userId);
 
-            return $this->tokenStore->deleteForUser($userId);
+            $tokens = $this->tokenStore->listForUser($userId);
+            $deleted = $this->tokenStore->deleteForUser($userId);
+            foreach ($tokens as $token) {
+                if ($this->tokenStore->find($token->id) === null) {
+                    $this->notifyRevoked($token);
+                }
+            }
+
+            return $deleted;
         });
     }
 
@@ -324,5 +353,16 @@ class TokenService
     {
         return in_array('*', $token->scopes, true)
             || in_array($scope->value, $token->scopes, true);
+    }
+
+    private static function grantId(McpTokenData $token): string
+    {
+        return $token->capabilities->grantId ?? hash('sha256', 'legacy-access:' . $token->id);
+    }
+
+    private function notifyRevoked(McpTokenData $token): void
+    {
+        LifecycleEvents::dispatch(new GrantRevoked((string) Str::uuid(), self::grantId($token),
+            $token->oauthClientId === null ? 'internal' : 'http', gmdate('c'), count($token->scopes)));
     }
 }

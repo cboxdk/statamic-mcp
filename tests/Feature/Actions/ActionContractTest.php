@@ -11,8 +11,8 @@ use Cboxdk\StatamicMcp\Actions\CapabilityRegistry;
 use Cboxdk\StatamicMcp\Actions\Contracts\ActionHandler;
 use Cboxdk\StatamicMcp\Actions\Contracts\ActionPolicy;
 use Cboxdk\StatamicMcp\Actions\Contracts\Authorizer;
+use Cboxdk\StatamicMcp\Actions\Contracts\LifecycleEvent;
 use Cboxdk\StatamicMcp\Actions\Contracts\LifecycleObserver;
-use Cboxdk\StatamicMcp\Actions\Events\ExecutionEvent;
 use Cboxdk\StatamicMcp\Actions\ExecutionContext;
 use Cboxdk\StatamicMcp\Actions\LifecycleObservers;
 use Cboxdk\StatamicMcp\Actions\Operations\FileOperationStore;
@@ -135,7 +135,7 @@ class ActionContractTest extends TestCase
         };
         $brokenObserver = new class implements LifecycleObserver
         {
-            public function observe(ExecutionEvent $event): void
+            public function observe(LifecycleEvent $event): void
             {
                 throw new \RuntimeException('Synthetic exporter failure');
             }
