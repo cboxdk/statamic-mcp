@@ -451,3 +451,20 @@ inherit the local stdio profile. Environment variables are
 
 Example for local administration: `STATAMIC_MCP_STDIO_PROFILE=operator`.
 Selecting a profile does not enable the HTTP endpoint by itself.
+
+### v4 input budgets
+
+`security.max_input_bytes` limits the complete JSON message on HTTP and stdio
+(default 16 MiB). The HTTP guard runs before Laravel's global JSON input
+transformations; stdio reads bounded chunks and assembles complete newline-delimited
+messages. An oversized stdio frame ends that connection, so its remaining bytes
+cannot be treated as another command. Reconnect before sending a smaller request.
+
+`security.max_input_values` (default 20,000; supported range 1–1,000,000) and
+`security.max_input_depth` (default 64; supported range 1–256) also bound decoded
+tool arguments. The raw JSON guard allows envelope overhead: twice the configured
+value count plus 32 lexical tokens, and eight extra nesting levels. Keys count
+as lexical tokens; text inside strings does not. Invalid limits fail closed.
+The byte budget includes the JSON envelope and base64 expansion. The defaults
+accommodate the default 10 MiB asset upload; raising the upload limit alone does
+not raise the input budget. Web-server and PHP limits can impose a lower ceiling.

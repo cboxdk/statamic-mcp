@@ -518,7 +518,7 @@ abstract class BaseStatamicTool extends Tool
      */
     protected function validateAndSanitizeArguments(array $arguments): array
     {
-        (new InputBudget)->check($arguments);
+        app(InputBudget::class)->check($arguments);
 
         return $arguments;
     }

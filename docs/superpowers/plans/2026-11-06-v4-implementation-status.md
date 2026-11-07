@@ -151,3 +151,20 @@ skips remain visible; this is not certification of unimplemented V03–V10 work.
 CI at preceding commit `ecd1f09` passed browser E2E, SEO Pro, code quality,
 PHP 8.3/8.4/8.5 SQLite jobs and several MySQL jobs. The remaining matrix jobs
 were still running at this checkpoint; new changes require their own CI run.
+
+### Bounded transport input
+
+HTTP now guards the raw stream before Laravel input transformations and SDK header
+parsing. Stdio uses a package-specific registrar adapter with bounded chunks,
+complete-line framing and safe handling of EOF and oversized frames. Other local
+MCP handles remain registered. Configured decoded-input limits are now applied,
+rather than merely documented. Tests cover CORS, fragmented frames, malformed JSON,
+limits and the existing HTTP protocol flow. A standalone million-value JSON probe
+was rejected in 20.4 ms with 6 MiB peak allocation; the regression fixture runs
+under a 32 MiB memory limit. This is one local measurement, not a general latency SLA.
+
+The final input-focused run passed **19 tests / 35 assertions**. The existing
+17 HTTP protocol tests also passed during the initial combined run. Two assertions
+in the new test harness were corrected (Inertia may precede the guard, while
+JSON transformers must follow it; an unrelated test route was caught by Statamic
+routing). PHPStan level 9 and Pint passed.

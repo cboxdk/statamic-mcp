@@ -16,6 +16,7 @@ use Cboxdk\StatamicMcp\Contracts\AuditStore;
 use Cboxdk\StatamicMcp\Contracts\CollectionTreeEditor;
 use Cboxdk\StatamicMcp\Http\Controllers\OAuth\AuthorizeController;
 use Cboxdk\StatamicMcp\Http\Middleware\AuthenticateForMcp;
+use Cboxdk\StatamicMcp\Http\Middleware\BoundMcpInput;
 use Cboxdk\StatamicMcp\Http\Middleware\EnsureSecureTransport;
 use Cboxdk\StatamicMcp\Http\Middleware\HandleMcpCors;
 use Cboxdk\StatamicMcp\Http\Middleware\RequireMcpPermission;
@@ -31,6 +32,7 @@ use Cboxdk\StatamicMcp\Storage\Tokens\DatabaseTokenStore;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Foundation\Application;
+use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
@@ -148,6 +150,30 @@ class ServiceProvider extends AddonServiceProvider
             AddWwwAuthenticateHeader::class,
             SetOAuthWwwAuthenticate::class
         );
+
+        // Before TrimStrings / ConvertEmptyStringsToNull: both parse JSON globally.
+        $this->callAfterResolving(Kernel::class, function (Kernel $kernel): void {
+            if (! $kernel instanceof \Illuminate\Foundation\Http\Kernel) {
+                throw new \LogicException('MCP input protection requires the Laravel HTTP kernel.');
+            }
+            $kernel->prependMiddleware(BoundMcpInput::class);
+        });
+        $this->app->bind(Support\InputBudget::class, fn (): Support\InputBudget => new Support\InputBudget(
+            config()->integer('statamic.mcp.security.max_input_bytes', 16777216),
+            config()->integer('statamic.mcp.security.max_input_values', 20000),
+            config()->integer('statamic.mcp.security.max_input_depth', 64),
+        ));
+        $this->app->bind(Support\WireInputBudget::class, function (): Support\WireInputBudget {
+            $values = config()->integer('statamic.mcp.security.max_input_values', 20000);
+            $depth = config()->integer('statamic.mcp.security.max_input_depth', 64);
+            if ($values < 1 || $values > 1000000 || $depth < 1 || $depth > 256) {
+                throw new \LogicException('Invalid MCP input value or nesting budget.');
+            }
+
+            return new Support\WireInputBudget(
+                config()->integer('statamic.mcp.security.max_input_bytes', 16777216), $values * 2 + 32, $depth + 8,
+            );
+        });
 
         // Register audit store from configured driver
         $this->app->singleton(AuditStore::class, function (Application $app): AuditStore {
