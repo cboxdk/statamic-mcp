@@ -7,6 +7,7 @@ namespace Cboxdk\StatamicMcp\Actions;
 use Cboxdk\StatamicMcp\Actions\Contracts\ActionHandler;
 use Cboxdk\StatamicMcp\Actions\Contracts\ActionPolicy;
 use Cboxdk\StatamicMcp\Actions\Contracts\Authorizer;
+use Cboxdk\StatamicMcp\Actions\Operations\Operation;
 use Cboxdk\StatamicMcp\Actions\Operations\OperationCoordinator;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Support\Str;
@@ -24,6 +25,27 @@ final class ActionExecutor
         private readonly Container $container,
         private readonly OperationCoordinator $operations,
     ) {}
+
+    /** Authorize and validate intent without invoking its handler.
+     * @param  array<string, mixed>  $input
+     */
+    public function prepare(string $id, array $input, ExecutionContext $context): Operation
+    {
+        Blink::flush();
+        $this->container->make(PermissionCache::class)->clear();
+        $action = $this->registry->get($id);
+        $this->authorizer->authorize($action, $context);
+        $context->checkDeadline();
+        $this->schemas->validate($input, $action->inputSchema);
+        $policy = $this->container->make($action->policy);
+        if (! $policy instanceof ActionPolicy) {
+            throw new \LogicException('Invalid action policy binding.');
+        }
+        $policy->authorize($input, $context);
+        $this->authorizer->authorize($action, $context);
+
+        return $this->operations->prepare($action, $input, $context);
+    }
 
     /** @param array<string, mixed> $input
      * @return array<string, mixed>

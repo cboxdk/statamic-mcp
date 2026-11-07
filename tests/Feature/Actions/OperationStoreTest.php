@@ -45,7 +45,14 @@ class OperationStoreTest extends TestCase
             $table->string('id', 64)->primary();
             $table->unsignedBigInteger('version');
             $table->text('payload')->collation('NOCASE');
+            $table->string('state', 32);
+            $table->unsignedBigInteger('expires_at')->index();
         });
+        $connection->getSchemaBuilder()->create('mcp_operation_capacity', function (Blueprint $table): void {
+            $table->unsignedInteger('id')->primary();
+            $table->unsignedInteger('record_count');
+        });
+        $connection->table('mcp_operation_capacity')->insert(['id' => 1, 'record_count' => 0]);
         $this->exercise(new DatabaseOperationStore($connection));
 
         // Case-insensitive SQL equality must never authorize a stale/forged record.
@@ -125,7 +132,14 @@ class OperationStoreTest extends TestCase
             $table->string('id', 64)->primary();
             $table->unsignedBigInteger('version');
             $table->longText('payload');
+            $table->string('state', 32);
+            $table->unsignedBigInteger('expires_at')->index();
         });
+        $connection->getSchemaBuilder()->create('mcp_operation_capacity', function (Blueprint $table): void {
+            $table->unsignedInteger('id')->primary();
+            $table->unsignedInteger('record_count');
+        });
+        $connection->table('mcp_operation_capacity')->insert(['id' => 1, 'record_count' => 0]);
         $store = new DatabaseOperationStore($connection);
         $operation = new Operation(hash('sha256', 'concurrent'), hash('sha256', 'binding'), OperationState::Prepared, 1, time() + 300);
         $store->create($operation);

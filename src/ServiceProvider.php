@@ -31,8 +31,10 @@ use Cboxdk\StatamicMcp\Storage\Audit\FileAuditStore;
 use Cboxdk\StatamicMcp\Storage\Tokens\DatabaseTokenStore;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Contracts\Encryption\Encrypter;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Contracts\Http\Kernel;
+use Illuminate\Database\DatabaseManager;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
@@ -115,6 +117,7 @@ class ServiceProvider extends AddonServiceProvider
         $this->loadMigrationsIfDatabaseDriver('statamic.mcp.stores.tokens', DatabaseTokenStore::class, 'tokens');
         $this->loadMigrationsIfDatabaseDriver('statamic.mcp.stores.audit', DatabaseAuditStore::class, 'audit');
         $this->loadMigrationsIfDatabaseDriver('statamic.mcp.oauth.driver', DatabaseOAuthDriver::class, 'oauth');
+        $this->loadMigrationsIfDatabaseDriver('statamic.mcp.stores.operations', Actions\Operations\DatabaseOperationStore::class, 'operations');
 
         if ($this->app->runningInConsole()) {
             $this->commands([
@@ -123,6 +126,8 @@ class ServiceProvider extends AddonServiceProvider
                 PruneExpiredTokensCommand::class,
                 PruneAuditCommand::class,
                 PruneOAuthCommand::class,
+                Console\PruneOperationsCommand::class,
+                Console\RepairOperationCapacityCommand::class,
             ]);
         }
 
@@ -204,6 +209,33 @@ class ServiceProvider extends AddonServiceProvider
 
             return $instance;
         });
+
+        $this->app->bind(Actions\Operations\FileOperationStore::class, function (): Actions\Operations\FileOperationStore {
+            if (config('statamic.mcp.operations.multi_node', false)) {
+                throw new \LogicException('Multi-node MCP operations require shared database storage.');
+            }
+
+            return new Actions\Operations\FileOperationStore(
+                config()->string('statamic.mcp.storage.operations_path', storage_path('statamic-mcp/operations')),
+                config()->integer('statamic.mcp.operations.max_records', 256),
+            );
+        });
+        $this->app->bind(Actions\Operations\DatabaseOperationStore::class, fn (): Actions\Operations\DatabaseOperationStore => new Actions\Operations\DatabaseOperationStore(
+            $this->app->make(DatabaseManager::class)->connection(),
+            config()->integer('statamic.mcp.operations.max_records', 256),
+        ));
+        $this->app->bind(Actions\Contracts\OperationStore::class, function (): Actions\Contracts\OperationStore {
+            $driver = config()->string('statamic.mcp.stores.operations', Actions\Operations\FileOperationStore::class);
+            if (! is_subclass_of($driver, Actions\Contracts\OperationStore::class)) {
+                throw new \LogicException('Invalid operation storage driver.');
+            }
+
+            return $this->app->make($driver);
+        });
+        $this->app->bind(Actions\Operations\OperationCoordinator::class, fn (): Actions\Operations\OperationCoordinator => new Actions\Operations\OperationCoordinator(
+            $this->app->make(Actions\Contracts\OperationStore::class), $this->app->make(Encrypter::class),
+            config()->integer('statamic.mcp.operations.retry_seconds', 3600),
+        ));
 
         $this->app->bind(Actions\Contracts\Authorizer::class, Authorization\GrantAuthorizer::class);
         $this->app->singleton(Actions\ObserverRegistry::class);

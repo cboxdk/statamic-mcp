@@ -468,3 +468,24 @@ as lexical tokens; text inside strings does not. Invalid limits fail closed.
 The byte budget includes the JSON envelope and base64 expansion. The defaults
 accommodate the default 10 MiB asset upload; raising the upload limit alone does
 not raise the input budget. Web-server and PHP limits can impose a lower ceiling.
+
+### v4 operation storage
+
+The registered-action executor uses `stores.operations`, defaulting to
+`FileOperationStore` under `storage.operations_path`. Set `operations.multi_node`
+to true on shared deployments and select `DatabaseOperationStore`; local files
+are rejected in that configuration. The file backend requires a local POSIX
+filesystem with working flock, atomic rename, file fsync and directory fsync.
+Do not use it on NFS or mix old/new workers during an upgrade.
+
+`operations.max_records` defaults to 256. Each serialized record is limited to
+3,000,000 bytes; the file backend may also retain one temporary recovery candidate
+per slot. Admission fails when full. `operations.retry_seconds` defaults to 3600
+and supports 60–86400 seconds. Retry an executed operation using its existing
+prepared handle. Never prepare a replacement merely because a response was lost.
+
+Schedule `php artisan mcp:prune-operations --limit=100` to remove expired records
+in bounded batches. Executing and unknown outcomes remain for manual investigation.
+After an interrupted file-store reservation, `php artisan mcp:repair-operation-capacity`
+can recount occupied slots. It does not resolve uncertain writes or remove orphan
+recovery candidates. The legacy MCP routers are not yet migrated to this executor.

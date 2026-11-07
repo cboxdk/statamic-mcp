@@ -9,7 +9,12 @@ use Cboxdk\StatamicMcp\Actions\Contracts\OperationStore;
 /** Single-node durable store. The lock is held across the atomic rename. */
 final class FileOperationStore implements OperationStore
 {
-    public function __construct(private readonly string $directory) {}
+    public function __construct(private readonly string $directory, private readonly int $maxRecords = 256)
+    {
+        if ($maxRecords < 1) {
+            throw new \InvalidArgumentException('Operation capacity must be positive.');
+        }
+    }
 
     public function create(Operation $operation): bool
     {
@@ -21,6 +26,12 @@ final class FileOperationStore implements OperationStore
             if (is_file($path)) {
                 return false;
             }
+            $count = $this->countRecords();
+            if ($count >= $this->maxRecords) {
+                throw new \RuntimeException('Operation storage is full. Prune expired operations or reconcile unknown outcomes.');
+            }
+            // Reserve before persistence: a crash may overcount, never undercount.
+            $this->writeCount($count + 1);
             $this->write($path, $operation);
 
             return true;
@@ -46,13 +57,137 @@ final class FileOperationStore implements OperationStore
                 return false;
             }
             // Recheck expiry inside the lock, not only when the candidate was built.
-            if ($current->expiresAt <= time() && in_array($next->state, [OperationState::Ready, OperationState::Executing], true)) {
+            if ($current->expiresAt <= now()->getTimestamp() && in_array($next->state, [OperationState::Ready, OperationState::Executing], true)) {
                 return false;
             }
             $this->write($path, $next);
 
             return true;
         });
+    }
+
+    public function prune(int $limit = 100): int
+    {
+        if ($limit < 1 || $limit > 1000) {
+            throw new \InvalidArgumentException('Prune batch must contain 1–1000 records.');
+        }
+
+        return $this->locked(str_repeat('0', 64), function () use ($limit): int {
+            $count = $this->countRecords();
+            $deleted = 0;
+            foreach ($this->recordPaths() as $path) {
+                $record = $this->read($path);
+                if ($record === null || $record->expiresAt > now()->getTimestamp()
+                    || in_array($record->state, [OperationState::Executing, OperationState::OutcomeUnknown], true)) {
+                    continue;
+                }
+                if (! unlink($path)) {
+                    throw new \RuntimeException('Cannot prune operation record.');
+                }
+                if (is_file($path . '.tmp') && ! unlink($path . '.tmp')) {
+                    throw new \RuntimeException('Cannot prune operation temporary file.');
+                }
+                $deleted++;
+                if ($deleted >= $limit) {
+                    break;
+                }
+            }
+            $this->syncDirectory();
+            // Lower the reservation only after deletion is durable.
+            if ($count < $deleted) {
+                throw new \RuntimeException('Operation capacity metadata is corrupt.');
+            }
+            $this->writeCount($count - $deleted);
+
+            return $deleted;
+        });
+    }
+
+    public function reconcileCapacity(): int
+    {
+        return $this->locked(str_repeat('0', 64), function (): int {
+            $count = $this->occupiedSlots();
+            $this->writeCount($count);
+
+            return $count;
+        });
+    }
+
+    /** @return \Generator<int, string> */
+    private function recordPaths(): \Generator
+    {
+        foreach (new \DirectoryIterator($this->directory) as $file) {
+            if ($file->isFile() && preg_match('/^[a-f0-9]{64}\.json$/D', $file->getFilename())) {
+                yield $file->getPathname();
+            }
+        }
+    }
+
+    private function occupiedSlots(): int
+    {
+        $slots = [];
+        foreach (new \DirectoryIterator($this->directory) as $file) {
+            if ($file->isFile() && preg_match('/^([a-f0-9]{64})\.json(?:\.tmp)?$/D', $file->getFilename(), $match)) {
+                // An orphan candidate may contain recovery evidence. Keep its slot.
+                $slots[$match[1]] = true;
+            }
+        }
+
+        return count($slots);
+    }
+
+    private function countRecords(): int
+    {
+        $path = $this->directory . '/.count';
+        if (! is_file($path)) {
+            $count = $this->occupiedSlots();
+            $this->writeCount($count);
+
+            return $count;
+        }
+        $raw = file_get_contents($path, length: 32);
+        if (! is_string($raw) || ! preg_match('/^[0-9]{1,10}$/D', $raw)) {
+            throw new \RuntimeException('Operation capacity metadata is corrupt.');
+        }
+
+        return (int) $raw;
+    }
+
+    private function writeCount(int $count): void
+    {
+        $temporary = $this->directory . '/.count.tmp';
+        if (is_link($temporary)) {
+            throw new \RuntimeException('Invalid operation capacity temporary file.');
+        }
+        $handle = fopen($temporary, 'w+b');
+        if ($handle === false) {
+            throw new \RuntimeException('Cannot reserve operation capacity.');
+        }
+        try {
+            $data = (string) $count;
+            if (! chmod($temporary, 0600) || fwrite($handle, $data) !== strlen($data)
+                || ! fflush($handle) || ! fsync($handle) || ! rename($temporary, $this->directory . '/.count')) {
+                throw new \RuntimeException('Cannot persist operation capacity.');
+            }
+            $this->syncDirectory();
+        } finally {
+            fclose($handle);
+        }
+    }
+
+    private function syncDirectory(): void
+    {
+        $directory = fopen($this->directory, 'r');
+        if ($directory === false) {
+            throw new \RuntimeException('Cannot open operation directory.');
+        }
+        try {
+            if (! fsync($directory)) {
+                throw new \RuntimeException('Cannot persist operation directory.');
+            }
+        } finally {
+            fclose($directory);
+        }
     }
 
     private function read(string $path): ?Operation
@@ -74,8 +209,11 @@ final class FileOperationStore implements OperationStore
 
     private function write(string $path, Operation $operation): void
     {
-        $temporary = $path . '.' . bin2hex(random_bytes(12)) . '.tmp';
-        $handle = fopen($temporary, 'x+b');
+        $temporary = $path . '.tmp';
+        if (is_link($temporary)) {
+            throw new \RuntimeException('Invalid operation temporary file.');
+        }
+        $handle = fopen($temporary, 'w+b');
         if ($handle === false) {
             throw new \RuntimeException('Cannot create operation record.');
         }
@@ -84,12 +222,16 @@ final class FileOperationStore implements OperationStore
                 throw new \RuntimeException('Cannot restrict operation record permissions.');
             }
             $json = json_encode($operation->toArray(), JSON_THROW_ON_ERROR);
+            if (strlen($json) > 3_000_000) {
+                throw new \RuntimeException('Operation record exceeds its storage budget.');
+            }
             if (fwrite($handle, $json) !== strlen($json) || ! fflush($handle) || ! fsync($handle)) {
                 throw new \RuntimeException('Cannot persist operation record.');
             }
             if (! rename($temporary, $path)) {
                 throw new \RuntimeException('Cannot commit operation record.');
             }
+            $this->syncDirectory();
         } finally {
             fclose($handle);
             if (is_file($temporary)) {
@@ -111,8 +253,9 @@ final class FileOperationStore implements OperationStore
         if (! is_dir($this->directory) && ! mkdir($this->directory, 0700, true) && ! is_dir($this->directory)) {
             throw new \RuntimeException('Cannot create operation storage.');
         }
-        // Never delete/recreate lock files: that would allow two different inodes to be locked.
-        $lock = fopen($this->directory . '/' . $id . '.lock', 'c+b');
+        // One permanent lock bounds artifacts even for lookups of unknown handles.
+        // Never replace this inode while workers are running.
+        $lock = fopen($this->directory . '/.store.lock', 'c+b');
         if ($lock === false) {
             throw new \RuntimeException('Cannot open operation lock.');
         }

@@ -13,6 +13,12 @@ interface OperationStore
 
     public function find(string $id): ?Operation;
 
+    /** Delete expired records, retaining executing and unknown outcomes for reconciliation. */
+    public function prune(int $limit = 100): int;
+
+    /** Recount occupied slots under the admission lock; never change operation outcomes. */
+    public function reconcileCapacity(): int;
+
     /** Atomic transition; refuses stale versions and changes to immutable bindings. */
     public function transition(Operation $expected, Operation $next): bool;
 }

@@ -1,5 +1,6 @@
 <?php
 
+use Cboxdk\StatamicMcp\Actions\Operations\FileOperationStore;
 use Cboxdk\StatamicMcp\OAuth\Drivers\BuiltInOAuthDriver;
 use Cboxdk\StatamicMcp\Storage\Audit\FileAuditStore;
 use Cboxdk\StatamicMcp\Storage\Tokens\FileTokenStore;
@@ -58,6 +59,7 @@ return [
     'stores' => [
         'tokens' => FileTokenStore::class,
         'audit' => FileAuditStore::class,
+        'operations' => FileOperationStore::class,
     ],
 
     /*
@@ -68,7 +70,15 @@ return [
     | File paths used by the file-based storage drivers.
     |
     */
+    'operations' => [
+        'max_records' => 256,
+        'retry_seconds' => 3600,
+        // Shared deployments must select DatabaseOperationStore.
+        'multi_node' => false,
+    ],
+
     'storage' => [
+        'operations_path' => storage_path('statamic-mcp/operations'),
         'tokens_path' => storage_path('statamic-mcp/tokens'),
         'audit_path' => storage_path('statamic-mcp/audit.log'),
         'oauth_clients_path' => storage_path('statamic-mcp/oauth/clients'),

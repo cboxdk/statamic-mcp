@@ -151,6 +151,9 @@ class ActionContractTest extends TestCase
         Event::listen(EntrySaved::class, function () use (&$writes): void {
             $writes++;
         });
+        $prepared = $executor->prepare('fixture/addon/edit', ['id' => $entry->id(), 'title' => 'After'], $context);
+        $context = $context->withOperationId($prepared->id);
+        $this->assertSame(0, $writes);
         $this->assertSame(['title' => 'After'], $executor->execute('fixture/addon/edit', ['id' => $entry->id(), 'title' => 'After'], $context));
         $this->assertSame(['title' => 'After'], $executor->execute('fixture/addon/edit', ['id' => $entry->id(), 'title' => 'After'], $context));
         $this->assertSame(1, $writes, 'An idempotent replay must not invoke the handler again.');

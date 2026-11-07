@@ -24,6 +24,12 @@ final readonly class ExecutionContext
         }
     }
 
+    public function withOperationId(string $operationId): self
+    {
+        return new self($this->actorId, $this->grantId, $this->site, $this->profile,
+            $this->transport, $operationId, $this->deadlineNanoseconds, $this->credentialId);
+    }
+
     public function checkDeadline(): void
     {
         if (hrtime(true) >= $this->deadlineNanoseconds) {

@@ -28,7 +28,7 @@ final readonly class Operation
         if (! $this->state->canTransitionTo($next)) {
             throw new \LogicException('Invalid operation transition.');
         }
-        if ($this->expiresAt <= time() && in_array($next, [OperationState::Ready, OperationState::Executing], true)) {
+        if ($this->expiresAt <= now()->getTimestamp() && in_array($next, [OperationState::Ready, OperationState::Executing], true)) {
             throw new \LogicException('Expired operation cannot start.');
         }
 

@@ -52,8 +52,10 @@ These records do not certify V02–V10. The main plan remains the release checkl
   The registered-action authorizer now reloads credentials, scopes, consent and site
   access. Wiring it across all public MCP surfaces is still missing.
   Editor currently handles unpublished entries only; live working-copy editing is refused.
-- V04: integrate operation storage into all writes; wire the supplied SQL migration and add
-  retention/quota/recovery and multi-node database concurrency coverage.
+- V04: integrate operations into all writes; add resource-version bindings and
+  complete outcome reconciliation. Prepare-only handles, admission limits, pruning,
+  capacity repair, driver bindings and SQLite process concurrency are implemented.
+  Shared MySQL admission still needs CI coverage.
 - V05: durable approvals, CP UI, revocation and atomic consumption. Existing
   stateless confirmations have not yet been replaced.
 - V06/V07: complete public lifecycle events, durable audit and released-version
@@ -64,8 +66,8 @@ These records do not certify V02–V10. The main plan remains the release checkl
   baseline and release candidate review. No support claim for Statamic 6.40 as a
   new minimum yet; the requirement remains 6.35.1 pending the matrix.
 
-The prototype has no service-provider binding or public MCP registration. This is
-intentional: it must not admit production writes before authorization and approvals
+The action services now have service-provider bindings, but no public MCP
+registration. This is intentional: it must not admit production writes before authorization and approvals
 are wired. High-impact prototype actions are refused. WebMCP remains deferred as
 agreed; no browser tool interface is published.
 
@@ -193,3 +195,31 @@ The local MCP registration now runs independently of the HTTP route cache.
 OAuth default scopes include registered integration scopes. The new grant-default
 case passed with the seven existing grant integration tests; the final transport
 run passed 9 tests / 25 assertions, and PHPStan/Pint passed.
+
+### Prepared handles, admission and retention
+
+Writes in the internal action executor now require a separate authorized prepare
+step. It issues a random opaque handle bound to actor, stable grant, full action
+definition, transport/profile, site and canonical input. Execution never creates
+a missing record. A lost/expired/pruned handle therefore cannot recreate a write.
+Fresh preparation is safe before execution; a lost execution response must be
+retried with its original handle, not a new prepare request.
+
+File and SQL stores limit admission to 256 retained records by default, with a
+3,000,000-byte maximum serialized record. The file backend uses one permanent
+lock and fixed temporary paths, avoiding per-lookup lock artifacts or unbounded
+crash candidates. It fsyncs files and directory changes. File capacity is reserved
+before persistence, so interrupted writes can overcount but cannot oversubscribe.
+Database admission uses an atomic counter reservation in the insert transaction.
+
+Expired records can be pruned, but executing/unknown outcomes remain reserved.
+Capacity repair recounts occupied slots without changing operation outcomes and
+keeps orphan recovery candidates. The commands are `mcp:prune-operations` and
+`mcp:repair-operation-capacity`. Multi-node configuration rejects the file backend.
+Provider bindings and conditional SQL migration loading are now present.
+
+Verification before the final orphan-initialization refactor: **35 tests / 281
+assertions**, including real simultaneous process admission/claims on local POSIX
+files and SQLite, crash retention, no re-execution after pruning, and CLI wiring.
+PHPStan level 9 and Pint passed. Public router migration, resource versions, durable
+approvals and full outcome reconciliation are still required.

@@ -137,11 +137,14 @@ class GrantIntegrationTest extends TestCase
                 new FileOperationStore($directory),
                 app(Encrypter::class)));
         GrantFixtureHandler::$calls = 0;
+        $operation = $executor->prepare($action->id(), [], $context);
+        $this->assertSame(0, GrantFixtureHandler::$calls);
+        $context = $context->withOperationId($operation->id);
         try {
             $this->assertSame(['ok' => true], $executor->execute($action->id(), [], $context));
             $service->revokeToken($first->id);
             $second = $service->createToken($actor->id(), 'Rotated credential', ['fixture:status'], capabilities: $snapshot)['model'];
-            $renewed = new ExecutionContext($actor->id(), $snapshot->grantId, 'default', 'operator', 'http', 'same-write', hrtime(true) + 10_000_000_000, $second->id);
+            $renewed = new ExecutionContext($actor->id(), $snapshot->grantId, 'default', 'operator', 'http', $operation->id, hrtime(true) + 10_000_000_000, $second->id);
             $this->assertSame(['ok' => true], $executor->execute($action->id(), [], $renewed));
             $this->assertSame(1, GrantFixtureHandler::$calls);
             $this->assertSame(['execution.started', 'execution.completed', 'execution.replayed'],
