@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Statamic addon that functions as an MCP (Model Context Protocol) server, built on top of Laravel's MCP server. The addon extends Statamic CMS v6.6+ and requires `laravel/mcp` ^1.0 as a runtime dependency. It includes scoped API token authentication, a Vue 3 CP dashboard, and web MCP endpoints.
+This is a Statamic addon that functions as an MCP (Model Context Protocol) server, built on top of Laravel's MCP server. The addon extends Statamic CMS v6.35.1+ and requires `laravel/mcp` ^1.1.2 as a runtime dependency. It includes scoped API token authentication, a Vue 3 CP dashboard, and web MCP endpoints.
 
 ## Key Dependencies
 
 - **PHP**: ^8.3
-- **Statamic CMS**: ^6.6 (v6 only — v5 support was removed in v2.0)
+- **Statamic CMS**: ^6.35.1 (v6 only — v5 support was removed in v2.0)
 - **Laravel**: ^12.0 || ^13.0 (via Statamic v6)
-- **Laravel MCP**: ^1.0 (required - must be in `require` section, not `require-dev`)
+- **Laravel MCP**: ^1.1.2 (required - must be in `require` section, not `require-dev`)
 - **Orchestra Testbench**: ^10.0 || ^11.0 (dev dependency for testing)
 - **Pest**: ^4.1 (stable release with PHP 8.3 requirement)
 - **Symfony YAML**: ^7.0 || ^8.0 (for YAML processing)
@@ -52,9 +52,9 @@ Discovery calls that third-party code inside a `try/catch`, so one faulty tool i
 instead of failing discovery for every client.
 
 ### Middleware
-- `HandleMcpCors` — CORS headers for browser-based clients (only when `allowed_origins` configured)
+- `HandleMcpCors` — Origin validation against app.url and allowed_origins, plus CORS response headers
 - `EnsureSecureTransport` — Rejects plain HTTP in production (when `require_https` enabled)
-- `AuthenticateForMcp` — Bearer token + Basic Auth fallback
+- `AuthenticateForMcp` — Bearer token authentication (Basic Auth removed in v4)
 - `RequireMcpPermission` — Validates token scopes and expiry
 
 ### Confirmation Tokens
@@ -162,17 +162,17 @@ Token operations dispatch events for Statamic's Git automation:
 
 ## Web MCP Endpoint
 
-This addon supports web-accessible MCP endpoints for browser-based integrations. The web endpoint is enabled by default. See the configuration reference for customization options.
+This addon supports web-accessible MCP endpoints for browser-based integrations. The web endpoint requires explicit activation. See the configuration reference for customization options.
 
 ### Quick Setup
 
 ```env
-# Web MCP endpoint (enabled by default)
+# Enable the web MCP endpoint explicitly
 STATAMIC_MCP_WEB_ENABLED=true
 STATAMIC_MCP_WEB_PATH="/mcp/statamic"
 ```
 
-The endpoint will be available at `https://your-site.test/mcp/statamic` with Bearer token or Basic Auth authentication.
+The endpoint will be available at `https://your-site.test/mcp/statamic` with Bearer token authentication, including OAuth-issued tokens.
 
 ### MCP Client Configuration
 

@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Tests\Concerns;
 
 use Carbon\Carbon;
+use Cboxdk\StatamicMcp\Actions\CapabilitySnapshot;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
+use Cboxdk\StatamicMcp\OAuth\Contracts\RevokesUserGrants;
 use Cboxdk\StatamicMcp\OAuth\Exceptions\OAuthException;
 use Cboxdk\StatamicMcp\OAuth\OAuthAuthCode;
 use Cboxdk\StatamicMcp\OAuth\OAuthClient;
@@ -18,6 +20,100 @@ use Cboxdk\StatamicMcp\OAuth\OAuthClient;
 trait OAuthDriverContractTests
 {
     abstract protected function createDriver(): OAuthDriver;
+
+    public function test_consent_snapshot_survives_code_exchange_and_every_refresh_rotation(): void
+    {
+        $driver = $this->createDriver();
+        $client = $driver->registerClient('Consent', ['https://example.com/callback']);
+        $snapshot = new CapabilitySnapshot(['example/addon/draft' => hash('sha256', 'approved-definition')]);
+        $verifier = bin2hex(random_bytes(32));
+        $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+        $code = $driver->createAuthCode($client->clientId, 'user-1', ['entries:write'], $challenge, 'S256', 'https://example.com/callback', $snapshot);
+        $exchanged = $driver->exchangeCode($code, $verifier, $client->clientId, 'https://example.com/callback');
+        $this->assertSame($snapshot->toStored(), $exchanged->capabilities->toStored());
+        $refresh = $driver->createRefreshToken('user-1', $client->clientId, ['entries:write'], $exchanged->capabilities);
+        for ($i = 0; $i < 3; $i++) {
+            $rotated = $driver->exchangeRefreshToken($refresh, $client->clientId);
+            $this->assertSame($snapshot->toStored(), $rotated->capabilities->toStored());
+            $refresh = $rotated->refreshToken;
+        }
+    }
+
+    public function test_refresh_replay_revokes_successor_but_not_other_client(): void
+    {
+        $driver = $this->createDriver();
+        $client = $driver->registerClient('First', ['https://example.com/callback']);
+        $other = $driver->registerClient('Other', ['https://example.com/callback']);
+        $original = $driver->createRefreshToken('user-1', $client->clientId, ['entries:read']);
+        $unrelated = $driver->createRefreshToken('user-1', $other->clientId, ['entries:read']);
+        $rotated = $driver->exchangeRefreshToken($original, $client->clientId);
+        expect($rotated->refreshToken)->toBeString();
+        try {
+            $driver->exchangeRefreshToken($original, $client->clientId);
+            $this->fail('Replay must fail.');
+        } catch (OAuthException) {
+        }
+        expect($driver->exchangeRefreshToken($unrelated, $other->clientId)->userId)->toBe('user-1');
+        $this->expectException(OAuthException::class);
+        $driver->exchangeRefreshToken($rotated->refreshToken, $client->clientId);
+    }
+
+    public function test_expired_used_refresh_cannot_revoke_a_new_grant(): void
+    {
+        $driver = $this->createDriver();
+        $client = $driver->registerClient('Expiry', ['https://example.com/callback']);
+        config()->set('statamic.mcp.oauth.refresh_token_ttl', 60);
+        $original = $driver->createRefreshToken('user-1', $client->clientId, ['entries:read']);
+        $driver->exchangeRefreshToken($original, $client->clientId);
+        $this->travel(61)->seconds();
+        $newGrant = $driver->createRefreshToken('user-1', $client->clientId, ['entries:read']);
+        try {
+            $driver->exchangeRefreshToken($original, $client->clientId);
+            $this->fail('Expired refresh must fail.');
+        } catch (OAuthException $error) {
+            $this->assertStringContainsString('expired', $error->getMessage());
+        }
+        $this->assertSame('user-1', $driver->exchangeRefreshToken($newGrant, $client->clientId)->userId);
+    }
+
+    public function test_wrong_client_does_not_consume_refresh_token(): void
+    {
+        $driver = $this->createDriver();
+        $client = $driver->registerClient('First', ['https://example.com/callback']);
+        $token = $driver->createRefreshToken('user-1', $client->clientId, ['entries:read']);
+        try {
+            $driver->exchangeRefreshToken($token, 'wrong-client');
+            $this->fail('Wrong client must fail.');
+        } catch (OAuthException) {
+        }
+        expect($driver->exchangeRefreshToken($token, $client->clientId)->userId)->toBe('user-1');
+    }
+
+    public function test_rotation_does_not_extend_the_original_grant_expiry(): void
+    {
+        $driver = $this->createDriver();
+        config(['statamic.mcp.oauth.refresh_token_ttl' => 100]);
+        $client = $driver->registerClient('First', ['https://example.com/callback']);
+        $original = $driver->createRefreshToken('user-1', $client->clientId, ['entries:read']);
+        $this->travel(60)->seconds();
+        $rotated = $driver->exchangeRefreshToken($original, $client->clientId);
+        $this->travel(50)->seconds();
+        $this->expectException(OAuthException::class);
+        $driver->exchangeRefreshToken($rotated->refreshToken, $client->clientId);
+    }
+
+    public function test_user_grant_revocation_removes_orphan_refresh_tokens(): void
+    {
+        $driver = $this->createDriver();
+        $client = $driver->registerClient('First', ['https://example.com/callback']);
+        $token = $driver->createRefreshToken('user-1', $client->clientId, ['entries:read']);
+        $other = $driver->createRefreshToken('user-2', $client->clientId, ['entries:read']);
+        expect($driver)->toBeInstanceOf(RevokesUserGrants::class);
+        $driver->revokeGrantsForUser('user-1');
+        expect($driver->exchangeRefreshToken($other, $client->clientId)->userId)->toBe('user-2');
+        $this->expectException(OAuthException::class);
+        $driver->exchangeRefreshToken($token, $client->clientId);
+    }
 
     public function test_register_client(): void
     {
@@ -418,9 +514,9 @@ trait OAuthDriverContractTests
         // First exchange succeeds
         $driver->exchangeRefreshToken($token, $client->clientId);
 
-        // Second exchange fails (token file deleted after single use)
+        // The used hash is retained so a replay ends the grant.
         $this->expectException(OAuthException::class);
-        $this->expectExceptionMessage('Refresh token not found');
+        $this->expectExceptionMessage('Refresh token has already been used');
 
         $driver->exchangeRefreshToken($token, $client->clientId);
     }

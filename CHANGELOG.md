@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Require durable audit admission before registered writes, independently of telemetry and the legacy logging flag. Custom audit drivers must implement `DurableAuditStore`; SQL admission refuses uncommitted caller transactions.
+- Serialize audit append, rotation and purge across processes. Flush durable writes, preserve interrupted tail evidence, and paginate without loading the complete history into memory.
+
+- Persist encrypted recovery identity before preparing a write. Bind it to the handle and request, preserve it on unknown outcomes, and refuse missing or corrupted intent before execution. Raw input and credentials are not retained. Add `mcp:inspect-operation` for read-only local recovery inspection.
+
+- Serialize complete file-token mutations, including usage timestamps and revocation. Atomically replace token files and refuse failed deletions; a concurrent last-used update cannot recreate a revoked credential.
+
+- Expose explicitly consented registered read actions through HTTP, stdio and tool search. Stdio requires a configured v4 token; catalog visibility and invocation recheck native site permissions.
+- Run registered actions under their verified native Statamic actor, restoring ambient authentication after success, failure and nested calls. Freeze registries after deferred addon boot registration.
+
+- Require server-issued prepared handles for writes in the registered-action executor. Add bounded operation admission, safe expiry cleanup and capacity repair; unknown or pruned handles never recreate a write.
+- Register the stdio server even when Laravel HTTP routes are cached; honor registered addon scopes in OAuth defaults.
+- Reject expired refresh-token replays before grant revocation in both storage drivers.
+- Add isolated, typed execution and grant lifecycle observations; credential rotation does not masquerade as grant revocation. Legacy Git listener failures cannot veto an already persisted token change.
+- Bound HTTP/stdio JSON before decoding, preserve fragmented stdio frames, and apply configured tool input budgets.
+- Bind OAuth consent to the displayed scope/capability definitions, authenticated user, session, client and PKCE. Reject missing, expired, tampered or reused consent; an empty selection never grants all scopes.
+- Persist registered-action consent and a stable grant identity through file/SQL token stores, OAuth refresh, secret rotation and storage import. Adding or changing an integration does not expand old grants; changed scopes require renewed consent.
+- Show registered integration scopes in the Control Panel and OAuth picker. Personal-token creation uses the displayed capability snapshot; scope updates discard old capability consent rather than silently expanding it.
+- Require custom token and OAuth storage drivers to preserve the new optional capability snapshot arguments and fields.
+
+- Refuse forced cascading deletion of nonempty collections and taxonomies. Delete entries/terms explicitly first; a rejected parent deletion preserves its blueprints.
+- Keep runtime extension registrations within their application container instead of sharing them across the PHP process.
+
+- Require an explicit HTTP/stdio installation profile. Read-only and editor profiles reject sensitive domains and unsupported actions; editor writes are limited to unpublished entries.
+
+- Remove Basic Auth, including the legacy enable flag. Use scoped Bearer tokens or OAuth. The HTTP MCP endpoint now requires explicit activation.
+- Require custom OAuth drivers to implement user-wide grant revocation, including orphan refresh tokens and pending authorization codes.
+- Authorize global values against their concrete Statamic site policy.
+- Enforce entry publish permissions on status updates and working copies, and authorize localized entries and revision actions against their actual site and author. Reject entry list reads from inaccessible sites.
+- End OAuth refresh access when scopes or expiry change, revoke orphan grants on user deactivation, and detect replay across the refresh chain. Rotated tokens retain the original grant expiry. Multi-node deployments must use a shared, lock-capable `oauth.lock_store`.
+- Restrict user data to profile/blueprint fields and omit authentication secrets. Reject disallowed browser origins before executing a request; require HTTPS even when older published configuration omits the setting.
+- Limit outbound downloads while cURL receives bytes, preserving DNS pinning and SSRF checks.
+- Require Statamic 6.35.1+ and Laravel MCP 1.1.2+.
+
+### Fixed
+
+- Preserve committed operation effects when final output filtering fails. Audit/exporter/fallback logger failures after a write cannot turn its stored success into a retryable failure; legacy tool envelopes report unavailable outcome audit separately.
+
+- Respect configured input budgets for registered actions, including 10 MiB asset uploads. Align encrypted result storage with output validation for deep and Unicode-heavy content.
+
+- Verify asset file placement after native moves, and report an unknown outcome if the filesystem did not move the file.
+
+- Respect Statamic save/delete vetoes on entry, term, global, user, role, group, asset and structure writes; isolate entry candidates from live repository objects.
+- Register cache cleanup before content writes, report failed cache command exit codes, and preserve successful outcomes when completed calls exceed the duration budget.
+- Allow editors to restore revisions as drafts or working copies without requiring publication rights, matching Statamic's control panel.
+- Use Statamic's actual role and user-group permissions for all corresponding MCP operations, including non-super administrators.
+
 ## [3.6.0] - 2026-11-05
 
 ### Security

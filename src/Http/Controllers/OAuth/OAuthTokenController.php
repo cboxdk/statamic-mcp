@@ -5,7 +5,8 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Http\Controllers\OAuth;
 
 use Carbon\Carbon;
-use Cboxdk\StatamicMcp\Auth\TokenScope;
+use Cboxdk\StatamicMcp\Actions\CapabilitySnapshot;
+use Cboxdk\StatamicMcp\Auth\ScopeAvailability;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\OAuth\Cimd\CimdClientId;
 use Cboxdk\StatamicMcp\OAuth\Cimd\CimdFetchException;
@@ -14,9 +15,11 @@ use Cboxdk\StatamicMcp\OAuth\Cimd\CimdValidationException;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
 use Cboxdk\StatamicMcp\OAuth\Exceptions\OAuthException;
 use Cboxdk\StatamicMcp\OAuth\OAuthClient;
+use Cboxdk\StatamicMcp\OAuth\OAuthMutationLock;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Statamic\Facades\User;
 
 class OAuthTokenController extends Controller
 {
@@ -36,14 +39,14 @@ class OAuthTokenController extends Controller
         /** @var mixed $grantType */
         $grantType = $request->input('grant_type');
 
-        return match ($grantType) {
+        return app(OAuthMutationLock::class)->run(fn (): JsonResponse => match ($grantType) {
             'authorization_code' => $this->handleAuthCodeExchange($request),
             'refresh_token' => $this->handleRefreshTokenExchange($request),
             default => response()->json([
                 'error' => 'unsupported_grant_type',
                 'error_description' => 'Supported grant types: authorization_code, refresh_token.',
             ], 400),
-        };
+        });
     }
 
     /**
@@ -77,7 +80,9 @@ class OAuthTokenController extends Controller
             return response()->json($e->toOAuthResponse(), $e->httpStatus);
         }
 
-        return $this->issueTokenResponse($clientId, $authCode->userId, $authCode->scopes);
+        $this->oauthDriver->revokeRefreshTokensFor($authCode->userId, $clientId);
+
+        return $this->issueTokenResponse($clientId, $authCode->userId, $authCode->scopes, capabilities: $authCode->capabilities);
     }
 
     /**
@@ -115,7 +120,7 @@ class OAuthTokenController extends Controller
             return response()->json($e->toOAuthResponse(), $e->httpStatus);
         }
 
-        return $this->issueTokenResponse($clientId, $authCode->userId, $authCode->scopes);
+        return $this->issueTokenResponse($clientId, $authCode->userId, $authCode->scopes, $authCode->refreshToken, $authCode->capabilities);
     }
 
     /**
@@ -127,7 +132,7 @@ class OAuthTokenController extends Controller
      * @param  string  $userId  The authenticated user ID.
      * @param  array<int, string>  $scopes  The granted scope strings.
      */
-    private function issueTokenResponse(string $clientId, string $userId, array $scopes): JsonResponse
+    private function issueTokenResponse(string $clientId, string $userId, array $scopes, ?string $rotatedRefreshToken = null, ?CapabilitySnapshot $capabilities = null): JsonResponse
     {
         // Try to find client via DCR registry. findClient() throws OAuthException
         // for URL-format client_ids (BuiltInOAuthDriver rejects non-filename identifiers),
@@ -147,30 +152,50 @@ class OAuthTokenController extends Controller
             }
         }
 
-        $clientName = $client !== null ? $client->clientName : 'OAuth Client';
+        if ($client === null) {
+            return response()->json(['error' => 'invalid_client', 'error_description' => 'Unknown client.'], 400);
+        }
+        $user = User::find($userId);
+        if ($user === null || $user->get('status') === 'inactive') {
+            $this->oauthDriver->revokeRefreshTokensFor($userId, $clientId);
+            $this->tokenService->revokeOAuthTokens($userId, $clientId);
+
+            return response()->json(['error' => 'invalid_grant', 'error_description' => 'User is unavailable.'], 400);
+        }
+
+        $clientName = $client->clientName;
 
         /** @var int $tokenTtl */
         $tokenTtl = config('statamic.mcp.oauth.token_ttl', 86400);
         $expiresAt = Carbon::now()->addSeconds($tokenTtl);
 
-        $resolvedScopes = TokenScope::resolveMany($scopes);
+        // Removing a scope registration ends the old grant; never silently reinterpret it.
+        if (array_diff($scopes, app(ScopeAvailability::class)->names()) !== []) {
+            $this->oauthDriver->revokeRefreshTokensFor($userId, $clientId);
+            $this->tokenService->revokeOAuthTokens($userId, $clientId);
 
-        // Revoke previous access tokens for this client+user to prevent accumulation
-        $this->tokenService->revokeOAuthTokens($userId, $clientId);
+            return response()->json(['error' => 'invalid_grant', 'error_description' => 'Consent must be renewed.'], 400);
+        }
+
+        // Credential rotation preserves the grant and must not report grant revocation.
+        $this->tokenService->revokeOAuthTokens($userId, $clientId, endGrant: $rotatedRefreshToken === null);
 
         $result = $this->tokenService->createToken(
             $userId,
             "{$clientName} (OAuth)",
-            $resolvedScopes,
+            $scopes,
             $expiresAt,
             $clientId,
             $clientName,
+            $capabilities,
+            newGrant: $rotatedRefreshToken === null,
         );
 
-        $refreshToken = $this->oauthDriver->createRefreshToken(
+        $refreshToken = $rotatedRefreshToken ?? $this->oauthDriver->createRefreshToken(
             $userId,
             $clientId,
             $scopes,
+            $capabilities,
         );
 
         return response()->json([

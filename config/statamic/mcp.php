@@ -1,10 +1,21 @@
 <?php
 
+use Cboxdk\StatamicMcp\Actions\Operations\FileOperationStore;
 use Cboxdk\StatamicMcp\OAuth\Drivers\BuiltInOAuthDriver;
 use Cboxdk\StatamicMcp\Storage\Audit\FileAuditStore;
 use Cboxdk\StatamicMcp\Storage\Tokens\FileTokenStore;
 
 return [
+
+    // Registered v4 actions require explicit consent over either transport.
+    'stdio' => ['token' => env('STATAMIC_MCP_STDIO_TOKEN')],
+    // Explicit transport limits. Unknown/missing values disable execution.
+    // Profiles restrict access; HTTP still requires a token and Statamic rights.
+    'profiles' => [
+        'http' => env('STATAMIC_MCP_HTTP_PROFILE'),
+        'stdio' => env('STATAMIC_MCP_STDIO_PROFILE'),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Statamic MCP Server v2.0 Configuration
@@ -24,7 +35,7 @@ return [
     |
     */
     'web' => [
-        'enabled' => env('STATAMIC_MCP_WEB_ENABLED', true),
+        'enabled' => filter_var(env('STATAMIC_MCP_WEB_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
         'path' => env('STATAMIC_MCP_WEB_PATH', '/mcp/statamic'),
 
         // Reject plain HTTP requests to the MCP endpoint (skipped in local/testing)
@@ -51,6 +62,7 @@ return [
     'stores' => [
         'tokens' => FileTokenStore::class,
         'audit' => FileAuditStore::class,
+        'operations' => FileOperationStore::class,
     ],
 
     /*
@@ -61,7 +73,15 @@ return [
     | File paths used by the file-based storage drivers.
     |
     */
+    'operations' => [
+        'max_records' => 256,
+        'retry_seconds' => 3600,
+        // Shared deployments must select DatabaseOperationStore.
+        'multi_node' => false,
+    ],
+
     'storage' => [
+        'operations_path' => storage_path('statamic-mcp/operations'),
         'tokens_path' => storage_path('statamic-mcp/tokens'),
         'audit_path' => storage_path('statamic-mcp/audit.log'),
         'oauth_clients_path' => storage_path('statamic-mcp/oauth/clients'),
@@ -98,6 +118,11 @@ return [
         'audit_logging' => env('STATAMIC_MCP_AUDIT_LOGGING', true),
 
         // Maximum upload size in bytes (default: 10MB)
+        // Includes base64 expansion for the default 10 MiB upload limit.
+        'max_input_bytes' => 16 * 1024 * 1024,
+        'max_input_values' => 20000,
+        'max_input_depth' => 64,
+
         'max_upload_size' => env('STATAMIC_MCP_MAX_UPLOAD_SIZE', 10 * 1024 * 1024),
 
         // statamic-assets upload can fetch the file from a URL (source_url),
@@ -209,6 +234,8 @@ return [
     |
     */
     'oauth' => [
+        // Must be shared across nodes; supports Laravel atomic locks.
+        'lock_store' => env('STATAMIC_MCP_OAUTH_LOCK_STORE'),
         'enabled' => env('STATAMIC_MCP_OAUTH_ENABLED', true),
         'driver' => env('STATAMIC_MCP_OAUTH_DRIVER', BuiltInOAuthDriver::class),
         'code_ttl' => (int) env('STATAMIC_MCP_OAUTH_CODE_TTL', 600),

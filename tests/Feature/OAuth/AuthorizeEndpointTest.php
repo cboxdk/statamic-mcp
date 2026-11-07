@@ -6,11 +6,14 @@ namespace Cboxdk\StatamicMcp\Tests\Feature\OAuth;
 
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
 use Cboxdk\StatamicMcp\OAuth\OAuthClient;
+use Cboxdk\StatamicMcp\Tests\Concerns\InteractsWithOAuthConsent;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Statamic\Facades\User;
 
 class AuthorizeEndpointTest extends TestCase
 {
+    use InteractsWithOAuthConsent;
+
     private OAuthClient $testClient;
 
     private string $validRedirectUri = 'https://example.com/callback';
@@ -163,7 +166,7 @@ class AuthorizeEndpointTest extends TestCase
         $user->save();
 
         $response = $this->actingAs($user, 'web')
-            ->post($this->authorizeUrl(), [
+            ->post($this->authorizeUrl(), $this->withConsentOffer($this->authorizeUrl(), [
                 'client_id' => $this->testClient->clientId,
                 'redirect_uri' => $this->validRedirectUri,
                 'state' => 'test-state-456',
@@ -171,7 +174,7 @@ class AuthorizeEndpointTest extends TestCase
                 'code_challenge_method' => 'S256',
                 'scopes' => ['content:read'],
                 'decision' => 'approve',
-            ]);
+            ]));
 
         $response->assertRedirect();
         $location = $response->headers->get('Location', '');
@@ -201,5 +204,63 @@ class AuthorizeEndpointTest extends TestCase
         $location = $response->headers->get('Location', '');
         $this->assertStringContainsString('error=access_denied', $location);
         $this->assertStringContainsString('state=test-state-789', $location);
+    }
+
+    /** @return array<string, mixed> */
+    private function approvedForm(): array
+    {
+        $user = User::make()->id('consent-owner')->email('consent@example.com')->makeSuper();
+        $user->save();
+        $this->actingAs($user, 'web');
+
+        return $this->withConsentOffer($this->authorizeUrl(), array_merge($this->validParams(), [
+            'scopes' => ['content:read'], 'decision' => 'approve',
+        ]));
+    }
+
+    public function test_direct_post_cannot_issue_a_grant_without_displayed_consent(): void
+    {
+        $form = $this->approvedForm();
+        unset($form['consent_offer']);
+        $this->post($this->authorizeUrl(), $form)->assertStatus(400);
+    }
+
+    public function test_consent_cannot_be_reused(): void
+    {
+        $form = $this->approvedForm();
+        $this->post($this->authorizeUrl(), $form)->assertRedirectContains('code=');
+        $this->post($this->authorizeUrl(), $form)->assertStatus(400);
+    }
+
+    public function test_empty_selection_never_defaults_to_all_permissions(): void
+    {
+        $form = $this->approvedForm();
+        unset($form['scopes']);
+        $this->post($this->authorizeUrl(), $form)->assertRedirectContains('error=invalid_scope');
+    }
+
+    public function test_hidden_scope_and_pkce_fields_cannot_be_changed_after_display(): void
+    {
+        foreach (['scope' => '*', 'code_challenge' => str_repeat('a', 43), 'state' => 'changed'] as $field => $value) {
+            $form = $this->approvedForm();
+            $form[$field] = $value;
+            $this->post($this->authorizeUrl(), $form)->assertStatus(400);
+        }
+    }
+
+    public function test_expired_consent_cannot_issue_a_grant(): void
+    {
+        $form = $this->approvedForm();
+        $this->travel(11)->minutes();
+        $this->post($this->authorizeUrl(), $form)->assertStatus(400);
+    }
+
+    public function test_consent_is_bound_to_the_authenticated_user(): void
+    {
+        config()->set('statamic.editions.pro', true);
+        $form = $this->approvedForm();
+        $other = User::make()->id('another-consent-owner')->email('another@example.com')->makeSuper();
+        $other->save();
+        $this->actingAs($other, 'web')->post($this->authorizeUrl(), $form)->assertStatus(400);
     }
 }

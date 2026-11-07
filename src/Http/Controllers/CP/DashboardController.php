@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Http\Controllers\CP;
 
 use Cboxdk\StatamicMcp\Auth\ScopeAvailability;
-use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
+use Cboxdk\StatamicMcp\Authorization\PersonalTokenConsent;
 use Cboxdk\StatamicMcp\Http\Controllers\CP\Concerns\ResolvesUserId;
 use Cboxdk\StatamicMcp\Services\ClientConfigGenerator;
 use Cboxdk\StatamicMcp\Services\StatsService;
@@ -53,15 +53,8 @@ class DashboardController extends CpController
         return Inertia::render('statamic-mcp::McpPage', [
             'tokens' => $tokens->map(fn (McpTokenData $token): array => $this->serializeToken($token))->values()->all(),
             // Only what this user can exercise (see ScopeAvailability).
-            'availableScopes' => array_map(
-                fn (TokenScope $s): array => [
-                    'value' => $s->value,
-                    'label' => $s->label(),
-                    'description' => $s->description(),
-                    'group' => $s->group(),
-                ],
-                app(ScopeAvailability::class)->forUser(User::current())
-            ),
+            'availableScopes' => app(ScopeAvailability::class)->options(User::current()),
+            'capabilityOffer' => app(PersonalTokenConsent::class)->offer(request()),
             'clients' => $this->configGenerator->getAvailableClients(),
             'webEnabled' => (bool) config('statamic.mcp.web.enabled', false),
             'mcpEndpoint' => $this->getMcpEndpoint(),
@@ -109,15 +102,8 @@ class DashboardController extends CpController
 
         return Inertia::render('statamic-mcp::McpAdminPage', [
             'allTokens' => $allTokens->map(fn (McpTokenData $token): array => $this->serializeToken($token, true))->values()->all(),
-            'availableScopes' => array_map(
-                fn (TokenScope $s): array => [
-                    'value' => $s->value,
-                    'label' => $s->label(),
-                    'description' => $s->description(),
-                    'group' => $s->group(),
-                ],
-                TokenScope::all()
-            ),
+            'availableScopes' => app(ScopeAvailability::class)->options(User::current()),
+            'capabilityOffer' => app(PersonalTokenConsent::class)->offer(request()),
             'availableUsers' => $availableUsers,
             'availableTools' => $toolNames,
             'systemStats' => $this->statsService->getSystemStats(),

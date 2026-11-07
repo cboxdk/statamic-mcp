@@ -16,6 +16,7 @@ use Cboxdk\StatamicMcp\Contracts\AuditStore;
 use Cboxdk\StatamicMcp\Contracts\CollectionTreeEditor;
 use Cboxdk\StatamicMcp\Http\Controllers\OAuth\AuthorizeController;
 use Cboxdk\StatamicMcp\Http\Middleware\AuthenticateForMcp;
+use Cboxdk\StatamicMcp\Http\Middleware\BoundMcpInput;
 use Cboxdk\StatamicMcp\Http\Middleware\EnsureSecureTransport;
 use Cboxdk\StatamicMcp\Http\Middleware\HandleMcpCors;
 use Cboxdk\StatamicMcp\Http\Middleware\RequireMcpPermission;
@@ -30,12 +31,16 @@ use Cboxdk\StatamicMcp\Storage\Audit\FileAuditStore;
 use Cboxdk\StatamicMcp\Storage\Tokens\DatabaseTokenStore;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Contracts\Encryption\Encrypter;
 use Illuminate\Contracts\Foundation\Application;
+use Illuminate\Contracts\Http\Kernel;
+use Illuminate\Database\DatabaseManager;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Laravel\Mcp\Facades\Mcp;
 use Laravel\Mcp\Server\Middleware\AddWwwAuthenticateHeader;
+use Psr\Log\LoggerInterface;
 use Statamic\CP\Navigation\NavItem;
 use Statamic\Facades\CP\Nav;
 use Statamic\Facades\Git;
@@ -74,7 +79,7 @@ class ServiceProvider extends AddonServiceProvider
 
         // Only load routes if MCP is available
         if (class_exists('Laravel\Mcp\Facades\Mcp')) {
-            $this->loadRoutesFrom(__DIR__ . '/../routes/ai.php');
+            $this->registerLocalMcp();
 
             // Register per-token rate limiter
             RateLimiter::for('mcp', function (Request $request) {
@@ -112,6 +117,7 @@ class ServiceProvider extends AddonServiceProvider
         $this->loadMigrationsIfDatabaseDriver('statamic.mcp.stores.tokens', DatabaseTokenStore::class, 'tokens');
         $this->loadMigrationsIfDatabaseDriver('statamic.mcp.stores.audit', DatabaseAuditStore::class, 'audit');
         $this->loadMigrationsIfDatabaseDriver('statamic.mcp.oauth.driver', DatabaseOAuthDriver::class, 'oauth');
+        $this->loadMigrationsIfDatabaseDriver('statamic.mcp.stores.operations', Actions\Operations\DatabaseOperationStore::class, 'operations');
 
         if ($this->app->runningInConsole()) {
             $this->commands([
@@ -120,6 +126,11 @@ class ServiceProvider extends AddonServiceProvider
                 PruneExpiredTokensCommand::class,
                 PruneAuditCommand::class,
                 PruneOAuthCommand::class,
+                Console\PruneOperationsCommand::class,
+                Console\RepairOperationCapacityCommand::class,
+                Console\InspectOperationCommand::class,
+                Console\DoctorCommand::class,
+                Console\ReconcileOperationCommand::class,
             ]);
         }
 
@@ -149,6 +160,34 @@ class ServiceProvider extends AddonServiceProvider
             SetOAuthWwwAuthenticate::class
         );
 
+        // Before TrimStrings / ConvertEmptyStringsToNull: both parse JSON globally.
+        $this->callAfterResolving(Kernel::class, function (Kernel $kernel): void {
+            if (! $kernel instanceof \Illuminate\Foundation\Http\Kernel) {
+                throw new \LogicException('MCP input protection requires the Laravel HTTP kernel.');
+            }
+            $kernel->prependMiddleware(BoundMcpInput::class);
+        });
+        $this->app->bind(Support\InputBudget::class, fn (): Support\InputBudget => new Support\InputBudget(
+            config()->integer('statamic.mcp.security.max_input_bytes', 16777216),
+            config()->integer('statamic.mcp.security.max_input_values', 20000),
+            config()->integer('statamic.mcp.security.max_input_depth', 64),
+        ));
+        $this->app->bind(Actions\SchemaValidator::class, fn (): Actions\SchemaValidator => new Actions\SchemaValidator(
+            $this->app->make(Support\InputBudget::class),
+            config()->integer('statamic.mcp.security.max_input_bytes', 16777216),
+        ));
+        $this->app->bind(Support\WireInputBudget::class, function (): Support\WireInputBudget {
+            $values = config()->integer('statamic.mcp.security.max_input_values', 20000);
+            $depth = config()->integer('statamic.mcp.security.max_input_depth', 64);
+            if ($values < 1 || $values > 1000000 || $depth < 1 || $depth > 256) {
+                throw new \LogicException('Invalid MCP input value or nesting budget.');
+            }
+
+            return new Support\WireInputBudget(
+                config()->integer('statamic.mcp.security.max_input_bytes', 16777216), $values * 2 + 32, $depth + 8,
+            );
+        });
+
         // Register audit store from configured driver
         $this->app->singleton(AuditStore::class, function (Application $app): AuditStore {
             /** @var class-string<AuditStore> $driver */
@@ -176,6 +215,51 @@ class ServiceProvider extends AddonServiceProvider
             $instance = $app->make(BuiltInOAuthDriver::class);
 
             return $instance;
+        });
+
+        $this->app->bind(Actions\Operations\FileOperationStore::class, function (): Actions\Operations\FileOperationStore {
+            if (config('statamic.mcp.operations.multi_node', false)) {
+                throw new \LogicException('Multi-node MCP operations require shared database storage.');
+            }
+
+            return new Actions\Operations\FileOperationStore(
+                config()->string('statamic.mcp.storage.operations_path', storage_path('statamic-mcp/operations')),
+                config()->integer('statamic.mcp.operations.max_records', 256),
+            );
+        });
+        $this->app->bind(Actions\Operations\DatabaseOperationStore::class, fn (): Actions\Operations\DatabaseOperationStore => new Actions\Operations\DatabaseOperationStore(
+            $this->app->make(DatabaseManager::class)->connection(),
+            config()->integer('statamic.mcp.operations.max_records', 256),
+        ));
+        $this->app->bind(Actions\Contracts\OperationStore::class, function (): Actions\Contracts\OperationStore {
+            $driver = config()->string('statamic.mcp.stores.operations', Actions\Operations\FileOperationStore::class);
+            if (! is_subclass_of($driver, Actions\Contracts\OperationStore::class)) {
+                throw new \LogicException('Invalid operation storage driver.');
+            }
+
+            return $this->app->make($driver);
+        });
+        $this->app->bind(Actions\Operations\OperationCoordinator::class, fn (): Actions\Operations\OperationCoordinator => new Actions\Operations\OperationCoordinator(
+            $this->app->make(Actions\Contracts\OperationStore::class), $this->app->make(Encrypter::class),
+            config()->integer('statamic.mcp.operations.retry_seconds', 3600),
+        ));
+
+        $this->app->bind(Actions\Contracts\Authorizer::class, Authorization\GrantAuthorizer::class);
+        $this->app->scoped(Actions\Contracts\ActorScope::class, Authorization\ExecutionActorScope::class);
+        $this->app->singleton(Actions\ObserverRegistry::class);
+        $this->app->bind(Actions\LifecycleObservers::class, fn (): Actions\LifecycleObservers => Actions\LifecycleObservers::fromRegistry(
+            $this->app->make(Actions\ObserverRegistry::class), $this->app, $this->app->make(LoggerInterface::class),
+        ));
+        $this->app->singleton(Actions\ScopeRegistry::class);
+        $this->app->singleton(Actions\CapabilityRegistry::class);
+        $this->app->booted(function (): void {
+            // AddonServiceProvider defers bootAddon to Statamic's booted queue.
+            // Append after all provider boot methods have registered their callbacks,
+            // but before Statamic drains that queue. Addons can register normally.
+            Statamic::booted(function (): void {
+                $this->app->make(Actions\CapabilityRegistry::class)->freeze();
+                $this->app->make(Actions\ObserverRegistry::class)->freeze();
+            });
         });
 
         // Register CIMD resolver
@@ -387,6 +471,12 @@ class ServiceProvider extends AddonServiceProvider
         }
 
         return $ceiling > 0 ? $ceiling * 3 + 4096 : PHP_INT_MAX;
+    }
+
+    /** Local registrar state is not part of Laravel's cached HTTP routes. */
+    protected function registerLocalMcp(): void
+    {
+        require __DIR__ . '/../routes/ai.php';
     }
 
     /**

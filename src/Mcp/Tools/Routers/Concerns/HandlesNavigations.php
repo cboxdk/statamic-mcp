@@ -220,7 +220,7 @@ trait HandlesNavigations
                 return $this->createErrorResponse("Navigation not found: {$handle}")->toArray();
             }
 
-            $navigation->delete();
+            $this->persistStatamic(fn () => $navigation->delete());
 
             // Clear caches
             $this->clearCachesAfterWrite(['stache', 'static']);
@@ -341,13 +341,13 @@ trait HandlesNavigations
             $navigation->collections($data['collections']);
         }
 
-        $navigation->save();
+        $this->persistStatamic(fn () => $navigation->save());
 
         foreach ($trees as $site => $items) {
             $tree = $navigation->in($site) ?? $navigation->makeTree($site);
             // Items without an id get one, the way the Control Panel's save does.
             $tree->tree((new BranchIds)->ensure($items));
-            $tree->save();
+            $this->persistStatamic(fn () => $tree->save());
         }
 
         $this->clearCachesAfterWrite(['stache', 'static']);

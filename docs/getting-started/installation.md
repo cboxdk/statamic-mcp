@@ -9,9 +9,9 @@ weight: 1
 ## Requirements
 
 - **PHP** 8.3 or higher
-- **Statamic CMS** v6.6+
+- **Statamic CMS** v6.35.1+
 - **Laravel** 12.0+
-- **laravel/mcp** ^1.0 (installed automatically as a dependency)
+- **laravel/mcp** ^1.1.2 (installed automatically as a dependency)
 
 ## Install via Composer
 
@@ -24,7 +24,7 @@ composer require cboxdk/statamic-mcp
 The install command publishes configuration and (when using the database storage driver) creates the necessary database tables, and publishes the dashboard assets:
 
 ```bash
-php artisan mcp:statamic:install
+php artisan mcp:statamic:install --profile=read_only
 ```
 
 This creates:
@@ -33,6 +33,17 @@ This creates:
 - `public/vendor/statamic-mcp/` — Dashboard assets (Vue 3 build)
 
 By default, tokens are stored as YAML flat files. To use database storage instead, change the `stores.tokens` driver to `DatabaseTokenStore` in `config/statamic/mcp.php` and run `php artisan migrate`.
+
+Native SQL security stores require committed connections outside host transactions.
+This includes database tokens, OAuth, operation records and durable audit. They
+refuse both Laravel transactions and raw PDO transactions; the caller retains
+ownership and must close its own transaction. Run MCP authentication and execution
+outside transaction-wrapping middleware, or bind a custom driver using a dedicated
+committed connection. A savepoint is not an independent commit. Token and OAuth
+security reads use the primary database so replica lag cannot delay revocation or
+refresh replay detection. Native Eloquent actor/role authorization also uses primary
+reads and refuses existing transaction snapshots.
+
 
 ## Verify Installation
 
@@ -46,7 +57,7 @@ Visit **Tools > MCP** in the Statamic Control Panel. You should see the dashboar
 
 ## Web Endpoint
 
-The web MCP endpoint is **enabled by default**. After installation, the endpoint is available at the path configured in `STATAMIC_MCP_WEB_PATH` (default: `/mcp/statamic`).
+The web MCP endpoint is **disabled by default**. Enable it explicitly with `STATAMIC_MCP_WEB_ENABLED=true` and select `STATAMIC_MCP_HTTP_PROFILE=read_only`, `editor` or `operator`. The endpoint then uses the path configured in `STATAMIC_MCP_WEB_PATH` (default: `/mcp/statamic`).
 
 To disable it, set in your `.env`:
 
@@ -98,3 +109,17 @@ composer require laravel/boost --dev
 
 - **[Quick Start](../quickstart.md)** — Create a token and connect your first AI assistant
 - **[AI Client Setup](ai-clients.md)** — Copy-paste config for your specific client
+
+## Configuration preflight
+
+Run `php artisan mcp:doctor` before exposing the endpoint. Use `--json` for a
+machine-readable report; exit code 1 indicates a failed configuration check.
+The command checks transport profiles, HTTPS/Origin settings, private-network fetch
+protection, input budgets, driver contracts and local stores/locks in multi-node mode.
+It prints no token values or raw configuration/exception messages.
+
+This is a read-only configuration check. It does not create test writes, acquire
+locks, contact exporters, validate the supplied token or migrate grants. Warnings
+identify checks that still require deployment verification, including trusted proxies,
+shared storage, file permissions, retention and recovery. A passing report does not
+certify complete v4 migration or release readiness.

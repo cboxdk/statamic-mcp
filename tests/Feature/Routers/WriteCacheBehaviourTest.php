@@ -9,7 +9,9 @@ use Cboxdk\StatamicMcp\Mcp\Tools\Routers\StructuresRouter;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Illuminate\Foundation\Console\Kernel;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Event;
 use Statamic\Contracts\Entries\Collection as StatamicCollection;
+use Statamic\Events\EntrySaved;
 use Statamic\Facades\Blueprint;
 use Statamic\Facades\Collection;
 use Statamic\Facades\Entry;
@@ -110,6 +112,63 @@ class WriteCacheBehaviourTest extends TestCase
 
         $this->assertContains('statamic:stache:clear', $called);
         $this->assertContains('statamic:static:clear', $called);
+    }
+
+    public function test_cleanup_survives_a_saved_listener_throwing_after_persist(): void
+    {
+        $entry = $this->makeEntry();
+        $called = [];
+        $this->spyArtisan($called);
+        Event::listen(EntrySaved::class, function (): void {
+            throw new \RuntimeException('Synthetic failure after persistence');
+        });
+
+        $result = (new EntriesRouter)->execute([
+            'action' => 'update', 'collection' => $this->collection,
+            'id' => $entry->id(), 'data' => ['title' => 'Persisted'],
+        ]);
+
+        $this->assertFalse($result['success']);
+        $this->assertSame('unknown', $result['meta']['write_effects']);
+        $this->assertTrue($result['meta']['retry_requires_reconciliation']);
+        $this->assertSame('Persisted', Entry::find($entry->id())->get('title'));
+        $this->assertContains('statamic:stache:clear', $called);
+        $this->assertContains('statamic:static:clear', $called);
+    }
+
+    public function test_nonzero_cache_exit_is_visible_without_repeating_the_write(): void
+    {
+        $entry = $this->makeEntry();
+        config(['statamic.static_caching.strategy' => null]);
+        Artisan::swap(new class extends Kernel
+        {
+            public function __construct() {}
+
+            public function call($command, array $parameters = [], $outputBuffer = null): int
+            {
+                return 1;
+            }
+        });
+        $result = (new EntriesRouter)->execute([
+            'action' => 'update', 'collection' => $this->collection,
+            'id' => $entry->id(), 'data' => ['title' => 'Persisted'],
+        ]);
+        $this->assertTrue($result['success'], json_encode($result));
+        $this->assertSame('failed', $result['meta']['cache']['stache']);
+        $this->assertSame('disabled', $result['meta']['cache']['static']);
+        $this->assertSame('Persisted', Entry::find($entry->id())->get('title'));
+    }
+
+    public function test_slow_completed_write_keeps_its_successful_outcome(): void
+    {
+        $entry = $this->makeEntry();
+        config(['statamic.mcp.security.tool_timeout_seconds' => 0]);
+        $result = (new EntriesRouter)->execute([
+            'action' => 'update', 'collection' => $this->collection,
+            'id' => $entry->id(), 'data' => ['title' => 'Persisted'],
+        ]);
+        $this->assertTrue($result['success'], json_encode($result));
+        $this->assertTrue($result['meta']['duration_budget_exceeded']);
     }
 
     public function test_the_clear_happens_only_after_the_call_has_finished(): void

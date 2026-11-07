@@ -23,13 +23,14 @@ use InvalidArgumentException;
  */
 final class ExtraTools
 {
-    /**
-     * Tools registered at runtime, keyed by class, valued by whether the tool
-     * is reached through search_tools (true) or listed in the catalog (false).
-     *
-     * @var array<class-string<BaseRouter>, bool>
-     */
-    private static array $registered = [];
+    private static function registrations(): ExtraToolRegistrations
+    {
+        if (! app()->bound(ExtraToolRegistrations::class)) {
+            app()->singleton(ExtraToolRegistrations::class);
+        }
+
+        return app(ExtraToolRegistrations::class);
+    }
 
     /**
      * Register a tool.
@@ -41,7 +42,7 @@ final class ExtraTools
      */
     public static function register(string $class, bool $searchable = true): void
     {
-        self::$registered[self::canonical($class)] = $searchable;
+        self::registrations()->register(self::canonical($class), $searchable);
     }
 
     /**
@@ -73,7 +74,7 @@ final class ExtraTools
      */
     public static function all(): array
     {
-        return [...self::fromConfig(), ...self::$registered];
+        return [...self::fromConfig(), ...self::registrations()->all()];
     }
 
     /**
@@ -95,7 +96,7 @@ final class ExtraTools
      */
     public static function flush(): void
     {
-        self::$registered = [];
+        self::registrations()->flush();
     }
 
     /**

@@ -9,6 +9,8 @@ use Cboxdk\StatamicMcp\Mcp\Tools\BaseStatamicTool;
 use Cboxdk\StatamicMcp\Storage\Audit\FileAuditStore;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
+use Illuminate\Support\Facades\Log;
+use Mockery;
 
 /**
  * Routers report a refused write — blueprint validation, a missing entry, a
@@ -39,6 +41,9 @@ class ErrorEnvelopeAuditStatusTest extends TestCase
             unlink($this->auditPath);
         }
 
+        if (is_file($this->auditPath . '.lock')) {
+            unlink($this->auditPath . '.lock');
+        }
         parent::tearDown();
     }
 
@@ -71,6 +76,39 @@ class ErrorEnvelopeAuditStatusTest extends TestCase
         $this->assertSame('success', $entry['status']);
         $this->assertSame('info', $entry['level']);
         $this->assertSame('test-envelope-tool.update: success', $entry['message']);
+    }
+
+    public function test_an_audit_failure_cannot_replace_a_completed_write_result(): void
+    {
+        $store = Mockery::mock(AuditStore::class);
+        $store->shouldReceive('write')->once()->andThrow(new \RuntimeException('Disk full.'));
+        $this->app->instance(AuditStore::class, $store);
+        $calls = 0;
+        $tool = new EnvelopeTool(function () use (&$calls): array {
+            $calls++;
+
+            return ['updated' => true];
+        });
+        $result = $tool->execute(['action' => 'update']);
+        $this->assertTrue($result['success']);
+        $this->assertTrue($result['data']['updated']);
+        $this->assertSame('unavailable', $result['meta']['audit_status']);
+        $this->assertSame(1, $calls);
+    }
+
+    public function test_failing_audit_and_fallback_logger_preserve_the_execution_error(): void
+    {
+        $store = Mockery::mock(AuditStore::class);
+        $store->shouldReceive('write')->once()->andThrow(new \RuntimeException('Audit failed.'));
+        $this->app->instance(AuditStore::class, $store);
+        Log::shouldReceive('error')->once()->andThrow(new \RuntimeException('Logger failed.'));
+        $tool = new EnvelopeTool(function (): array {
+            throw new \InvalidArgumentException('Original failure');
+        });
+        $result = $tool->execute(['action' => 'update']);
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('Original failure', json_encode($result, JSON_THROW_ON_ERROR));
+        $this->assertStringNotContainsString('Audit failed', json_encode($result, JSON_THROW_ON_ERROR));
     }
 
     /**

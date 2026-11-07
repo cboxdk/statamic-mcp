@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Http\Controllers\OAuth;
 
+use Cboxdk\StatamicMcp\Actions\CapabilityRegistry;
+use Cboxdk\StatamicMcp\Actions\CapabilitySnapshot;
 use Cboxdk\StatamicMcp\Auth\ScopeAvailability;
-use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\OAuth\Cimd\CimdClientId;
 use Cboxdk\StatamicMcp\OAuth\Cimd\CimdFetchException;
 use Cboxdk\StatamicMcp\OAuth\Cimd\CimdResolver;
 use Cboxdk\StatamicMcp\OAuth\Cimd\CimdValidationException;
+use Cboxdk\StatamicMcp\OAuth\ConsentOffer;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
 use Cboxdk\StatamicMcp\OAuth\Exceptions\OAuthException;
 use Cboxdk\StatamicMcp\OAuth\OAuthClient;
@@ -124,10 +126,8 @@ class AuthorizeController extends Controller
 
         /** @var string $scope */
         $scope = $request->query('scope', '');
-        $validScopeValues = array_map(
-            fn (TokenScope $s): string => $s->value,
-            TokenScope::cases(),
-        );
+        $availability = app(ScopeAvailability::class);
+        $validScopeValues = $availability->names();
 
         /** @var array<int, array{value: string, label: string}> $requestedScopes */
         $requestedScopes = [];
@@ -145,11 +145,7 @@ class AuthorizeController extends Controller
                     );
                 }
 
-                $tokenScope = TokenScope::from($scopeValue);
-                $requestedScopes[] = [
-                    'value' => $tokenScope->value,
-                    'label' => $tokenScope->label(),
-                ];
+                $requestedScopes[] = ['value' => $scopeValue, 'label' => $availability->label($scopeValue)];
             }
         }
 
@@ -159,12 +155,8 @@ class AuthorizeController extends Controller
             $defaultScopeValues = config('statamic.mcp.oauth.default_scopes', []);
 
             foreach ($defaultScopeValues as $scopeValue) {
-                $tokenScope = TokenScope::tryFrom($scopeValue);
-                if ($tokenScope !== null) {
-                    $requestedScopes[] = [
-                        'value' => $tokenScope->value,
-                        'label' => $tokenScope->label(),
-                    ];
+                if (in_array($scopeValue, $validScopeValues, true)) {
+                    $requestedScopes[] = ['value' => $scopeValue, 'label' => $availability->label($scopeValue)];
                 }
             }
         }
@@ -175,7 +167,7 @@ class AuthorizeController extends Controller
         // nothing the user has gets told so.
         $availability = app(ScopeAvailability::class);
         $requestedScopes = array_map(
-            fn (string $value): array => ['value' => $value, 'label' => TokenScope::from($value)->label()],
+            fn (string $value): array => ['value' => $value, 'label' => $availability->label($value)],
             $availability->grantable($user, array_column($requestedScopes, 'value')),
         );
 
@@ -226,10 +218,11 @@ class AuthorizeController extends Controller
         $viewName = 'statamic-mcp::oauth.consent';
 
         $view = view($viewName, [
+            'consentOffer' => app(ConsentOffer::class)->issue($request, UserIds::normalize($user->id()), array_column($requestedScopes, 'value')),
             'client' => $client,
             'scopes' => $requestedScopes,
             'defaultScopes' => $defaultScopes,
-            'fullAccessAvailable' => $availability->allows($user, TokenScope::FullAccess),
+            'fullAccessAvailable' => in_array('*', array_column($requestedScopes, 'value'), true),
             'oauthParams' => [
                 'client_id' => $clientId,
                 'redirect_uri' => $redirectUri,
@@ -307,20 +300,8 @@ class AuthorizeController extends Controller
 
         $userId = UserIds::normalize($user->id());
 
-        // Get originally requested scopes from the hidden form field (set by show())
-        /** @var string $originalScope */
-        $originalScope = is_string($request->input('scope', '')) ? $request->input('scope', '') : '';
-        $allowedScopes = array_filter(explode(' ', $originalScope));
-
-        if ($allowedScopes === []) {
-            /** @var array<int, string> $defaultScopeValues */
-            $defaultScopeValues = config('statamic.mcp.oauth.default_scopes', []);
-            $allowedScopes = $defaultScopeValues;
-        }
-
-        // The same cap the consent screen applied, so a crafted form cannot
-        // grant what was never offered.
-        $allowedScopes = app(ScopeAvailability::class)->grantable($user, array_values($allowedScopes));
+        $offer = app(ConsentOffer::class)->consume($request, $userId);
+        $allowedScopes = app(ScopeAvailability::class)->grantable($user, $offer['scopes']);
 
         if ($allowedScopes === []) {
             return redirect($redirectUri . '?' . http_build_query(array_filter([
@@ -336,10 +317,13 @@ class AuthorizeController extends Controller
         $selectedScopes = is_array($rawScopes) ? array_values(array_filter($rawScopes, 'is_string')) : [];
 
         // Only allow scopes that were in the original request (prevent scope escalation)
-        /** @var array<int, string> $scopes */
         $scopes = array_values(array_intersect($selectedScopes, $allowedScopes));
         if (empty($scopes)) {
-            $scopes = $allowedScopes; // Default to all originally requested
+            return redirect($redirectUri . '?' . http_build_query([
+                'error' => 'invalid_scope',
+                'error_description' => 'Select at least one permission.',
+                'state' => $state,
+            ]));
         }
 
         /** @var string $codeChallenge */
@@ -355,6 +339,10 @@ class AuthorizeController extends Controller
             $codeChallenge,
             $codeChallengeMethod,
             $redirectUri,
+            new CapabilitySnapshot(array_intersect_assoc(
+                $offer['capabilities']->actions,
+                app(CapabilityRegistry::class)->forScopes($scopes)->actions,
+            ), $offer['capabilities']->grantId, array_intersect_key($offer['capabilities']->scopes, array_flip($scopes))),
         );
 
         return redirect($redirectUri . '?' . http_build_query(array_filter([

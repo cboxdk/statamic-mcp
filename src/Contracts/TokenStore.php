@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Contracts;
 
 use Carbon\Carbon;
+use Cboxdk\StatamicMcp\Actions\CapabilitySnapshot;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Illuminate\Support\Collection;
 
@@ -21,6 +22,7 @@ interface TokenStore
         ?Carbon $expiresAt,
         ?string $oauthClientId = null,
         ?string $oauthClientName = null,
+        ?CapabilitySnapshot $capabilities = null,
     ): McpTokenData;
 
     public function findByHash(string $tokenHash): ?McpTokenData;

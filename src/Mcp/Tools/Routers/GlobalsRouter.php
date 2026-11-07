@@ -4,14 +4,17 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
+use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\SanitizesFieldData;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Attributes\Title;
+use Statamic\Contracts\Globals\Variables;
 use Statamic\Facades\GlobalSet;
 use Statamic\Fields\Validator;
 
@@ -157,7 +160,14 @@ class GlobalsRouter extends BaseRouter
         $offset = $pagination['offset'];
 
         try {
-            $globalSets = GlobalSet::all();
+            $globalSets = GlobalSet::all()->filter(function ($set) use ($site) {
+                if (! $set instanceof \Statamic\Contracts\Globals\GlobalSet) {
+                    return false;
+                }
+
+                return app(ResourcePolicy::class)->canAccess('globals', $set->handle(), 'read')
+                    && (! $this->isWebContext() || ($set->in($site) !== null && Gate::forUser(auth()->user())->allows('edit', $set->in($site))));
+            });
             $total = $globalSets->count();
 
             $paginatedSets = $globalSets->skip($offset)->take($limit);
@@ -213,6 +223,9 @@ class GlobalsRouter extends BaseRouter
             }
 
             $variables = $globalSet->in($site);
+            if ($this->isWebContext() && ($variables === null || ! Gate::forUser(auth()->user())->allows('edit', $variables))) {
+                return $this->createErrorResponse('Permission denied: Cannot access this global set site.')->toArray();
+            }
 
             return [
                 'global' => [
@@ -261,10 +274,18 @@ class GlobalsRouter extends BaseRouter
             }
 
             $variables = $globalSet->in($site);
+            if ($this->isWebContext() && ($variables === null || ! Gate::forUser(auth()->user())->allows('edit', $variables))) {
+                return $this->createErrorResponse('Permission denied: Cannot access this global set site.')->toArray();
+            }
 
             if (! $variables) {
                 return $this->createErrorResponse("Global set not available in site: {$site}")->toArray();
             }
+
+            if (! $variables instanceof Variables) {
+                return $this->createErrorResponse('Unsupported global variables implementation.')->toArray();
+            }
+            $variables = clone $variables;
 
             // Validate data against blueprint before saving
             $blueprint = $globalSet->blueprint();
@@ -326,7 +347,7 @@ class GlobalsRouter extends BaseRouter
                 $data = $processedData;
             }
 
-            $variables->merge($data)->save();
+            $this->persistStatamic(fn () => $variables->merge($data)->save());
 
             // Clear relevant caches
             $this->clearCachesAfterWrite(['stache', 'static']);

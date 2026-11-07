@@ -5,11 +5,14 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Tests\Feature\OAuth;
 
 use Cboxdk\StatamicMcp\Auth\TokenService;
+use Cboxdk\StatamicMcp\Tests\Concerns\InteractsWithOAuthConsent;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Statamic\Facades\User;
 
 class OAuthFlowTest extends TestCase
 {
+    use InteractsWithOAuthConsent;
+
     /**
      * Test the complete OAuth 2.1 authorization code flow with PKCE end-to-end.
      *
@@ -82,6 +85,7 @@ class OAuthFlowTest extends TestCase
         // ── Step 7: POST Authorize (Approve) ──
         $approveResponse = $this->actingAs($user, 'web')
             ->post($authorizeUrl, [
+                'consent_offer' => $this->consentOfferFrom($consentResponse),
                 'decision' => 'approve',
                 'client_id' => $clientId,
                 'redirect_uri' => $redirectUri,

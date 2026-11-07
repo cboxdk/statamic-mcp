@@ -147,7 +147,7 @@ trait HandlesTaxonomies
                 $taxonomy->defaultStatus($data['default_status']);
             }
 
-            $taxonomy->save();
+            $this->persistStatamic(fn () => $taxonomy->save());
 
             // Clear caches
             $this->clearCachesAfterWrite(['stache', 'static']);
@@ -194,7 +194,7 @@ trait HandlesTaxonomies
                 $taxonomy->defaultStatus($data['default_status']);
             }
 
-            $taxonomy->save();
+            $this->persistStatamic(fn () => $taxonomy->save());
 
             // Clear caches
             $this->clearCachesAfterWrite(['stache', 'static']);
@@ -230,27 +230,22 @@ trait HandlesTaxonomies
                 return $this->createErrorResponse("Taxonomy not found: {$handle}")->toArray();
             }
 
-            $force = $this->getBooleanArgument($arguments, 'force', false);
             $termCount = $taxonomy->queryTerms()->count();
 
-            if ($termCount > 0 && ! $force) {
+            if ($termCount > 0) {
                 return $this->createErrorResponse(
                     "Cannot delete taxonomy '{$handle}' — it contains {$termCount} terms. "
-                    . 'Use force: true to delete the taxonomy with all its terms and blueprints.'
+                    . 'Delete its content explicitly first. V4 does not support forced cascading deletion.'
                 )->toArray();
             }
 
-            // Cascade: delete terms first
-            if ($termCount > 0) {
-                $taxonomy->queryTerms()->get()->each->delete();
+            // Resolve blueprints before removing their parent, but preserve them
+            // when the native parent deletion is vetoed or throws.
+            $blueprints = $taxonomy->termBlueprints();
+            $this->persistStatamic(fn () => $taxonomy->delete());
+            foreach ($blueprints as $blueprint) {
+                $this->persistStatamic(fn () => $blueprint->delete());
             }
-
-            // Cascade: delete blueprints
-            foreach ($taxonomy->termBlueprints() as $blueprint) {
-                $blueprint->delete();
-            }
-
-            $taxonomy->delete();
 
             // Clear caches
             $this->clearCachesAfterWrite(['stache', 'static']);
@@ -300,7 +295,7 @@ trait HandlesTaxonomies
             // statamic-structures collection update to associate taxonomies.
 
             // Save the taxonomy
-            $taxonomy->save();
+            $this->persistStatamic(fn () => $taxonomy->save());
 
             // Clear caches
             $this->clearCachesAfterWrite(['stache']);

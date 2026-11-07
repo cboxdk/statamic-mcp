@@ -6,6 +6,7 @@ namespace Cboxdk\StatamicMcp\Tests\Feature\OAuth;
 
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
+use Cboxdk\StatamicMcp\Tests\Concerns\InteractsWithOAuthConsent;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
@@ -13,6 +14,8 @@ use Statamic\Facades\User;
 
 class CimdFlowTest extends TestCase
 {
+    use InteractsWithOAuthConsent;
+
     private string $cimdClientId = 'https://app.example.com/oauth/metadata.json';
 
     private string $cimdRedirectUri = 'https://app.example.com/callback';
@@ -100,7 +103,7 @@ class CimdFlowTest extends TestCase
     private function approveAndGetCode($user, string $codeChallenge, string $scope = 'content:read'): string
     {
         $response = $this->actingAs($user, 'web')
-            ->post($this->authorizeUrl(), [
+            ->post($this->authorizeUrl(), $this->withConsentOffer($this->authorizeUrl(), [
                 'client_id' => $this->cimdClientId,
                 'redirect_uri' => $this->cimdRedirectUri,
                 'state' => 'e2e-state',
@@ -109,7 +112,7 @@ class CimdFlowTest extends TestCase
                 'scope' => $scope,
                 'scopes' => explode(' ', $scope),
                 'decision' => 'approve',
-            ]);
+            ]));
 
         $response->assertRedirect();
         $location = $response->headers->get('Location', '');
@@ -335,10 +338,7 @@ class CimdFlowTest extends TestCase
             'code_verifier' => $pkce['verifier'],
         ]);
 
-        // Non-URL client_ids that don't match DCR or CIMD still get tokens
-        // with generic 'OAuth Client' name — the error case is for valid
-        // CIMD URLs that fail resolution
-        $response->assertOk();
+        $response->assertStatus(400)->assertJson(['error' => 'invalid_client']);
     }
 
     // --- Token endpoint with unreachable CIMD URL returns invalid_client ---
@@ -368,7 +368,7 @@ class CimdFlowTest extends TestCase
 
         // Approve to get an auth code
         $approveResponse = $this->actingAs($user, 'web')
-            ->post($this->authorizeUrl(), [
+            ->post($this->authorizeUrl(), $this->withConsentOffer($this->authorizeUrl(), [
                 'client_id' => $cimdUrl,
                 'redirect_uri' => $redirectUri,
                 'state' => 'e2e-unreachable',
@@ -377,7 +377,7 @@ class CimdFlowTest extends TestCase
                 'scope' => 'content:read',
                 'scopes' => ['content:read'],
                 'decision' => 'approve',
-            ]);
+            ]));
 
         $approveResponse->assertRedirect();
         $location = $approveResponse->headers->get('Location', '');
@@ -483,6 +483,7 @@ class CimdFlowTest extends TestCase
 
         /** @var OAuthDriver $driver */
         $driver = $this->app->make(OAuthDriver::class);
+        $this->authenticatedUser('dcr-user', 'dcr@example.test');
         $client = $driver->registerClient('DCR Flow Client', ['https://dcr.example.com/callback']);
 
         $pkce = $this->generatePkce();

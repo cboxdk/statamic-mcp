@@ -27,6 +27,11 @@ use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 #[Description('Quick reference of all Statamic MCP tools, their actions, and key parameters.')]
 class SchemaTool extends BaseStatamicTool
 {
+    protected function getToolDomain(): ?string
+    {
+        return 'guidance';
+    }
+
     protected function defineSchema(JsonSchemaContract $schema): array
     {
         return [

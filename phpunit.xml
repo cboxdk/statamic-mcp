@@ -16,6 +16,9 @@
   </testsuites>
   <php>
     <env name="APP_ENV" value="testing"/>
+    <env name="STATAMIC_MCP_WEB_ENABLED" value="true"/>
+    <env name="STATAMIC_MCP_HTTP_PROFILE" value="operator"/>
+    <env name="STATAMIC_MCP_STDIO_PROFILE" value="operator"/>
     <env name="APP_KEY" value="base64:ybcI9MKuhLnESRSuWDfnJQuohOXMBaynfbTC5Y5i1FE="/>
     <env name="BCRYPT_ROUNDS" value="4"/>
     <env name="CACHE_DRIVER" value="array"/>

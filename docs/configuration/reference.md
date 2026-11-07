@@ -14,14 +14,14 @@ Controls the HTTP-accessible MCP endpoint.
 
 | Key | Env Variable | Default | Description |
 |-----|-------------|---------|-------------|
-| `web.enabled` | `STATAMIC_MCP_WEB_ENABLED` | `true` | Enable the web MCP endpoint |
+| `web.enabled` | `STATAMIC_MCP_WEB_ENABLED` | `false` | Enable the web MCP endpoint |
 | `web.path` | `STATAMIC_MCP_WEB_PATH` | `/mcp/statamic` | URL path for the endpoint |
 | `web.require_https` | `STATAMIC_MCP_WEB_REQUIRE_HTTPS` | `true` | Reject plain HTTP requests (skipped in local/testing) |
-| `web.allowed_origins` | — | `[]` | CORS allowed origins for browser-based clients. Empty = no CORS headers |
+| `web.allowed_origins` | — | `[]` | Allowed browser origins. Unknown origins receive 403; same-origin and requests without Origin remain allowed |
 
 ```php
 'web' => [
-    'enabled' => env('STATAMIC_MCP_WEB_ENABLED', true),
+    'enabled' => env('STATAMIC_MCP_WEB_ENABLED', false),
     'path' => env('STATAMIC_MCP_WEB_PATH', '/mcp/statamic'),
     'require_https' => env('STATAMIC_MCP_WEB_REQUIRE_HTTPS', true),
     'allowed_origins' => [], // e.g. ['https://your-app.com'] or ['*']
@@ -50,10 +50,13 @@ Controls authentication enforcement, audit logging, and system hardening.
 |-----|-------------|---------|-------------|
 | `security.force_web_mode` | `STATAMIC_MCP_FORCE_WEB_MODE` | `false` | Require token auth even in CLI context |
 | `security.audit_logging` | `STATAMIC_MCP_AUDIT_LOGGING` | `true` | Log all MCP tool calls |
+| `security.max_input_bytes` | — | `16777216` | Input traversal byte budget, including encoded asset content |
+| `security.max_input_values` | — | `20000` | Maximum nested input values |
+| `security.max_input_depth` | — | `64` | Maximum input nesting depth |
 | `security.max_upload_size` | `STATAMIC_MCP_MAX_UPLOAD_SIZE` | `10485760` | Max upload size in bytes (10MB) |
 | `security.expose_versions` | `STATAMIC_MCP_EXPOSE_VERSIONS` | `false` | Include Statamic/Laravel versions in responses |
 | `security.max_token_lifetime_days` | `STATAMIC_MCP_MAX_TOKEN_LIFETIME` | `365` | Maximum token lifetime in days |
-| `security.tool_timeout_seconds` | `STATAMIC_MCP_TOOL_TIMEOUT` | `30` | Maximum execution time per tool call |
+| `security.tool_timeout_seconds` | `STATAMIC_MCP_TOOL_TIMEOUT` | `30` | Duration warning budget; does not interrupt PHP or turn completed writes into failures |
 | `security.max_response_size` | `STATAMIC_MCP_MAX_RESPONSE_SIZE` | `100000` | Largest tool response in bytes before it is refused; `0` disables the guard |
 | `security.reject_unknown_fields` | `STATAMIC_MCP_REJECT_UNKNOWN_FIELDS` | `true` | Refuse writes carrying keys that are not field handles inside a set, grid row or group |
 | `security.url_import.enabled` | `STATAMIC_MCP_URL_IMPORT_ENABLED` | `true` | Let `statamic-assets` upload fetch a file from a URL (`source_url`) |
@@ -81,6 +84,8 @@ Controls authentication enforcement, audit logging, and system hardening.
     ],
 ],
 ```
+
+Input budgets apply before field processing on HTTP and stdio. They do not replace HTTP body limits before JSON parsing. Keep `max_input_bytes` large enough for base64 expansion when raising `max_upload_size`; all three input limits must be positive.
 
 ### `max_response_size`
 
@@ -293,7 +298,8 @@ Configure the OAuth 2.1 authorization server for browser-based MCP client regist
 | `oauth.code_ttl` | `STATAMIC_MCP_OAUTH_CODE_TTL` | `600` | Authorization code TTL in seconds (10 min) |
 | `oauth.client_ttl` | `STATAMIC_MCP_OAUTH_CLIENT_TTL` | `2592000` | Client registration TTL in seconds (30 days) |
 | `oauth.token_ttl` | `STATAMIC_MCP_OAUTH_TOKEN_TTL` | `604800` | Access token TTL in seconds (7 days) |
-| `oauth.refresh_token_ttl` | `STATAMIC_MCP_OAUTH_REFRESH_TOKEN_TTL` | `2592000` | Refresh token TTL in seconds (30 days) |
+| `oauth.lock_store` | `STATAMIC_MCP_OAUTH_LOCK_STORE` | application default | Shared, lock-capable cache store for issuance and revocation |
+| `oauth.refresh_token_ttl` | `STATAMIC_MCP_OAUTH_REFRESH_TOKEN_TTL` | `2592000` | Maximum grant lifetime in seconds, including rotated successors (30 days) |
 | `oauth.default_scopes` | `STATAMIC_MCP_OAUTH_DEFAULT_SCOPES` | every `:read` scope | Comma-separated scopes offered when a client requests none |
 | `oauth.max_clients` | `STATAMIC_MCP_OAUTH_MAX_CLIENTS` | `50` | Maximum number of registered OAuth clients |
 | `oauth.max_clients_per_ip` | `STATAMIC_MCP_OAUTH_MAX_CLIENTS_PER_IP` | `5` | Maximum client registrations per IP address |
@@ -426,3 +432,60 @@ STATAMIC_MCP_TOOL_USERS_ENABLED=true
 STATAMIC_MCP_TOOL_SYSTEM_ENABLED=true
 STATAMIC_MCP_TOOL_CONTENT_FACADE_ENABLED=true
 ```
+
+## V4 installation profiles
+
+Set `profiles.http` and `profiles.stdio` separately. Missing or unknown values
+reject execution, including resource and prompt requests. An HTTP request cannot
+inherit the local stdio profile. Environment variables are
+`STATAMIC_MCP_HTTP_PROFILE` and `STATAMIC_MCP_STDIO_PROFILE`.
+
+- `read_only`: content/model reads; users, system diagnostics and unknown extension
+  domains are excluded. Existing scope, site and field restrictions still apply.
+- `editor`: the same reads plus entry creation with `data.published: false` and draft
+  updates. Omit the publication flag on updates; changing it to true is refused. Updates require an already unpublished localized entry. Live entries, publishing,
+  deletion and tree moves are refused. Working-copy editing is not enabled yet.
+- `operator`: permits the existing action surface, still subject to HTTP token,
+  Statamic permission, resource and confirmation checks. Stdio runs with the local
+  operator's authority; select this only for a trusted local client.
+
+Example for local administration: `STATAMIC_MCP_STDIO_PROFILE=operator`.
+Selecting a profile does not enable the HTTP endpoint by itself.
+
+### v4 input budgets
+
+`security.max_input_bytes` limits the complete JSON message on HTTP and stdio
+(default 16 MiB). The HTTP guard runs before Laravel's global JSON input
+transformations; stdio reads bounded chunks and assembles complete newline-delimited
+messages. An oversized stdio frame ends that connection, so its remaining bytes
+cannot be treated as another command. Reconnect before sending a smaller request.
+
+`security.max_input_values` (default 20,000; supported range 1–1,000,000) and
+`security.max_input_depth` (default 64; supported range 1–256) also bound decoded
+tool arguments. The raw JSON guard allows envelope overhead: twice the configured
+value count plus 32 lexical tokens, and eight extra nesting levels. Keys count
+as lexical tokens; text inside strings does not. Invalid limits fail closed.
+The byte budget includes the JSON envelope and base64 expansion. The defaults
+accommodate the default 10 MiB asset upload; raising the upload limit alone does
+not raise the input budget. Web-server and PHP limits can impose a lower ceiling.
+
+### v4 operation storage
+
+The registered-action executor uses `stores.operations`, defaulting to
+`FileOperationStore` under `storage.operations_path`. Set `operations.multi_node`
+to true on shared deployments and select `DatabaseOperationStore`; local files
+are rejected in that configuration. The file backend requires a local POSIX
+filesystem with working flock, atomic rename, file fsync and directory fsync.
+Do not use it on NFS or mix old/new workers during an upgrade.
+
+`operations.max_records` defaults to 256. Each serialized record is limited to
+3,000,000 bytes; the file backend may also retain one temporary recovery candidate
+per slot. Admission fails when full. `operations.retry_seconds` defaults to 3600
+and supports 60–86400 seconds. Retry an executed operation using its existing
+prepared handle. Never prepare a replacement merely because a response was lost.
+
+Schedule `php artisan mcp:prune-operations --limit=100` to remove expired records
+in bounded batches. Executing and unknown outcomes remain for manual investigation.
+After an interrupted file-store reservation, `php artisan mcp:repair-operation-capacity`
+can recount occupied slots. It does not resolve uncertain writes or remove orphan
+recovery candidates. The legacy MCP routers are not yet migrated to this executor.

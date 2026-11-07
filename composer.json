@@ -25,9 +25,10 @@
     },
     "require": {
         "php": "^8.3",
-        "statamic/cms": "^6.6",
-        "laravel/mcp": "^1.0",
-        "symfony/yaml": "^7.0 || ^8.0"
+        "statamic/cms": "^6.35.1",
+        "laravel/mcp": "^1.1.2",
+        "symfony/yaml": "^7.0 || ^8.0",
+        "opis/json-schema": "^2.6.1"
     },
     "require-dev": {
         "orchestra/testbench": "^10.0|^11.0",

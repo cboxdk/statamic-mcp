@@ -383,7 +383,7 @@ class TermsRouter extends BaseRouter
                 $term->data($data);
             }
 
-            $term->save();
+            $this->persistStatamic(fn () => $term->save());
 
             // Clear relevant caches
             $this->clearCachesAfterWrite(['stache', 'static']);
@@ -452,6 +452,11 @@ class TermsRouter extends BaseRouter
                     return $this->createErrorResponse("Term not available in site: {$site}")->toArray();
                 }
             }
+
+            if (! $term instanceof \Statamic\Contracts\Taxonomies\Term) {
+                return $this->createErrorResponse('Unsupported term implementation.')->toArray();
+            }
+            $term = clone $term;
 
             // Validate data against blueprint before saving
             $blueprint = $term->blueprint();
@@ -523,7 +528,7 @@ class TermsRouter extends BaseRouter
                 $validatedData = $processedData;
             }
 
-            $term->merge($validatedData)->save();
+            $this->persistStatamic(fn () => $term->merge($validatedData)->save());
 
             // Clear relevant caches
             $this->clearCachesAfterWrite(['stache', 'static']);
@@ -593,7 +598,7 @@ class TermsRouter extends BaseRouter
                 return $this->createErrorResponse("Cannot delete term: {$entriesCount} entries are using this term")->toArray();
             }
 
-            $term->delete();
+            $this->persistStatamic(fn () => $term->delete());
 
             // Clear relevant caches
             $this->clearCachesAfterWrite(['stache', 'static']);

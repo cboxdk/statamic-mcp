@@ -10,12 +10,9 @@ use Cboxdk\StatamicMcp\Storage\Audit\FileAuditStore;
 use Cboxdk\StatamicMcp\Storage\Tokens\DatabaseTokenStore;
 use Cboxdk\StatamicMcp\Storage\Tokens\FileTokenStore;
 use Cboxdk\StatamicMcp\Tests\TestCase;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 
 class MigrationRoundtripTest extends TestCase
 {
-    use RefreshDatabase;
-
     private string $tempDir;
 
     private string $tempAuditPath;

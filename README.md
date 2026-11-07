@@ -6,8 +6,8 @@ A comprehensive MCP (Model Context Protocol) server for Statamic CMS v6 that pro
 
 - PHP 8.3+
 - Laravel 12+
-- Statamic 6.6+
-- Laravel MCP ^1.0
+- Statamic 6.35.1+
+- Laravel MCP ^1.1.2
 
 ## Installation
 
@@ -16,7 +16,7 @@ A comprehensive MCP (Model Context Protocol) server for Statamic CMS v6 that pro
 composer require cboxdk/statamic-mcp
 
 # Run the installation command
-php artisan mcp:statamic:install
+php artisan mcp:statamic:install --profile=read_only
 ```
 
 ### Recommended: Laravel Boost Integration
@@ -31,9 +31,11 @@ composer require laravel/boost --dev
 
 ## Web MCP Endpoint
 
-The web MCP endpoint is **enabled by default** after installation. To customize the path:
+The web MCP endpoint is **disabled by default**. Enable it explicitly and choose the path:
 
 ```env
+STATAMIC_MCP_WEB_ENABLED=true
+STATAMIC_MCP_HTTP_PROFILE=read_only
 STATAMIC_MCP_WEB_PATH="/mcp/statamic"
 ```
 
@@ -140,7 +142,7 @@ that is not a `BaseRouter` is refused at registration. See
 ### Security
 - Scoped API tokens with 21 granular permissions
 - OAuth 2.1 authorization server with PKCE and dynamic client registration
-- Bearer token + Basic Auth authentication
+- Bearer tokens and OAuth
 - Rate limiting per token
 - Audit logging for all operations
 - Path traversal protection

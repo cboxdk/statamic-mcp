@@ -39,7 +39,7 @@ trait HandlesGroups
      */
     private function listGroups(array $arguments): array
     {
-        if (! $this->hasPermission('view', 'user_groups')) {
+        if (! $this->hasPermission('edit', 'user_groups')) {
             return $this->createErrorResponse('Permission denied: Cannot list user groups')->toArray();
         }
 
@@ -70,7 +70,7 @@ trait HandlesGroups
      */
     private function getGroup(array $arguments): array
     {
-        if (! $this->hasPermission('view', 'user_groups')) {
+        if (! $this->hasPermission('edit', 'user_groups')) {
             return $this->createErrorResponse('Permission denied: Cannot view user groups')->toArray();
         }
 
@@ -113,7 +113,7 @@ trait HandlesGroups
      */
     private function createGroup(array $arguments): array
     {
-        if (! $this->hasPermission('create', 'user_groups')) {
+        if (! $this->hasPermission('edit', 'user_groups')) {
             return $this->createErrorResponse('Permission denied: Cannot create user groups')->toArray();
         }
 
@@ -150,7 +150,7 @@ trait HandlesGroups
                 $group->roles($roles);
             }
 
-            $group->save();
+            $this->persistStatamic(fn () => $group->save(), ['stache']);
 
             // Clear caches
             $this->clearCachesAfterWrite(['stache']);
@@ -209,7 +209,7 @@ trait HandlesGroups
                 $group->roles($roles);
             }
 
-            $group->save();
+            $this->persistStatamic(fn () => $group->save(), ['stache']);
 
             // Clear caches
             $this->clearCachesAfterWrite(['stache']);
@@ -233,7 +233,7 @@ trait HandlesGroups
      */
     private function deleteGroup(array $arguments): array
     {
-        if (! $this->hasPermission('delete', 'user_groups')) {
+        if (! $this->hasPermission('edit', 'user_groups')) {
             return $this->createErrorResponse('Permission denied: Cannot delete user groups')->toArray();
         }
 
@@ -249,7 +249,7 @@ trait HandlesGroups
                 return $this->createErrorResponse("User group not found: {$handle}")->toArray();
             }
 
-            $group->delete();
+            $this->persistStatamic(fn () => $group->delete(), ['stache']);
 
             // Clear caches
             $this->clearCachesAfterWrite(['stache']);

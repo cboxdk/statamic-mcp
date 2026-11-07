@@ -6,6 +6,7 @@ namespace Cboxdk\StatamicMcp\Tests\Feature\OAuth;
 
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
 use Cboxdk\StatamicMcp\Tests\TestCase;
+use Statamic\Facades\User;
 
 class TokenEndpointTest extends TestCase
 {
@@ -14,6 +15,7 @@ class TokenEndpointTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        User::make()->id('user-1')->email('oauth-user@example.test')->save();
 
         $this->driver = $this->app->make(OAuthDriver::class);
     }

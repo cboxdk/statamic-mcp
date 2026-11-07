@@ -72,19 +72,8 @@ class AuthenticateForMcp
             RateLimiter::hit($rateLimitKey, 60);
         }
 
-        // Try Basic Auth as fallback
-        $credentials = $this->getBasicAuthCredentials($request);
-        if ($credentials) {
-            $user = $this->authenticateWithCredentials($credentials['email'], $credentials['password']);
-
-            if ($user) {
-                $request->attributes->set('statamic_user', $user);
-                Auth::setUser($user);
-
-                return $next($request);
-            }
-
-            // Basic Auth credentials were provided but invalid — rate limit
+        // Password-only access was removed in v4, even with legacy config.
+        if (! $plainToken && $request->hasHeader('Authorization')) {
             RateLimiter::hit($rateLimitKey, 60);
         }
 
@@ -95,70 +84,11 @@ class AuthenticateForMcp
 
         return response()->json([
             'error' => 'Authentication required',
-            'message' => 'Provide a Bearer token or Basic Auth credentials',
+            'message' => 'Provide a Bearer token or authenticate through OAuth',
             'hint' => 'Create an API token in the Statamic MCP dashboard',
         ], 401, [
             'WWW-Authenticate' => $wwwAuth,
         ]);
-    }
-
-    /**
-     * Get Basic Auth credentials from request.
-     *
-     * @return array{email: string, password: string}|null
-     */
-    private function getBasicAuthCredentials(Request $request): ?array
-    {
-        $header = $request->header('Authorization');
-
-        if (! $header || ! str_starts_with($header, 'Basic ')) {
-            return null;
-        }
-
-        $decoded = base64_decode(substr($header, 6), true);
-
-        if ($decoded === false || ! str_contains($decoded, ':')) {
-            return null;
-        }
-
-        // Reject credentials containing null bytes
-        if (str_contains($decoded, "\x00")) {
-            return null;
-        }
-
-        [$email, $password] = explode(':', $decoded, 2);
-
-        return ['email' => $email, 'password' => $password];
-    }
-
-    /**
-     * Authenticate user with email and password using Statamic's auth system.
-     */
-    private function authenticateWithCredentials(string $email, #[\SensitiveParameter] string $password): ?\Statamic\Contracts\Auth\User
-    {
-        // Dummy hash used to ensure constant-time response when user doesn't exist,
-        // preventing account enumeration via timing analysis.
-        $dummyHash = '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi';
-
-        try {
-            $user = User::findByEmail($email);
-
-            $userPassword = $user?->password() ?? $dummyHash;
-
-            // Always run password_verify to prevent timing-based user enumeration
-            $passwordValid = password_verify($password, $userPassword);
-
-            if (! $user || ! $passwordValid || ! $user->hasPermission('access cp') || $this->isDeactivated($user)) {
-                return null;
-            }
-
-            return $user;
-        } catch (\Exception $e) {
-            // Constant-time path on exception
-            password_verify($password, $dummyHash);
-
-            return null;
-        }
     }
 
     /**

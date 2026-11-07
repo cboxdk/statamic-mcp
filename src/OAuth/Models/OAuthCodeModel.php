@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property string $client_id
  * @property string $user_id
  * @property array<int, string> $scopes
+ * @property array{grant_id: string, actions: array<string, string>, scopes: array<string, string>}|null $capabilities
  * @property string $code_challenge
  * @property string $code_challenge_method
  * @property string $redirect_uri
@@ -32,6 +33,7 @@ class OAuthCodeModel extends Model
         'client_id',
         'user_id',
         'scopes',
+        'capabilities',
         'code_challenge',
         'code_challenge_method',
         'redirect_uri',
@@ -46,6 +48,7 @@ class OAuthCodeModel extends Model
     {
         return [
             'scopes' => 'array',
+            'capabilities' => 'array',
             'expires_at' => 'datetime',
             'used' => 'boolean',
         ];

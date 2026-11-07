@@ -15,13 +15,22 @@ use function Laravel\Prompts\multiselect;
 
 class InstallCommand extends Command
 {
-    protected $signature = 'mcp:statamic:install {--force : Overwrite existing configuration} {--skip-migrations : Skip database migrations} {--debug : Show debug information}';
+    protected $signature = 'mcp:statamic:install {--profile= : Explicit stdio profile: read_only, editor or operator} {--force : Overwrite existing configuration} {--skip-migrations : Skip database migrations} {--debug : Show debug information}';
+
+    private string $stdioProfile;
 
     protected $description = 'Install and configure Statamic MCP Server for AI assistants';
 
     public function handle(): int
     {
-        $this->info('🚀 Installing Statamic MCP Server v2.0...');
+        $profile = $this->option('profile') ?? config('statamic.mcp.profiles.stdio');
+        if (! is_string($profile) || ! in_array($profile, ['read_only', 'editor', 'operator'], true)) {
+            $this->error('Choose --profile=read_only, --profile=editor or --profile=operator before installing.');
+
+            return self::FAILURE;
+        }
+        $this->stdioProfile = $profile;
+        $this->info('Installing Statamic MCP Server with stdio profile: ' . $profile);
         $this->newLine();
 
         // Publish configuration
@@ -454,7 +463,7 @@ class InstallCommand extends Command
                 'statamic',
             ],
             'env' => [
-                'APP_ENV' => 'local',
+                'STATAMIC_MCP_STDIO_PROFILE' => $this->stdioProfile,
             ],
         ];
 
@@ -509,7 +518,7 @@ class InstallCommand extends Command
                 'statamic',
             ],
             'env' => [
-                'APP_ENV' => 'local',
+                'STATAMIC_MCP_STDIO_PROFILE' => $this->stdioProfile,
             ],
         ];
 
@@ -563,7 +572,7 @@ class InstallCommand extends Command
                 'statamic',
             ],
             'env' => [
-                'APP_ENV' => 'local',
+                'STATAMIC_MCP_STDIO_PROFILE' => $this->stdioProfile,
                 'PATH' => '/usr/local/bin:/usr/bin:/bin',
             ],
             'cwd' => $projectPath,
@@ -625,12 +634,12 @@ class InstallCommand extends Command
         $this->line('  1. Visit the MCP dashboard in your Statamic CP (Tools → MCP)');
         $this->line('  2. Create a new API token with the scopes your agent needs');
         $this->line('  3. Copy the token — it will only be shown once');
-        $this->line('  4. For web MCP: Set STATAMIC_MCP_WEB_ENABLED=true in .env');
+        $this->line('  4. For web MCP: Set STATAMIC_MCP_WEB_ENABLED=true and STATAMIC_MCP_HTTP_PROFILE=read_only in .env');
         $this->newLine();
 
         $this->info('🚀 Next Steps:');
         $this->line('  1. Restart your AI assistant (Claude Code, Cursor, etc.)');
-        $this->line('  2. Test the MCP connection: php artisan mcp:start statamic');
+        $this->line('  2. Test the MCP connection: STATAMIC_MCP_STDIO_PROFILE=' . $this->stdioProfile . ' php artisan mcp:start statamic');
         $this->line('  3. Verify MCP registration: claude mcp list');
         $this->line('  4. Ask your AI: "What Statamic MCP tools are available?"');
         $this->newLine();
@@ -747,7 +756,7 @@ Web MCP endpoints require scoped API tokens:
 1. Visit Statamic CP → Tools → MCP
 2. Create a token with required scopes (e.g., content:read, content:write)
 3. Use Bearer token authentication for web requests
-4. CLI mode (php artisan mcp:start) runs with full permissions
+4. CLI mode (php artisan mcp:start) requires an explicit installation profile; only operator permits administration
 
 ## Development Guidelines
 
@@ -832,7 +841,7 @@ Web MCP endpoints use scoped API tokens for fine-grained access control:
 - Tokens are managed via the Statamic CP dashboard (Tools → MCP)
 - Each token has specific scopes (e.g., content:read, content:write, system:read)
 - Use Bearer token authentication: `Authorization: Bearer <token>`
-- CLI mode (php artisan mcp:start) runs with full permissions
+- CLI mode (php artisan mcp:start) requires an explicit installation profile; only operator permits administration
 
 ### Available Scopes
 - `content:read` / `content:write` - Entry and term operations
@@ -956,9 +965,9 @@ MARKDOWN;
             // Try to add MCP server via command line (run from Laravel root)
             $mcpCommand = [
                 'claude', 'mcp', 'add',
-                'statamic',
-                'php artisan mcp:start statamic',
-                '--scope', 'project',
+                '--scope', 'project', 'statamic',
+                '--env', 'STATAMIC_MCP_STDIO_PROFILE=' . $this->stdioProfile,
+                '--', 'php', 'artisan', 'mcp:start', 'statamic',
             ];
 
             $result = Process::timeout(30)->path($laravelRoot)->run($mcpCommand);
@@ -971,11 +980,11 @@ MARKDOWN;
                     $this->line('  Error: ' . $result->errorOutput());
                     $this->line('  Output: ' . $result->output());
                 }
-                $this->line('  💡 You can manually register with: claude mcp add statamic "php artisan mcp:start statamic" --scope project');
+                $this->line('  💡 You can manually register with: claude mcp add --scope project statamic --env STATAMIC_MCP_STDIO_PROFILE=' . $this->stdioProfile . ' -- php artisan mcp:start statamic');
             }
         } catch (\Exception $e) {
             $this->warn('⚠️  Error during Claude CLI registration: ' . $e->getMessage());
-            $this->line('  💡 You can manually register with: claude mcp add statamic "php artisan mcp:start statamic" --scope project');
+            $this->line('  💡 You can manually register with: claude mcp add --scope project statamic --env STATAMIC_MCP_STDIO_PROFILE=' . $this->stdioProfile . ' -- php artisan mcp:start statamic');
         }
     }
 

@@ -8,13 +8,15 @@ weight: 2
 
 Connect an AI assistant to your Statamic site in three steps.
 
-## 1. Verify the Web Endpoint
+## 1. Enable the Web Endpoint
 
-The web MCP endpoint is **enabled by default** after installation. Your MCP endpoint is available at `https://your-site.test/mcp/statamic`.
+The web MCP endpoint is **disabled by default**. Enable it explicitly to make it available at `https://your-site.test/mcp/statamic`.
 
-To customize the path, set in your `.env`:
+Set the following in your `.env`:
 
 ```env
+STATAMIC_MCP_WEB_ENABLED=true
+STATAMIC_MCP_HTTP_PROFILE=read_only
 STATAMIC_MCP_WEB_PATH="/mcp/statamic"
 ```
 
@@ -86,10 +88,10 @@ If the connection works, the assistant will call the MCP tools and return struct
 For local development without a web endpoint, use the CLI transport directly:
 
 ```bash
-php artisan mcp:serve
+STATAMIC_MCP_STDIO_PROFILE=read_only php artisan mcp:start statamic
 ```
 
-CLI access bypasses token authentication entirely. This is the default mode and requires no configuration.
+Stdio uses local process authority and requires an explicit profile. `read_only` excludes writes and sensitive domains; choose `operator` explicitly for local administration. Site-wide resource and field policies still apply.
 
 ## OAuth 2.1 (Browser-Based Clients)
 

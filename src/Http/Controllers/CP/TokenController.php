@@ -6,12 +6,13 @@ namespace Cboxdk\StatamicMcp\Http\Controllers\CP;
 
 use Carbon\Carbon;
 use Cboxdk\StatamicMcp\Auth\ScopeAvailability;
-use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
+use Cboxdk\StatamicMcp\Authorization\PersonalTokenConsent;
 use Cboxdk\StatamicMcp\Http\Controllers\CP\Concerns\ResolvesUserId;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Statamic\Facades\User;
 use Statamic\Http\Controllers\CP\CpController;
 
@@ -38,20 +39,11 @@ class TokenController extends CpController
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'scopes' => ['required', 'array', 'min:1'],
-            'scopes.*' => ['required', 'string'],
+            'scopes.*' => ['required', 'string', Rule::in(app(ScopeAvailability::class)->names())],
             'expires_at' => ['nullable', 'date', 'after:now'],
         ]);
 
-        $scopes = TokenScope::resolveMany($validated['scopes']);
-
-        if ($scopes === []) {
-            return response()->json([
-                'message' => 'Invalid scopes provided. Valid scopes: ' . implode(', ', array_map(
-                    fn (TokenScope $s): string => $s->value,
-                    TokenScope::all()
-                )),
-            ], 422);
-        }
+        $scopes = array_values(array_unique($validated['scopes']));
 
         if ($refused = $this->refuseUnavailableScopes(User::current(), $scopes)) {
             return $refused;
@@ -68,6 +60,7 @@ class TokenController extends CpController
             $validated['name'],
             $scopes,
             $expiresAt,
+            capabilities: app(PersonalTokenConsent::class)->approve($request, $scopes),
         );
 
         return response()->json([
@@ -101,7 +94,7 @@ class TokenController extends CpController
         $validated = $request->validate([
             'name' => ['sometimes', 'required', 'string', 'max:255'],
             'scopes' => ['sometimes', 'required', 'array', 'min:1'],
-            'scopes.*' => ['required', 'string'],
+            'scopes.*' => ['required', 'string', Rule::in(array_merge(app(ScopeAvailability::class)->names(), $token->scopes))],
             'expires_at' => ['nullable', 'date', 'after:now'],
             'clear_expiry' => ['sometimes', 'boolean'],
         ]);
@@ -109,16 +102,7 @@ class TokenController extends CpController
         $scopes = null;
 
         if (isset($validated['scopes'])) {
-            $scopes = TokenScope::resolveMany($validated['scopes']);
-
-            if ($scopes === []) {
-                return response()->json([
-                    'message' => 'Invalid scopes provided. Valid scopes: ' . implode(', ', array_map(
-                        fn (TokenScope $s): string => $s->value,
-                        TokenScope::all()
-                    )),
-                ], 422);
-            }
+            $scopes = array_values(array_unique($validated['scopes']));
 
             // Only scopes being added are checked: the edit form resends every
             // scope the token holds, so checking all of them would leave a
@@ -127,7 +111,7 @@ class TokenController extends CpController
             // stripping it.
             $added = array_values(array_filter(
                 $scopes,
-                fn (TokenScope $scope): bool => ! in_array($scope->value, $token->scopes, true),
+                fn (string $scope): bool => ! in_array($scope, $token->scopes, true),
             ));
 
             $owner = User::find($token->userId);
@@ -274,22 +258,20 @@ class TokenController extends CpController
      * A 422 naming the scopes the user cannot exercise, or null when every
      * scope is available to them.
      *
-     * @param  array<int, TokenScope>  $scopes
+     * @param  list<string>  $scopes
      */
     private function refuseUnavailableScopes(?\Statamic\Contracts\Auth\User $user, array $scopes): ?JsonResponse
     {
         $availability = app(ScopeAvailability::class);
-        $unavailable = $availability->reject($user, $scopes);
+        $unavailable = array_values(array_diff($scopes, $availability->filterValues($user, $scopes)));
 
         if ($unavailable === []) {
             return null;
         }
 
-        $list = fn (array $list): string => implode(', ', array_map(fn (TokenScope $s): string => $s->value, $list));
-
         return response()->json([
-            'message' => 'These scopes are not available to this user: ' . $list($unavailable)
-                . '. Available scopes: ' . $list($availability->forUser($user)),
+            'message' => 'These scopes are not available to this user: ' . implode(', ', $unavailable)
+                . '. Available scopes: ' . implode(', ', $availability->filterValues($user, $availability->names())),
         ], 422);
     }
 

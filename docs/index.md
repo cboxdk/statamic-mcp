@@ -10,7 +10,7 @@ weight: 1
 
 ## Overview
 
-The server registers a set of domain routers — each handling a specific Statamic concern — and makes them available over both CLI (`php artisan mcp:serve`) and web (HTTP endpoint) transports. All web access is gated by scoped API tokens with 21 granular permissions.
+The server registers a set of domain routers — each handling a specific Statamic concern — and makes them available over both CLI (`php artisan mcp:start statamic`) and web (HTTP endpoint) transports. All web access is gated by scoped API tokens with 21 granular permissions.
 
 ```json
 {
@@ -36,7 +36,7 @@ The server registers a set of domain routers — each handling a specific Statam
 ### Scoped API Tokens
 - 21 granular scopes in `domain:permission` format (plus `*` for full access)
 - SHA-256 hashed storage, configurable expiry, max tokens per user
-- Bearer token authentication with Basic Auth fallback
+- Bearer tokens and OAuth
 - Created and managed in the Statamic Control Panel
 
 ### CP Dashboard
@@ -72,9 +72,9 @@ The server registers a set of domain routers — each handling a specific Statam
 ## Requirements
 
 - **PHP** 8.3+
-- **Statamic** v6.6+
+- **Statamic** v6.35.1+
 - **Laravel** 12.0+
-- **laravel/mcp** ^1.0
+- **laravel/mcp** ^1.1.2
 
 ## Quick Links
 

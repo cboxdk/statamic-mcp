@@ -6,10 +6,15 @@ namespace Cboxdk\StatamicMcp\Tests\Feature\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\AssetsRouter;
 use Cboxdk\StatamicMcp\Tests\TestCase;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Storage;
+use Mockery;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Statamic\Events\AssetDeleting;
+use Statamic\Events\AssetSaving;
 use Statamic\Facades\Asset;
 use Statamic\Facades\AssetContainer;
+use Statamic\Facades\File;
 
 /**
  * `destination` is documented as the asset's new path, filename included.
@@ -52,6 +57,43 @@ class AssetMoveCopyTest extends TestCase
             'path' => 'hero.txt',
             'destination' => $destination,
         ]);
+    }
+
+    public function test_asset_metadata_save_veto_is_not_success(): void
+    {
+        Event::listen(AssetSaving::class, fn () => false);
+        $result = $this->router->execute([
+            'action' => 'update', 'resource_type' => 'asset', 'container' => 'images',
+            'path' => 'hero.txt', 'data' => ['alt' => 'Refused'],
+        ]);
+        $this->assertFalse($result['success']);
+        $this->assertTrue($result['meta']['retry_requires_reconciliation']);
+        $this->assertSame('A hero', Asset::find('images::hero.txt')->get('alt'));
+    }
+
+    public function test_asset_delete_veto_preserves_file(): void
+    {
+        Event::listen(AssetDeleting::class, fn () => false);
+        $result = $this->router->execute([
+            'action' => 'delete', 'resource_type' => 'asset', 'container' => 'images', 'path' => 'hero.txt',
+        ]);
+        $this->assertFalse($result['success']);
+        $this->assertSame('hero', Storage::disk('assets')->get('hero.txt'));
+    }
+
+    public function test_failed_filesystem_rename_is_not_reported_as_a_successful_move(): void
+    {
+        $disk = Mockery::mock(File::disk('assets'));
+        $disk->shouldReceive('rename')->with('hero.txt', 'archive/hero.txt')->once()->andReturn(false);
+        File::partialMock()->shouldReceive('disk')->with('assets')->andReturn($disk);
+
+        $result = $this->relocate('move', 'archive/hero.txt');
+
+        $this->assertFalse($result['success'], json_encode($result));
+        $this->assertSame('unknown', $result['meta']['write_effects']);
+        $this->assertTrue($result['meta']['retry_requires_reconciliation']);
+        $this->assertSame('hero', Storage::disk('assets')->get('hero.txt'));
+        $this->assertFalse(Storage::disk('assets')->exists('archive/hero.txt'));
     }
 
     public function test_move_puts_the_asset_at_the_destination_path(): void

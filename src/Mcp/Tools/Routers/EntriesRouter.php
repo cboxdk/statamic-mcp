@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
+use Cboxdk\StatamicMcp\Authorization\InstallationProfile;
 use Cboxdk\StatamicMcp\Contracts\CollectionTreeEditor;
 use Cboxdk\StatamicMcp\Mcp\Exceptions\FieldFormatException;
 use Cboxdk\StatamicMcp\Mcp\Support\SeoProFieldData;
@@ -24,6 +25,7 @@ use Laravel\Mcp\Server\Attributes\Title;
 use Statamic\Contracts\Entries\Entry as EntryContract;
 use Statamic\Facades\Collection;
 use Statamic\Facades\Entry;
+use Statamic\Facades\Site;
 use Statamic\Facades\User;
 use Statamic\Fields\Blueprint;
 use Statamic\Fields\Field;
@@ -258,10 +260,10 @@ class EntriesRouter extends BaseRouter
         return match ($action) {
             'list', 'get', 'list_revisions', 'get_revision' => ["view {$collection} entries"],
             'create' => ["create {$collection} entries"],
-            'update' => ["edit {$collection} entries"],
+            'update', 'restore_revision' => ["edit {$collection} entries"],
             'delete' => ["delete {$collection} entries"],
             'localize' => ["create {$collection} entries"],
-            'publish', 'unpublish', 'restore_revision', 'publish_working_copy' => ["publish {$collection} entries"],
+            'publish', 'unpublish', 'publish_working_copy' => ["publish {$collection} entries"],
             default => [],
         };
     }
@@ -283,6 +285,9 @@ class EntriesRouter extends BaseRouter
         $offset = $pagination['offset'];
 
         try {
+            if ($policyError = $this->authorizeEntrySite($site)) {
+                return $policyError;
+            }
             $query = Entry::query()
                 ->where('collection', $collection)
                 ->where('site', $site);
@@ -365,16 +370,17 @@ class EntriesRouter extends BaseRouter
                 return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
             }
 
-            if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
-                return $policyError;
-            }
-
             // Get entry for specific site if needed
             if ($entry->site()->handle() !== $site) {
                 $localizedEntry = $entry->in($site);
-                if ($localizedEntry) {
-                    $entry = $localizedEntry;
+                if (! $localizedEntry) {
+                    return $this->createErrorResponse("Entry not available in site: {$site}")->toArray();
                 }
+                $entry = $localizedEntry;
+            }
+
+            if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
+                return $policyError;
             }
 
             $entryVersion = $entry;
@@ -439,6 +445,9 @@ class EntriesRouter extends BaseRouter
         unset($data['parent']);
 
         try {
+            if ($policyError = $this->authorizeEntrySite($site)) {
+                return $policyError;
+            }
             $entry = Entry::make()
                 ->collection($collection)
                 ->locale($site);
@@ -578,12 +587,20 @@ class EntriesRouter extends BaseRouter
                 app(CollectionTreeEditor::class)->validate($entry, $requestedParent);
             }
 
+            if (! $this->entryRevisionsEnabled($entry) && $entry->published()
+                && ($policyError = $this->authorizeResolvedEntry('publishEntry', $entry))) {
+                if (is_array($arguments['data'] ?? null) && ! empty($arguments['data']['published'])) {
+                    return $policyError;
+                }
+                $entry->published(false);
+            }
+
             // Revision-aware create: use store() which saves as unpublished
             // and creates an initial revision (matches CP behavior)
             if ($this->entryRevisionsEnabled($entry)) {
-                $entry->store($this->revisionOptions($arguments));
+                $this->storeInitialRevision($entry, $arguments);
             } else {
-                $this->touchedBy($entry)->save();
+                $this->persistStatamic(fn () => $this->touchedBy($entry)->save());
             }
 
             if ($parentRequested) {
@@ -591,7 +608,7 @@ class EntriesRouter extends BaseRouter
                     app(CollectionTreeEditor::class)->move($entry, $requestedParent);
                 } catch (\Throwable $e) {
                     // This call created the entry; do not leave a partial creation behind.
-                    $entry->delete();
+                    $this->persistStatamic(fn () => $entry->delete());
                     throw $e;
                 }
             }
@@ -815,6 +832,9 @@ class EntriesRouter extends BaseRouter
                 )->toArray();
             }
 
+            if ($policyError = $this->authorizeEntrySite($site)) {
+                return $policyError;
+            }
             $localization = $entry->makeLocalization($site);
 
             $blueprint = $localization->blueprint();
@@ -886,10 +906,17 @@ class EntriesRouter extends BaseRouter
                 }
             }
 
+            if (! $this->entryRevisionsEnabled($localization) && $localization->published()
+                && ($policyError = $this->authorizeResolvedEntry('publishEntry', $localization))) {
+                if (is_array($arguments['data'] ?? null) && ! empty($arguments['data']['published'])) {
+                    return $policyError;
+                }
+                $localization->published(false);
+            }
             if ($this->entryRevisionsEnabled($localization)) {
-                $localization->store($this->revisionOptions($arguments));
+                $this->storeInitialRevision($localization, $arguments);
             } else {
-                $this->touchedBy($localization)->save();
+                $this->persistStatamic(fn () => $this->touchedBy($localization)->save());
             }
 
             $this->clearCachesAfterWrite(['stache', 'static']);
@@ -943,10 +970,6 @@ class EntriesRouter extends BaseRouter
                 return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
             }
 
-            if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
-                return $policyError;
-            }
-
             // Get entry for specific site
             if ($entry->site()->handle() !== $site) {
                 $localizedEntry = $entry->in($site);
@@ -956,6 +979,18 @@ class EntriesRouter extends BaseRouter
                     return $this->createErrorResponse("Entry not available in site: {$site}")->toArray();
                 }
             }
+
+            if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
+                return $policyError;
+            }
+
+            // Resource-dependent profile checks follow authentication and the
+            // concrete site/author policy, so denials cannot reveal draft state.
+            if (app(InstallationProfile::class)->name() === 'editor' && $entry->published()) {
+                return $this->createErrorResponse('Editor updates require an unpublished entry.')->toArray();
+            }
+
+            $entry = clone $entry;
 
             if ($parentRequested && $this->entryRevisionsEnabled($entry) && $entry->published()) {
                 if ($data !== []) {
@@ -975,6 +1010,10 @@ class EntriesRouter extends BaseRouter
                     )->toArray();
                 }
 
+                if ((bool) $data['published'] !== $entry->published()
+                    && ($policyError = $this->authorizeResolvedEntry('publishEntry', $entry))) {
+                    return $policyError;
+                }
                 $entry->published((bool) $data['published']);
                 unset($data['published']);
             }
@@ -1145,7 +1184,7 @@ class EntriesRouter extends BaseRouter
                 return $this->saveAsWorkingCopy($entry, $data, is_string($arguments['revision_message'] ?? null) ? $arguments['revision_message'] : null);
             }
 
-            $this->touchedBy($entry->merge($data))->save();
+            $this->persistStatamic(fn () => $this->touchedBy($entry->merge($data))->save());
 
             if ($parentRequested) {
                 app(CollectionTreeEditor::class)->move($entry, $requestedParent);
@@ -1216,7 +1255,7 @@ class EntriesRouter extends BaseRouter
                 'site' => $entry->site()->handle(),
             ];
 
-            $entry->delete();
+            $this->persistStatamic(fn () => $entry->delete());
 
             // Clear relevant caches
             $this->clearCachesAfterWrite(['stache', 'static']);
@@ -1256,7 +1295,8 @@ class EntriesRouter extends BaseRouter
             /** @var \Statamic\Entries\Entry $entry */
             // Use Statamic's built-in publish() which delegates to publishWorkingCopy()
             // when revisions are enabled, or sets published(true)->save() otherwise
-            $publishedEntry = $entry->publish($this->revisionOptions($arguments));
+            $entry = clone $entry;
+            $publishedEntry = $this->persistStatamic(fn () => $entry->publish($this->revisionOptions($arguments)));
 
             if ($publishedEntry instanceof \Statamic\Entries\Entry) {
                 $entry = $publishedEntry;
@@ -1313,7 +1353,14 @@ class EntriesRouter extends BaseRouter
             /** @var \Statamic\Entries\Entry $entry */
             // Use Statamic's built-in unpublish() which delegates to unpublishWorkingCopy()
             // when revisions are enabled, or sets published(false)->save() otherwise
-            $unpublishedEntry = $entry->unpublish($this->revisionOptions($arguments));
+            $entry = clone $entry;
+            if ($this->entryRevisionsEnabled($entry)) {
+                $unpublishedEntry = $this->persistStatamic(fn () => $entry->unpublish($this->revisionOptions($arguments)));
+            } else {
+                // Native unpublish() discards save()'s false return value.
+                $this->persistStatamic(fn () => $entry->published(false)->save());
+                $unpublishedEntry = $entry;
+            }
 
             if ($unpublishedEntry instanceof \Statamic\Entries\Entry) {
                 $entry = $unpublishedEntry;
@@ -1374,28 +1421,22 @@ class EntriesRouter extends BaseRouter
         ];
     }
 
-    /**
-     * Resolve an entry by id, but only within the collection the caller named.
-     *
-     * Permission and resource-policy checks are keyed on the `collection`
-     * argument, so an entry belonging to any other collection must read as
-     * "not found": otherwise a caller authorized on collection A could reach,
-     * change or delete an entry in collection B by passing A's handle with B's
-     * id. The Control Panel binds the same way by deriving the collection from
-     * the entry itself.
-     *
-     * @param  array<string, mixed>  $arguments
-     */
-    /**
-     * Apply Statamic's EntryPolicy to the resolved entry, so an MCP write obeys
-     * the same author-ownership and per-site rules the Control Panel enforces.
-     * The flat per-collection permission has already been checked; this adds the
-     * "other authors {collection} entries" and "access {site} site" conditions
-     * the policy carries. CLI is the trusted operator and super admins pass via
-     * the policy's own `before()`.
-     *
-     * @return array<string, mixed>|null an error response, or null when allowed
-     */
+    /** @return array<string, mixed>|null */
+    private function authorizeEntrySite(string $handle): ?array
+    {
+        if (! McpContext::isWebRequest()) {
+            return null;
+        }
+        $site = Site::get($handle);
+        $user = User::current();
+        if ($site === null || $user === null || ! $user->can('view', $site)) {
+            return $this->createErrorResponse('Permission denied: Cannot access this site')->toArray();
+        }
+
+        return null;
+    }
+
+    /** @return array<string, mixed>|null */
     private function authorizeResolvedEntry(string $fn, EntryContract $entry): ?array
     {
         if (! McpContext::isWebRequest()) {
@@ -1403,16 +1444,16 @@ class EntriesRouter extends BaseRouter
         }
 
         $ability = match ($fn) {
-            'getEntry' => 'view',
+            'getEntry', 'listRevisionsAction', 'getRevisionAction' => 'view',
             'deleteEntry' => 'delete',
-            'publishEntry', 'unpublishEntry' => 'publish',
+            'publishEntry', 'unpublishEntry', 'publishWorkingCopyAction' => 'publish',
             default => 'edit',
         };
 
         /** @var \Statamic\Contracts\Auth\User|null $user */
         $user = User::current();
 
-        if ($user === null || ! $user->can($ability, $entry)) {
+        if ($user === null || ! $user->can('view', $entry->site()) || ! $user->can($ability, $entry)) {
             return $this->createErrorResponse("Permission denied: your account may not {$ability} this entry (author or site restriction)")->toArray();
         }
 

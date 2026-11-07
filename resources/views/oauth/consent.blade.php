@@ -59,6 +59,7 @@
 
         <form method="POST" action="{{ route('statamic.cp.statamic-mcp.oauth.approve') }}">
             @csrf
+            <input type="hidden" name="consent_offer" value="{{ $consentOffer }}">
             <input type="hidden" name="client_id" value="{{ $oauthParams['client_id'] }}">
             <input type="hidden" name="redirect_uri" value="{{ $oauthParams['redirect_uri'] }}">
             <input type="hidden" name="state" value="{{ $oauthParams['state'] }}">
@@ -70,7 +71,7 @@
             <div class="scopes">
                 @php
                     $requestedWildcard = collect($scopes)->contains(fn($s) => $s['value'] === '*');
-                    $defaultWildcard = in_array('*', $defaultScopes);
+                    $defaultWildcard = $requestedWildcard && in_array('*', $defaultScopes);
                     $individualScopes = collect($scopes)->filter(fn($s) => $s['value'] !== '*')->values();
                 @endphp
                 @if ($fullAccessAvailable ?? true)

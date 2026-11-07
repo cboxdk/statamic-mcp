@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Storage\Tokens;
 
 use Carbon\Carbon;
+use Cboxdk\StatamicMcp\Actions\CapabilitySnapshot;
 use Cboxdk\StatamicMcp\Auth\McpToken;
 use Cboxdk\StatamicMcp\Contracts\TokenStore;
+use Cboxdk\StatamicMcp\Support\CommittedDatabase;
 use Illuminate\Support\Collection;
 
 class DatabaseTokenStore extends BaseTokenStore implements TokenStore
@@ -22,32 +24,40 @@ class DatabaseTokenStore extends BaseTokenStore implements TokenStore
         ?Carbon $expiresAt,
         ?string $oauthClientId = null,
         ?string $oauthClientName = null,
+        ?CapabilitySnapshot $capabilities = null,
     ): McpTokenData {
-        $model = McpToken::create([
-            'user_id' => $userId,
-            'name' => $name,
-            'token' => $tokenHash,
-            'scopes' => $scopes,
-            'expires_at' => $expiresAt,
-            'oauth_client_id' => $oauthClientId,
-            'oauth_client_name' => $oauthClientName,
-        ]);
+        return CommittedDatabase::run((new McpToken)->getConnection(), function () use ($userId, $name, $tokenHash, $scopes, $expiresAt, $oauthClientId, $oauthClientName, $capabilities): McpTokenData {
+            $model = McpToken::create([
+                'user_id' => $userId,
+                'name' => $name,
+                'token' => $tokenHash,
+                'scopes' => $scopes,
+                'capabilities' => $capabilities?->toStored(),
+                'expires_at' => $expiresAt,
+                'oauth_client_id' => $oauthClientId,
+                'oauth_client_name' => $oauthClientName,
+            ]);
 
-        return $this->toData($model);
+            return $this->toData($model);
+        });
     }
 
     public function findByHash(string $tokenHash): ?McpTokenData
     {
-        $model = McpToken::where('token', $tokenHash)->first();
+        return CommittedDatabase::run((new McpToken)->getConnection(), function () use ($tokenHash): ?McpTokenData {
+            $model = McpToken::query()->useWritePdo()->where('token', $tokenHash)->first();
 
-        return $model !== null ? $this->toData($model) : null;
+            return $model !== null ? $this->toData($model) : null;
+        });
     }
 
     public function find(string $id): ?McpTokenData
     {
-        $model = McpToken::find($id);
+        return CommittedDatabase::run((new McpToken)->getConnection(), function () use ($id): ?McpTokenData {
+            $model = McpToken::query()->useWritePdo()->find($id);
 
-        return $model !== null ? $this->toData($model) : null;
+            return $model !== null ? $this->toData($model) : null;
+        });
     }
 
     /**
@@ -55,45 +65,54 @@ class DatabaseTokenStore extends BaseTokenStore implements TokenStore
      */
     public function update(string $id, array $data): ?McpTokenData
     {
-        $model = McpToken::find($id);
+        return CommittedDatabase::run((new McpToken)->getConnection(), function () use ($id, $data): ?McpTokenData {
+            $model = McpToken::query()->useWritePdo()->find($id);
 
-        if ($model === null) {
-            return null;
-        }
-
-        /** @var array<string, mixed> $attributes */
-        $attributes = [];
-
-        $columnMap = [
-            'tokenHash' => 'token',
-            'expiresAt' => 'expires_at',
-            'name' => 'name',
-            'scopes' => 'scopes',
-        ];
-
-        foreach ($columnMap as $dtoKey => $column) {
-            if (array_key_exists($dtoKey, $data)) {
-                $attributes[$column] = $data[$dtoKey];
+            if ($model === null) {
+                return null;
             }
-        }
 
-        if ($attributes !== []) {
-            $model->fill($attributes)->save();
-        }
+            /** @var array<string, mixed> $attributes */
+            $attributes = [];
 
-        return $this->toData($model);
+            $columnMap = [
+                'tokenHash' => 'token',
+                'expiresAt' => 'expires_at',
+                'name' => 'name',
+                'scopes' => 'scopes',
+            ];
+
+            foreach ($columnMap as $dtoKey => $column) {
+                if (array_key_exists($dtoKey, $data)) {
+                    $attributes[$column] = $data[$dtoKey];
+                }
+            }
+
+            if (array_key_exists('scopes', $data) && $this->scopesChanged($data['scopes'], $model->scopes)) {
+                $attributes['capabilities'] = null;
+            }
+            if ($attributes !== []) {
+                $model->fill($attributes)->save();
+            }
+
+            return $this->toData($model);
+        });
     }
 
     public function delete(string $id): bool
     {
-        return McpToken::where('id', $id)->delete() > 0;
+        return CommittedDatabase::run((new McpToken)->getConnection(), function () use ($id): bool {
+            return McpToken::where('id', $id)->delete() > 0;
+        });
     }
 
     public function deleteForUser(string $userId): int
     {
-        $deleted = McpToken::where('user_id', $userId)->delete();
+        return CommittedDatabase::run((new McpToken)->getConnection(), function () use ($userId): int {
+            $deleted = McpToken::where('user_id', $userId)->delete();
 
-        return is_int($deleted) ? $deleted : 0;
+            return is_int($deleted) ? $deleted : 0;
+        });
     }
 
     /**
@@ -101,11 +120,13 @@ class DatabaseTokenStore extends BaseTokenStore implements TokenStore
      */
     public function listForUser(string $userId): Collection
     {
-        return McpToken::where('user_id', $userId)
-            ->orderByDesc('created_at')
-            ->get()
-            ->map(fn (McpToken $model): McpTokenData => $this->toData($model))
-            ->values();
+        return CommittedDatabase::run((new McpToken)->getConnection(), function () use ($userId): Collection {
+            return McpToken::query()->useWritePdo()->where('user_id', $userId)
+                ->orderByDesc('created_at')
+                ->get()
+                ->map(fn (McpToken $model): McpTokenData => $this->toData($model))
+                ->values();
+        });
     }
 
     /**
@@ -113,42 +134,51 @@ class DatabaseTokenStore extends BaseTokenStore implements TokenStore
      */
     public function listAll(): Collection
     {
-        return McpToken::orderByDesc('created_at')
-            ->get()
-            ->map(fn (McpToken $model): McpTokenData => $this->toData($model))
-            ->values();
+        return CommittedDatabase::run((new McpToken)->getConnection(), function (): Collection {
+            return McpToken::query()->useWritePdo()->orderByDesc('created_at')
+                ->get()
+                ->map(fn (McpToken $model): McpTokenData => $this->toData($model))
+                ->values();
+        });
     }
 
     public function import(McpTokenData $token): McpTokenData
     {
-        $model = new McpToken;
-        $model->id = $token->id;
-        $model->forceFill([
-            'user_id' => $token->userId,
-            'name' => $token->name,
-            'token' => $token->tokenHash,
-            'scopes' => $token->scopes,
-            'oauth_client_id' => $token->oauthClientId,
-            'oauth_client_name' => $token->oauthClientName,
-            'last_used_at' => $token->lastUsedAt,
-            'expires_at' => $token->expiresAt,
-            'created_at' => $token->createdAt,
-            'updated_at' => $token->updatedAt,
-        ])->saveQuietly();
+        return CommittedDatabase::run((new McpToken)->getConnection(), function () use ($token): McpTokenData {
+            $model = new McpToken;
+            $model->id = $token->id;
+            $model->forceFill([
+                'user_id' => $token->userId,
+                'name' => $token->name,
+                'token' => $token->tokenHash,
+                'scopes' => $token->scopes,
+                'capabilities' => $token->capabilities?->toStored(),
+                'oauth_client_id' => $token->oauthClientId,
+                'oauth_client_name' => $token->oauthClientName,
+                'last_used_at' => $token->lastUsedAt,
+                'expires_at' => $token->expiresAt,
+                'created_at' => $token->createdAt,
+                'updated_at' => $token->updatedAt,
+            ])->saveQuietly();
 
-        return $this->toData($model);
+            return $this->toData($model);
+        });
     }
 
     public function pruneExpired(): int
     {
-        $deleted = McpToken::where('expires_at', '<=', now())->delete();
+        return CommittedDatabase::run((new McpToken)->getConnection(), function (): int {
+            $deleted = McpToken::where('expires_at', '<=', now())->delete();
 
-        return is_int($deleted) ? $deleted : 0;
+            return is_int($deleted) ? $deleted : 0;
+        });
     }
 
     public function markAsUsed(string $id): void
     {
-        McpToken::where('id', $id)->update(['last_used_at' => now()]);
+        CommittedDatabase::run((new McpToken)->getConnection(), function () use ($id): void {
+            McpToken::where('id', $id)->update(['last_used_at' => now()]);
+        });
     }
 
     private function toData(McpToken $model): McpTokenData
@@ -163,11 +193,12 @@ class DatabaseTokenStore extends BaseTokenStore implements TokenStore
             tokenHash: $model->token,
             scopes: $scopes,
             lastUsedAt: $this->parseCarbon($model->last_used_at),
-            expiresAt: $this->parseCarbon($model->expires_at),
+            expiresAt: $this->parseExpiry($model->expires_at),
             createdAt: $this->parseCarbon($model->created_at) ?? Carbon::now(),
             updatedAt: $this->parseCarbon($model->updated_at),
             oauthClientId: $model->oauth_client_id,
             oauthClientName: $model->oauth_client_name,
+            capabilities: CapabilitySnapshot::fromStored($model->capabilities),
         );
     }
 }

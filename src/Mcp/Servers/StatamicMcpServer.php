@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Servers;
 
+use Cboxdk\StatamicMcp\Actions\ActionEffect;
+use Cboxdk\StatamicMcp\Actions\CapabilityRegistry;
+use Cboxdk\StatamicMcp\Actions\Transport\RegisteredReadTool;
 use Cboxdk\StatamicMcp\Mcp\ExtraTools;
 use Cboxdk\StatamicMcp\Mcp\Prompts\AgentEducationPrompt;
 use Cboxdk\StatamicMcp\Mcp\Prompts\ToolUsageContractPrompt;
@@ -32,6 +35,8 @@ use Laravel\Mcp\Server\Resource;
 use Laravel\Mcp\Server\ServerContext;
 use Laravel\Mcp\Server\Tool;
 use Laravel\Mcp\Server\Tools\ToolSearch;
+use Statamic\Auth\PermissionCache;
+use Statamic\Facades\Blink;
 
 class StatamicMcpServer extends Server
 {
@@ -110,7 +115,7 @@ class StatamicMcpServer extends Server
      * to a client, but anything asking this server what it can do — tests,
      * tooling, the dashboard — should get all of them, not the catalog shape.
      *
-     * @var array<int|string, class-string<Tool>|array<int, class-string<Tool>>>
+     * @var array<int|string, Tool|class-string<Tool>|array<int, Tool|class-string<Tool>>>
      */
     protected array $tools = [
         ...self::CORE_TOOLS,
@@ -123,9 +128,19 @@ class StatamicMcpServer extends Server
      * The registry is read when the server is built, which happens per
      * connection — after every service provider has booted and registered.
      */
+    /** @var list<RegisteredReadTool> */
+    private array $registeredReads = [];
+
     public function __construct(Transport $transport)
     {
         parent::__construct($transport);
+
+        foreach (app(CapabilityRegistry::class)->definitions() as $action) {
+            if ($action->effect === ActionEffect::Read) {
+                $this->registeredReads[] = new RegisteredReadTool($action);
+            }
+        }
+        $this->tools = [...$this->tools, ...$this->registeredReads];
 
         foreach (array_keys(ExtraTools::all()) as $class) {
             if (! in_array($class, $this->tools, true)) {
@@ -211,6 +226,9 @@ class StatamicMcpServer extends Server
      */
     public function createContext(): ServerContext
     {
+        // Discovery is an authorization surface too, including long-lived workers.
+        Blink::flush();
+        app(PermissionCache::class)->clear();
         $searchable = $this->searchableCatalogEnabled();
 
         $this->instructions = self::BASE_INSTRUCTIONS . "\n\n" . ($searchable
@@ -227,7 +245,7 @@ class StatamicMcpServer extends Server
         $this->tools = [
             ...self::CORE_TOOLS,
             ...ExtraTools::core(),
-            ToolSearch::class => [...self::SEARCHABLE_TOOLS, ...ExtraTools::searchable()],
+            ToolSearch::class => [...self::SEARCHABLE_TOOLS, ...ExtraTools::searchable(), ...$this->registeredReads],
         ];
 
         try {

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Prompts;
 
+use Cboxdk\StatamicMcp\Authorization\InstallationProfile;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Prompt;
@@ -34,6 +35,11 @@ class ToolUsageContractPrompt extends Prompt
      */
     public function handle(Request $request): Response
     {
+        $denial = app(InstallationProfile::class)->denial('guidance', 'get');
+        if ($denial !== null) {
+            return Response::error($denial);
+        }
+
         return Response::text($this->prompt());
     }
 
@@ -55,8 +61,8 @@ This contract defines the operational agreements between AI agents and the Stata
 - **MUST** verify parameter requirements using schema tools
 
 #### 2. Safety Protocol Adherence
-- **MUST** use `dry_run=true` for all destructive operations before execution
-- **MUST** use `confirm=true` for destructive operations after dry run validation
+- **MUST** use only preview and confirmation parameters advertised by the tool schema
+- **MUST** follow server-returned confirmation requirements; a confirmation round trip does not prove human approval
 - **MUST** understand the difference between CLI and web execution contexts
 - **MUST** respect permission boundaries in web context
 
@@ -173,8 +179,8 @@ This contract defines the operational agreements between AI agents and the Stata
 ## Context-Specific Agreements
 
 ### CLI Context Operations
-- Full tool access with minimal restrictions
-- Direct file system and database access where appropriate
+- Explicit read_only, editor or operator installation profile required
+- Never switch to local execution to evade HTTP permission or scope restrictions
 - Automatic cache management and system optimization
 - Comprehensive logging and debugging information
 

@@ -10,6 +10,7 @@ use Cboxdk\StatamicMcp\OAuth\Drivers\BuiltInOAuthDriver;
 use Cboxdk\StatamicMcp\OAuth\Exceptions\OAuthException;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Illuminate\Support\Facades\File;
+use Statamic\Facades\User;
 
 class RefreshTokenTest extends TestCase
 {
@@ -24,6 +25,7 @@ class RefreshTokenTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        User::make()->id('user-1')->email('oauth-user@example.test')->save();
 
         $this->clientsDir = sys_get_temp_dir() . '/statamic-mcp-test-oauth-clients-' . uniqid();
         $this->codesDir = sys_get_temp_dir() . '/statamic-mcp-test-oauth-codes-' . uniqid();
@@ -126,9 +128,9 @@ class RefreshTokenTest extends TestCase
         // First exchange succeeds
         $this->driver->exchangeRefreshToken($refreshToken, $client->clientId);
 
-        // Second exchange fails (token file deleted after single use)
+        // The used hash is retained so a replay ends the grant.
         $this->expectException(OAuthException::class);
-        $this->expectExceptionMessage('Refresh token not found');
+        $this->expectExceptionMessage('Refresh token has already been used');
 
         $this->driver->exchangeRefreshToken($refreshToken, $client->clientId);
     }
@@ -196,13 +198,13 @@ class RefreshTokenTest extends TestCase
         ]);
     }
 
-    public function test_prune_removes_used_and_expired_refresh_tokens(): void
+    public function test_prune_retains_replay_evidence_until_grant_expiry(): void
     {
         config(['statamic.mcp.oauth.refresh_token_ttl' => 60]);
 
         $client = $this->driver->registerClient('Test App', ['https://example.com/callback']);
 
-        // Create a refresh token and use it (file is deleted after exchange)
+        // Rotation retains the consumed hash alongside its successor.
         $usedToken = $this->driver->createRefreshToken('user-1', $client->clientId, ['content:read']);
         $this->driver->exchangeRefreshToken($usedToken, $client->clientId);
 
@@ -214,10 +216,10 @@ class RefreshTokenTest extends TestCase
         // Create a valid refresh token that should survive pruning
         $this->driver->createRefreshToken('user-3', $client->clientId, ['content:read']);
 
-        // Used token file is already deleted (single-use rotation), so only 2 remain
+        // Consumed token, successor, expired token and unrelated live token remain.
         $refreshFiles = glob($this->refreshDir . '/*.json');
         $this->assertNotFalse($refreshFiles);
-        $this->assertCount(2, $refreshFiles);
+        $this->assertCount(4, $refreshFiles);
 
         $pruned = $this->driver->prune();
 
@@ -226,6 +228,6 @@ class RefreshTokenTest extends TestCase
 
         $remainingFiles = glob($this->refreshDir . '/*.json');
         $this->assertNotFalse($remainingFiles);
-        $this->assertCount(1, $remainingFiles);
+        $this->assertCount(3, $remainingFiles);
     }
 }

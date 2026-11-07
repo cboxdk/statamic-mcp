@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Prompts;
 
+use Cboxdk\StatamicMcp\Authorization\InstallationProfile;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Prompt;
@@ -34,6 +35,11 @@ class AgentEducationPrompt extends Prompt
      */
     public function handle(Request $request): Response
     {
+        $denial = app(InstallationProfile::class)->denial('guidance', 'get');
+        if ($denial !== null) {
+            return Response::error($denial);
+        }
+
         return Response::text($this->prompt());
     }
 
@@ -54,12 +60,12 @@ You are working with a sophisticated MCP (Model Context Protocol) server for Sta
 
 ### 2. Safety-First Protocols
 - **NEVER execute destructive operations without safety protocols**
-- Use `dry_run=true` to preview all destructive operations (update, delete, create)
-- Use `confirm=true` to explicitly acknowledge destructive operations
-- Understand the difference between CLI context (safe) and web context (permission-controlled)
+- Use only preview and confirmation parameters advertised by the selected tool schema
+- Follow server-returned confirmation requirements; a tool round trip does not prove human approval
+- Understand the difference between local stdio profiles and authenticated HTTP profiles
 
 ### 3. Context Awareness
-- **CLI Context**: Full access for development and maintenance
+- **CLI Context**: Requires an explicit read_only, editor or operator installation profile
 - **Web Context**: Permission-based access with audit logging
 - Tools automatically adapt behavior based on execution context
 - Some tools may be disabled in web context for security
@@ -185,9 +191,9 @@ Parameters: {
 ## Error Handling
 
 ### Permission Errors
-- Indicates web context with insufficient permissions
+- Indicates insufficient permissions, scopes, or installation profile access
 - Check required permissions in error response
-- Consider switching to CLI context if appropriate
+- Do not switch transports or profiles to evade a permission denial
 
 ### Validation Errors
 - Indicates missing or invalid parameters

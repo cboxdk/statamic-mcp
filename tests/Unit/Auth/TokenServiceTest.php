@@ -7,10 +7,7 @@ use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\Contracts\TokenStore;
 use Cboxdk\StatamicMcp\Storage\Tokens\DatabaseTokenStore;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
-
-uses(RefreshDatabase::class);
 
 beforeEach(function () {
     $this->loadMigrationsFrom(__DIR__ . '/../../../database/migrations/tokens');

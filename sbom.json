@@ -1,7 +1,7 @@
 {
     "bomFormat": "CycloneDX",
     "specVersion": "1.5",
-    "serialNumber": "urn:uuid:8977d6fe-d95c-f3e4-5a9e-64c1b5fcef3d",
+    "serialNumber": "urn:uuid:04933229-3f8d-ea1c-f782-eb2a8b72daa9",
     "version": 1,
     "metadata": {
         "tools": [
@@ -1388,6 +1388,75 @@
                 {
                     "alg": "SHA-1",
                     "content": "712a31b768f5daea284c2169a7d227031001b9a8"
+                }
+            ]
+        },
+        {
+            "type": "library",
+            "bom-ref": "pkg:composer/opis/json-schema@2.6.1",
+            "group": "opis",
+            "name": "json-schema",
+            "version": "2.6.1",
+            "purl": "pkg:composer/opis/json-schema@2.6.1",
+            "scope": "required",
+            "licenses": [
+                {
+                    "license": {
+                        "id": "Apache-2.0"
+                    }
+                }
+            ],
+            "description": "Json Schema Validator for PHP",
+            "hashes": [
+                {
+                    "alg": "SHA-1",
+                    "content": "7d8685a78db131eb6a1571cc7b4db8f4b59e8628"
+                }
+            ]
+        },
+        {
+            "type": "library",
+            "bom-ref": "pkg:composer/opis/string@2.1.0",
+            "group": "opis",
+            "name": "string",
+            "version": "2.1.0",
+            "purl": "pkg:composer/opis/string@2.1.0",
+            "scope": "required",
+            "licenses": [
+                {
+                    "license": {
+                        "id": "Apache-2.0"
+                    }
+                }
+            ],
+            "description": "Multibyte strings as objects",
+            "hashes": [
+                {
+                    "alg": "SHA-1",
+                    "content": "3e4d2aaff518ac518530b89bb26ed40f4503635e"
+                }
+            ]
+        },
+        {
+            "type": "library",
+            "bom-ref": "pkg:composer/opis/uri@1.1.0",
+            "group": "opis",
+            "name": "uri",
+            "version": "1.1.0",
+            "purl": "pkg:composer/opis/uri@1.1.0",
+            "scope": "required",
+            "licenses": [
+                {
+                    "license": {
+                        "id": "Apache-2.0"
+                    }
+                }
+            ],
+            "description": "Build, parse and validate URIs and URI-templates",
+            "hashes": [
+                {
+                    "alg": "SHA-1",
+                    "content": "0f3ca49ab1a5e4a6681c286e0b2cc081b93a7d5a"
                 }
             ]
         },

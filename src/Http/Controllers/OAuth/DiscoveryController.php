@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Http\Controllers\OAuth;
 
-use Cboxdk\StatamicMcp\Auth\TokenScope;
+use Cboxdk\StatamicMcp\Auth\ScopeAvailability;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Routing\Controller;
 
@@ -22,10 +22,7 @@ class DiscoveryController extends Controller
         /** @var string $mcpPath */
         $mcpPath = config('statamic.mcp.web.path', '/mcp/statamic');
 
-        $scopes = array_map(
-            fn (TokenScope $scope): string => $scope->value,
-            TokenScope::cases(),
-        );
+        $scopes = app(ScopeAvailability::class)->names();
 
         return response()->json([
             'resource' => $baseUrl . $mcpPath,
@@ -44,10 +41,7 @@ class DiscoveryController extends Controller
     {
         $baseUrl = $this->getBaseUrl();
 
-        $scopes = array_map(
-            fn (TokenScope $scope): string => $scope->value,
-            TokenScope::cases(),
-        );
+        $scopes = app(ScopeAvailability::class)->names();
 
         $metadata = [
             'issuer' => $baseUrl,

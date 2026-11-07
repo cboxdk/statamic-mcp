@@ -1,12 +1,12 @@
 ---
 title: "Web Authentication"
-description: "Bearer token and Basic Auth methods for securing the web MCP endpoint"
+description: "Bearer token and OAuth methods for securing the web MCP endpoint"
 weight: 2
 ---
 
 # Web Authentication
 
-The web MCP endpoint supports two authentication methods, tried in order.
+The web MCP endpoint accepts scoped Bearer tokens, including tokens issued through OAuth. Basic Auth was removed in v4; legacy configuration cannot re-enable it.
 
 ## Bearer Token (Recommended)
 
@@ -23,13 +23,9 @@ Tokens are created in the CP at **Tools > MCP > Tokens**. Each token is:
 
 Expired tokens are rejected automatically. Revoked tokens are deleted from the database.
 
-## Basic Auth (Fallback)
+## Migrating password-based clients
 
-```
-Authorization: Basic <base64(email:password)>
-```
-
-Authenticates against Statamic's user system. The user must have the `access cp` permission. Basic Auth carries no token scopes, so every tool is open to it up to the user's own Statamic permissions. Use Bearer tokens for production.
+Basic Auth is no longer accepted. Create a scoped Bearer token or reconnect through OAuth. Remove `web.basic_auth_enabled` and `STATAMIC_MCP_BASIC_AUTH_ENABLED` from your configuration.
 
 ## OAuth 2.1 (Browser-Based Clients)
 
@@ -37,11 +33,17 @@ For MCP clients that support the OAuth 2.1 specification, the addon provides a f
 
 ### Authorization Code Flow with PKCE
 
-1. **Dynamic Client Registration**: The client registers via `POST /mcp/oauth/register` (RFC 7591), providing a `client_name` and `redirect_uris`. The server returns a `client_id` and `client_secret`.
+1. **Dynamic Client Registration**: The client registers via `POST /mcp/oauth/register` (RFC 7591), providing a `client_name` and `redirect_uris`. The server returns a public `client_id`; these clients use PKCE, not a client secret. CIMD clients can instead use their HTTPS metadata URL as the client ID.
 2. **Authorization Request**: The client redirects to `GET /{cp}/mcp/oauth/authorize` with `code_challenge` (S256) and requested scopes.
 3. **Consent Screen**: The user sees the consent screen in the Statamic CP and approves or denies the request. Only the requested scopes the user can exercise are shown; a request for `*` from a user who is not a super admin is narrowed to the scopes they can hold. A client asking for nothing the user can hold is sent back with `invalid_scope`. See [`security.scopes_follow_permissions`](../configuration/reference.md#scopes_follow_permissions).
 4. **Token Exchange**: The client exchanges the authorization code at `POST /mcp/oauth/token` with the `code_verifier`.
 5. **Refresh**: The client can refresh tokens via `POST /mcp/oauth/token` with `grant_type=refresh_token`.
+
+Refresh tokens rotate on every exchange. Their successors share the original grant expiry, so refresh does not keep a grant alive indefinitely. Reusing an already-consumed refresh token revokes the refresh and access tokens for that user/client. Changing an OAuth token's scopes or expiry also ends refresh access and requires new consent. Renaming a token without changing those values preserves refresh access.
+
+Issuance, scope changes and revocation share an atomic cache lock. Configure `oauth.lock_store` with a lock-capable cache store shared by every application node (for example Redis or the database cache store). Do not use the `array` store outside tests. A single-server site can use the file cache store. The database OAuth driver alone does not make a node-local cache lock distributed.
+
+All v4 OAuth drivers must implement `revokeGrantsForUser` through the `OAuthDriver` contract. Revocation includes refresh grants and pending authorization codes whose access tokens have expired or been pruned. Update custom drivers before upgrading; the incomplete legacy fallback has been removed.
 
 ### Token Metadata Tracking
 
@@ -64,11 +66,11 @@ OAuth is enabled by default. See the [Configuration Reference](../configuration/
 ## Authentication Flow
 
 1. Request arrives at the web endpoint
-2. `HandleMcpCors` handles CORS preflight and headers (if `allowed_origins` configured)
+2. `HandleMcpCors` rejects untrusted Origin headers against `app.url` and `allowed_origins`, then handles CORS preflight and response headers
 3. `EnsureSecureTransport` rejects plain HTTP in production (if `require_https` enabled)
 4. `AuthenticateForMcp` middleware extracts the `Authorization` header
 5. If `Bearer` prefix: validate token hash, check expiry, load scopes
-6. If `Basic` prefix: authenticate against Statamic users, verify CP access
+6. If `Basic` prefix and explicitly enabled: authenticate against Statamic users, verify CP access and refuse enabled or required 2FA
 7. If neither: return `401 Authentication required`
 8. Rate limiter applies per-token or per-IP throttling
 9. `RequireMcpPermission` middleware checks token scopes against the requested tool
@@ -81,7 +83,7 @@ The web endpoint rejects plain HTTP requests by default in production and stagin
 
 ```env
 STATAMIC_MCP_WEB_REQUIRE_HTTPS=true   # default — enforces HTTPS
-STATAMIC_MCP_WEB_REQUIRE_HTTPS=false  # disable if behind a TLS-terminating proxy that strips the header
+# Configure trusted proxies when TLS terminates upstream; keep HTTPS enforcement enabled.
 ```
 
 Local and testing environments always allow HTTP regardless of this setting.
@@ -120,7 +122,7 @@ STATAMIC_MCP_RATE_LIMIT_MAX=120
 
 ### Force Web Mode
 
-By default, CLI access bypasses authentication. To require tokens even in CLI context:
+The following flag forces HTTP-style security checks, including the HTTP profile, in console-based HTTP runtimes. It does not provide a token-login flow for stdio:
 
 ```env
 STATAMIC_MCP_FORCE_WEB_MODE=true

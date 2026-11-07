@@ -25,6 +25,11 @@ class FileAuditStoreStressTest extends TestCase
             unlink($this->tempPath);
         }
 
+        foreach ([$this->tempPath . '.lock', $this->tempPath . '.tmp'] as $artifact) {
+            if (is_file($artifact)) {
+                unlink($artifact);
+            }
+        }
         parent::tearDown();
     }
 
