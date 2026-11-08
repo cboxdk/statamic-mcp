@@ -13,15 +13,22 @@ use Symfony\Component\Yaml\Yaml;
 /**
  * File-based token store that persists tokens as YAML files on disk.
  *
- * Locking strategy: individual token files are written with exclusive flock
- * (LOCK_EX) to prevent torn writes under concurrent requests. The index file
- * uses the same exclusive-lock pattern for every read-modify-write cycle.
+ * Token files: every write goes to a sibling temporary file that is then
+ * rename()d over the token file. Readers parse token files without a lock, so
+ * an in-place rewrite (truncate, then write) let a concurrent request read an
+ * empty file: every authenticated request rewrites its token to record
+ * last_used_at, and MCP clients send several requests at once. Replacing the
+ * file whole means a reader sees either the previous or the new file, never a
+ * partial one. A token file that still cannot be read as a record (empty or
+ * damaged on disk) is treated as missing rather than raising a TypeError.
  *
- * Atomic index rebuild: rebuildIndex() writes to a sibling .index.tmp file
- * first and then calls rename(), which is atomic on local POSIX filesystems.
- * On NFS mounts rename() is NOT guaranteed to be atomic — two concurrent
- * rebuilds may interleave. If you are running on NFS, prefer the
- * DatabaseTokenStore instead.
+ * Index: the index file uses an exclusive lock for every read-modify-write
+ * cycle. rebuildIndex() writes to a sibling .index.tmp file first and then
+ * calls rename().
+ *
+ * rename() is atomic on local POSIX filesystems. On NFS mounts it is NOT
+ * guaranteed to be atomic — two concurrent writers may interleave. If you are
+ * running on NFS, prefer the DatabaseTokenStore instead.
  */
 class FileTokenStore extends BaseTokenStore implements TokenStore
 {
@@ -105,8 +112,11 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
             return null;
         }
 
-        /** @var array<string, mixed> $data */
-        $data = Yaml::parseFile($filePath);
+        $data = $this->readTokenFile($filePath);
+
+        if ($data === null) {
+            return null;
+        }
 
         return $this->arrayToTokenData($data);
     }
@@ -122,8 +132,11 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
             return null;
         }
 
-        /** @var array<string, mixed> $existing */
-        $existing = Yaml::parseFile($filePath);
+        $existing = $this->readTokenFile($filePath);
+
+        if ($existing === null) {
+            return null;
+        }
 
         $oldHash = is_string($existing['token_hash'] ?? null) ? $existing['token_hash'] : '';
 
@@ -169,8 +182,7 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
             return false;
         }
 
-        /** @var array<string, mixed> $data */
-        $data = Yaml::parseFile($filePath);
+        $data = $this->readTokenFile($filePath) ?? [];
         $hash = is_string($data['token_hash'] ?? null) ? $data['token_hash'] : '';
 
         unlink($filePath);
@@ -294,19 +306,46 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
             return;
         }
 
-        /** @var array<string, mixed> $data */
-        $data = Yaml::parseFile($filePath);
+        $data = $this->readTokenFile($filePath);
+
+        // Never write back a record built from an unreadable file: it would
+        // hold only last_used_at, and the token would stop authenticating.
+        if ($data === null) {
+            return;
+        }
+
         $data['last_used_at'] = Carbon::now()->toIso8601String();
 
         $this->writeYamlFile($id, $data);
     }
 
     /**
-     * Write a token's YAML file with an exclusive file lock to prevent
-     * torn writes when multiple requests touch the same token concurrently.
+     * Parse a token file, or return null when it does not hold a record.
      *
-     * Falls back to an unlocked write if fopen/flock is unavailable
-     * (e.g. on some virtual filesystems used in tests).
+     * @return array<string, mixed>|null
+     */
+    private function readTokenFile(string $filePath): ?array
+    {
+        $data = Yaml::parseFile($filePath);
+
+        if (! is_array($data)) {
+            return null;
+        }
+
+        /** @var array<string, mixed> $data */
+        return $data;
+    }
+
+    /**
+     * Replace a token's YAML file as a whole.
+     *
+     * The YAML is written to a uniquely named sibling file (ending in .tmp, so
+     * scanAllTokens() never reads it) and rename()d over the token file. A
+     * concurrent reader sees the previous file or the new one, never an empty
+     * or half-written file.
+     *
+     * Falls back to a direct write if the temporary file cannot be written or
+     * renamed (e.g. on some virtual filesystems used in tests).
      *
      * @param  array<string, mixed>  $data
      */
@@ -314,24 +353,18 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
     {
         $filePath = $this->tokenFilePath($id);
         $yaml = Yaml::dump($data, 2, 4, Yaml::DUMP_NULL_AS_TILDE);
+        $tmpPath = $filePath . '.' . bin2hex(random_bytes(8)) . '.tmp';
 
-        $handle = fopen($filePath, 'c');
-
-        if ($handle !== false && flock($handle, LOCK_EX)) {
-            ftruncate($handle, 0);
-            rewind($handle);
-            fwrite($handle, $yaml);
-            fflush($handle);
-            flock($handle, LOCK_UN);
-            fclose($handle);
-        } else {
-            if ($handle !== false) {
-                fclose($handle);
-            }
-
-            // Fallback: unlocked write (single-process or test environments)
-            file_put_contents($filePath, $yaml);
+        if (@file_put_contents($tmpPath, $yaml) === strlen($yaml) && @rename($tmpPath, $filePath)) {
+            return;
         }
+
+        if (file_exists($tmpPath)) {
+            @unlink($tmpPath);
+        }
+
+        // Fallback: direct write (filesystems without rename support)
+        file_put_contents($filePath, $yaml);
     }
 
     /**

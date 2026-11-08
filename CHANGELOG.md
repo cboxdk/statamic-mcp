@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The file token store replaces a token file whole (a temporary file renamed over it) instead of truncating and rewriting it in place. Every authenticated request rewrites its token to record `last_used_at`, and token files are read without a lock, so a request arriving alongside another could read an empty file and fail with a 500 (`arrayToTokenData(): Argument #1 ($data) must be of type array, null given`). A token file that cannot be read as a record now counts as missing, and `markAsUsed()` no longer writes back a record holding only `last_used_at`.
+
 ## [3.6.0] - 2026-11-05
 
 ### Security
