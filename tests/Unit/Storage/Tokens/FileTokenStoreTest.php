@@ -137,6 +137,56 @@ class FileTokenStoreTest extends TestCase
         $this->assertFileDoesNotExist($path);
     }
 
+    public function test_a_damaged_token_file_is_treated_as_missing(): void
+    {
+        $store = new FileTokenStore($this->tempDir);
+
+        $good = $store->create('user-1', 'Good', 'hash_good', ['*'], null);
+        $damaged = $store->create('user-1', 'Damaged', 'hash_damaged', ['*'], null);
+        file_put_contents($this->tempDir . '/' . $damaged->id . '.yaml', "id: [unclosed\nname: {\n");
+
+        $this->assertNull($store->find($damaged->id));
+        $this->assertNull($store->findByHash('hash_damaged'));
+        $this->assertNull($store->update($damaged->id, ['name' => 'Renamed']));
+
+        // An unknown hash rebuilds the index from every file, the damaged one included.
+        $this->assertNull($store->findByHash('hash_unknown'));
+        $this->assertSame($good->id, $store->findByHash('hash_good')?->id);
+        $this->assertSame([$good->id], $store->listAll()->pluck('id')->all());
+    }
+
+    public function test_a_token_file_is_left_as_it_was_when_the_new_one_cannot_be_written(): void
+    {
+        if (function_exists('posix_geteuid') && posix_geteuid() === 0) {
+            $this->markTestSkipped('root can write to a read-only directory');
+        }
+
+        $store = new FileTokenStore($this->tempDir);
+
+        $token = $store->create('user-1', 'Full Disk', 'hash_full_disk', ['*'], null);
+        $path = $this->tempDir . '/' . $token->id . '.yaml';
+        $before = (string) file_get_contents($path);
+
+        // A directory that can't be written stands in for a full disk: the
+        // temporary file can't be written, while the token file itself still could.
+        chmod($this->tempDir, 0555);
+
+        // The failed write raises a (suppressed) warning on purpose; keep it out of the test run.
+        set_error_handler(static fn (): bool => true, E_WARNING);
+
+        try {
+            $store->markAsUsed($token->id);
+            $this->assertSame($before, file_get_contents($path));
+
+            $this->expectException(\RuntimeException::class);
+            $store->update($token->id, ['name' => 'Renamed']);
+        } finally {
+            restore_error_handler();
+            chmod($this->tempDir, 0755);
+            $this->assertSame($before, file_get_contents($path));
+        }
+    }
+
     private function deleteDirectory(string $dir): void
     {
         if (! is_dir($dir)) {

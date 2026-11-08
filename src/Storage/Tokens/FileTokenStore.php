@@ -8,6 +8,7 @@ use Carbon\Carbon;
 use Cboxdk\StatamicMcp\Contracts\TokenStore;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
+use Symfony\Component\Yaml\Exception\ParseException;
 use Symfony\Component\Yaml\Yaml;
 
 /**
@@ -316,17 +317,28 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
 
         $data['last_used_at'] = Carbon::now()->toIso8601String();
 
-        $this->writeYamlFile($id, $data);
+        // Recording use is best effort: a token file that can't be written
+        // (a full disk) keeps its previous record, and the request goes on.
+        try {
+            $this->writeYamlFile($id, $data);
+        } catch (\RuntimeException) {
+            return;
+        }
     }
 
     /**
-     * Parse a token file, or return null when it does not hold a record.
+     * Parse a token file, or return null when it does not hold a record:
+     * empty, damaged (not valid YAML), or gone since it was found.
      *
      * @return array<string, mixed>|null
      */
     private function readTokenFile(string $filePath): ?array
     {
-        $data = Yaml::parseFile($filePath);
+        try {
+            $data = Yaml::parseFile($filePath);
+        } catch (ParseException) {
+            return null;
+        }
 
         if (! is_array($data)) {
             return null;
@@ -344,10 +356,16 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
      * concurrent reader sees the previous file or the new one, never an empty
      * or half-written file.
      *
-     * Falls back to a direct write if the temporary file cannot be written or
-     * renamed (e.g. on some virtual filesystems used in tests).
+     * If the temporary file cannot be written whole (a full disk, a directory
+     * that can't be written), the token file is left exactly as it was and a
+     * RuntimeException is thrown: writing it directly would fail the same way
+     * and could leave it truncated. Only when the temporary file is whole but
+     * cannot be renamed (e.g. some virtual filesystems used in tests) is the
+     * token file written directly.
      *
      * @param  array<string, mixed>  $data
+     *
+     * @throws \RuntimeException
      */
     private function writeYamlFile(string $id, array $data): void
     {
@@ -355,13 +373,19 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
         $yaml = Yaml::dump($data, 2, 4, Yaml::DUMP_NULL_AS_TILDE);
         $tmpPath = $filePath . '.' . bin2hex(random_bytes(8)) . '.tmp';
 
-        if (@file_put_contents($tmpPath, $yaml) === strlen($yaml) && @rename($tmpPath, $filePath)) {
+        if (@file_put_contents($tmpPath, $yaml) !== strlen($yaml)) {
+            if (file_exists($tmpPath)) {
+                @unlink($tmpPath);
+            }
+
+            throw new \RuntimeException("Could not write the MCP token file for token {$id}.");
+        }
+
+        if (@rename($tmpPath, $filePath)) {
             return;
         }
 
-        if (file_exists($tmpPath)) {
-            @unlink($tmpPath);
-        }
+        @unlink($tmpPath);
 
         // Fallback: direct write (filesystems without rename support)
         file_put_contents($filePath, $yaml);
@@ -583,10 +607,9 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
         }
 
         foreach ($files as $file) {
-            /** @var array<string, mixed>|null $data */
-            $data = Yaml::parseFile($file);
+            $data = $this->readTokenFile($file);
 
-            if (is_array($data) && isset($data['id'])) {
+            if ($data !== null && isset($data['id'])) {
                 $tokens[] = $data;
             }
         }
