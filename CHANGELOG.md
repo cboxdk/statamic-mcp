@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- OAuth authorization accepts a loopback redirect URI (`http://localhost` or `http://127.0.0.1`) on any port, as RFC 8252 §7.3 requires. Native clients register `http://localhost/callback` and come back on the port the operating system gave them, which was refused with 400 `Invalid redirect_uri.` (Claude Code's client metadata is one example). Scheme, host, path and query must still match, and every other redirect URI still matches exactly.
+
 ## [3.6.0] - 2026-11-05
 
 ### Security
