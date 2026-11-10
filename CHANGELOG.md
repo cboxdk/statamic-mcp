@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- The file token store serializes every token write behind one store-wide lock. Each authenticated request rewrites its token to record `last_used_at`, and that read-modify-write raced every other change to the token: a request that read the record before a revoke, a regenerate or a scope change wrote the old record back afterwards, so a revoked token came back (and was re-indexed on the next lookup), a regenerated token accepted its old secret again, and narrowed scopes widened back. Usage writes now re-read the token under the lock and never recreate a deleted one. The database token store was not affected.
+
 ### Fixed
 
 - OAuth authorization accepts a loopback redirect URI (`http://localhost` or `http://127.0.0.1`) on any port, as RFC 8252 §7.3 requires. Native clients register `http://localhost/callback` and come back on the port the operating system gave them, which was refused with 400 `Invalid redirect_uri.` (Claude Code's client metadata is one example). Scheme, host, path and query must still match, and every other redirect URI still matches exactly.

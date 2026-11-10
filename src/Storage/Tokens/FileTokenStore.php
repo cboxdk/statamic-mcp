@@ -35,6 +35,8 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
 {
     private readonly string $storagePath;
 
+    private bool $holdsMutationLock = false;
+
     public function __construct(?string $storagePath = null)
     {
         if ($storagePath === null) {
@@ -79,8 +81,10 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
             'updated_at' => null,
         ];
 
-        $this->writeYamlFile($id, $data);
-        $this->updateIndex($tokenHash, $id);
+        $this->withMutationLock(function () use ($id, $data, $tokenHash): void {
+            $this->writeYamlFile($id, $data);
+            $this->updateIndex($tokenHash, $id);
+        });
 
         return $this->arrayToTokenData($data);
     }
@@ -127,95 +131,104 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
      */
     public function update(string $id, array $data): ?McpTokenData
     {
-        $filePath = $this->tokenFilePath($id);
+        return $this->withMutationLock(function () use ($id, $data) {
+            $filePath = $this->tokenFilePath($id);
 
-        if (! file_exists($filePath)) {
-            return null;
-        }
-
-        $existing = $this->readTokenFile($filePath);
-
-        if ($existing === null) {
-            return null;
-        }
-
-        $oldHash = is_string($existing['token_hash'] ?? null) ? $existing['token_hash'] : '';
-
-        // Map camelCase keys to snake_case YAML keys
-        $keyMap = [
-            'tokenHash' => 'token_hash',
-            'expiresAt' => 'expires_at',
-            'lastUsedAt' => 'last_used_at',
-        ];
-
-        foreach ($data as $key => $value) {
-            $yamlKey = $keyMap[$key] ?? $key;
-
-            if ($value instanceof Carbon) {
-                $existing[$yamlKey] = $value->toIso8601String();
-            } elseif ($yamlKey === 'expires_at' && $value === null) {
-                $existing[$yamlKey] = null;
-            } else {
-                $existing[$yamlKey] = $value;
+            if (! file_exists($filePath)) {
+                return null;
             }
-        }
 
-        $existing['updated_at'] = Carbon::now()->toIso8601String();
+            $existing = $this->readTokenFile($filePath);
 
-        $this->writeYamlFile($id, $existing);
+            if ($existing === null) {
+                return null;
+            }
 
-        // Update index if token hash changed
-        $newHash = is_string($existing['token_hash'] ?? null) ? $existing['token_hash'] : '';
+            $oldHash = is_string($existing['token_hash'] ?? null) ? $existing['token_hash'] : '';
 
-        if (isset($data['tokenHash']) && $oldHash !== $newHash) {
-            $this->removeFromIndex($oldHash);
-            $this->updateIndex($newHash, $id);
-        }
+            // Map camelCase keys to snake_case YAML keys
+            $keyMap = [
+                'tokenHash' => 'token_hash',
+                'expiresAt' => 'expires_at',
+                'lastUsedAt' => 'last_used_at',
+            ];
 
-        return $this->arrayToTokenData($existing);
+            foreach ($data as $key => $value) {
+                $yamlKey = $keyMap[$key] ?? $key;
+
+                if ($value instanceof Carbon) {
+                    $existing[$yamlKey] = $value->toIso8601String();
+                } elseif ($yamlKey === 'expires_at' && $value === null) {
+                    $existing[$yamlKey] = null;
+                } else {
+                    $existing[$yamlKey] = $value;
+                }
+            }
+
+            $existing['updated_at'] = Carbon::now()->toIso8601String();
+
+            $this->writeYamlFile($id, $existing);
+
+            // Update index if token hash changed
+            $newHash = is_string($existing['token_hash'] ?? null) ? $existing['token_hash'] : '';
+
+            if (isset($data['tokenHash']) && $oldHash !== $newHash) {
+                $this->removeFromIndex($oldHash);
+                $this->updateIndex($newHash, $id);
+            }
+
+            return $this->arrayToTokenData($existing);
+
+        });
     }
 
     public function delete(string $id): bool
     {
-        $filePath = $this->tokenFilePath($id);
+        return $this->withMutationLock(function () use ($id) {
+            $filePath = $this->tokenFilePath($id);
 
-        if (! file_exists($filePath)) {
-            return false;
-        }
+            if (! file_exists($filePath)) {
+                return false;
+            }
 
-        $data = $this->readTokenFile($filePath) ?? [];
-        $hash = is_string($data['token_hash'] ?? null) ? $data['token_hash'] : '';
+            $data = $this->readTokenFile($filePath) ?? [];
+            $hash = is_string($data['token_hash'] ?? null) ? $data['token_hash'] : '';
 
-        unlink($filePath);
-        $this->removeFromIndex($hash);
+            unlink($filePath);
+            $this->removeFromIndex($hash);
 
-        return true;
+            return true;
+
+        });
     }
 
     public function deleteForUser(string $userId): int
     {
-        $deleted = 0;
-        /** @var list<string> $removedHashes */
-        $removedHashes = [];
+        return $this->withMutationLock(function () use ($userId) {
+            $deleted = 0;
+            /** @var list<string> $removedHashes */
+            $removedHashes = [];
 
-        foreach ($this->scanAllTokens() as $data) {
-            if (($data['user_id'] ?? '') === $userId) {
-                $id = is_string($data['id'] ?? null) ? $data['id'] : '';
-                $hash = is_string($data['token_hash'] ?? null) ? $data['token_hash'] : '';
+            foreach ($this->scanAllTokens() as $data) {
+                if (($data['user_id'] ?? '') === $userId) {
+                    $id = is_string($data['id'] ?? null) ? $data['id'] : '';
+                    $hash = is_string($data['token_hash'] ?? null) ? $data['token_hash'] : '';
 
-                $filePath = $this->tokenFilePath($id);
-                if (file_exists($filePath)) {
-                    unlink($filePath);
+                    $filePath = $this->tokenFilePath($id);
+                    if (file_exists($filePath)) {
+                        unlink($filePath);
+                    }
+
+                    $removedHashes[] = $hash;
+                    $deleted++;
                 }
-
-                $removedHashes[] = $hash;
-                $deleted++;
             }
-        }
 
-        $this->removeManyFromIndex($removedHashes);
+            $this->removeManyFromIndex($removedHashes);
 
-        return $deleted;
+            return $deleted;
+
+        });
     }
 
     /**
@@ -255,74 +268,132 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
             'updated_at' => $token->updatedAt?->toIso8601String(),
         ];
 
-        $this->writeYamlFile($token->id, $data);
-        $this->updateIndex($token->tokenHash, $token->id);
+        $this->withMutationLock(function () use ($token, $data): void {
+            $this->writeYamlFile($token->id, $data);
+            $this->updateIndex($token->tokenHash, $token->id);
+        });
 
         return $this->arrayToTokenData($data);
     }
 
     public function pruneExpired(): int
     {
-        $pruned = 0;
-        /** @var list<string> $removedHashes */
-        $removedHashes = [];
+        return $this->withMutationLock(function () {
+            $pruned = 0;
+            /** @var list<string> $removedHashes */
+            $removedHashes = [];
 
-        foreach ($this->scanAllTokens() as $data) {
-            $expiresAt = $data['expires_at'] ?? null;
+            foreach ($this->scanAllTokens() as $data) {
+                $expiresAt = $data['expires_at'] ?? null;
 
-            if ($expiresAt === null) {
-                continue;
-            }
-
-            if (! is_string($expiresAt)) {
-                continue;
-            }
-
-            $expiry = Carbon::parse($expiresAt);
-
-            if ($expiry->isPast()) {
-                $id = is_string($data['id'] ?? null) ? $data['id'] : '';
-                $hash = is_string($data['token_hash'] ?? null) ? $data['token_hash'] : '';
-
-                $filePath = $this->tokenFilePath($id);
-                if (file_exists($filePath)) {
-                    unlink($filePath);
+                if ($expiresAt === null) {
+                    continue;
                 }
 
-                $removedHashes[] = $hash;
-                $pruned++;
+                if (! is_string($expiresAt)) {
+                    continue;
+                }
+
+                $expiry = Carbon::parse($expiresAt);
+
+                if ($expiry->isPast()) {
+                    $id = is_string($data['id'] ?? null) ? $data['id'] : '';
+                    $hash = is_string($data['token_hash'] ?? null) ? $data['token_hash'] : '';
+
+                    $filePath = $this->tokenFilePath($id);
+                    if (file_exists($filePath)) {
+                        unlink($filePath);
+                    }
+
+                    $removedHashes[] = $hash;
+                    $pruned++;
+                }
             }
-        }
 
-        $this->removeManyFromIndex($removedHashes);
+            $this->removeManyFromIndex($removedHashes);
 
-        return $pruned;
+            return $pruned;
+
+        });
     }
 
     public function markAsUsed(string $id): void
     {
         $filePath = $this->tokenFilePath($id);
 
-        if (! file_exists($filePath)) {
-            return;
+        $this->withMutationLock(function () use ($id, $filePath): void {
+            // Read under the lock: a revoke, regenerate or scope change that
+            // landed after this request authenticated must not be overwritten
+            // with the record it authenticated against.
+            if (! file_exists($filePath)) {
+                return;
+            }
+
+            $data = $this->readTokenFile($filePath);
+
+            // Never write back a record built from an unreadable file: it would
+            // hold only last_used_at, and the token would stop authenticating.
+            if ($data === null) {
+                return;
+            }
+
+            $data['last_used_at'] = Carbon::now()->toIso8601String();
+
+            // Recording use is best effort: a token file that can't be written
+            // (a full disk) keeps its previous record, and the request goes on.
+            try {
+                $this->writeYamlFile($id, $data);
+            } catch (\RuntimeException) {
+                return;
+            }
+        });
+    }
+
+    /**
+     * Run a read-modify-write of token files under a store-wide exclusive lock.
+     *
+     * Every authenticated request rewrites its token to record last_used_at.
+     * Without this lock that rewrite raced every other mutation: a request
+     * that read the record before a revoke, regenerate or scope change wrote
+     * the old record back afterwards, so a deleted token reappeared (and
+     * findByHash() re-indexes it on the next miss), a regenerated one accepted
+     * its old secret again, and narrowed scopes widened back. Readers stay
+     * lock-free; whole-file replacement in writeYamlFile() covers them.
+     *
+     * Falls back to running unlocked when the lock file cannot be opened or
+     * locked (some virtual filesystems used in tests), as the old per-file
+     * lock did.
+     *
+     * @template T
+     *
+     * @param  callable(): T  $callback
+     *
+     * @return T
+     */
+    private function withMutationLock(callable $callback): mixed
+    {
+        if ($this->holdsMutationLock) {
+            return $callback();
         }
 
-        $data = $this->readTokenFile($filePath);
+        $handle = @fopen($this->storagePath . '/.mutation.lock', 'c');
 
-        // Never write back a record built from an unreadable file: it would
-        // hold only last_used_at, and the token would stop authenticating.
-        if ($data === null) {
-            return;
+        if ($handle === false || ! flock($handle, LOCK_EX)) {
+            if ($handle !== false) {
+                fclose($handle);
+            }
+
+            return $callback();
         }
 
-        $data['last_used_at'] = Carbon::now()->toIso8601String();
+        $this->holdsMutationLock = true;
 
-        // Recording use is best effort: a token file that can't be written
-        // (a full disk) keeps its previous record, and the request goes on.
         try {
-            $this->writeYamlFile($id, $data);
-        } catch (\RuntimeException) {
-            return;
+            return $callback();
+        } finally {
+            $this->holdsMutationLock = false;
+            flock($handle, LOCK_UN);
+            fclose($handle);
         }
     }
 
