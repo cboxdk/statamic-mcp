@@ -43,6 +43,12 @@ For MCP clients that support the OAuth 2.1 specification, the addon provides a f
 4. **Token Exchange**: The client exchanges the authorization code at `POST /mcp/oauth/token` with the `code_verifier`.
 5. **Refresh**: The client can refresh tokens via `POST /mcp/oauth/token` with `grant_type=refresh_token`.
 
+### Redirect URI matching
+
+The `redirect_uri` of an authorization request must match one the client registered, exactly. There is one exception, which RFC 8252 §7.3 requires for native apps: a plain-http loopback URI (`http://localhost` or `http://127.0.0.1`) matches on any port. A desktop client such as Claude Code registers `http://localhost/callback` and listens on whatever port the operating system gives it when sign-in starts.
+
+Scheme, host, path and query must still be equal, `localhost` does not match `127.0.0.1`, and a URI with user info or a fragment never qualifies. The authorization code is bound to the exact URI requested, port included, and PKCE is required on every request, so a code delivered to another local port cannot be redeemed.
+
 ### Token Metadata Tracking
 
 OAuth-created tokens store `oauth_client_id` and `oauth_client_name` for integration tracking. The CP dashboard shows an "OAuth" badge and hides the regenerate button for OAuth-created tokens.

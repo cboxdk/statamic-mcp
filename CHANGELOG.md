@@ -7,14 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.1] - 2026-11-10
+
 ### Security
 
-- The file token store serializes every token write behind one store-wide lock. Each authenticated request rewrites its token to record `last_used_at`, and that read-modify-write raced every other change to the token: a request that read the record before a revoke, a regenerate or a scope change wrote the old record back afterwards, so a revoked token came back (and was re-indexed on the next lookup), a regenerated token accepted its old secret again, and narrowed scopes widened back. Usage writes now re-read the token under the lock and never recreate a deleted one. The database token store was not affected.
+- The file token store serializes every token write behind one store-wide lock (#91). Each authenticated request rewrites its token to record `last_used_at`, and that read-modify-write raced every other change to the token: a request that read the record before a revoke, a regenerate or a scope change wrote the old record back afterwards, so a revoked token came back (and was re-indexed on the next lookup), a regenerated token accepted its old secret again, and narrowed scopes widened back. Usage writes now re-read the token under the lock and never recreate a deleted one. The database token store was not affected.
 
 ### Fixed
 
-- OAuth authorization accepts a loopback redirect URI (`http://localhost` or `http://127.0.0.1`) on any port, as RFC 8252 §7.3 requires. Native clients register `http://localhost/callback` and come back on the port the operating system gave them, which was refused with 400 `Invalid redirect_uri.` (Claude Code's client metadata is one example). Scheme, host, path and query must still match, and every other redirect URI still matches exactly.
-- The file token store replaces a token file whole (a temporary file renamed over it) instead of truncating and rewriting it in place. Every authenticated request rewrites its token to record `last_used_at`, and token files are read without a lock, so a request arriving alongside another could read an empty file and fail with a 500 (`arrayToTokenData(): Argument #1 ($data) must be of type array, null given`). A token file that cannot be read as a record (empty, or not valid YAML) now counts as missing, and `markAsUsed()` no longer writes back a record holding only `last_used_at`. When the new file can't be written whole (a full disk), the token file is left as it was: `markAsUsed()` skips recording the use, and `create()`/`update()`/`import()` throw instead of leaving a truncated file.
+- OAuth authorization accepts a loopback redirect URI (`http://localhost` or `http://127.0.0.1`) on any port, as RFC 8252 §7.3 requires (#90, thanks @illia-sapryga). Native clients register `http://localhost/callback` and come back on the port the operating system gave them, which was refused with 400 `Invalid redirect_uri.` (Claude Code's client metadata is one example). Scheme, host, path and query must still match, and every other redirect URI still matches exactly.
+- The file token store replaces a token file whole (a temporary file renamed over it) instead of truncating and rewriting it in place (#89, thanks @illia-sapryga). Every authenticated request rewrites its token to record `last_used_at`, and token files are read without a lock, so a request arriving alongside another could read an empty file and fail with a 500 (`arrayToTokenData(): Argument #1 ($data) must be of type array, null given`). A token file that cannot be read as a record (empty, or not valid YAML) now counts as missing, and `markAsUsed()` no longer writes back a record holding only `last_used_at`. When the new file can't be written whole (a full disk), the token file is left as it was: `markAsUsed()` skips recording the use, and `create()`/`update()`/`import()` throw instead of leaving a truncated file.
 
 ## [3.6.0] - 2026-11-05
 
@@ -728,7 +730,9 @@ straight to the fix. Thanks to @JorisOrangeStudio and @revans-premier-education.
 - Laravel MCP v0.2.0 integration
 - Comprehensive test suite
 
-[Unreleased]: https://github.com/cboxdk/statamic-mcp/compare/v3.5.0...HEAD
+[Unreleased]: https://github.com/cboxdk/statamic-mcp/compare/v3.6.1...HEAD
+[3.6.1]: https://github.com/cboxdk/statamic-mcp/compare/v3.6.0...v3.6.1
+[3.6.0]: https://github.com/cboxdk/statamic-mcp/compare/v3.5.0...v3.6.0
 [3.5.0]: https://github.com/cboxdk/statamic-mcp/compare/v3.4.1...v3.5.0
 [3.4.1]: https://github.com/cboxdk/statamic-mcp/compare/v3.4.0...v3.4.1
 [3.4.0]: https://github.com/cboxdk/statamic-mcp/compare/v3.3.0...v3.4.0

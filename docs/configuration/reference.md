@@ -328,6 +328,10 @@ Configure which storage backends to use for tokens and audit logs. Swap to datab
 ],
 ```
 
+`FileTokenStore` keeps one YAML file per token in `storage.tokens_path`. Every authenticated request records `last_used_at`, so these files are written constantly. Writes replace a file whole (a temporary file renamed over it), so a concurrent request never reads a partial one, and every change to a token waits on one store-wide lock (`.mutation.lock` in the same directory), so recording a use can never undo a revoke, a regenerate or a scope change. Leave `.mutation.lock` in place; it is created again if it is removed while nothing holds it.
+
+Both guarantees rely on `rename()` and `flock()` behaving as they do on a local disk. On NFS and other network filesystems they are not reliable. Use `DatabaseTokenStore` there, and whenever more than one server shares the token directory.
+
 ## Storage Paths
 
 File paths used by the file-based storage drivers.
