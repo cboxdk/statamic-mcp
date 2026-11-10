@@ -125,6 +125,14 @@ A 3.3.0 security audit hardened the tool layer. Keep these when touching routers
   rules in `checkWebPermissions()` match `static::class` whatever the spelling.
 - `deactivate` revokes the user's tokens and `AuthenticateForMcp` refuses an
   `status=inactive` user on both the bearer and Basic paths.
+- **Every `FileTokenStore` mutation runs inside `withMutationLock()`**, and
+  `markAsUsed()` reads the record under that lock. Every authenticated request
+  rewrites its token to record `last_used_at`; outside the lock that write
+  restored the record it had read, undoing a revoke (the token came back and was
+  re-indexed), a regenerate or a scope change made meanwhile (#91). A new write
+  path needs the same lock. Token files are replaced via `writeYamlFile()` (temp
+  file + `rename()`), never rewritten in place, so lock-free readers never see a
+  partial file (#89).
 
 ### OAuth 2.1 Authorization Server
 The addon includes a full OAuth 2.1 authorization server with PKCE for browser-based MCP clients:
