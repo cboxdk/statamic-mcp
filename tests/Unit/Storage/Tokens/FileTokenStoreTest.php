@@ -92,7 +92,9 @@ class FileTokenStoreTest extends TestCase
         $files = array_values(array_diff(scandir($this->tempDir) ?: [], ['.', '..']));
         sort($files);
 
-        $this->assertSame(['.index', $token->id . '.yaml'], $files);
+        // .mutation.lock persists on purpose: unlinking a lock file other
+        // processes may hold open would let two writers lock different inodes.
+        $this->assertSame(['.index', '.mutation.lock', $token->id . '.yaml'], $files);
         $this->assertSame('Renamed', $store->find($token->id)?->name);
     }
 
@@ -185,6 +187,82 @@ class FileTokenStoreTest extends TestCase
             chmod($this->tempDir, 0755);
             $this->assertSame($before, file_get_contents($path));
         }
+    }
+
+    public function test_a_usage_write_waits_for_a_mutation_in_progress(): void
+    {
+        $store = new FileTokenStore($this->tempDir);
+        $token = $store->create('user-1', 'Lock Test', 'hash_lock_used', ['*'], null);
+
+        $this->assertNull($this->whileMutationLockIsHeld(
+            "\$store->markAsUsed('{$token->id}');",
+            fn () => $store->find($token->id)?->lastUsedAt,
+        ));
+
+        $this->assertNotNull($store->find($token->id)?->lastUsedAt);
+    }
+
+    public function test_a_revoke_waits_for_a_usage_write_in_progress(): void
+    {
+        $store = new FileTokenStore($this->tempDir);
+        $token = $store->create('user-1', 'Lock Test', 'hash_lock_delete', ['*'], null);
+
+        // A usage write holds the lock between reading the record and
+        // replacing it. A revoke landing in that window used to be undone by
+        // the write; now it waits, and the write cannot bring the token back.
+        $this->assertNotNull($this->whileMutationLockIsHeld(
+            "\$store->delete('{$token->id}');",
+            fn () => $store->find($token->id),
+        ));
+
+        $this->assertNull($store->find($token->id));
+        $this->assertNull($store->findByHash('hash_lock_delete'));
+    }
+
+    /**
+     * Hold the store's mutation lock, run $operation against the store in a
+     * second PHP process, and return what $probe sees while the lock is still
+     * held. The second process must have finished once the lock is released.
+     *
+     * @template T
+     *
+     * @param  callable(): T  $probe
+     *
+     * @return T
+     */
+    private function whileMutationLockIsHeld(string $operation, callable $probe): mixed
+    {
+        $handle = fopen($this->tempDir . '/.mutation.lock', 'c');
+        $this->assertNotFalse($handle);
+        $this->assertTrue(flock($handle, LOCK_EX));
+
+        $autoload = dirname(__DIR__, 4) . '/vendor/autoload.php';
+        $code = sprintf(
+            'require %s; $store = new %s(%s); %s',
+            var_export($autoload, true),
+            FileTokenStore::class,
+            var_export($this->tempDir, true),
+            $operation,
+        );
+
+        $process = proc_open([PHP_BINARY, '-r', $code], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        $this->assertIsResource($process);
+
+        // Long enough for the second process to boot and reach the lock.
+        usleep(500_000);
+        $this->assertTrue(proc_get_status($process)['running'], 'The operation ran without waiting for the lock.');
+
+        $seen = $probe();
+
+        flock($handle, LOCK_UN);
+        fclose($handle);
+
+        $output = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $this->assertSame(0, proc_close($process), $output);
+
+        return $seen;
     }
 
     private function deleteDirectory(string $dir): void
