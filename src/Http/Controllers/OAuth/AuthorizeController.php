@@ -13,6 +13,7 @@ use Cboxdk\StatamicMcp\OAuth\Cimd\CimdValidationException;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
 use Cboxdk\StatamicMcp\OAuth\Exceptions\OAuthException;
 use Cboxdk\StatamicMcp\OAuth\OAuthClient;
+use Cboxdk\StatamicMcp\OAuth\RedirectUriMatcher;
 use Cboxdk\StatamicMcp\Support\UserIds;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -81,7 +82,7 @@ class AuthorizeController extends Controller
         /** @var string $redirectUri */
         $redirectUri = $request->query('redirect_uri', '');
 
-        if ($redirectUri === '' || ! in_array($redirectUri, $client->redirectUris, true)) {
+        if (! RedirectUriMatcher::matches($redirectUri, $client->redirectUris)) {
             abort(400, 'Invalid redirect_uri.');
         }
 
@@ -284,7 +285,7 @@ class AuthorizeController extends Controller
             abort(400, 'Unknown client_id.');
         }
 
-        if (! in_array($redirectUri, $client->redirectUris, true)) {
+        if (! RedirectUriMatcher::matches($redirectUri, $client->redirectUris)) {
             abort(400, 'Invalid redirect_uri.');
         }
 
