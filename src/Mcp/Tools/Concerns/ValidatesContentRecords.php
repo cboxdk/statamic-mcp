@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Concerns;
 
+use Cboxdk\StatamicMcp\Mcp\Support\ConditionalFieldsValidator;
 use Cboxdk\StatamicMcp\Mcp\Validation\Finding;
 use Cboxdk\StatamicMcp\Mcp\Validation\FindingType;
 use Cboxdk\StatamicMcp\Mcp\Validation\RecordRef;
@@ -136,8 +137,9 @@ trait ValidatesContentRecords
             // already calls it. Doing it twice runs each fieldtype's unwrap
             // twice, and some are not idempotent — a code field's nested array
             // came out flattened, so malformed content validated clean.
-            $fields->addValues($this->withWrappedRelationships($fields, $data))
-                ->validator()
+            (new ConditionalFieldsValidator)
+                ->fields($fields->addValues($this->withWrappedRelationships($fields, $data)))
+                ->withConditionValues($data)
                 ->validate();
 
             return [];
