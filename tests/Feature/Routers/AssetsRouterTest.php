@@ -190,6 +190,95 @@ class AssetsRouterTest extends TestCase
         $this->assertEquals('test_assets', $data['container']);
     }
 
+    private function createFolderFixture(): void
+    {
+        $this->createContainerWithPermissions('folder_assets', 'Folder Assets');
+
+        Storage::disk('assets')->put('root.jpg', 'fake image content');
+        Storage::disk('assets')->put('team/alice.jpg', 'fake image content');
+        Storage::disk('assets')->put('team/bob.jpg', 'fake image content');
+        Storage::disk('assets')->put('team/archive/carol.jpg', 'fake image content');
+        Storage::disk('assets')->put('other/dave.jpg', 'fake image content');
+    }
+
+    /**
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return list<string>
+     */
+    private function listedPaths(array $arguments): array
+    {
+        $result = $this->router->execute(array_merge([
+            'action' => 'list',
+            'resource_type' => 'asset',
+            'container' => 'folder_assets',
+            'include_details' => false,
+        ], $arguments));
+
+        $this->assertTrue($result['success'], json_encode($result) ?: '');
+
+        $paths = collect($result['data']['assets'])->pluck('path')->sort()->values()->all();
+        $this->assertSame(count($paths), $result['data']['pagination']['total']);
+
+        return $paths;
+    }
+
+    public function test_list_assets_without_folder_returns_container_root(): void
+    {
+        $this->createFolderFixture();
+
+        $this->assertSame(['root.jpg'], $this->listedPaths([]));
+    }
+
+    public function test_list_assets_recursive_without_folder_returns_everything(): void
+    {
+        $this->createFolderFixture();
+
+        $this->assertSame(
+            ['other/dave.jpg', 'root.jpg', 'team/alice.jpg', 'team/archive/carol.jpg', 'team/bob.jpg'],
+            $this->listedPaths(['recursive' => true]),
+        );
+    }
+
+    public function test_list_assets_in_folder(): void
+    {
+        $this->createFolderFixture();
+
+        $this->assertSame(['team/alice.jpg', 'team/bob.jpg'], $this->listedPaths(['folder' => 'team']));
+    }
+
+    public function test_list_assets_in_folder_recursive(): void
+    {
+        $this->createFolderFixture();
+
+        $this->assertSame(
+            ['team/alice.jpg', 'team/archive/carol.jpg', 'team/bob.jpg'],
+            $this->listedPaths(['folder' => '/team/', 'recursive' => true]),
+        );
+    }
+
+    public function test_list_assets_accepts_folder_filter(): void
+    {
+        $this->createFolderFixture();
+
+        $this->assertSame(['team/alice.jpg', 'team/bob.jpg'], $this->listedPaths(['filters' => ['folder' => 'team']]));
+    }
+
+    public function test_list_assets_rejects_folder_outside_container(): void
+    {
+        $this->createFolderFixture();
+
+        $result = $this->router->execute([
+            'action' => 'list',
+            'resource_type' => 'asset',
+            'container' => 'folder_assets',
+            'folder' => '../secrets',
+        ]);
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('folder must be a path inside the container', $result['errors'][0]);
+    }
+
     public function test_get_asset(): void
     {
         $this->createContainerWithPermissions('test_get', 'Test Get');
