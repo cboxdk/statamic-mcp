@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Keep term actions to the sites the user may access. Statamic's `TermPolicy` checks the site only on create and the Control Panel relies on its site selector, so an editor limited to one site could read and change terms in another through MCP.
 - Require durable audit admission before registered writes, independently of telemetry and the legacy logging flag. Custom audit drivers must implement `DurableAuditStore`; SQL admission refuses uncommitted caller transactions.
 - Serialize audit append, rotation and purge across processes. Flush durable writes, preserve interrupted tail evidence, and paginate without loading the complete history into memory.
 

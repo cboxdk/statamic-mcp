@@ -112,6 +112,11 @@ A 3.3.0 security audit hardened the tool layer. Keep these when touching routers
   `taxonomyHandle()` like `get` does. A new id-addressed action needs the same
   binding, or a caller allowed on one collection/taxonomy reaches another's
   records.
+- **Every content action checks the site it reaches** over HTTP: entries
+  (`authorizeEntrySite`/`authorizeResolvedEntry`), terms (`authorizeTermSite`, because
+  Statamic's `TermPolicy` only checks the site on create) and globals (Gate on the
+  localized variables). `tests/Feature/Authorization/SiteAndFieldPolicyMatrixTest.php`
+  is the matrix; a new content domain gets a row there.
 - **`resolveResourceHandle()` must name the same resource the handler acts on.**
   `GlobalsRouter` (`global_set ?? handle`), `StructuresRouter` and `AssetsRouter`
   (`container` for assets; `handle` for containers, `data.handle` only on
