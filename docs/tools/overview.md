@@ -72,11 +72,11 @@ Dedicated entry operations with advanced filtering, search, and pagination.
 | `list` | List with filtering; `filters` takes field handles or `status` (published, scheduled, expired, draft) | `collection`, `filters`, `include_unpublished`, `limit`, `offset` |
 | `get` | Get entry | `collection`, `id`, `version` |
 | `create` | Create entry | `collection`, `slug`, `data` |
-| `update` | Update entry | `collection`, `id`, `data`, `merge_sets`, `revision_message` |
+| `update` | Update entry | `collection`, `id`, `data`, `merge_sets`, `revision_message`, `expected_version` |
 | `localize` | Create the entry's localization in another site | `collection`, `id`, `site`, `data` |
-| `delete` | Delete entry | `collection`, `id` |
-| `publish` | Publish entry | `collection`, `id`, `revision_message` |
-| `unpublish` | Unpublish entry | `collection`, `id`, `revision_message` |
+| `delete` | Delete entry | `collection`, `id`, `expected_version` |
+| `publish` | Publish entry | `collection`, `id`, `revision_message`, `expected_version` |
+| `unpublish` | Unpublish entry | `collection`, `id`, `revision_message`, `expected_version` |
 | `list_revisions` | List an entry's revisions | `collection`, `id` |
 | `get_revision` | Read one revision | `collection`, `id`, `revision_id` |
 | `restore_revision` | Restore a revision | `collection`, `id`, `revision_id` |
@@ -126,6 +126,16 @@ Every item sent must carry an `id`. Removing or reordering items still requires
 sending the full array with `merge_sets` off, where the intent is unambiguous.
 Applies to top-level replicator fields only — not bard, whose nodes are not all
 addressable by id.
+
+#### Not overwriting someone else's change
+
+Every entry response carries a `version`. Pass it back as `expected_version` on
+`update`, `delete`, `publish`, `unpublish`, `restore_revision` or
+`publish_working_copy`, and the write only happens if the stored entry is still
+that version. If anyone changed it meanwhile — another agent, an editor in the
+Control Panel, an import — the call answers `VERSION_CONFLICT` with the
+`current_version`, and nothing is saved. Read the entry again and redo the
+change. Without `expected_version` the write is unconditional, as before.
 
 ### `statamic-terms`
 

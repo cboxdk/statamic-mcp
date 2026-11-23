@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Optimistic concurrency for entries. Entry responses carry a `version`; `update`, `delete`, `publish`, `unpublish`, `restore_revision` and `publish_working_copy` accept `expected_version` and refuse with `VERSION_CONFLICT` (nothing saved) when the stored entry changed since, through MCP or not. Two MCP writers with the same version cannot both succeed. Omitting it writes unconditionally as before.
+
 ### Changed (breaking)
 
 - Split publishing and deleting out of the write scopes. `entries:write` now covers create and update; publishing (including `published: true` on create or update) needs `entries:publish`, and deleting needs `entries:delete`, `terms:delete` or `assets:delete`. Existing write tokens keep editing and answer `Token missing required scope: …` for the rest. Admin domains keep `:write` for delete.

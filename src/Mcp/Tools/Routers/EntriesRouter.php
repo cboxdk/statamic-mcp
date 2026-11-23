@@ -18,15 +18,19 @@ use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ParsesDateValues;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\SanitizesFieldData;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Cboxdk\StatamicMcp\Support\McpContext;
+use Illuminate\Contracts\Cache\LockProvider;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\Support\Collection as SupportCollection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Attributes\Title;
 use Statamic\Contracts\Entries\Entry as EntryContract;
+use Statamic\Facades\Blink;
 use Statamic\Facades\Collection;
 use Statamic\Facades\Entry;
 use Statamic\Facades\Site;
@@ -146,6 +150,9 @@ class EntriesRouter extends BaseRouter
             'offset' => JsonSchema::integer()
                 ->description('Number of results to skip for pagination. Use with limit for paging'),
 
+            'expected_version' => JsonSchema::string()
+                ->description('Optimistic concurrency for update, delete, publish, unpublish, restore_revision and publish_working_copy: the `version` from your last get/create/update. If the stored entry changed since (through MCP, the Control Panel or anything else), the write is refused with a version conflict and nothing is saved; get the entry again and redo the change. Omit to write unconditionally.'),
+
             'version' => JsonSchema::string()
                 ->description('Which version of the entry to return for get action. "published" (default): live published data, "working_copy": current working copy data, "latest": working copy if exists else published')
                 ->enum(['published', 'working_copy', 'latest']),
@@ -196,7 +203,23 @@ class EntriesRouter extends BaseRouter
             return $validationError;
         }
 
-        // Execute action
+        if (in_array($action, self::VERSIONED_ACTIONS, true) && isset($arguments['expected_version'])) {
+            return $this->withExpectedVersion($arguments, fn (): array => $this->dispatchEntryAction($action, $arguments));
+        }
+
+        return $this->withVersion($action, $this->dispatchEntryAction($action, $arguments));
+    }
+
+    /** Write actions that act on one existing entry and can check its version first. */
+    private const VERSIONED_ACTIONS = ['update', 'delete', 'publish', 'unpublish', 'restore_revision', 'publish_working_copy'];
+
+    /**
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string, mixed>
+     */
+    private function dispatchEntryAction(string $action, array $arguments): array
+    {
         return match ($action) {
             'list' => $this->listEntries($arguments),
             'get' => $this->getEntry($arguments),
@@ -212,6 +235,138 @@ class EntriesRouter extends BaseRouter
             'publish_working_copy' => $this->publishWorkingCopyAction($arguments),
             default => $this->createErrorResponse("Action {$action} not supported for entries")->toArray(),
         };
+    }
+
+    /**
+     * The entry's stored state as an opaque token: its file data, slug and
+     * date, plus its working copy when revisions are on. Any write to the
+     * entry, from MCP or not, changes it. Tree position is not part of it.
+     */
+    private function entryVersion(EntryContract $entry): string
+    {
+        $workingCopy = null;
+        if ($this->entryRevisionsEnabled($entry) && $entry->hasWorkingCopy()) {
+            $workingCopy = $entry->workingCopy()?->attributes();
+        }
+
+        return hash('sha256', json_encode(self::canonicalForVersion([
+            'data' => $entry->fileData(),
+            'slug' => $entry->slug(),
+            'date' => $entry->hasDate() ? $entry->date()?->toIso8601String() : null,
+            'working_copy' => $workingCopy,
+        ]), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+    }
+
+    /**
+     * @param  array<array-key, mixed>  $value
+     *
+     * @return array<array-key, mixed>
+     */
+    private static function canonicalForVersion(array $value): array
+    {
+        if (! array_is_list($value)) {
+            ksort($value);
+        }
+        foreach ($value as $key => $child) {
+            if (is_array($child)) {
+                $value[$key] = self::canonicalForVersion($child);
+            }
+        }
+
+        return $value;
+    }
+
+    /**
+     * Report the entry's version after a successful single-entry action, so a
+     * caller can pass it back as expected_version on its next write.
+     *
+     * @param  array<string, mixed>  $result
+     *
+     * @return array<string, mixed>
+     */
+    private function withVersion(string $action, array $result): array
+    {
+        if ($action === 'delete' || ($result['success'] ?? true) === false
+            || ! is_array($result['entry'] ?? null) || ! is_string($result['entry']['id'] ?? null)) {
+            return $result;
+        }
+
+        $entry = Entry::find($result['entry']['id']);
+        if ($entry !== null) {
+            $result['entry']['version'] = $this->entryVersion($entry);
+        }
+
+        return $result;
+    }
+
+    /**
+     * Run a write only if the entry is still the version the caller read.
+     *
+     * The check and the write run under a per-entry lock, so two MCP writers
+     * with the same expected version cannot both succeed. A Control Panel or
+     * queue write does not take this lock: it is caught when it landed before
+     * the check, not when it lands between the check and the save.
+     *
+     * @param  array<string, mixed>  $arguments
+     * @param  callable(): array<string, mixed>  $write
+     *
+     * @return array<string, mixed>
+     */
+    private function withExpectedVersion(array $arguments, callable $write): array
+    {
+        $expected = $arguments['expected_version'];
+        $id = is_string($arguments['id'] ?? null) ? $arguments['id'] : '';
+        if (! is_string($expected) || $expected === '') {
+            return $this->createErrorResponse('expected_version must be the version string returned by a previous get, create or update.')->toArray();
+        }
+
+        $store = Cache::store()->getStore();
+        if (! $store instanceof LockProvider) {
+            return $this->createErrorResponse('expected_version requires a cache store with atomic locks.')->toArray();
+        }
+
+        try {
+            $result = [];
+            $store->lock('statamic-mcp:entry:' . hash('sha256', $id), 30)->block(5, function () use ($arguments, $expected, $id, $write, &$result): void {
+                $result = $this->checkedWrite($arguments, $expected, $id, $write);
+            });
+
+            return $result;
+        } catch (LockTimeoutException) {
+            return $this->createErrorResponse('Another write to this entry is in progress. Nothing was saved; try again.')->toArray();
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $arguments
+     * @param  callable(): array<string, mixed>  $write
+     *
+     * @return array<string, mixed>
+     */
+    private function checkedWrite(array $arguments, string $expected, string $id, callable $write): array
+    {
+        Blink::flush();
+        $entry = $this->resolveEntryInCollection($id, $arguments);
+        $site = $this->resolveSiteHandle($arguments);
+        if ($entry !== null && isset($arguments['site']) && $entry->site()->handle() !== $site) {
+            $localized = $entry->in($site);
+            $entry = $localized instanceof EntryContract ? $localized : null;
+        }
+        if ($entry === null) {
+            return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
+        }
+
+        $current = $this->entryVersion($entry);
+        if (! hash_equals($current, $expected)) {
+            return $this->createErrorResponse(
+                'Version conflict: the entry changed since you read it. Nothing was saved. Get the entry again and redo the change.',
+                ['code' => 'VERSION_CONFLICT', 'current_version' => $current],
+            )->toArray();
+        }
+
+        $action = is_string($arguments['action'] ?? null) ? $arguments['action'] : '';
+
+        return $this->withVersion($action, $write());
     }
 
     /**

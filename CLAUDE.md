@@ -942,6 +942,11 @@ path lists the valid segments at the level it failed.
 **`statamic-entries`** — list, get, create, update, localize, delete, publish, unpublish,
 list_revisions, get_revision, restore_revision, publish_working_copy
 
+Entry responses carry a `version` (`EntriesRouter::entryVersion()`: file data, slug, date and working
+copy, canonicalized), and single-entry writes accept `expected_version`, checked under a per-entry
+cache lock right before the action runs (`withExpectedVersion()`). The lock only serializes MCP
+writers; a CP save is caught when it landed before the check. Tree position is not in the version.
+
 `update` accepts `merge_sets`: when true, a top-level replicator field in `data` is merged
 into the stored array by item `id` rather than replacing it, so one section of a page
 builder can change without resending the rest. Every item sent must carry an `id`;

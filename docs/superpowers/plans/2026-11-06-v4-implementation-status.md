@@ -64,8 +64,10 @@ These records do not certify V02–V10. The main plan remains the release checkl
   entries, terms, globals × site × HTTP/stdio, denied fields on output, input and
   list filters). It found terms crossing sites over HTTP; fixed.
   Editor currently handles unpublished entries only; live working-copy editing is refused.
-- V04: integrate operations into all writes; add resource-version bindings and
-  complete outcome reconciliation. Prepare-only handles, admission limits, pruning,
+- V04: entries have resource versions: `version` on every entry response and
+  `expected_version` on single-entry writes, checked under a per-entry lock
+  (`EntryExpectedVersionTest`). Terms/globals versions, operations for built-in
+  writes and complete outcome reconciliation remain. Prepare-only handles, admission limits, pruning,
   capacity repair, driver bindings and SQLite process concurrency are implemented.
   Shared MySQL admission still needs CI coverage.
 - V05: durable approvals, CP UI, revocation and atomic consumption. Existing
