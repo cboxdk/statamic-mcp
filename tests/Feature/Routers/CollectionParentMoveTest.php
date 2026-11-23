@@ -44,7 +44,7 @@ class CollectionParentMoveTest extends TestCase
         $this->actingAs($user);
         request()->attributes->set('mcp_token', new McpTokenData(
             'local-test', $user->id(), 'Test', '',
-            ['entries:read', 'entries:write', 'structures:read', 'structures:write'], null, null, now(),
+            ['entries:read', 'entries:write', 'structures:read', 'structures:admin'], null, null, now(),
         ));
         $router = new EntriesRouter;
         $create = function ($slug, $parent = null) use ($router, $handle) {

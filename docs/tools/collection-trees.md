@@ -43,7 +43,7 @@ entry or assigning itself as its parent is refused.
 
 Moves require collection reorder rights, permission to edit the moved entries,
 an accessible site and parent, the entries/structures resource policies and both
-`entries:write` and `structures:write` scopes. Tree reads require both read scopes.
+`entries:write` and `structures:admin` scopes. Tree reads require both read scopes.
 Invalid IDs, cross-site/collection parents, cycles, root moves, excessive depth and
 URI collisions fail explicitly. Existing authentication and confirmation behavior
 is unchanged.

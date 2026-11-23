@@ -49,7 +49,8 @@ These records do not certify V02–V10. The main plan remains the release checkl
   both token stores. Built-in granular scopes are in (decision mem_WfwnG95o9xs0Kx0RBHEHix,
   option a): `{entries,terms,assets}:write` keep edit; publish and delete need
   `entries:publish`, `entries:delete`, `terms:delete`, `assets:delete`. Admin domains
-  keep `:write` as their admin scope. `*` is expanded to an explicit list at issuance
+  use `{domain}:admin`; their v3 `:write` scopes grant nothing. `mcp:statamic:install`
+  guides the upgrade (profile, migrations, token review). `*` is expanded to an explicit list at issuance
   and a stored v3 `*` (token or refresh grant) is refused until approved again;
   `mcp:doctor` counts the affected tokens. Automated migration (V09) remains.
   Legacy core-only tokens do not authorize registered actions.

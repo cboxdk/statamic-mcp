@@ -84,7 +84,7 @@ class TokenAdminBoundaryTest extends TestCase
     public function test_widening_another_users_token_is_capped_by_the_editor(): void
     {
         // A non-super editor owns a token; the admin (also non-super, no users
-        // rights) cannot add users:write it could not hold itself.
+        // rights) cannot add users:admin it could not hold itself.
         Role::make()->handle('plain-editor')->title('Editor')->permissions(['access cp', 'view blog entries'])->save();
         $owner = User::make()->id('owner-1')->email('owner@example.test');
         $owner->assignRole('plain-editor');
@@ -92,7 +92,7 @@ class TokenAdminBoundaryTest extends TestCase
         $token = $this->tokens->createToken('owner-1', 'Owned', [TokenScope::EntriesRead])['model'];
 
         $this->actingAs($this->admin())
-            ->putJson(cp_route('statamic-mcp.tokens.update', ['token' => $token->id]), ['scopes' => ['entries:read', 'users:write']])
+            ->putJson(cp_route('statamic-mcp.tokens.update', ['token' => $token->id]), ['scopes' => ['entries:read', 'users:admin']])
             ->assertStatus(422);
     }
 }

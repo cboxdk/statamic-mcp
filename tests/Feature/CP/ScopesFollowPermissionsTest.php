@@ -107,7 +107,7 @@ class ScopesFollowPermissionsTest extends TestCase
 
         // @phpstan-ignore-next-line
         $response->assertInertia(fn (AssertableInertia $page) => $page
-            ->where('availableScopes', fn ($scopes) => count($scopes) === count(TokenScope::cases()))
+            ->where('availableScopes', fn ($scopes) => count($scopes) === count(TokenScope::cases()) - 4)
         );
     }
 
@@ -116,10 +116,10 @@ class ScopesFollowPermissionsTest extends TestCase
         $this->actingAs($this->editor)
             ->postJson(cp_route('statamic-mcp.tokens.store'), [
                 'name' => 'Desk',
-                'scopes' => ['entries:read', 'users:write'],
+                'scopes' => ['entries:read', 'users:admin'],
             ])
             ->assertStatus(422)
-            ->assertJsonFragment(['message' => 'These scopes are not available to this user: users:write. Available scopes: content:read, content:write, structures:read, entries:read, entries:write']);
+            ->assertJsonFragment(['message' => 'These scopes are not available to this user: users:admin. Available scopes: content:read, content:write, structures:read, entries:read, entries:write']);
 
         $this->actingAs($this->editor)
             ->postJson(cp_route('statamic-mcp.tokens.store'), [
@@ -140,7 +140,7 @@ class ScopesFollowPermissionsTest extends TestCase
         $admin->save();
 
         $this->actingAs($admin)
-            ->putJson(cp_route('statamic-mcp.tokens.update', ['token' => $token->id]), ['scopes' => ['users:write']])
+            ->putJson(cp_route('statamic-mcp.tokens.update', ['token' => $token->id]), ['scopes' => ['users:admin']])
             ->assertStatus(422);
 
         $this->actingAs($admin)
@@ -151,7 +151,7 @@ class ScopesFollowPermissionsTest extends TestCase
     public function test_the_consent_screen_shows_an_editor_only_the_scopes_they_can_use(): void
     {
         $response = $this->actingAs($this->editor, 'web')
-            ->get($this->authorizeUrl() . '?' . http_build_query($this->oauthParams('entries:read users:write *')))
+            ->get($this->authorizeUrl() . '?' . http_build_query($this->oauthParams('entries:read users:admin *')))
             ->assertOk();
 
         $response->assertSee('Read Entries');
@@ -163,7 +163,7 @@ class ScopesFollowPermissionsTest extends TestCase
     public function test_a_client_asking_only_for_scopes_the_editor_lacks_is_refused(): void
     {
         $response = $this->actingAs($this->editor, 'web')
-            ->get($this->authorizeUrl() . '?' . http_build_query($this->oauthParams('users:write')));
+            ->get($this->authorizeUrl() . '?' . http_build_query($this->oauthParams('users:admin')));
 
         $response->assertRedirect();
         $this->assertStringContainsString('error=invalid_scope', $response->headers->get('Location', ''));
@@ -179,8 +179,8 @@ class ScopesFollowPermissionsTest extends TestCase
                 'state' => 'st',
                 'code_challenge' => self::CODE_CHALLENGE,
                 'code_challenge_method' => 'S256',
-                'scope' => 'entries:read users:write *',
-                'scopes' => ['*', 'users:write', 'entries:read'],
+                'scope' => 'entries:read users:admin *',
+                'scopes' => ['*', 'users:admin', 'entries:read'],
             ]));
 
         $approve->assertRedirect();
@@ -222,10 +222,10 @@ class ScopesFollowPermissionsTest extends TestCase
         // Adding a scope the editor cannot hold is still refused.
         $this->actingAs($this->editor)
             ->putJson(cp_route('statamic-mcp.tokens.update', ['token' => $token->id]), [
-                'scopes' => ['*', 'users:write'],
+                'scopes' => ['*', 'users:admin'],
             ])
             ->assertStatus(422)
-            ->assertJsonFragment(['message' => 'These scopes are not available to this user: users:write. Available scopes: content:read, content:write, structures:read, entries:read, entries:write']);
+            ->assertJsonFragment(['message' => 'These scopes are not available to this user: users:admin. Available scopes: content:read, content:write, structures:read, entries:read, entries:write']);
     }
 
     public function test_a_client_asking_for_everything_is_offered_the_editors_reach(): void

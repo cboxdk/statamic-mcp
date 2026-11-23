@@ -139,6 +139,6 @@ class OAuthFlowTest extends TestCase
         // Full access is stored as today's explicit list, never as `*`.
         $this->assertNotContains('*', $mcpTokenData->scopes);
         $this->assertContains('entries:publish', $mcpTokenData->scopes);
-        $this->assertContains('users:write', $mcpTokenData->scopes);
+        $this->assertContains('users:admin', $mcpTokenData->scopes);
     }
 }

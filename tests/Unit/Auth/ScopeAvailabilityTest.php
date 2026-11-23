@@ -55,7 +55,8 @@ it('gives a super admin every scope', function () {
     $user->makeSuper();
     $user->save();
 
-    expect($this->availability->forUser($user))->toBe(TokenScope::cases());
+    // Every scope except the v3 ones v4 replaced, which grant nothing.
+    expect($this->availability->forUser($user))->toBe(array_values(array_filter(TokenScope::cases(), fn (TokenScope $s): bool => $s->replacedBy() === null)));
 });
 
 it('gives nobody anything', function () {
@@ -73,7 +74,7 @@ it('never offers full access, system writes or the content facade below super', 
 
     $values = scopeValues($this->availability->forUser($user));
 
-    expect($values)->not->toContain('*', 'system:write', 'content-facade:read', 'content-facade:write');
+    expect($values)->not->toContain('*', 'system:admin', 'content-facade:read', 'content-facade:write');
 });
 
 it('follows the entries router: view gives read, any write permission gives write', function () {
@@ -95,16 +96,16 @@ it('follows the terms, globals, assets and structures routers', function () {
     expect(scopeValues($this->availability->forUser(userHolding(['upload images assets']))))->toBe(['assets:write']);
 
     expect(scopeValues($this->availability->forUser(userHolding(['view main nav']))))->toBe(['structures:read']);
-    expect(scopeValues($this->availability->forUser(userHolding(['edit main nav']))))->toBe(['structures:write']);
+    expect(scopeValues($this->availability->forUser(userHolding(['edit main nav']))))->toBe(['structures:admin']);
     expect(scopeValues($this->availability->forUser(userHolding(['configure collections']))))
-        ->toBe(['structures:read', 'structures:write', 'blueprints:read']);
+        ->toBe(['structures:read', 'structures:admin', 'blueprints:read']);
 });
 
 it('follows the users, system and blueprints routers', function () {
     expect(scopeValues($this->availability->forUser(userHolding(['view users']))))->toBe(['users:read']);
-    expect(scopeValues($this->availability->forUser(userHolding(['assign roles']))))->toBe(['users:write']);
+    expect(scopeValues($this->availability->forUser(userHolding(['assign roles']))))->toBe(['users:admin']);
     expect(scopeValues($this->availability->forUser(userHolding(['access utilities']))))->toBe(['system:read']);
-    expect(scopeValues($this->availability->forUser(userHolding(['configure fields']))))->toBe(['blueprints:read', 'blueprints:write']);
+    expect(scopeValues($this->availability->forUser(userHolding(['configure fields']))))->toBe(['blueprints:read', 'blueprints:admin']);
 });
 
 it('offers blueprints:read to every user once the site waives the permission on schema reads', function () {
@@ -115,16 +116,16 @@ it('offers blueprints:read to every user once the site waives the permission on 
     Config::set('statamic.mcp.resources.require_statamic_permission', false);
 
     expect(scopeValues($this->availability->forUser($editor)))->toContain('blueprints:read');
-    expect(scopeValues($this->availability->forUser($editor)))->not->toContain('blueprints:write');
+    expect(scopeValues($this->availability->forUser($editor)))->not->toContain('blueprints:admin');
 });
 
 it('names the scopes a user cannot exercise', function () {
     $editor = userHolding(['view blog entries', 'edit blog entries']);
 
-    $rejected = $this->availability->reject($editor, [TokenScope::EntriesWrite, TokenScope::UsersWrite, TokenScope::FullAccess]);
+    $rejected = $this->availability->reject($editor, [TokenScope::EntriesWrite, TokenScope::UsersAdmin, TokenScope::FullAccess]);
 
-    expect(scopeValues($rejected))->toBe(['users:write', '*']);
-    expect($this->availability->filterValues($editor, ['entries:read', 'users:write', 'nonsense', 'entries:write']))
+    expect(scopeValues($rejected))->toBe(['users:admin', '*']);
+    expect($this->availability->filterValues($editor, ['entries:read', 'users:admin', 'nonsense', 'entries:write']))
         ->toBe(['entries:read', 'entries:write']);
 });
 
@@ -136,7 +137,7 @@ it('drops a scope whose domain the resource policy closes, super admins included
     $super->save();
 
     expect(scopeValues($this->availability->forUser($super)))
-        ->not->toContain('structures:write')
+        ->not->toContain('structures:admin')
         ->toContain('structures:read', '*');
 
     expect(scopeValues($this->availability->forUser(userHolding(['edit main nav']))))->toBe([]);
@@ -165,21 +166,21 @@ it('offers everything to everyone when switched off', function () {
     Config::set('statamic.mcp.security.scopes_follow_permissions', false);
     Config::set('statamic.mcp.tools.structures.resources.write', []);
 
-    expect($this->availability->forUser(userHolding([])))->toBe(TokenScope::cases());
+    expect($this->availability->forUser(userHolding([])))->toBe(array_values(array_filter(TokenScope::cases(), fn (TokenScope $s): bool => $s->replacedBy() === null)));
 });
 
 it('offers structures to a user who configures globals, as the structures router lets them', function () {
     $user = userHolding(['configure globals']);
 
     expect($this->availability->allows($user, TokenScope::StructuresRead))->toBeTrue()
-        ->and($this->availability->allows($user, TokenScope::StructuresWrite))->toBeTrue();
+        ->and($this->availability->allows($user, TokenScope::StructuresAdmin))->toBeTrue();
 });
 
 it('narrows a wildcard to the user\'s own reach instead of dropping it', function () {
     $user = userHolding(['view blog entries']);
 
     expect($this->availability->filterValues($user, ['*']))->toBe([])
-        ->and($this->availability->grantable($user, ['*', 'entries:read', 'users:write']))
+        ->and($this->availability->grantable($user, ['*', 'entries:read', 'users:admin']))
         ->toBe(['structures:read', 'entries:read']);
 });
 
@@ -193,8 +194,9 @@ it('expands a wildcard to an explicit list even for a super admin', function () 
 
     expect($granted)->not->toContain('*')
         ->and($granted)->not->toContain('content:write')
-        ->and($granted)->toContain('entries:publish', 'entries:delete', 'terms:delete', 'assets:delete', 'users:write', 'system:write')
-        ->and($granted)->toHaveCount(count(TokenScope::cases()) - 3);
+        ->and($granted)->toContain('entries:publish', 'entries:delete', 'terms:delete', 'assets:delete', 'users:admin', 'system:admin')
+        ->and($granted)->not->toContain('users:write', 'system:write')
+        ->and($granted)->toHaveCount(count(TokenScope::cases()) - 7);
 });
 
 it('offers publish and delete only to users who may publish or delete', function () {
@@ -215,7 +217,7 @@ it('offers entry viewers structure reads without structure writes', function () 
     $viewer = userHolding(['view blog entries']);
 
     expect($this->availability->allows($viewer, TokenScope::StructuresRead))->toBeTrue()
-        ->and($this->availability->allows($viewer, TokenScope::StructuresWrite))->toBeFalse();
+        ->and($this->availability->allows($viewer, TokenScope::StructuresAdmin))->toBeFalse();
 
     Config::set('statamic.mcp.tools.structures.resources.read', []);
 
@@ -225,7 +227,7 @@ it('offers entry viewers structure reads without structure writes', function () 
 it('offers structure writes to collection reorderers without navigation permission', function () {
     $editor = userHolding(['view blog entries', 'edit blog entries', 'reorder blog entries']);
 
-    expect($this->availability->allows($editor, TokenScope::StructuresWrite))->toBeTrue();
+    expect($this->availability->allows($editor, TokenScope::StructuresAdmin))->toBeTrue();
     Config::set('statamic.mcp.tools.structures.resources.write', []);
-    expect($this->availability->allows($editor, TokenScope::StructuresWrite))->toBeFalse();
+    expect($this->availability->allows($editor, TokenScope::StructuresAdmin))->toBeFalse();
 });

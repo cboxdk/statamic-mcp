@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Console;
 
+use Cboxdk\StatamicMcp\Auth\TokenScope;
+use Cboxdk\StatamicMcp\Auth\TokenService;
+use Cboxdk\StatamicMcp\Contracts\TokenStore;
 use Cboxdk\StatamicMcp\OAuth\Drivers\DatabaseOAuthDriver;
 use Cboxdk\StatamicMcp\Storage\Audit\DatabaseAuditStore;
 use Cboxdk\StatamicMcp\Storage\Tokens\DatabaseTokenStore;
@@ -12,43 +15,193 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Process;
 
 use function Laravel\Prompts\multiselect;
+use function Laravel\Prompts\select;
 
 class InstallCommand extends Command
 {
-    protected $signature = 'mcp:statamic:install {--profile= : Explicit stdio profile: read_only, editor or operator} {--force : Overwrite existing configuration} {--skip-migrations : Skip database migrations} {--debug : Show debug information}';
+    protected $signature = 'mcp:statamic:install {--profile= : Explicit stdio profile: read_only, editor or operator} {--force : Overwrite existing configuration} {--upgrade : Treat this as an upgrade of an existing installation} {--skip-migrations : Skip database migrations} {--debug : Show debug information}';
 
     private string $stdioProfile;
 
-    protected $description = 'Install and configure Statamic MCP Server for AI assistants';
+    protected $description = 'Install Statamic MCP Server, or upgrade an existing installation, and configure AI assistants';
 
     public function handle(): int
     {
-        $profile = $this->option('profile') ?? config('statamic.mcp.profiles.stdio');
-        if (! is_string($profile) || ! in_array($profile, ['read_only', 'editor', 'operator'], true)) {
-            $this->error('Choose --profile=read_only, --profile=editor or --profile=operator before installing.');
+        $upgrading = $this->detectExistingInstallation();
 
-            return self::FAILURE;
+        $profile = $this->option('profile') ?? config('statamic.mcp.profiles.stdio');
+        if (! is_string($profile) || ! in_array($profile, self::PROFILES, true)) {
+            if (! $this->input->isInteractive() || $this->option('profile') !== null) {
+                $this->error('Choose --profile=read_only, --profile=editor or --profile=operator before installing.');
+
+                return self::FAILURE;
+            }
+            $profile = $this->askForProfile();
         }
         $this->stdioProfile = $profile;
-        $this->info('Installing Statamic MCP Server with stdio profile: ' . $profile);
+
+        $this->info(($upgrading ? 'Upgrading' : 'Installing') . ' Statamic MCP Server with stdio profile: ' . $profile);
         $this->newLine();
 
-        // Publish configuration
-        $this->publishConfiguration();
+        if ($upgrading) {
+            // An existing config is the operator's: keep it unless asked.
+            $this->line('Existing installation found. Your configuration is kept; new settings fall back to the package defaults.');
+            $this->newLine();
+            if ($this->option('force')) {
+                $this->publishConfiguration();
+            }
+        } else {
+            $this->publishConfiguration();
+        }
 
-        // Run migrations
+        $this->writeProfileToEnv();
         $this->runMigrations();
 
-        // Detect and configure AI assistants
-        $this->configureAiAssistants();
+        if ($upgrading) {
+            $this->reviewTokensForV4();
+        }
 
-        // Create MCP guidelines
+        $this->configureAiAssistants();
         $this->createMcpGuidelines();
 
-        // Show completion message
+        $this->info('🩺 Checking the configuration (mcp:doctor)...');
+        $this->call('mcp:doctor');
+        $this->newLine();
+
         $this->showCompletionMessage();
 
-        return 0;
+        return self::SUCCESS;
+    }
+
+    private const PROFILES = ['read_only', 'editor', 'operator'];
+
+    /**
+     * An installation exists when the config was published or tokens were
+     * issued; either means a fresh install would overwrite someone's setup.
+     */
+    protected function detectExistingInstallation(): bool
+    {
+        if ($this->option('upgrade')) {
+            return true;
+        }
+
+        if (File::exists(config_path('statamic/mcp.php'))) {
+            return true;
+        }
+
+        try {
+            return app(TokenStore::class)->listAll()->isNotEmpty();
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    protected function askForProfile(): string
+    {
+        $choice = select(
+            label: 'What may AI assistants do through the local (stdio) server?',
+            options: [
+                'read_only' => 'Read only: inspect content and structure, change nothing',
+                'editor' => 'Editor: draft and edit unpublished entries',
+                'operator' => 'Operator: everything your account may do, including administration',
+            ],
+            default: 'read_only',
+        );
+
+        return is_string($choice) && in_array($choice, self::PROFILES, true) ? $choice : 'read_only';
+    }
+
+    /**
+     * Persist the chosen profile so `mcp:start` works without flags. An
+     * existing value is only replaced after confirmation.
+     */
+    protected function writeProfileToEnv(): void
+    {
+        $envPath = base_path('.env');
+        if (! File::exists($envPath)) {
+            $this->line("ℹ️  No .env file found. Set STATAMIC_MCP_STDIO_PROFILE={$this->stdioProfile} in your environment.");
+            $this->newLine();
+
+            return;
+        }
+
+        $env = File::get($envPath);
+        $line = 'STATAMIC_MCP_STDIO_PROFILE=' . $this->stdioProfile;
+
+        if (preg_match('/^STATAMIC_MCP_STDIO_PROFILE=(.*)$/m', $env, $match) === 1) {
+            if (trim($match[1]) === $this->stdioProfile) {
+                return;
+            }
+            if (! $this->confirm("Change STATAMIC_MCP_STDIO_PROFILE in .env from '" . trim($match[1]) . "' to '{$this->stdioProfile}'?", true)) {
+                return;
+            }
+            File::put($envPath, (string) preg_replace('/^STATAMIC_MCP_STDIO_PROFILE=.*$/m', $line, $env));
+        } else {
+            File::append($envPath, (str_ends_with($env, "\n") || $env === '' ? '' : "\n") . $line . "\n");
+        }
+
+        $this->info("✅ Saved {$line} to .env");
+        $this->newLine();
+    }
+
+    /**
+     * v4 narrowed what some v3 tokens may do. Show which ones, and let the
+     * operator revoke them now instead of leaving their holders to discover
+     * it from a refusal. Nothing is widened: changed scopes need consent.
+     */
+    protected function reviewTokensForV4(): void
+    {
+        $this->info('🔑 Reviewing tokens for v4 scope changes...');
+
+        try {
+            $affected = [];
+            foreach (app(TokenStore::class)->listAll() as $token) {
+                $changes = TokenScope::v3Changes($token->scopes);
+                if ($changes !== []) {
+                    $affected[] = [$token, $changes];
+                }
+            }
+        } catch (\Throwable) {
+            $this->warn('⚠️  The token store could not be read; run php artisan mcp:doctor after fixing storage.');
+            $this->newLine();
+
+            return;
+        }
+
+        if ($affected === []) {
+            $this->info('✅ No token is affected.');
+            $this->newLine();
+
+            return;
+        }
+
+        $explain = [
+            'full_access' => 'full access (*) is refused until approved again',
+            'replaced' => 'admin :write scopes were replaced by :admin and are refused',
+            'publish_delete' => 'still edits, but needs %s to publish or delete',
+        ];
+
+        $this->table(['Token', 'Owner', 'What changes in v4'], array_map(function (array $row) use ($explain): array {
+            [$token, $changes] = $row;
+            $lines = [];
+            foreach ($changes as $change => $scopes) {
+                $lines[] = $change === 'publish_delete' ? sprintf($explain[$change], implode(', ', $scopes)) : $explain[$change];
+            }
+
+            return [$token->name . ($token->oauthClientId !== null ? ' (OAuth)' : ''), $token->userId, implode('; ', $lines)];
+        }, $affected));
+
+        $refused = array_values(array_filter($affected, fn (array $row): bool => isset($row[1]['full_access']) || isset($row[1]['replaced'])));
+        $this->line('Tokens that only lost publish/delete keep working; add the new scopes in Tools → MCP where they should.');
+
+        if ($refused !== [] && $this->confirm(count($refused) . ' token(s) no longer work at all. Revoke them now? Their owners create a new token or authorize the client again.', false)) {
+            foreach ($refused as [$token]) {
+                app(TokenService::class)->revokeToken($token->id);
+            }
+            $this->info('✅ Revoked ' . count($refused) . ' token(s).');
+        }
+
+        $this->newLine();
     }
 
     protected function publishConfiguration(): void
@@ -616,7 +769,7 @@ class InstallCommand extends Command
 
     protected function showCompletionMessage()
     {
-        $this->info('🎉 Statamic MCP Server v2.0 installation complete!');
+        $this->info('🎉 Statamic MCP Server is ready!');
         $this->newLine();
 
         $this->info('📚 What was configured:');
@@ -846,13 +999,13 @@ Web MCP endpoints use scoped API tokens for fine-grained access control:
 ### Available Scopes
 - `entries:read` / `entries:write` - Entry reads and edits; `entries:publish` and `entries:delete` to publish or delete
 - `terms:read` / `terms:write` - Term reads and edits; `terms:delete` to delete
-- `structures:read` / `structures:write` - Collection and taxonomy management
+- `structures:read` / `structures:admin` - Collection and taxonomy management
 - `assets:read` / `assets:write` - Asset operations; `assets:delete` to delete
-- `users:read` / `users:write` - User management
+- `users:read` / `users:admin` - User management
 - `globals:read` / `globals:write` - Global set operations
-- `blueprints:read` / `blueprints:write` - Blueprint management
-- `system:read` / `system:write` - System operations
-- `structures:read` / `structures:write` - Navigation management
+- `blueprints:read` / `blueprints:admin` - Blueprint management
+- `system:read` / `system:admin` - System operations
+- `structures:read` / `structures:admin` - Navigation management
 - `*` - Wildcard (all permissions)
 
 ## Usage Patterns

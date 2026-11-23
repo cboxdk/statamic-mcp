@@ -33,7 +33,7 @@ class StructuresResourcePolicyTest extends TestCase
         ]);
         $this->router = new StructuresRouter;
         $this->actAs(['configure collections', 'configure taxonomies', 'configure globals', 'configure navs', 'configure sites', 'view protected nav', 'edit protected nav']);
-        $this->token(['structures:read', 'structures:write']);
+        $this->token(['structures:read', 'structures:admin']);
     }
 
     /**
@@ -205,7 +205,7 @@ class StructuresResourcePolicyTest extends TestCase
         Stache::refresh();
 
         $this->token([]);
-        foreach (['get' => 'read', 'update' => 'write'] as $action => $mode) {
+        foreach (['get' => 'read', 'update' => 'admin'] as $action => $mode) {
             $result = $this->router->execute([
                 'action' => $action, 'resource_type' => 'collection', 'handle' => 'allowed',
                 'data' => ['title' => 'Hijacked'],
@@ -214,7 +214,7 @@ class StructuresResourcePolicyTest extends TestCase
         }
 
         $this->actAs([]);
-        $this->token(['structures:read', 'structures:write']);
+        $this->token(['structures:read', 'structures:admin']);
         foreach (['get', 'update'] as $action) {
             $result = $this->router->execute([
                 'action' => $action, 'resource_type' => 'collection', 'handle' => 'allowed',

@@ -159,7 +159,7 @@ class CollectionViewerPermissionTest extends TestCase
 
     public function test_entry_viewer_still_cannot_write_collection_settings(): void
     {
-        $this->actAs(["view {$this->handle} entries"], ['structures:read', 'structures:write']);
+        $this->actAs(["view {$this->handle} entries"], ['structures:read', 'structures:admin']);
 
         foreach (['create', 'update', 'configure', 'delete'] as $action) {
             $result = $this->getCollection(['action' => $action, 'data' => ['title' => 'Changed']]);

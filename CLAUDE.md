@@ -24,11 +24,16 @@ The addon provides scoped API tokens for fine-grained MCP access control:
 - **Token Management**: Via Statamic CP dashboard (Tools → MCP → Tokens)
 - **Token Storage**: Eloquent model (`McpToken`) with SHA-256 hashed tokens
 - **Guard**: Custom `McpTokenGuard` registered as the `mcp` auth guard
-- **Scopes**: 25 scopes via `TokenScope` enum (e.g., `entries:read`, `entries:write`, `entries:publish`, `*`)
+- **Scopes**: 29 scopes via `TokenScope` enum (e.g., `entries:read`, `entries:write`, `entries:publish`, `*`)
 - **Publish and delete are their own grants** in the entries, terms and assets domains
   (`TokenScope::extraFor()`): `checkWebPermissions()` requires them on top of `{domain}:write`,
   and `EntriesRouter::authorizeResolvedEntry()` requires `entries:publish` for a `published`
-  flag on create/update too. Admin domains keep `:write` for delete.
+  flag on create/update too.
+- **Admin domains use `{domain}:admin`** (structures, blueprints, users, system), resolved by
+  `TokenScope::writeFor()`. Their v3 `:write` cases stay in the enum so old tokens load, but
+  `replacedBy()` marks them and they grant nothing; `TokenScope::v3Changes()` is the single
+  description of what v4 changed for a token (used by `mcp:doctor`, the installer's upgrade
+  review and the OAuth refresh refusal).
 - **`*` is not a wildcard** (`TokenService::hasScope()`). It is expanded to an explicit list at
   issuance (`ScopeAvailability::expandFullAccess()`, called by the CP and OAuth consent paths);
   `createToken()` refuses a raw `*`, and a v3 token or refresh grant carrying one is refused so the

@@ -168,7 +168,7 @@ class ScopeEnforcementTest extends TestCase
         ]);
         $this->assertTrue($listResult['success']);
 
-        // Create should be denied (needs blueprints:write)
+        // Create should be denied (needs blueprints:admin)
         $createResult = $router->execute([
             'action' => 'create',
             'handle' => 'denied_bp',

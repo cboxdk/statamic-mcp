@@ -179,7 +179,7 @@ user cannot exercise grants nothing. Offering it still misleads: an editor who s
 "Write Users" on a consent screen reads it as something the client is about to do.
 
 With this on, the dashboard's scope picker, token creation and the OAuth consent screen
-offer only the scopes the user can exercise. `*`, `system:write` and the content-facade
+offer only the scopes the user can exercise. `*`, `system:admin` and the content-facade
 scopes are for super admins only. A scope is also withheld from everyone when the site
 has closed its domain — the tool switched off, or its resource allowlist set to `[]`.
 

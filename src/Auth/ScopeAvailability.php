@@ -159,7 +159,8 @@ class ScopeAvailability
 
     public function allows(?User $user, TokenScope $scope): bool
     {
-        if ($user === null) {
+        // A scope v4 replaced grants nothing, so nobody is offered it.
+        if ($user === null || $scope->replacedBy() !== null) {
             return false;
         }
 
@@ -179,7 +180,7 @@ class ScopeAvailability
 
         return match ($scope) {
             TokenScope::FullAccess,
-            TokenScope::SystemWrite,
+            TokenScope::SystemAdmin,
             TokenScope::ContentFacadeRead,
             TokenScope::ContentFacadeWrite => false,
 
@@ -211,7 +212,7 @@ class ScopeAvailability
             TokenScope::StructuresRead => $this->holdsAny($user, ['configure collections', 'configure taxonomies', 'configure navs', 'configure sites', 'configure globals'])
                 || $this->holdsForAny($user, $this->collectionHandles(), fn (string $h): array => ["view {$h} entries"])
                 || $this->holdsForAny($user, $this->navHandles(), fn (string $h): array => ["view {$h} nav"]),
-            TokenScope::StructuresWrite => $this->holdsAny($user, ['configure collections', 'configure taxonomies', 'configure navs', 'configure sites', 'configure globals'])
+            TokenScope::StructuresAdmin => $this->holdsAny($user, ['configure collections', 'configure taxonomies', 'configure navs', 'configure sites', 'configure globals'])
                 || $this->holdsForAny($user, $this->collectionHandles(), fn (string $h): array => ["reorder {$h} entries"])
                 || $this->holdsForAny($user, $this->navHandles(), fn (string $h): array => ["edit {$h} nav"]),
 
@@ -219,10 +220,10 @@ class ScopeAvailability
             // permission, or the scope alone once the site waives that.
             TokenScope::BlueprintsRead => ! config('statamic.mcp.resources.require_statamic_permission', true)
                 || $this->holdsAny($user, ['configure fields', 'configure collections', 'configure taxonomies']),
-            TokenScope::BlueprintsWrite => $user->hasPermission('configure fields'),
+            TokenScope::BlueprintsAdmin => $user->hasPermission('configure fields'),
 
             TokenScope::UsersRead => $user->hasPermission('view users'),
-            TokenScope::UsersWrite => $this->holdsAny($user, [
+            TokenScope::UsersAdmin => $this->holdsAny($user, [
                 'create users', 'edit users', 'delete users', 'assign roles', 'edit roles', 'edit user groups',
             ]),
 
@@ -232,6 +233,12 @@ class ScopeAvailability
             // may still carry them. Available when their content is.
             TokenScope::ContentRead => $this->allows($user, TokenScope::EntriesRead) || $this->allows($user, TokenScope::TermsRead),
             TokenScope::ContentWrite => $this->allows($user, TokenScope::EntriesWrite) || $this->allows($user, TokenScope::TermsWrite),
+
+            // Replaced in v4; refused above.
+            TokenScope::StructuresWrite,
+            TokenScope::BlueprintsWrite,
+            TokenScope::UsersWrite,
+            TokenScope::SystemWrite => false,
         };
     }
 

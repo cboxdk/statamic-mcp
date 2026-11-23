@@ -155,7 +155,7 @@ trait RouterHelpers
                 ]);
 
                 return $this->createErrorResponse(
-                    "Token missing required scope: {$scope->value}"
+                    "Token missing required scope: {$scope->value}" . self::replacedScopeHint($mcpToken->scopes, $scope)
                 )->toArray();
             }
         }
@@ -200,6 +200,23 @@ trait RouterHelpers
     }
 
     /**
+     * Tells the holder of a v3 scope that v4 renamed it, so the refusal
+     * explains itself instead of reading like a token that never had access.
+     *
+     * @param  array<int, string>  $held
+     */
+    private static function replacedScopeHint(array $held, TokenScope $missing): string
+    {
+        foreach ($held as $value) {
+            if (TokenScope::tryFrom($value)?->replacedBy() === $missing) {
+                return " ({$value} was replaced by {$missing->value} in v4; approve the token again)";
+            }
+        }
+
+        return '';
+    }
+
+    /**
      * Get required token scope for action. Maps actions to TokenScope enum.
      * Override in routers for domain-specific scope mapping.
      */
@@ -214,7 +231,7 @@ trait RouterHelpers
             'restore_revision', 'publish_working_copy',
         ]);
 
-        return TokenScope::tryFrom("{$domain}:" . ($isWrite ? 'write' : 'read'));
+        return $isWrite ? TokenScope::writeFor($domain) : TokenScope::tryFrom("{$domain}:read");
     }
 
     /**

@@ -109,25 +109,19 @@ final class DoctorCommand extends Command
             $add('storage.lock_contract', 'fail', 'The configured lock store could not be resolved. Details are omitted to protect credentials.');
         }
         try {
-            $legacyFull = 0;
-            $narrowed = 0;
+            $counts = ['full_access' => 0, 'replaced' => 0, 'publish_delete' => 0];
             foreach (app(TokenStore::class)->listAll() as $token) {
-                if (in_array(TokenScope::FullAccess->value, $token->scopes, true)) {
-                    $legacyFull++;
-
-                    continue;
-                }
-                foreach (['entries:write' => ['entries:publish', 'entries:delete'], 'terms:write' => ['terms:delete'], 'assets:write' => ['assets:delete']] as $write => $extras) {
-                    if (in_array($write, $token->scopes, true) && array_diff($extras, $token->scopes) !== []) {
-                        $narrowed++;
-
-                        break;
-                    }
+                foreach (array_keys(TokenScope::v3Changes($token->scopes)) as $change) {
+                    $counts[$change]++;
                 }
             }
+            [$legacyFull, $replaced, $narrowed] = [$counts['full_access'], $counts['replaced'], $counts['publish_delete']];
             $add('migration.full_access', $legacyFull === 0 ? 'pass' : 'warn', $legacyFull === 0
                 ? 'No token carries the v3 full-access scope.'
                 : "{$legacyFull} token(s) carry the v3 full-access scope (*), which v4 refuses. Their owners must create a new token or authorize the client again.");
+            $add('migration.admin_scopes', $replaced === 0 ? 'pass' : 'warn', $replaced === 0
+                ? 'No token carries a v3 admin write scope.'
+                : "{$replaced} token(s) carry structures:write, blueprints:write, users:write or system:write, which v4 replaced with :admin scopes. Run php artisan mcp:statamic:install to review them.");
             $add('migration.publish_delete', $narrowed === 0 ? 'pass' : 'warn', $narrowed === 0
                 ? 'No write token lost publish or delete access in v4.'
                 : "{$narrowed} token(s) can still edit but no longer publish or delete: v4 grants those through entries:publish, entries:delete, terms:delete and assets:delete.");

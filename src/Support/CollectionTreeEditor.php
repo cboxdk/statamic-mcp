@@ -55,7 +55,7 @@ class CollectionTreeEditor implements CollectionTreeEditorContract
                 if (! $token instanceof McpTokenData) {
                     $this->refuse('Invalid MCP token context.');
                 }
-                $scopes = $write ? [TokenScope::EntriesWrite, TokenScope::StructuresWrite] : [TokenScope::EntriesRead, TokenScope::StructuresRead];
+                $scopes = $write ? [TokenScope::EntriesWrite, TokenScope::StructuresAdmin] : [TokenScope::EntriesRead, TokenScope::StructuresRead];
                 foreach ($scopes as $scope) {
                     if (! app(TokenService::class)->hasScope($token, $scope)) {
                         $this->refuse("Token missing required scope: {$scope->value}");

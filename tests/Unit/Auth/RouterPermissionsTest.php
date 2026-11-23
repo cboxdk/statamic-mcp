@@ -664,7 +664,7 @@ describe('BlueprintsRouter Permission Definitions', function () {
     it('still denies a write to that editor with require_statamic_permission off', function () {
         Config::set('statamic.mcp.resources.require_statamic_permission', false);
         actAsUser(createMockUser(permissions: ['view blog entries', 'edit blog entries']));
-        setMcpTokenOnRequest(createToken([TokenScope::BlueprintsWrite->value]));
+        setMcpTokenOnRequest(createToken([TokenScope::BlueprintsAdmin->value]));
 
         $result = $this->router->execute([
             'action' => 'create',

@@ -126,7 +126,7 @@ class EntriesRouter extends BaseRouter
 
             'data' => JsonSchema::object()
                 ->description(
-                    'Parent: data.parent is an entry id in this collection/site, or null for the top level. Create and update persist it in the collection tree; requires reorder permission plus entries:write and structures:write. Parent cannot be combined with other changes on a published entry using revisions. Entry field values. Structure must match the collection blueprint including nested types '
+                    'Parent: data.parent is an entry id in this collection/site, or null for the top level. Create and update persist it in the collection tree; requires reorder permission plus entries:write and structures:admin. Parent cannot be combined with other changes on a published entry using revisions. Entry field values. Structure must match the collection blueprint including nested types '
                     . '(bard, replicator, grid). Use statamic-blueprints action "get" with the collection\'s '
                     . 'blueprint handle to see required fields, types, and nesting before sending data.'
                 ),

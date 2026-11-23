@@ -7,6 +7,7 @@ namespace Cboxdk\StatamicMcp\Http\Controllers\OAuth;
 use Carbon\Carbon;
 use Cboxdk\StatamicMcp\Actions\CapabilitySnapshot;
 use Cboxdk\StatamicMcp\Auth\ScopeAvailability;
+use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\OAuth\Cimd\CimdClientId;
 use Cboxdk\StatamicMcp\OAuth\Cimd\CimdFetchException;
@@ -170,8 +171,9 @@ class OAuthTokenController extends Controller
         $expiresAt = Carbon::now()->addSeconds($tokenTtl);
 
         // Removing a scope registration ends the old grant; never silently reinterpret it.
-        // So does a v3 grant of `*`: full access is now an explicit list the user approves.
-        if (array_diff($scopes, app(ScopeAvailability::class)->names()) !== [] || in_array('*', $scopes, true)) {
+        // So does a v3 grant of `*` or of a scope v4 replaced: the user approves the v4 list.
+        $v3 = TokenScope::v3Changes($scopes);
+        if (array_diff($scopes, app(ScopeAvailability::class)->names()) !== [] || isset($v3['full_access']) || isset($v3['replaced'])) {
             $this->oauthDriver->revokeRefreshTokensFor($userId, $clientId);
             $this->tokenService->revokeOAuthTokens($userId, $clientId);
 

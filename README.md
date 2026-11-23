@@ -140,7 +140,7 @@ that is not a `BaseRouter` is refused at registration. See
 - **Single file per domain**: Easy maintenance and testing
 
 ### Security
-- Scoped API tokens with 25 granular permissions
+- Scoped API tokens with 29 granular permissions
 - OAuth 2.1 authorization server with PKCE and dynamic client registration
 - Bearer tokens and OAuth
 - Rate limiting per token

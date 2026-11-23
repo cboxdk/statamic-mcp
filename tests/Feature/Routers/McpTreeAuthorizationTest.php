@@ -204,7 +204,7 @@ class McpTreeAuthorizationTest extends TestCase
     {
         app()->instance(TokenService::class, (new \ReflectionClass(TokenService::class))->newInstanceWithoutConstructor());
         request()->attributes->set('mcp_token', new McpTokenData('probe', 'user', 'Test', '', ['entries:write'], null, null, Carbon::now()));
-        $this->rejected('structures:write');
+        $this->rejected('structures:admin');
     }
 
     public function test_structural_field_policy_is_enforced(): void

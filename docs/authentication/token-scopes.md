@@ -1,6 +1,6 @@
 ---
 title: "Token Scopes"
-description: "All 25 granular permission scopes for controlling what AI assistants can access via MCP tokens"
+description: "All 29 granular permission scopes for controlling what AI assistants can access via MCP tokens"
 weight: 1
 ---
 
@@ -16,7 +16,7 @@ Every API token carries a set of scopes that control which tools and actions the
 | `content:read` | Read entries, terms, and globals across all content routers |
 | `content:write` | Create, update, delete content across all content routers |
 | `blueprints:read` | Read blueprint definitions and field schemas |
-| `blueprints:write` | Create, update, delete blueprints |
+| `blueprints:admin` | Create, update, delete blueprints (v3: `blueprints:write`) |
 | `entries:read` | Read entries across collections |
 | `entries:write` | Create and update entries (as drafts), edit published content |
 | `entries:publish` | Publish, unpublish, publish a working copy, create or update with `published: true`. Needs `entries:write` too |
@@ -27,14 +27,14 @@ Every API token carries a set of scopes that control which tools and actions the
 | `globals:read` | Read global sets and their values |
 | `globals:write` | Update global values, manage global sets |
 | `structures:read` | Read collections, taxonomies, navigations, sites |
-| `structures:write` | Create, update, delete structural configuration |
+| `structures:admin` | Create, update, delete structural configuration (v3: `structures:write`) |
 | `assets:read` | Read asset containers and files |
 | `assets:write` | Upload, move, copy, edit assets |
 | `assets:delete` | Delete assets and containers. Needs `assets:write` too |
 | `users:read` | Read user data, roles, groups |
-| `users:write` | Create, update, delete users and role assignments |
+| `users:admin` | Create, update, delete users and role assignments (v3: `users:write`) |
 | `system:read` | Read system info, health status, cache state, config |
-| `system:write` | Clear caches, manage system operations |
+| `system:admin` | Clear caches, manage system operations (v3: `system:write`) |
 | `content-facade:read` | Read content audit and cross-reference data |
 | `content-facade:write` | Write content facade operations |
 
@@ -87,8 +87,9 @@ When a tool is called via the web endpoint, the `RequireMcpPermission` middlewar
 - A `:read` scope covers read operations (list, get)
 - A `:write` scope covers create and update. In the entries, terms and assets
   domains, publishing and deleting need their own scope on top of it
-  (`entries:publish`, `entries:delete`, `terms:delete`, `assets:delete`). In the
-  admin domains (structures, blueprints, users, system), `:write` covers delete.
+  (`entries:publish`, `entries:delete`, `terms:delete`, `assets:delete`).
+- The admin domains (structures, blueprints, users, system) use `:admin` for every
+  change, delete included.
 - Read scopes do **not** grant write access
 - `*` is not a wildcard. A token still carrying it from v3 is refused, see below.
 
@@ -104,7 +105,13 @@ When a tool is called via the web endpoint, the `RequireMcpPermission` middlewar
   `terms:delete` or `assets:delete` where a token should. Until then such calls
   answer `Token missing required scope: …`, and a create that would have been
   published is saved as a draft.
-- `php artisan mcp:doctor` counts the tokens affected by each change.
+- **`structures:write`, `blueprints:write`, `users:write` and `system:write` stop
+  working.** v4 replaced them with `:admin` scopes. A token holding one is refused
+  with a message naming its replacement; approve the token again.
+- Run `php artisan mcp:statamic:install`: on an existing installation it keeps your
+  config, sets the stdio profile, runs migrations, lists every affected token and
+  offers to revoke the ones that no longer work. `php artisan mcp:doctor` counts
+  them.
 - Tools other packages register in a domain with no scope of its own can no
   longer be reached by any token. In v3 a `*` token reached them.
 
@@ -114,8 +121,8 @@ A scope never grants more than the token's user may do: every call also checks t
 user's Statamic permissions. So the dashboard, token creation and the OAuth consent
 screen offer only the scopes the user can actually exercise — an editor who may edit
 blog entries is offered `entries:read` and `entries:write` (and `entries:publish` or
-`entries:delete` if they may publish or delete), not `users:write` or `*`.
-Only super admins can hold `*`, `system:write` and the content-facade scopes.
+`entries:delete` if they may publish or delete), not `users:admin` or `*`.
+Only super admins can hold `*`, `system:admin` and the content-facade scopes.
 
 See [`security.scopes_follow_permissions`](../configuration/reference.md#scopes_follow_permissions)
 for the details and the switch to turn it off.

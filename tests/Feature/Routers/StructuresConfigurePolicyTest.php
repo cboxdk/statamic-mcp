@@ -205,9 +205,9 @@ class StructuresConfigurePolicyTest extends TestCase
     {
         return [
             'unauthenticated' => [null, true, ['demo'], null],
-            'read-only token' => [TokenScope::StructuresRead, true, ['demo'], 'Token missing required scope: structures:write'],
-            'missing permission' => [TokenScope::StructuresWrite, false, ['demo'], 'Permission denied: Cannot configure structures'],
-            'resource policy' => [TokenScope::StructuresWrite, true, ['other'], "Write access to 'demo' is not permitted by resource policy"],
+            'read-only token' => [TokenScope::StructuresRead, true, ['demo'], 'Token missing required scope: structures:admin'],
+            'missing permission' => [TokenScope::StructuresAdmin, false, ['demo'], 'Permission denied: Cannot configure structures'],
+            'resource policy' => [TokenScope::StructuresAdmin, true, ['other'], "Write access to 'demo' is not permitted by resource policy"],
         ];
     }
 
@@ -245,7 +245,7 @@ class StructuresConfigurePolicyTest extends TestCase
         $this->assertStringContainsString('configure (resource_type, handle, config)', $schema['properties']['action']['description']);
     }
 
-    private function token(string $transport, TokenScope $scope = TokenScope::StructuresWrite, bool $permitted = true): string
+    private function token(string $transport, TokenScope $scope = TokenScope::StructuresAdmin, bool $permitted = true): string
     {
         $permissions = $permitted
             ? ['configure collections', 'configure taxonomies', 'configure globals', 'edit demo nav']
