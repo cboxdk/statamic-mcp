@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Browser clients from an origin listed in `web.allowed_origins` can connect again. laravel/mcp 1.2 added its own Origin check to the web endpoint, which knew only `mcp.allowed_origins`, so those origins got 403 `Forbidden: The request origin is not allowed.` before CORS was reached. The endpoint now accepts both lists and still refuses every other origin.
+
 ## [3.6.1] - 2026-11-10
 
 ### Security

@@ -91,7 +91,7 @@ class HandleMcpCors
 
         /** @var string $origin */
         $origin = $request->header('Origin', '');
-        if ($origin !== '' && $this->isOriginAllowed($origin, $allowedOrigins)) {
+        if ($origin !== '' && self::isOriginAllowed($origin, $allowedOrigins)) {
             $response->headers->set('Access-Control-Allow-Origin', $origin);
             $response->headers->set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
             $response->headers->set('Access-Control-Allow-Headers', implode(', ', self::ALLOWED_HEADERS));
@@ -111,7 +111,7 @@ class HandleMcpCors
         /** @var string $origin */
         $origin = $request->header('Origin', '');
 
-        if ($origin !== '' && $this->isOriginAllowed($origin, $allowedOrigins)) {
+        if ($origin !== '' && self::isOriginAllowed($origin, $allowedOrigins)) {
             $response->headers->set('Access-Control-Allow-Origin', $origin);
             $response->headers->set('Vary', 'Origin');
         }
@@ -120,11 +120,25 @@ class HandleMcpCors
     }
 
     /**
+     * Whether `statamic.mcp.web.allowed_origins` admits this origin.
+     */
+    public static function allowsOrigin(string $origin): bool
+    {
+        $allowedOrigins = config('statamic.mcp.web.allowed_origins', []);
+
+        if (! is_array($allowedOrigins) || $allowedOrigins === []) {
+            return false;
+        }
+
+        return self::isOriginAllowed($origin, array_values(array_filter($allowedOrigins, is_string(...))));
+    }
+
+    /**
      * Check if the given origin is in the allowed list.
      *
      * @param  array<int, string>  $allowedOrigins
      */
-    private function isOriginAllowed(string $origin, array $allowedOrigins): bool
+    private static function isOriginAllowed(string $origin, array $allowedOrigins): bool
     {
         if (in_array('*', $allowedOrigins, true)) {
             if (app()->environment('production')) {
