@@ -25,6 +25,8 @@ enum TokenScope: string
     case TermsWrite = 'terms:write';
     case GlobalsRead = 'globals:read';
     case GlobalsWrite = 'globals:write';
+    case FormsRead = 'forms:read';
+    case FormsWrite = 'forms:write';
     case ContentFacadeRead = 'content-facade:read';
     case ContentFacadeWrite = 'content-facade:write';
 
@@ -53,6 +55,8 @@ enum TokenScope: string
             self::TermsWrite => 'Write Terms',
             self::GlobalsRead => 'Read Globals',
             self::GlobalsWrite => 'Write Globals',
+            self::FormsRead => 'Read Forms',
+            self::FormsWrite => 'Write Forms',
             self::ContentFacadeRead => 'Read Content Facade',
             self::ContentFacadeWrite => 'Write Content Facade',
         };
@@ -83,6 +87,8 @@ enum TokenScope: string
             self::TermsWrite => 'Create, update, and delete taxonomy terms.',
             self::GlobalsRead => 'View global sets and their values.',
             self::GlobalsWrite => 'Update global set values.',
+            self::FormsRead => 'View forms and their settings.',
+            self::FormsWrite => 'Create, configure, and delete forms.',
             self::ContentFacadeRead => 'Run content audits and cross-reference analysis.',
             self::ContentFacadeWrite => 'Execute content workflow operations.',
         };
@@ -104,6 +110,7 @@ enum TokenScope: string
             self::EntriesRead, self::EntriesWrite => 'entries',
             self::TermsRead, self::TermsWrite => 'terms',
             self::GlobalsRead, self::GlobalsWrite => 'globals',
+            self::FormsRead, self::FormsWrite => 'forms',
             self::ContentFacadeRead, self::ContentFacadeWrite => 'content-facade',
         };
     }

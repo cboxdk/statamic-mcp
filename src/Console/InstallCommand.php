@@ -640,6 +640,7 @@ class InstallCommand extends Command
         $this->line('  • statamic-entries   - Manage entries across all collections (CRUD, publish/unpublish)');
         $this->line('  • statamic-terms     - Manage taxonomy terms (CRUD operations)');
         $this->line('  • statamic-globals   - Manage global set values (list, get, update)');
+        $this->line('  • statamic-forms     - Create and configure forms (list, get, create, update, delete)');
         $this->line('  • statamic-structures - Collections, taxonomies, navigations, sites (30+ operations)');
         $this->line('  • statamic-assets    - Asset containers and file operations (20+ operations)');
         $this->line('  • statamic-users     - Users, roles, user groups, permissions (25+ operations)');
@@ -692,6 +693,11 @@ Requires Statamic v6+ and laravel/mcp ^0.6, ^0.7 or ^0.8.
 **Purpose**: Manage global set values
 **Actions**: list, get, update
 **Example**: `{"action": "get", "handle": "site_settings"}`
+
+#### statamic-forms
+**Purpose**: Create forms and manage their settings (fields are the form's blueprint)
+**Actions**: list, get, create, update, delete
+**Example**: `{"action": "update", "handle": "contact", "data": {"store": true}}`
 
 #### statamic-structures
 **Purpose**: Manage all structural elements of your Statamic site
@@ -813,6 +819,7 @@ The Statamic MCP Server uses a router-based architecture with 11 tools:
 - **statamic-entries**: Manage entries across all collections (CRUD, publish/unpublish)
 - **statamic-terms**: Manage taxonomy terms (CRUD operations)
 - **statamic-globals**: Manage global set values (list, get, update)
+- **statamic-forms**: Create and configure forms (list, get, create, update, delete)
 - **statamic-structures**: Structural elements (collections, taxonomies, navigations, sites - 26+ ops)
 - **statamic-assets**: Complete asset management (containers, files, metadata - 20+ ops)
 - **statamic-users**: User and permission management (users, roles, groups - 24+ ops)
@@ -840,6 +847,7 @@ Web MCP endpoints use scoped API tokens for fine-grained access control:
 - `assets:read` / `assets:write` - Asset operations
 - `users:read` / `users:write` - User management
 - `globals:read` / `globals:write` - Global set operations
+- `forms:read` / `forms:write` - Form settings
 - `blueprints:read` / `blueprints:write` - Blueprint management
 - `system:read` / `system:write` - System operations
 - `structures:read` / `structures:write` - Navigation management

@@ -149,6 +149,36 @@ Global set structure and values management with multi-site support.
 | `get` | Get global set | `handle`, `site` |
 | `update` | Update values | `handle`, `site`, `data`, `merge_strategy` |
 
+### `statamic-forms`
+
+Create, configure and delete forms. A form's **fields** are its blueprint — edit them with
+`statamic-blueprints` (`namespace: "forms"`, `handle: <form handle>`). Submissions are not exposed.
+
+| Action | Description | Key Parameters |
+|--------|-------------|----------------|
+| `list` | List forms with a settings summary | `limit`, `offset` |
+| `get` | Get a form's settings, blueprint field handles, addon settings it accepts and the configured mailers | `handle` |
+| `create` | Create a form | `data.title`, optional `handle` (defaults to the snake_cased title) and other `data` settings |
+| `update` | Change settings — only the keys sent change | `handle`, `data` |
+| `delete` | Delete a form **and all its stored submissions** | `handle` |
+
+`data` accepts the settings the Control Panel's *Configure Form* screen edits:
+
+- `title` — string
+- `honeypot` — name of the hidden anti-spam field; `null` resets it to `honeypot`. Refused when it names a
+  blueprint field, since Statamic discards every submission that fills the honeypot.
+- `store` — boolean, whether submissions are stored
+- `email` — list of notifications, replacing the whole list. Each takes `to` (required), `cc`, `bcc`, `from`,
+  `reply_to`, `subject`, `html`, `text`, `mailer` (strings) and `markdown`, `attachments` (booleans).
+- any setting an addon registered with `Form::appendConfigFields()`, validated against its own field config
+
+Unknown keys are refused rather than ignored. Every action requires Statamic's `configure forms` permission,
+as in the Control Panel, and creating a second form requires Statamic Pro.
+
+```json
+{"action": "create", "handle": "contact", "data": {"title": "Contact", "email": [{"to": "info@example.com", "subject": "New enquiry"}]}}
+```
+
 ### `statamic-structures`
 
 Manage collections, taxonomies, navigations, and site configuration. Requires a `resource_type` parameter (`collection`, `taxonomy`, `navigation`, `site`, `globalset`).

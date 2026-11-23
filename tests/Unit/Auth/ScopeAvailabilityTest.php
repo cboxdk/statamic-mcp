@@ -209,3 +209,17 @@ it('offers structure writes to collection reorderers without navigation permissi
     Config::set('statamic.mcp.tools.structures.resources.write', []);
     expect($this->availability->allows($editor, TokenScope::StructuresWrite))->toBeFalse();
 });
+
+it('offers the forms scopes only to holders of configure forms', function () {
+    $editor = userHolding(['access cp', 'view contact form submissions']);
+    $configurer = userHolding(['access cp', 'configure forms']);
+
+    expect($this->availability->allows($editor, TokenScope::FormsRead))->toBeFalse()
+        ->and($this->availability->allows($editor, TokenScope::FormsWrite))->toBeFalse()
+        ->and($this->availability->allows($configurer, TokenScope::FormsRead))->toBeTrue()
+        ->and($this->availability->allows($configurer, TokenScope::FormsWrite))->toBeTrue();
+
+    Config::set('statamic.mcp.tools.forms.enabled', false);
+
+    expect($this->availability->allows($configurer, TokenScope::FormsRead))->toBeFalse();
+});

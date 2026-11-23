@@ -61,6 +61,7 @@ The server registers a set of domain routers — each handling a specific Statam
 | `statamic-entries` | list, get, create, update, localize, delete, publish, unpublish, list_revisions, get_revision, restore_revision, publish_working_copy | Entry operations with filtering, localization, and revisions |
 | `statamic-terms` | list, get, create, update, delete | Taxonomy term operations with slug conflict prevention |
 | `statamic-globals` | list, get, update | Global set structure and values with multi-site support |
+| `statamic-forms` | list, get, create, update, delete | Form settings: title, honeypot, submission storage, email notifications |
 | `statamic-structures` | list, get, create, update, delete, configure | Collections, taxonomies, navigations, sites |
 | `statamic-assets` | list, get, create, update, delete, upload, move, copy | Asset container and file operations |
 | `statamic-users` | list, get, create, update, delete, assign-role | User CRUD with role and group management |

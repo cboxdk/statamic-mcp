@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`statamic-forms`: create forms and change their settings.** Until now a form could only have its fields edited, through its blueprint. The new router lists, reads, creates, updates and deletes forms, covering the settings the Control Panel's *Configure Form* screen edits: title, honeypot, whether submissions are stored, email notifications, and any settings an addon registers with `Form::appendConfigFields()`. `update` changes only the keys it is sent; unknown keys are refused. It requires Statamic's `configure forms` permission and the new `forms:read`/`forms:write` token scopes; `delete`, which also removes the form's submissions, goes through the confirmation gate. Toggle it with `STATAMIC_MCP_TOOL_FORMS_ENABLED`, and restrict it per form with `tools.forms.resources`. It is reached through `search_tools`/`execute_tools`. Submissions are not exposed.
+
 ## [3.6.2] - 2026-11-23
 
 ### Fixed
