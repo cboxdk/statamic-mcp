@@ -91,7 +91,7 @@ class AssetsRouter extends BaseRouter
             'filename' => JsonSchema::string()
                 ->description('Target filename for create/upload operations. Example: "logo.png", "document.pdf". The extension must be one Statamic accepts for uploads.'),
             'folder' => JsonSchema::string()
-                ->description('Folder inside the container to upload into. Example: "uploads/cases". Default: the container root.'),
+                ->description('Folder inside the container. For upload: the folder to upload into. For list: only list assets in this folder (set recursive to include its subfolders). Example: "uploads/cases". Default: the container root.'),
             'content' => JsonSchema::string()
                 ->description('File content as a string. For binary files (images, PDFs): set encoding=base64 and pass the base64-encoded file data. For text files (CSV, JSON, HTML): use encoding=raw (default). Required for create action and for upload action when file_path is not available.'),
             'source_url' => JsonSchema::string()
@@ -106,9 +106,9 @@ class AssetsRouter extends BaseRouter
             'include_counts' => JsonSchema::boolean()
                 ->description('Include asset and folder counts. Can be slow with large containers — omit for faster responses'),
             'recursive' => JsonSchema::boolean()
-                ->description('Include assets in subdirectories when listing. Default: false (root folder only)'),
+                ->description('Include assets in subdirectories of the listed folder. Default: false (only the folder itself, the container root when no folder is given)'),
             'filters' => JsonSchema::object()
-                ->description('Filter conditions for list operations as key-value pairs'),
+                ->description('Filter conditions for list operations as key-value pairs. Supported: "folder", the same as the folder argument'),
         ]);
     }
 
@@ -425,10 +425,15 @@ class AssetsRouter extends BaseRouter
                 return $this->createErrorResponse("Asset container not found: {$container}")->toArray();
             }
 
-            $allAssets = $assetContainer->assets();
-            if (! $recursive) {
-                $allAssets = $allAssets->where('folder', '');
+            $filters = is_array($arguments['filters'] ?? null) ? $arguments['filters'] : [];
+            $folder = $this->assetFolder($arguments['folder'] ?? $filters['folder'] ?? null);
+            if ($folder === null) {
+                return $this->createErrorResponse("folder must be a path inside the container, such as 'uploads/cases', without '.' or '..' segments")->toArray();
             }
+
+            // Statamic reports root assets with folder '/', not ''. Its own
+            // assets() resolves the root and subfolders, recursive or not.
+            $allAssets = $assetContainer->assets($folder === '' ? '/' : $folder, $recursive);
 
             $total = $allAssets->count();
             $limit = $this->getIntegerArgument($arguments, 'limit', 50, 1, 500);
