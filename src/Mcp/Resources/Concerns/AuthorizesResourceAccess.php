@@ -4,15 +4,12 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Resources\Concerns;
 
-use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
-use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\Authorization\InstallationProfile;
-use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
+use Cboxdk\StatamicMcp\Authorization\McpAuthorizer;
+use Cboxdk\StatamicMcp\Authorization\McpCall;
 use Cboxdk\StatamicMcp\Support\McpContext;
-use Illuminate\Support\Facades\Log;
 use Laravel\Mcp\Response;
-use Statamic\Contracts\Auth\User;
 
 /**
  * Authorization for MCP resources.
@@ -20,9 +17,9 @@ use Statamic\Contracts\Auth\User;
  * Resources are a second read surface alongside tools, and the route middleware
  * only authenticates — RequireMcpPermission defers scope checks to "the tool
  * level". Without this trait a resource would hand out data that the equivalent
- * tool call would refuse, so every resource read runs the same four gates a
- * router read does: tool enablement, token scope, resource policy, and the
- * underlying Statamic permission.
+ * tool call would refuse, so every resource read asks McpAuthorizer, the same
+ * decision a router read asks: token scope, Statamic permission and resource
+ * policy, after the installation profile and the resources switch.
  */
 trait AuthorizesResourceAccess
 {
@@ -45,86 +42,40 @@ trait AuthorizesResourceAccess
         if ($denial !== null) {
             return $denial;
         }
-        // CLI runs as the site operator; the resource policy still applies below.
-        $isCli = McpContext::isCli();
-
-        if (! $isCli) {
-            $domain = $this->domain();
-
-            // Deliberately NOT gated on tools.{domain}.enabled. That switch turns
-            // off a tool that can create, update and delete; sites keeping their
-            // content model in Git switch it off for exactly that reason, and
-            // doing so also removed the only read-only way to learn a
-            // blueprint's fields — while the server's own instructions tell
-            // agents to read the blueprint before every write (#54). Reads have
-            // their own switch.
-            if (! config('statamic.mcp.resources.enabled', true)) {
-                return 'MCP resources are disabled';
-            }
-
-            /** @var User|null $user */
-            $user = auth()->user();
-
-            if (! $user) {
-                return 'Authentication required';
-            }
-
-            /** @var McpTokenData|null $token */
-            $token = request()->attributes->get('mcp_token');
-
-            if ($token !== null) {
-                $scope = TokenScope::tryFrom("{$domain}:read");
-
-                /** @var TokenService $tokenService */
-                $tokenService = app(TokenService::class);
-
-                if ($scope !== null && ! $tokenService->hasScope($token, $scope)) {
-                    Log::warning('MCP resource denied: token missing scope', [
-                        'domain' => $domain,
-                        'required_scope' => $scope->value,
-                        'token_id' => $token->id,
-                        'ip' => request()->ip(),
-                    ]);
-
-                    return "Token missing required scope: {$scope->value}";
-                }
-            }
-
-            if (
-                config('statamic.mcp.resources.require_statamic_permission', true)
-                && ! $user->isSuper()
-                && ! $this->hasStatamicPermission($user)
-            ) {
-                return 'Insufficient Statamic permissions';
-            }
+        // Deliberately NOT gated on tools.{domain}.enabled. That switch turns
+        // off a tool that can create, update and delete; sites keeping their
+        // content model in Git switch it off for exactly that reason, and
+        // doing so also removed the only read-only way to learn a blueprint's
+        // fields — while the server's own instructions tell agents to read the
+        // blueprint before every write (#54). Reads have their own switch.
+        if (! McpContext::isCli() && ! config('statamic.mcp.resources.enabled', true)) {
+            return 'MCP resources are disabled';
         }
 
-        // The resource policy is a site-wide admin policy and applies in every
-        // context, CLI included.
-        if ($handle !== null) {
-            /** @var ResourcePolicy $policy */
-            $policy = app(ResourcePolicy::class);
+        $scope = TokenScope::tryFrom("{$this->domain()}:read");
 
-            if (! $policy->canAccess($this->domain(), $handle, 'read')) {
-                return "Read access to '{$handle}' is not permitted by resource policy";
-            }
-        }
-
-        return null;
+        return app(McpAuthorizer::class)->denial(new McpCall(
+            domain: $this->domain(),
+            action: 'get',
+            scopes: $scope === null ? [] : [$scope],
+            permissions: config('statamic.mcp.resources.require_statamic_permission', true) ? [$this->requiredPermissions()] : [],
+            handle: $handle,
+            mode: 'read',
+        ));
     }
 
     /**
-     * The Statamic permission backing this resource's domain.
+     * The Statamic permissions backing this resource's domain: any one of them.
      *
      * The same three BlueprintsRouter accepts on its read actions: the two
      * surfaces serve the same data, so they must not disagree about who may
      * see it. Change one, change the other.
+     *
+     * @return list<string>
      */
-    protected function hasStatamicPermission(User $user): bool
+    protected function requiredPermissions(): array
     {
-        return $user->hasPermission('configure fields')
-            || $user->hasPermission('configure collections')
-            || $user->hasPermission('configure taxonomies');
+        return ['configure fields', 'configure collections', 'configure taxonomies'];
     }
 
     /**

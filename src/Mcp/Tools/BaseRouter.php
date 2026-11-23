@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools;
 
+use Cboxdk\StatamicMcp\Authorization\McpAuthorizer;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\BuildsPaginatedResponse;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\EnforcesResourcePolicy;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\RequiresConfirmation;
@@ -142,17 +143,11 @@ abstract class BaseRouter extends BaseStatamicTool
 
         $action = is_string($arguments['action'] ?? null) ? $arguments['action'] : '';
 
-        if ($this->isWebContext()) {
-            $permissionError = $this->checkWebPermissions($action, $arguments);
-            if ($permissionError) {
-                return $permissionError;
-            }
-        }
-
-        // Resource policy check (applies in ALL contexts — site-wide admin policy)
-        $resourceError = $this->checkResourceAccess($action, $arguments);
-        if ($resourceError) {
-            return $resourceError;
+        // Token scope and Statamic permissions (HTTP), resource policy (every
+        // transport): the same decision resources ask for.
+        $denial = app(McpAuthorizer::class)->denial($this->describeCall($action, $arguments));
+        if ($denial !== null) {
+            return $this->createErrorResponse($denial)->toArray();
         }
 
         // Confirmation check (skipped in CLI and when disabled)

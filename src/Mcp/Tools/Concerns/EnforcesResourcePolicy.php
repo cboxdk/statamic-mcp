@@ -15,38 +15,6 @@ use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 trait EnforcesResourcePolicy
 {
     /**
-     * Check if the current action is allowed on the target resource.
-     *
-     * Returns an error response array if denied, or null if allowed.
-     *
-     * @param  array<string, mixed>  $arguments
-     *
-     * @return array<string, mixed>|null
-     */
-    protected function checkResourceAccess(string $action, array $arguments): ?array
-    {
-        $handle = $this->resolveResourceHandle($arguments);
-
-        // No handle to check (e.g., list without collection filter) — allow
-        if ($handle === null) {
-            return null;
-        }
-
-        $mode = $this->isWriteAction($action) ? 'write' : 'read';
-
-        /** @var ResourcePolicy $policy */
-        $policy = app(ResourcePolicy::class);
-
-        if (! $policy->canAccess($this->getDomain(), $handle, $mode)) {
-            return $this->createErrorResponse(
-                ucfirst($mode) . " access to '{$handle}' is not permitted by resource policy"
-            )->toArray();
-        }
-
-        return null;
-    }
-
-    /**
      * Filter denied fields from input arguments.
      *
      * @param  array<string, mixed>  $arguments
@@ -199,7 +167,7 @@ trait EnforcesResourcePolicy
     /**
      * Check if an action is a write action.
      */
-    private function isWriteAction(string $action): bool
+    protected function isWriteAction(string $action): bool
     {
         return in_array($action, [
             'create', 'generate', 'update', 'delete', 'publish', 'unpublish', 'localize',

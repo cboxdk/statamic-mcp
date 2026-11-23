@@ -5,12 +5,10 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Concerns;
 
 use Cboxdk\StatamicMcp\Auth\TokenScope;
-use Cboxdk\StatamicMcp\Auth\TokenService;
+use Cboxdk\StatamicMcp\Authorization\McpCall;
 use Cboxdk\StatamicMcp\Mcp\ExtraTools;
-use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Cboxdk\StatamicMcp\Support\McpContext;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Statamic\Contracts\Auth\User;
 use Statamic\Facades\Site;
@@ -86,134 +84,30 @@ trait RouterHelpers
     }
 
     /**
-     * Check permissions for web context operations.
-     *
-     * Nested permission model:
-     * 1. MCP token scopes (does the token allow this domain/action?)
-     * 2. Statamic user permissions (does the underlying user have CMS rights?)
+     * This call as McpAuthorizer needs to know it.
      *
      * @param  array<string, mixed>  $arguments
-     *
-     * @return array<string, mixed>|null
      */
-    protected function checkWebPermissions(string $action, array $arguments): ?array
+    protected function describeCall(string $action, array $arguments): McpCall
     {
-        /** @var User|null $user */
-        $user = auth()->user();
+        $scope = $this->getRequiredTokenScope($action);
+        $scopes = $scope === null ? [] : [$scope];
 
-        if (! $user) {
-            return $this->createErrorResponse('Permission denied: Authentication required')->toArray();
+        // Publishing and deleting need their own scope on top of write.
+        $extra = TokenScope::extraFor($this->getDomain(), $action);
+        if ($scope !== null && $extra !== null) {
+            $scopes[] = $extra;
         }
 
-        // Layer 1: Check MCP token scopes
-        /** @var McpTokenData|null $mcpToken */
-        $mcpToken = request()->attributes->get('mcp_token');
-
-        if ($mcpToken) {
-            if (in_array(TokenScope::FullAccess->value, $mcpToken->scopes, true)) {
-                // A v3 token carrying `*` would grow to cover every scope
-                // added later. v4 fixes full access to an explicit list
-                // when a token is issued, so this one must be approved again.
-                return $this->createErrorResponse(
-                    'This token was issued with full access (*) before v4. Full access must be approved again: '
-                    . 'create a new token, or authorize the client again.'
-                )->toArray();
-            }
-
-            $requiredScope = $this->getRequiredTokenScope($action);
-
-            // A tool another package added, in a domain this package has no
-            // scope for, would otherwise need none. Fail closed: no token
-            // carries a scope for it. Such a tool must become a registered
-            // action with its own scope.
-            if ($requiredScope === null && ExtraTools::isRegistered(static::class)) {
-                return $this->createErrorResponse(
-                    'This tool declares no token scope. Tools from other packages must be registered actions with their own scope.'
-                )->toArray();
-            }
-
-            // Publishing and deleting need their own scope on top of write.
-            $requiredScopes = $requiredScope === null ? [] : [$requiredScope];
-            $extraScope = TokenScope::extraFor($this->getDomain(), $action);
-            if ($requiredScope !== null && $extraScope !== null) {
-                $requiredScopes[] = $extraScope;
-            }
-
-            /** @var TokenService $tokenService */
-            $tokenService = app(TokenService::class);
-            foreach ($requiredScopes as $scope) {
-                if ($tokenService->hasScope($mcpToken, $scope)) {
-                    continue;
-                }
-
-                Log::warning('MCP permission denied: token missing scope', [
-                    'domain' => $this->getDomain(),
-                    'action' => $action,
-                    'required_scope' => $scope->value,
-                    'token_id' => $mcpToken->id,
-                    'ip' => request()->ip(),
-                ]);
-
-                return $this->createErrorResponse(
-                    "Token missing required scope: {$scope->value}" . self::replacedScopeHint($mcpToken->scopes, $scope)
-                )->toArray();
-            }
-        }
-
-        // Layer 2: Check Statamic user permissions
-        // Super admins pass all Statamic permission checks
-        if ($user->isSuper()) {
-            return null;
-        }
-
-        $requiredPermissions = $this->getRequiredPermissions($action, $arguments);
-
-        // A tool another package added that declares no Statamic permission
-        // would otherwise be open to every Control Panel user, through Basic
-        // Auth or any token carrying its scope. Fail closed, as the scope
-        // check above does: only a super admin may reach it until the router
-        // says which permission it needs.
-        if ($requiredPermissions === [] && ExtraTools::isRegistered(static::class)) {
-            $requiredPermissions = ['super'];
-        }
-
-        foreach ($requiredPermissions as $permission) {
-            // A nested list is satisfied by any one of its permissions.
-            $granted = is_array($permission)
-                ? array_filter($permission, fn (string $alternative): bool => $user->hasPermission($alternative)) !== []
-                : $user->hasPermission($permission);
-
-            if (! $granted) {
-                Log::warning('MCP permission denied: missing Statamic permission', [
-                    'domain' => $this->getDomain(),
-                    'action' => $action,
-                    'missing_permission' => is_array($permission) ? implode(' | ', $permission) : $permission,
-                    'user_id' => method_exists($user, 'id') ? $user->id() : $user->getAuthIdentifier(),
-                    'ip' => request()->ip(),
-                ]);
-
-                return $this->createErrorResponse("Permission denied: Cannot {$action} " . $this->getDomain())->toArray();
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Tells the holder of a v3 scope that v4 renamed it, so the refusal
-     * explains itself instead of reading like a token that never had access.
-     *
-     * @param  array<int, string>  $held
-     */
-    private static function replacedScopeHint(array $held, TokenScope $missing): string
-    {
-        foreach ($held as $value) {
-            if (TokenScope::tryFrom($value)?->replacedBy() === $missing) {
-                return " ({$value} was replaced by {$missing->value} in v4; approve the token again)";
-            }
-        }
-
-        return '';
+        return new McpCall(
+            domain: $this->getDomain(),
+            action: $action,
+            scopes: $scopes,
+            permissions: $this->getRequiredPermissions($action, $arguments),
+            handle: $this->resolveResourceHandle($arguments),
+            mode: $this->isWriteAction($action) ? 'write' : 'read',
+            extraTool: ExtraTools::isRegistered(static::class),
+        );
     }
 
     /**

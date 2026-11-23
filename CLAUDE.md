@@ -90,6 +90,10 @@ Granular resource-level access control configured in `config/statamic/mcp.php`:
 - **Field filtering:** Denied fields silently stripped from both input and output
 
 ### Authorization Evaluation Order (Web Context)
+Steps 2–4 are one decision, `Authorization\McpAuthorizer::denial(McpCall)`, asked by both tools
+(`BaseRouter` via `RouterHelpers::describeCall()`) and resources (`AuthorizesResourceAccess`).
+Add a gate there, not in one surface, or tools and resources drift apart again.
+
 1. Tool enabled? → `config: tools.{domain}.enabled`
 2. Token scope? → `TokenScope: {domain}:{read|write}`
 3. Resource allowed? → `ResourcePolicy::canAccess(domain, handle, mode)`

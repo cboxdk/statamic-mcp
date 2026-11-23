@@ -128,7 +128,7 @@ class McpResourcesTest extends TestCase
 
         $this->mcpResource(BlueprintIndexResource::class)
             ->assertOk()
-            ->assertSee(['"success":false', 'Insufficient Statamic permissions']);
+            ->assertSee(['"success":false', 'Permission denied: Cannot get blueprints']);
 
         config(['statamic.mcp.resources.require_statamic_permission' => false]);
 
