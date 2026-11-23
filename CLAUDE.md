@@ -843,6 +843,13 @@ carry no `Access-Control-Allow-Origin`, and the browser would hide both the 400 
 explanation behind a generic network error. Group middleware runs first, which puts CORS
 outermost. **Keep it there.**
 
+Since laravel/mcp 1.2, `Mcp::web()` also attaches `ValidateOrigin`, which answers 403 to
+any `Origin` that is not localhost, `app.url` or in `mcp.allowed_origins` — so the
+addon's own `statamic.mcp.web.allowed_origins` locked out exactly the browser clients it
+was meant to admit. `registerWebMcp()` swaps it **in place** for `ValidateMcpOrigin`,
+which also accepts what `HandleMcpCors::allowsOrigin()` accepts, on this endpoint's
+routes only. Keep the two lists agreeing.
+
 `HandleMcpCors::ALLOWED_HEADERS` must list every header a client is required to send.
 Since protocol 2026-07-28 that includes `MCP-Protocol-Version`, `Mcp-Method` and
 `Mcp-Name` — a browser is blocked if it sends a header the preflight did not allow, and
