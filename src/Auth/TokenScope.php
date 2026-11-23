@@ -13,6 +13,7 @@ enum TokenScope: string
     case StructuresWrite = 'structures:write';
     case AssetsRead = 'assets:read';
     case AssetsWrite = 'assets:write';
+    case AssetsDelete = 'assets:delete';
     case UsersRead = 'users:read';
     case UsersWrite = 'users:write';
     case SystemRead = 'system:read';
@@ -21,8 +22,11 @@ enum TokenScope: string
     case BlueprintsWrite = 'blueprints:write';
     case EntriesRead = 'entries:read';
     case EntriesWrite = 'entries:write';
+    case EntriesPublish = 'entries:publish';
+    case EntriesDelete = 'entries:delete';
     case TermsRead = 'terms:read';
     case TermsWrite = 'terms:write';
+    case TermsDelete = 'terms:delete';
     case GlobalsRead = 'globals:read';
     case GlobalsWrite = 'globals:write';
     case ContentFacadeRead = 'content-facade:read';
@@ -40,7 +44,8 @@ enum TokenScope: string
             self::StructuresRead => 'Read Structures',
             self::StructuresWrite => 'Write Structures',
             self::AssetsRead => 'Read Assets',
-            self::AssetsWrite => 'Write Assets',
+            self::AssetsWrite => 'Edit Assets',
+            self::AssetsDelete => 'Delete Assets',
             self::UsersRead => 'Read Users',
             self::UsersWrite => 'Write Users',
             self::SystemRead => 'Read System',
@@ -48,9 +53,12 @@ enum TokenScope: string
             self::BlueprintsRead => 'Read Blueprints',
             self::BlueprintsWrite => 'Write Blueprints',
             self::EntriesRead => 'Read Entries',
-            self::EntriesWrite => 'Write Entries',
+            self::EntriesWrite => 'Edit Entries',
+            self::EntriesPublish => 'Publish Entries',
+            self::EntriesDelete => 'Delete Entries',
             self::TermsRead => 'Read Terms',
-            self::TermsWrite => 'Write Terms',
+            self::TermsWrite => 'Edit Terms',
+            self::TermsDelete => 'Delete Terms',
             self::GlobalsRead => 'Read Globals',
             self::GlobalsWrite => 'Write Globals',
             self::ContentFacadeRead => 'Read Content Facade',
@@ -64,13 +72,14 @@ enum TokenScope: string
     public function description(): string
     {
         return match ($this) {
-            self::FullAccess => 'Grants unrestricted access to all MCP tools and actions.',
+            self::FullAccess => 'Every scope you can hold today. Fixed when the token is issued: scopes added later are not included.',
             self::ContentRead => 'View entries and taxonomy terms.',
             self::ContentWrite => 'Create, update, and delete entries and terms.',
             self::StructuresRead => 'View collections, taxonomies, navigations, and sites.',
             self::StructuresWrite => 'Create, update, and delete collections, taxonomies, and navigations.',
             self::AssetsRead => 'View asset containers and files.',
-            self::AssetsWrite => 'Upload, move, and delete assets.',
+            self::AssetsWrite => 'Upload, move, copy, and edit assets. Deleting needs Delete Assets.',
+            self::AssetsDelete => 'Delete assets and asset containers. Also needs Edit Assets.',
             self::UsersRead => 'View users, roles, and groups.',
             self::UsersWrite => 'Create, update, and delete users and assign roles.',
             self::SystemRead => 'View system info, health checks, and configuration.',
@@ -78,9 +87,12 @@ enum TokenScope: string
             self::BlueprintsRead => 'View blueprints and fieldsets.',
             self::BlueprintsWrite => 'Create, update, and delete blueprints.',
             self::EntriesRead => 'View entries across collections.',
-            self::EntriesWrite => 'Create, update, delete, and publish entries.',
+            self::EntriesWrite => 'Create and update entries as drafts, and edit published content. Publishing and deleting need their own scopes.',
+            self::EntriesPublish => 'Publish and unpublish entries, and create them published. Also needs Edit Entries.',
+            self::EntriesDelete => 'Delete entries. Also needs Edit Entries.',
             self::TermsRead => 'View taxonomy terms.',
-            self::TermsWrite => 'Create, update, and delete taxonomy terms.',
+            self::TermsWrite => 'Create and update taxonomy terms. Deleting needs Delete Terms.',
+            self::TermsDelete => 'Delete taxonomy terms. Also needs Edit Terms.',
             self::GlobalsRead => 'View global sets and their values.',
             self::GlobalsWrite => 'Update global set values.',
             self::ContentFacadeRead => 'Run content audits and cross-reference analysis.',
@@ -97,14 +109,31 @@ enum TokenScope: string
             self::FullAccess => 'access',
             self::ContentRead, self::ContentWrite => 'content',
             self::StructuresRead, self::StructuresWrite => 'structures',
-            self::AssetsRead, self::AssetsWrite => 'assets',
+            self::AssetsRead, self::AssetsWrite, self::AssetsDelete => 'assets',
             self::UsersRead, self::UsersWrite => 'users',
             self::SystemRead, self::SystemWrite => 'system',
             self::BlueprintsRead, self::BlueprintsWrite => 'blueprints',
-            self::EntriesRead, self::EntriesWrite => 'entries',
-            self::TermsRead, self::TermsWrite => 'terms',
+            self::EntriesRead, self::EntriesWrite, self::EntriesPublish, self::EntriesDelete => 'entries',
+            self::TermsRead, self::TermsWrite, self::TermsDelete => 'terms',
             self::GlobalsRead, self::GlobalsWrite => 'globals',
             self::ContentFacadeRead, self::ContentFacadeWrite => 'content-facade',
+        };
+    }
+
+    /**
+     * The scope an action needs on top of its domain's write scope, if any.
+     *
+     * Publishing and deleting are separate grants: a v3 `entries:write`
+     * token keeps editing in v4, but cannot publish or delete until those
+     * scopes are approved for it. Admin domains (structures, blueprints,
+     * users, system) have no finer grant; their write scope covers delete.
+     */
+    public static function extraFor(string $domain, string $action): ?self
+    {
+        return match ($action) {
+            'publish', 'unpublish', 'publish_working_copy' => self::tryFrom("{$domain}:publish"),
+            'delete' => self::tryFrom("{$domain}:delete"),
+            default => null,
         };
     }
 

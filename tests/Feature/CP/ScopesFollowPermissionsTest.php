@@ -6,6 +6,7 @@ namespace Cboxdk\StatamicMcp\Tests\Feature\CP;
 
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
+use Cboxdk\StatamicMcp\Contracts\TokenStore;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
 use Cboxdk\StatamicMcp\OAuth\OAuthClient;
 use Cboxdk\StatamicMcp\Tests\Concerns\InteractsWithOAuthConsent;
@@ -206,9 +207,9 @@ class ScopesFollowPermissionsTest extends TestCase
 
     public function test_a_token_minted_before_the_cap_can_still_be_edited(): void
     {
-        /** @var TokenService $tokens */
-        $tokens = $this->app->make(TokenService::class);
-        $token = $tokens->createToken('editor-1', 'Legacy', [TokenScope::FullAccess])['model'];
+        // A v3 token: written to the store directly, since v4 no longer issues `*`.
+        $token = $this->app->make(TokenStore::class)
+            ->create('editor-1', 'Legacy', hash('sha256', 'legacy-secret'), ['*'], null);
 
         // The edit form resends every scope the token holds.
         $this->actingAs($this->editor)
@@ -233,10 +234,13 @@ class ScopesFollowPermissionsTest extends TestCase
             ->get($this->authorizeUrl() . '?' . http_build_query($this->oauthParams('*')))
             ->assertOk();
 
+        // `*` is spelled out as the editor's own scopes, all pre-checked.
         $response->assertSee('Read Entries');
         $response->assertSee('Read Structures');
-        $response->assertSee('Write Entries');
+        $response->assertSee('Edit Entries');
         $response->assertDontSee('Full Access');
+        $response->assertDontSee('name="scopes[]" value="*"', false);
+        $response->assertDontSee('Publish Entries');
         $response->assertDontSee('Write Users');
     }
 
@@ -266,6 +270,12 @@ class ScopesFollowPermissionsTest extends TestCase
             'code_verifier' => self::CODE_VERIFIER,
         ])->assertOk();
 
-        $this->assertSame('content:read content:write structures:read entries:read entries:write', $exchange->json('scope'));
+        // The legacy content umbrellas are not part of an expanded `*`, so
+        // the approved list is the editor's concrete reach, stored explicitly.
+        $this->assertSame('structures:read entries:read entries:write', $exchange->json('scope'));
+
+        $issued = $this->app->make(TokenService::class)->validateToken((string) $exchange->json('access_token'));
+        $this->assertNotNull($issued);
+        $this->assertNotContains('*', $issued->scopes);
     }
 }

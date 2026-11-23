@@ -25,7 +25,7 @@ class RevocationTest extends TestCase
         $result = $this->tokenService->createToken(
             'user-revoke',
             'Revocation Test Token',
-            [TokenScope::FullAccess],
+            [TokenScope::ContentRead],
             Carbon::now()->addDay(),
         );
 
@@ -81,7 +81,7 @@ class RevocationTest extends TestCase
         $result = $this->tokenService->createToken(
             'user-revoke-auth',
             'Revocation Auth Test Token',
-            [TokenScope::FullAccess],
+            [TokenScope::ContentRead],
         );
 
         $plainToken = $result['token'];

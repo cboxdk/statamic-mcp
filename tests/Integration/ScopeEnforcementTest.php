@@ -75,25 +75,78 @@ class ScopeEnforcementTest extends TestCase
         $this->assertStringContainsString('Token missing required scope', $createResult['errors'][0]);
     }
 
-    public function test_wildcard_token_allows_create(): void
+    public function test_legacy_wildcard_token_is_refused(): void
     {
         $user = $this->createSuperUser();
         auth()->shouldUse('web');
         auth()->setUser($user);
 
-        $token = $this->createTokenWithScopes([TokenScope::FullAccess->value]);
-        request()->attributes->set('mcp_token', $token);
+        request()->attributes->set('mcp_token', $this->createTokenWithScopes([TokenScope::FullAccess->value]));
 
-        $router = new EntriesRouter;
-
-        $result = $router->execute([
-            'action' => 'create',
+        $result = (new EntriesRouter)->execute([
+            'action' => 'list',
             'collection' => $this->collectionHandle,
-            'data' => ['title' => 'Wildcard Entry'],
         ]);
 
-        $this->assertTrue($result['success']);
-        $this->assertTrue($result['data']['created']);
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('must be approved again', $result['errors'][0]);
+    }
+
+    public function test_write_token_edits_but_needs_its_own_scopes_to_publish_and_delete(): void
+    {
+        $user = $this->createSuperUser();
+        auth()->shouldUse('web');
+        auth()->setUser($user);
+
+        request()->attributes->set('mcp_token', $this->createTokenWithScopes([
+            TokenScope::EntriesRead->value, TokenScope::EntriesWrite->value,
+        ]));
+        $router = new EntriesRouter;
+
+        // Create succeeds, but as a draft: publishing is not this token's to do.
+        $created = $router->execute([
+            'action' => 'create',
+            'collection' => $this->collectionHandle,
+            'data' => ['title' => 'Draft only'],
+        ]);
+        $this->assertTrue($created['success']);
+        $this->assertFalse($created['data']['entry']['published']);
+        $id = $created['data']['entry']['id'];
+
+        $updated = $router->execute([
+            'action' => 'update',
+            'collection' => $this->collectionHandle,
+            'id' => $id,
+            'data' => ['title' => 'Edited'],
+        ]);
+        $this->assertTrue($updated['success']);
+
+        // Asking to publish explicitly is refused, not silently downgraded.
+        $explicit = $router->execute([
+            'action' => 'create',
+            'collection' => $this->collectionHandle,
+            'data' => ['title' => 'Wants live', 'published' => true],
+        ]);
+        $this->assertFalse($explicit['success']);
+        $this->assertStringContainsString('Token missing required scope: entries:publish', $explicit['errors'][0]);
+
+        foreach (['publish' => 'entries:publish', 'unpublish' => 'entries:publish', 'delete' => 'entries:delete'] as $action => $scope) {
+            $refused = $router->execute(['action' => $action, 'collection' => $this->collectionHandle, 'id' => $id]);
+            $this->assertFalse($refused['success'], $action);
+            $this->assertStringContainsString("Token missing required scope: {$scope}", $refused['errors'][0]);
+        }
+
+        request()->attributes->set('mcp_token', $this->createTokenWithScopes([
+            TokenScope::EntriesRead->value, TokenScope::EntriesWrite->value,
+            TokenScope::EntriesPublish->value, TokenScope::EntriesDelete->value,
+        ]));
+
+        $published = $router->execute(['action' => 'publish', 'collection' => $this->collectionHandle, 'id' => $id]);
+        $this->assertTrue($published['success']);
+        $this->assertTrue($published['data']['entry']['published']);
+
+        $deleted = $router->execute(['action' => 'delete', 'collection' => $this->collectionHandle, 'id' => $id]);
+        $this->assertTrue($deleted['success']);
     }
 
     public function test_blueprints_read_token_allows_list_but_denies_create(): void

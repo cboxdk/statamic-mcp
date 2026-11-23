@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
+use Cboxdk\StatamicMcp\Auth\TokenScope;
+use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\Authorization\InstallationProfile;
 use Cboxdk\StatamicMcp\Contracts\CollectionTreeEditor;
 use Cboxdk\StatamicMcp\Mcp\Exceptions\FieldFormatException;
@@ -14,6 +16,7 @@ use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\HandlesRevisions;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ParsesDateValues;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\SanitizesFieldData;
+use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Cboxdk\StatamicMcp\Support\McpContext;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
@@ -1459,6 +1462,14 @@ class EntriesRouter extends BaseRouter
 
         if ($user === null || ! $user->can('view', $entry->site()) || ! $user->can($ability, $entry)) {
             return $this->createErrorResponse("Permission denied: your account may not {$ability} this entry (author or site restriction)")->toArray();
+        }
+
+        // Publishing through the `published` flag on create or update is
+        // still publishing: an edit-only token may not do it.
+        $token = request()->attributes->get('mcp_token');
+        if ($ability === 'publish' && $token instanceof McpTokenData
+            && ! app(TokenService::class)->hasScope($token, TokenScope::EntriesPublish)) {
+            return $this->createErrorResponse('Token missing required scope: ' . TokenScope::EntriesPublish->value)->toArray();
         }
 
         return null;

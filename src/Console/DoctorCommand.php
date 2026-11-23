@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Console;
 
 use Cboxdk\StatamicMcp\Actions\Operations\FileOperationStore;
+use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Contracts\DurableAuditStore;
+use Cboxdk\StatamicMcp\Contracts\TokenStore;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
 use Cboxdk\StatamicMcp\OAuth\Drivers\BuiltInOAuthDriver;
 use Cboxdk\StatamicMcp\Storage\Tokens\FileTokenStore;
@@ -106,7 +108,33 @@ final class DoctorCommand extends Command
         } catch (\Throwable) {
             $add('storage.lock_contract', 'fail', 'The configured lock store could not be resolved. Details are omitted to protect credentials.');
         }
-        $add('migration.consent', 'warn', 'Legacy broad scopes require explicit v4 consent. This command does not migrate tokens, approvals or content.');
+        try {
+            $legacyFull = 0;
+            $narrowed = 0;
+            foreach (app(TokenStore::class)->listAll() as $token) {
+                if (in_array(TokenScope::FullAccess->value, $token->scopes, true)) {
+                    $legacyFull++;
+
+                    continue;
+                }
+                foreach (['entries:write' => ['entries:publish', 'entries:delete'], 'terms:write' => ['terms:delete'], 'assets:write' => ['assets:delete']] as $write => $extras) {
+                    if (in_array($write, $token->scopes, true) && array_diff($extras, $token->scopes) !== []) {
+                        $narrowed++;
+
+                        break;
+                    }
+                }
+            }
+            $add('migration.full_access', $legacyFull === 0 ? 'pass' : 'warn', $legacyFull === 0
+                ? 'No token carries the v3 full-access scope.'
+                : "{$legacyFull} token(s) carry the v3 full-access scope (*), which v4 refuses. Their owners must create a new token or authorize the client again.");
+            $add('migration.publish_delete', $narrowed === 0 ? 'pass' : 'warn', $narrowed === 0
+                ? 'No write token lost publish or delete access in v4.'
+                : "{$narrowed} token(s) can still edit but no longer publish or delete: v4 grants those through entries:publish, entries:delete, terms:delete and assets:delete.");
+        } catch (\Throwable) {
+            $add('migration.full_access', 'fail', 'The token store could not be read. Details are omitted to protect credentials.');
+        }
+        $add('migration.consent', 'warn', 'This command does not migrate tokens, approvals or content.');
         $add('storage.verification', 'warn', 'Check protected storage paths, committed SQL connections, retention jobs and crash recovery separately; no write or lock probe was performed.');
         $failed = count(array_filter($checks, static fn (array $check): bool => $check['status'] === 'fail'));
         if ($this->option('json')) {

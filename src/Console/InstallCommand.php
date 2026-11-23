@@ -844,9 +844,10 @@ Web MCP endpoints use scoped API tokens for fine-grained access control:
 - CLI mode (php artisan mcp:start) requires an explicit installation profile; only operator permits administration
 
 ### Available Scopes
-- `content:read` / `content:write` - Entry and term operations
+- `entries:read` / `entries:write` - Entry reads and edits; `entries:publish` and `entries:delete` to publish or delete
+- `terms:read` / `terms:write` - Term reads and edits; `terms:delete` to delete
 - `structures:read` / `structures:write` - Collection and taxonomy management
-- `assets:read` / `assets:write` - Asset operations
+- `assets:read` / `assets:write` - Asset operations; `assets:delete` to delete
 - `users:read` / `users:write` - User management
 - `globals:read` / `globals:write` - Global set operations
 - `blueprints:read` / `blueprints:write` - Blueprint management

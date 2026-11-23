@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Tests\Feature;
 
+use Cboxdk\StatamicMcp\Auth\ScopeAvailability;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\ServiceProvider;
@@ -37,7 +38,7 @@ class WebEndpointProtocolTest extends TestCase
         $created = app(TokenService::class)->createToken(
             (string) $user->id(),
             'protocol-test',
-            [TokenScope::FullAccess],
+            app(ScopeAvailability::class)->expandFullAccess($user, [TokenScope::FullAccess->value]),
         );
 
         $this->token = $created['token'];

@@ -15,6 +15,7 @@ use Cboxdk\StatamicMcp\Actions\ScopeRegistry;
 use Cboxdk\StatamicMcp\Actions\Transport\ContextFactory;
 use Cboxdk\StatamicMcp\Actions\Transport\RegisteredReadTool;
 use Cboxdk\StatamicMcp\Auth\TokenService;
+use Cboxdk\StatamicMcp\Contracts\TokenStore;
 use Cboxdk\StatamicMcp\Support\McpContext;
 use Cboxdk\StatamicMcp\Testing\FakeLifecycleObserver;
 use Cboxdk\StatamicMcp\Testing\InteractsWithMcp;
@@ -93,7 +94,9 @@ class RegisteredReadTransportTest extends TestCase
     {
         $actor = User::make()->email('legacy@example.test')->makeSuper();
         $actor->save();
-        $this->secret = app(TokenService::class)->createToken($actor->id(), 'Legacy', ['*'])['token'];
+        // A v3 token: written to the store directly, since v4 no longer issues `*`.
+        $this->secret = 'legacy-wildcard-secret';
+        app(TokenStore::class)->create((string) $actor->id(), 'Legacy', hash('sha256', $this->secret), ['*'], null);
         $name = $this->definition()->toolName();
         $catalog = $this->rpc('tools/list')->assertOk()->json('result.tools');
         $this->assertNotContains($name, array_column($catalog, 'name'));

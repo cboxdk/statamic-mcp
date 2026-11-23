@@ -52,6 +52,10 @@ class TokenService
             throw new \InvalidArgumentException('Cannot issue a token with unregistered scopes.');
         }
 
+        if (in_array(TokenScope::FullAccess->value, $scopeStrings, true)) {
+            throw new \InvalidArgumentException('Full access (*) is issued as an explicit scope list; expand it with ScopeAvailability::expandFullAccess().');
+        }
+
         if ($capabilities === null && array_filter($scopeStrings, fn (string $scope): bool => TokenScope::tryFrom($scope) === null) !== []) {
             throw new \InvalidArgumentException('Registered actions require explicit capability consent.');
         }
@@ -151,6 +155,10 @@ class TokenService
 
             $existing = $this->tokenStore->find($tokenId);
             $scopeValues = $scopes === null ? null : array_map(fn (TokenScope|string $scope): string => $scope instanceof TokenScope ? $scope->value : $scope, $scopes);
+            if ($scopeValues !== null && in_array(TokenScope::FullAccess->value, $scopeValues, true)
+                && ! in_array(TokenScope::FullAccess->value, $existing->scopes ?? [], true)) {
+                throw new \InvalidArgumentException('Full access (*) is issued as an explicit scope list; expand it with ScopeAvailability::expandFullAccess().');
+            }
             $scopesChanged = $existing !== null && $scopeValues !== null
                 && (array_diff($scopeValues, $existing->scopes) !== [] || array_diff($existing->scopes, $scopeValues) !== []);
             $expiryChanged = $existing !== null && (($expiresAt !== null && ($existing->expiresAt === null || ! $expiresAt->equalTo($existing->expiresAt)))
@@ -351,8 +359,10 @@ class TokenService
      */
     public function hasScope(McpTokenData $token, TokenScope $scope): bool
     {
-        return in_array('*', $token->scopes, true)
-            || in_array($scope->value, $token->scopes, true);
+        // `*` is not a wildcard. A v3 token carrying it would otherwise
+        // cover every scope added since, which nobody approved; v4 issues
+        // full access as an explicit list (ScopeAvailability::expandFullAccess).
+        return in_array($scope->value, $token->scopes, true);
     }
 
     private static function grantId(McpTokenData $token): string

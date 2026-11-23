@@ -58,7 +58,7 @@
                             <td>
                                 <div class="flex flex-wrap gap-1">
                                     <template v-if="token.scopes?.length">
-                                        <ui-badge v-if="token.scopes.includes('*')" text="Full Access" color="purple" size="sm" />
+                                        <ui-badge v-if="token.scopes.includes('*')" text="Legacy full access: approve again" color="red" size="sm" />
                                         <template v-else>
                                             <ui-badge v-for="scope in token.scopes.slice(0, 3)" :key="scope" :text="scopeLabel(scope)" color="blue" size="sm" />
                                             <ui-badge v-if="token.scopes.length > 3" :text="'+' + (token.scopes.length - 3)" color="default" size="sm" />
@@ -231,6 +231,15 @@ const presetDefinitions = [
             'content:read', 'content:write', 'entries:read', 'entries:write',
             'terms:read', 'terms:write', 'globals:read', 'globals:write',
             'blueprints:read', 'structures:read', 'assets:read', 'assets:write',
+        ],
+    },
+    {
+        name: 'Content Publisher',
+        scopes: [
+            'content:read', 'content:write', 'entries:read', 'entries:write',
+            'entries:publish', 'entries:delete',
+            'terms:read', 'terms:write', 'terms:delete', 'globals:read', 'globals:write',
+            'blueprints:read', 'structures:read', 'assets:read', 'assets:write', 'assets:delete',
         ],
     },
     {

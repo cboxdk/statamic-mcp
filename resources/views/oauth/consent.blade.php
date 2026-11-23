@@ -70,36 +70,19 @@
             <p class="scopes-label">Choose permissions to grant:</p>
             <div class="scopes">
                 @php
-                    $requestedWildcard = collect($scopes)->contains(fn($s) => $s['value'] === '*');
-                    $defaultWildcard = $requestedWildcard && in_array('*', $defaultScopes);
-                    $individualScopes = collect($scopes)->filter(fn($s) => $s['value'] !== '*')->values();
+                    // A client asking for `*` asked for everything the user can
+                    // grant. The list below is that, spelled out: full access is
+                    // approved as explicit scopes, never as a wildcard.
+                    $requestedWildcard = $requestedFullAccess ?? false;
                 @endphp
-                @if ($fullAccessAvailable ?? true)
-                <label class="scope" style="font-weight: 600; border-bottom: 2px solid #e5e7eb;">
-                    <input type="checkbox" name="scopes[]" value="*" id="full-access"
-                        {{ $requestedWildcard || $defaultWildcard ? 'checked' : '' }}>
-                    Full Access
-                </label>
-                @endif
-                <div id="individual-scopes" style="{{ $requestedWildcard || $defaultWildcard ? 'display:none' : '' }}">
-                    @foreach ($individualScopes as $scope)
-                        <label class="scope scope-individual">
-                            <input type="checkbox" name="scopes[]" value="{{ $scope['value'] }}"
-                                {{ in_array($scope['value'], $defaultScopes) || $requestedWildcard || $defaultWildcard ? 'checked' : '' }}>
-                            {{ $scope['label'] }}
-                        </label>
-                    @endforeach
-                </div>
+                @foreach ($scopes as $scope)
+                    <label class="scope scope-individual">
+                        <input type="checkbox" name="scopes[]" value="{{ $scope['value'] }}"
+                            {{ $requestedWildcard || in_array($scope['value'], $defaultScopes) ? 'checked' : '' }}>
+                        {{ $scope['label'] }}
+                    </label>
+                @endforeach
             </div>
-            <script>
-                var fullAccess = document.getElementById('full-access');
-                if (fullAccess) {
-                    fullAccess.addEventListener('change', function() {
-                        var container = document.getElementById('individual-scopes');
-                        container.style.display = this.checked ? 'none' : '';
-                    });
-                }
-            </script>
 
             <div class="buttons">
                 <button type="submit" name="decision" value="deny" class="btn btn-deny">Deny</button>

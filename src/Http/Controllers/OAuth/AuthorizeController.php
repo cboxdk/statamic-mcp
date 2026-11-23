@@ -7,6 +7,7 @@ namespace Cboxdk\StatamicMcp\Http\Controllers\OAuth;
 use Cboxdk\StatamicMcp\Actions\CapabilityRegistry;
 use Cboxdk\StatamicMcp\Actions\CapabilitySnapshot;
 use Cboxdk\StatamicMcp\Auth\ScopeAvailability;
+use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\OAuth\Cimd\CimdClientId;
 use Cboxdk\StatamicMcp\OAuth\Cimd\CimdFetchException;
 use Cboxdk\StatamicMcp\OAuth\Cimd\CimdResolver;
@@ -164,9 +165,10 @@ class AuthorizeController extends Controller
 
         // Offer only what this user can exercise. A client asking for more
         // than that is not an error — it asked for its full feature set, and
-        // a `*` is narrowed to the user's own reach — but one asking for
+        // a `*` is spelled out as the user's own reach — but one asking for
         // nothing the user has gets told so.
         $availability = app(ScopeAvailability::class);
+        $requestedFullAccess = in_array(TokenScope::FullAccess->value, array_column($requestedScopes, 'value'), true);
         $requestedScopes = array_map(
             fn (string $value): array => ['value' => $value, 'label' => $availability->label($value)],
             $availability->grantable($user, array_column($requestedScopes, 'value')),
@@ -223,7 +225,7 @@ class AuthorizeController extends Controller
             'client' => $client,
             'scopes' => $requestedScopes,
             'defaultScopes' => $defaultScopes,
-            'fullAccessAvailable' => in_array('*', array_column($requestedScopes, 'value'), true),
+            'requestedFullAccess' => $requestedFullAccess,
             'oauthParams' => [
                 'client_id' => $clientId,
                 'redirect_uri' => $redirectUri,

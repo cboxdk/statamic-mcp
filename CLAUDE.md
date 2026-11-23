@@ -24,7 +24,16 @@ The addon provides scoped API tokens for fine-grained MCP access control:
 - **Token Management**: Via Statamic CP dashboard (Tools → MCP → Tokens)
 - **Token Storage**: Eloquent model (`McpToken`) with SHA-256 hashed tokens
 - **Guard**: Custom `McpTokenGuard` registered as the `mcp` auth guard
-- **Scopes**: 21 granular scopes via `TokenScope` enum (e.g., `content:read`, `content:write`, `*`)
+- **Scopes**: 25 scopes via `TokenScope` enum (e.g., `entries:read`, `entries:write`, `entries:publish`, `*`)
+- **Publish and delete are their own grants** in the entries, terms and assets domains
+  (`TokenScope::extraFor()`): `checkWebPermissions()` requires them on top of `{domain}:write`,
+  and `EntriesRouter::authorizeResolvedEntry()` requires `entries:publish` for a `published`
+  flag on create/update too. Admin domains keep `:write` for delete.
+- **`*` is not a wildcard** (`TokenService::hasScope()`). It is expanded to an explicit list at
+  issuance (`ScopeAvailability::expandFullAccess()`, called by the CP and OAuth consent paths);
+  `createToken()` refuses a raw `*`, and a v3 token or refresh grant carrying one is refused so the
+  user approves again. Do not reintroduce a wildcard: it silently grants every scope a later
+  release adds.
 
 ### Key Auth Classes
 - `src/Auth/TokenScope.php` — Backed string enum with scope helpers
@@ -44,7 +53,7 @@ list, meaning "any one of these" (used by the blueprint read actions).
 ### Extra tools
 `src/Mcp/ExtraTools.php` holds tools other packages register (`StatamicMcpServer::registerTool()`
 or `statamic.mcp.extra_tools`). They must extend `BaseRouter`, and `RouterHelpers::checkWebPermissions()`
-fails closed for them twice: a domain with no `TokenScope` requires `*`, and an empty
+fails closed for them twice: a domain with no `TokenScope` is refused for every token, and an empty
 `getRequiredPermissions()` requires a super admin. Built-in routers are not affected by
 either rule. `statamic-system-schema` describes extra tools from `BaseRouter::catalogEntry()`,
 and `statamic-system-discover` recommends one only when it declares `discoveryKeywords()`.

@@ -170,7 +170,8 @@ class OAuthTokenController extends Controller
         $expiresAt = Carbon::now()->addSeconds($tokenTtl);
 
         // Removing a scope registration ends the old grant; never silently reinterpret it.
-        if (array_diff($scopes, app(ScopeAvailability::class)->names()) !== []) {
+        // So does a v3 grant of `*`: full access is now an explicit list the user approves.
+        if (array_diff($scopes, app(ScopeAvailability::class)->names()) !== [] || in_array('*', $scopes, true)) {
             $this->oauthDriver->revokeRefreshTokensFor($userId, $clientId);
             $this->tokenService->revokeOAuthTokens($userId, $clientId);
 

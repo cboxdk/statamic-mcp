@@ -1,6 +1,6 @@
 ---
 title: "Token Scopes"
-description: "All 21 granular permission scopes for controlling what AI assistants can access via MCP tokens"
+description: "All 25 granular permission scopes for controlling what AI assistants can access via MCP tokens"
 weight: 1
 ---
 
@@ -12,21 +12,25 @@ Every API token carries a set of scopes that control which tools and actions the
 
 | Scope | Description |
 |-------|-------------|
-| `*` | Full access to all tools and actions |
+| `*` | Full access: expanded to an explicit list when the token is issued (see below) |
 | `content:read` | Read entries, terms, and globals across all content routers |
 | `content:write` | Create, update, delete content across all content routers |
 | `blueprints:read` | Read blueprint definitions and field schemas |
 | `blueprints:write` | Create, update, delete blueprints |
 | `entries:read` | Read entries across collections |
-| `entries:write` | Create, update, publish, unpublish, delete entries |
+| `entries:write` | Create and update entries (as drafts), edit published content |
+| `entries:publish` | Publish, unpublish, publish a working copy, create or update with `published: true`. Needs `entries:write` too |
+| `entries:delete` | Delete entries. Needs `entries:write` too |
 | `terms:read` | Read taxonomy terms |
-| `terms:write` | Create, update, delete terms |
+| `terms:write` | Create and update terms |
+| `terms:delete` | Delete terms. Needs `terms:write` too |
 | `globals:read` | Read global sets and their values |
 | `globals:write` | Update global values, manage global sets |
 | `structures:read` | Read collections, taxonomies, navigations, sites |
 | `structures:write` | Create, update, delete structural configuration |
 | `assets:read` | Read asset containers and files |
-| `assets:write` | Upload, move, copy, delete assets |
+| `assets:write` | Upload, move, copy, edit assets |
+| `assets:delete` | Delete assets and containers. Needs `assets:write` too |
 | `users:read` | Read user data, roles, groups |
 | `users:write` | Create, update, delete users and role assignments |
 | `system:read` | Read system info, health status, cache state, config |
@@ -54,9 +58,21 @@ content:read, content:write, entries:read, entries:write,
 terms:read, terms:write, globals:read, globals:write
 ```
 
-### Full Development
+### Publishing
 
-For local development only — unrestricted access. Only a super admin can hold it:
+Content editing plus publishing and deleting:
+
+```
+content:read, content:write, entries:read, entries:write,
+entries:publish, entries:delete, terms:read, terms:write,
+terms:delete, globals:read, globals:write
+```
+
+### Full Access
+
+Only a super admin can request it. `*` is never stored: when the token is issued
+it is replaced by every scope the user holds at that moment, so the token does not
+grow when a later release adds a scope.
 
 ```
 *
@@ -68,17 +84,37 @@ For local development only — unrestricted access. Only a super admin can hold 
 
 When a tool is called via the web endpoint, the `RequireMcpPermission` middleware checks whether the token has a scope that covers the requested domain and action.
 
-- The `*` scope grants access to everything
 - A `:read` scope covers read operations (list, get)
-- A `:write` scope covers write operations (create, update, delete)
+- A `:write` scope covers create and update. In the entries, terms and assets
+  domains, publishing and deleting need their own scope on top of it
+  (`entries:publish`, `entries:delete`, `terms:delete`, `assets:delete`). In the
+  admin domains (structures, blueprints, users, system), `:write` covers delete.
 - Read scopes do **not** grant write access
+- `*` is not a wildcard. A token still carrying it from v3 is refused, see below.
+
+### Upgrading from v3
+
+- **`*` tokens stop working.** A v3 token with `*` would have covered every scope
+  added since, which nobody approved. Create a new token, or let the client
+  authorize again; the new grant lists its scopes explicitly. An OAuth refresh
+  token for a `*` grant is refused with `invalid_grant`, which makes the client
+  ask for consent again.
+- **`entries:write`, `terms:write` and `assets:write` tokens keep editing** but can
+  no longer publish or delete. Add `entries:publish`, `entries:delete`,
+  `terms:delete` or `assets:delete` where a token should. Until then such calls
+  answer `Token missing required scope: …`, and a create that would have been
+  published is saved as a draft.
+- `php artisan mcp:doctor` counts the tokens affected by each change.
+- Tools other packages register in a domain with no scope of its own can no
+  longer be reached by any token. In v3 a `*` token reached them.
 
 ### Scopes Follow Permissions
 
 A scope never grants more than the token's user may do: every call also checks the
 user's Statamic permissions. So the dashboard, token creation and the OAuth consent
 screen offer only the scopes the user can actually exercise — an editor who may edit
-blog entries is offered `entries:read` and `entries:write`, not `users:write` or `*`.
+blog entries is offered `entries:read` and `entries:write` (and `entries:publish` or
+`entries:delete` if they may publish or delete), not `users:write` or `*`.
 Only super admins can hold `*`, `system:write` and the content-facade scopes.
 
 See [`security.scopes_follow_permissions`](../configuration/reference.md#scopes_follow_permissions)

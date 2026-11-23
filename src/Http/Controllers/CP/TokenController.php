@@ -6,6 +6,7 @@ namespace Cboxdk\StatamicMcp\Http\Controllers\CP;
 
 use Carbon\Carbon;
 use Cboxdk\StatamicMcp\Auth\ScopeAvailability;
+use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\Authorization\PersonalTokenConsent;
 use Cboxdk\StatamicMcp\Http\Controllers\CP\Concerns\ResolvesUserId;
@@ -48,6 +49,9 @@ class TokenController extends CpController
         if ($refused = $this->refuseUnavailableScopes(User::current(), $scopes)) {
             return $refused;
         }
+
+        // Full access is fixed to the scopes the user holds today.
+        $scopes = app(ScopeAvailability::class)->expandFullAccess(User::current(), $scopes);
 
         $expiresAt = isset($validated['expires_at'])
             ? Carbon::parse($validated['expires_at'])
@@ -137,6 +141,13 @@ class TokenController extends CpController
 
             if ($refused = $this->refuseUnavailableScopes($owner ?? $current, $added)) {
                 return $refused;
+            }
+
+            // Adding full access fixes it to the owner's scopes today. A `*`
+            // the token already carries is kept as it is: it no longer
+            // authorizes anything, and must be approved again to work.
+            if (in_array(TokenScope::FullAccess->value, $added, true)) {
+                $scopes = app(ScopeAvailability::class)->expandFullAccess($owner ?? $current, $scopes);
             }
         }
 

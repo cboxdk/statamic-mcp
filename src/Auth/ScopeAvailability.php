@@ -110,10 +110,10 @@ class ScopeAvailability
     /**
      * Scope strings a grant may carry for this user, in the order given.
      *
-     * Unlike filterValues(), a `*` the user cannot hold is narrowed to every
-     * scope they can rather than dropped: a client asking for everything is
-     * asking for the user's full reach, and an editor should be offered that
-     * on the consent screen, not turned away with invalid_scope.
+     * Unlike filterValues(), a `*` is expanded to every scope the user can
+     * hold rather than dropped: a client asking for everything is asking for
+     * the user's full reach, and an editor should be offered that on the
+     * consent screen, not turned away with invalid_scope.
      *
      * @param  array<int, string>  $values
      *
@@ -121,21 +121,40 @@ class ScopeAvailability
      */
     public function grantable(?User $user, array $values): array
     {
+        return array_values(array_unique($this->filterValues($user, $this->expandFullAccess($user, $values))));
+    }
+
+    /**
+     * Replace `*` with the explicit scopes the user can hold right now.
+     *
+     * A stored `*` would silently grow to cover every scope added in a later
+     * release, which is a grant nobody approved. Issuing full access
+     * therefore fixes it to today's list. The legacy content umbrellas are
+     * left out: no router asks for them.
+     *
+     * @param  array<int, string>  $values
+     *
+     * @return list<string>
+     */
+    public function expandFullAccess(?User $user, array $values): array
+    {
         $expanded = [];
 
         foreach ($values as $value) {
-            if ($value === TokenScope::FullAccess->value && ! $this->allows($user, TokenScope::FullAccess)) {
-                foreach ($this->forUser($user) as $scope) {
-                    $expanded[] = $scope->value;
-                }
+            if ($value !== TokenScope::FullAccess->value) {
+                $expanded[] = $value;
 
                 continue;
             }
 
-            $expanded[] = $value;
+            foreach ($this->forUser($user) as $scope) {
+                if (! in_array($scope, [TokenScope::FullAccess, TokenScope::ContentRead, TokenScope::ContentWrite], true)) {
+                    $expanded[] = $scope->value;
+                }
+            }
         }
 
-        return array_values(array_unique($this->filterValues($user, $expanded)));
+        return array_values(array_unique($expanded));
     }
 
     public function allows(?User $user, TokenScope $scope): bool
@@ -168,9 +187,12 @@ class ScopeAvailability
             TokenScope::EntriesWrite => $this->holdsForAny($user, $this->collectionHandles(), fn (string $h): array => [
                 "create {$h} entries", "edit {$h} entries", "delete {$h} entries", "publish {$h} entries",
             ]),
+            TokenScope::EntriesPublish => $this->holdsForAny($user, $this->collectionHandles(), fn (string $h): array => ["publish {$h} entries"]),
+            TokenScope::EntriesDelete => $this->holdsForAny($user, $this->collectionHandles(), fn (string $h): array => ["delete {$h} entries"]),
 
             TokenScope::TermsRead => $this->holdsForAny($user, $this->taxonomyHandles(), fn (string $h): array => ["view {$h} terms"]),
             TokenScope::TermsWrite => $this->holdsForAny($user, $this->taxonomyHandles(), fn (string $h): array => ["create {$h} terms", "edit {$h} terms", "delete {$h} terms"]),
+            TokenScope::TermsDelete => $this->holdsForAny($user, $this->taxonomyHandles(), fn (string $h): array => ["delete {$h} terms"]),
 
             // The globals router asks for the edit permission on reads too.
             TokenScope::GlobalsRead,
@@ -183,6 +205,8 @@ class ScopeAvailability
                 || $this->holdsForAny($user, $this->containerHandles(), fn (string $h): array => [
                     "upload {$h} assets", "edit {$h} assets", "move {$h} assets", "rename {$h} assets", "delete {$h} assets",
                 ]),
+            TokenScope::AssetsDelete => $user->hasPermission('configure asset containers')
+                || $this->holdsForAny($user, $this->containerHandles(), fn (string $h): array => ["delete {$h} assets"]),
 
             TokenScope::StructuresRead => $this->holdsAny($user, ['configure collections', 'configure taxonomies', 'configure navs', 'configure sites', 'configure globals'])
                 || $this->holdsForAny($user, $this->collectionHandles(), fn (string $h): array => ["view {$h} entries"])
@@ -231,7 +255,7 @@ class ScopeAvailability
             return false;
         }
 
-        $mode = str_ends_with($scope->value, ':write') ? 'write' : 'read';
+        $mode = str_ends_with($scope->value, ':read') ? 'read' : 'write';
 
         foreach ($domains as $domain) {
             if (! $this->domainRuledOut($domain, $mode)) {

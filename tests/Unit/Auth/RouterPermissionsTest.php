@@ -300,7 +300,7 @@ describe('Nested Permission Flow', function () {
         expect($result['data'])->toHaveKey('entries');
     });
 
-    it('passes Layer 1 with wildcard * scope', function () {
+    it('refuses a legacy wildcard * scope at Layer 1', function () {
         $user = createMockUser(isSuper: true);
         actAsUser($user);
 
@@ -312,8 +312,8 @@ describe('Nested Permission Flow', function () {
             'collection' => $this->collectionHandle,
         ]);
 
-        expect($result['success'])->toBeTrue();
-        expect($result['data'])->toHaveKey('entries');
+        expect($result['success'])->toBeFalse();
+        expect(json_encode($result['errors']))->toContain('must be approved again');
     });
 
     it('skips token scope check when no mcp_token on request (Basic Auth)', function () {

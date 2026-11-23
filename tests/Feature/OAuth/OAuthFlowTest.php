@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Tests\Feature\OAuth;
 
+use Cboxdk\StatamicMcp\Auth\ScopeAvailability;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\Tests\Concerns\InteractsWithOAuthConsent;
 use Cboxdk\StatamicMcp\Tests\TestCase;
@@ -93,7 +94,8 @@ class OAuthFlowTest extends TestCase
                 'code_challenge' => $codeChallenge,
                 'code_challenge_method' => 'S256',
                 'scope' => '*',
-                'scopes' => ['*'],
+                // The consent screen spells `*` out; approving posts that list.
+                'scopes' => $this->app->make(ScopeAvailability::class)->expandFullAccess($user, ['*']),
             ]);
 
         $approveResponse->assertRedirect();
@@ -134,6 +136,9 @@ class OAuthFlowTest extends TestCase
 
         $this->assertNotNull($mcpTokenData, 'The OAuth access token must be a valid MCP token');
         $this->assertSame('oauth-e2e-user', $mcpTokenData->userId);
-        $this->assertContains('*', $mcpTokenData->scopes);
+        // Full access is stored as today's explicit list, never as `*`.
+        $this->assertNotContains('*', $mcpTokenData->scopes);
+        $this->assertContains('entries:publish', $mcpTokenData->scopes);
+        $this->assertContains('users:write', $mcpTokenData->scopes);
     }
 }

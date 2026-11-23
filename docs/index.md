@@ -10,7 +10,7 @@ weight: 1
 
 ## Overview
 
-The server registers a set of domain routers — each handling a specific Statamic concern — and makes them available over both CLI (`php artisan mcp:start statamic`) and web (HTTP endpoint) transports. All web access is gated by scoped API tokens with 21 granular permissions.
+The server registers a set of domain routers — each handling a specific Statamic concern — and makes them available over both CLI (`php artisan mcp:start statamic`) and web (HTTP endpoint) transports. All web access is gated by scoped API tokens with 25 granular permissions.
 
 ```json
 {
@@ -34,7 +34,7 @@ The server registers a set of domain routers — each handling a specific Statam
 - Single file per domain for easy maintenance
 
 ### Scoped API Tokens
-- 21 granular scopes in `domain:permission` format (plus `*` for full access)
+- 24 granular scopes in `domain:permission` format, plus `*` for full access (expanded to an explicit list when issued)
 - SHA-256 hashed storage, configurable expiry, max tokens per user
 - Bearer tokens and OAuth
 - Created and managed in the Statamic Control Panel
@@ -80,7 +80,7 @@ The server registers a set of domain routers — each handling a specific Statam
 
 - [Installation](getting-started/installation.md) — Install and configure the package
 - [Quick Start](quickstart.md) — Connect your first AI assistant in 2 minutes
-- [Token Scopes](authentication/token-scopes.md) — All 21 scopes explained
+- [Token Scopes](authentication/token-scopes.md) — All 25 scopes explained
 - [AI Client Setup](getting-started/ai-clients.md) — Config for Claude, Cursor, ChatGPT, Windsurf
 - [Configuration Reference](configuration/reference.md) — All config options and env variables
 - [Tool Reference](tools/overview.md) — Detailed documentation for each tool

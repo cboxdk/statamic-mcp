@@ -81,7 +81,7 @@ it('follows the entries router: view gives read, any write permission gives writ
         ->toBe(['content:read', 'structures:read', 'entries:read']);
 
     expect(scopeValues($this->availability->forUser(userHolding(['publish blog entries']))))
-        ->toBe(['content:write', 'entries:write']);
+        ->toBe(['content:write', 'entries:write', 'entries:publish']);
 });
 
 it('follows the terms, globals, assets and structures routers', function () {
@@ -180,15 +180,35 @@ it('narrows a wildcard to the user\'s own reach instead of dropping it', functio
 
     expect($this->availability->filterValues($user, ['*']))->toBe([])
         ->and($this->availability->grantable($user, ['*', 'entries:read', 'users:write']))
-        ->toBe(['content:read', 'structures:read', 'entries:read']);
+        ->toBe(['structures:read', 'entries:read']);
 });
 
-it('keeps a wildcard for a user who can hold it', function () {
+it('expands a wildcard to an explicit list even for a super admin', function () {
     $user = User::make()->id('super-2')->email('super2@example.com');
     $user->makeSuper();
     $user->save();
 
-    expect($this->availability->grantable($user, ['*', 'entries:read']))->toBe(['*', 'entries:read']);
+    // A stored `*` would grow with every scope a later release adds.
+    $granted = $this->availability->grantable($user, ['*', 'entries:read']);
+
+    expect($granted)->not->toContain('*')
+        ->and($granted)->not->toContain('content:write')
+        ->and($granted)->toContain('entries:publish', 'entries:delete', 'terms:delete', 'assets:delete', 'users:write', 'system:write')
+        ->and($granted)->toHaveCount(count(TokenScope::cases()) - 3);
+});
+
+it('offers publish and delete only to users who may publish or delete', function () {
+    $editor = userHolding(['view blog entries', 'edit blog entries', 'publish blog entries']);
+
+    expect($this->availability->allows($editor, TokenScope::EntriesWrite))->toBeTrue()
+        ->and($this->availability->allows($editor, TokenScope::EntriesPublish))->toBeTrue()
+        ->and($this->availability->allows($editor, TokenScope::EntriesDelete))->toBeFalse();
+
+    // Publishing is a write: a site that allows no entry writes rules it out.
+    Config::set('statamic.mcp.tools.entries.resources.write', []);
+
+    expect($this->availability->allows($editor, TokenScope::EntriesPublish))->toBeFalse()
+        ->and($this->availability->allows($editor, TokenScope::EntriesRead))->toBeTrue();
 });
 
 it('offers entry viewers structure reads without structure writes', function () {

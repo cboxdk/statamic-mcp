@@ -280,17 +280,16 @@ it('refuses a config entry that is not a router', function () {
     ExtraTools::all();
 })->throws(InvalidArgumentException::class);
 
-it('requires a full-access token for an extra tool whose domain has no scope', function () {
+it('refuses every token for an extra tool whose domain has no scope', function () {
     StatamicMcpServer::registerTool(UnscopedExtraRouter::class);
 
     $denied = callAsWebClient(UnscopedExtraRouter::class, ['system:read', 'content:read']);
 
     expect($denied['success'])->toBeFalse()
-        ->and(json_encode($denied['errors']))->toContain('Token missing required scope: *');
+        ->and(json_encode($denied['errors']))->toContain('declares no token scope');
 
-    $allowed = callAsWebClient(UnscopedExtraRouter::class, ['*']);
-
-    expect($allowed['success'])->toBeTrue();
+    // A v3 full-access token reached it; v4 has no wildcard.
+    expect(callAsWebClient(UnscopedExtraRouter::class, ['*'])['success'])->toBeFalse();
 });
 
 it('gates an extra tool in a known domain by that domain\'s scope', function () {
@@ -329,13 +328,13 @@ it('still fails closed when an extra tool is registered under a non-canonical cl
     ExtraTools::flush();
     StatamicMcpServer::registerTool($spelling);
 
-    // The unscoped tool's domain has no scope, so the fail-closed rule needs a
-    // '*' token. A content:read token must still be refused even though the
+    // The unscoped tool's domain has no scope, so the fail-closed rule refuses
+    // every token. A content:read token must still be refused even though the
     // class was registered with a leading backslash or the wrong case.
     $denied = callAsWebClient(UnscopedExtraRouter::class, ['content:read']);
 
     expect($denied['success'])->toBeFalse()
-        ->and(json_encode($denied['errors']))->toContain('*');
+        ->and(json_encode($denied['errors']))->toContain('declares no token scope');
 })->with([
     'leading backslash' => ['\\' . UnscopedExtraRouter::class],
     'lowercase' => [strtolower(UnscopedExtraRouter::class)],

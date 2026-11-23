@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (breaking)
+
+- Split publishing and deleting out of the write scopes. `entries:write` now covers create and update; publishing (including `published: true` on create or update) needs `entries:publish`, and deleting needs `entries:delete`, `terms:delete` or `assets:delete`. Existing write tokens keep editing and answer `Token missing required scope: …` for the rest. Admin domains keep `:write` for delete.
+- Stop treating `*` as a wildcard. Full access is expanded to the scopes the user holds when a token is issued, so it never grows to cover scopes added later. A v3 token carrying `*` is refused and must be approved again; its OAuth refresh token answers `invalid_grant`. `mcp:doctor` counts the tokens affected by both changes.
+- Tools other packages register in a domain with no scope of their own are refused for every token; v3 let a `*` token reach them.
+
 ### Security
 
 - Require durable audit admission before registered writes, independently of telemetry and the legacy logging flag. Custom audit drivers must implement `DurableAuditStore`; SQL admission refuses uncommitted caller transactions.

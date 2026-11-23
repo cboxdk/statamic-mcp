@@ -5,11 +5,11 @@ declare(strict_types=1);
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 
 // ---------------------------------------------------------------------------
-// 1. All 21 cases exist with correct string values
+// 1. All 25 cases exist with correct string values
 // ---------------------------------------------------------------------------
 
-it('has exactly 21 cases', function (): void {
-    expect(TokenScope::cases())->toHaveCount(21);
+it('has exactly 25 cases', function (): void {
+    expect(TokenScope::cases())->toHaveCount(25);
 });
 
 it('maps every case to its correct string value', function (TokenScope $scope, string $expected): void {
@@ -22,6 +22,7 @@ it('maps every case to its correct string value', function (TokenScope $scope, s
     'StructuresWrite' => [TokenScope::StructuresWrite, 'structures:write'],
     'AssetsRead' => [TokenScope::AssetsRead, 'assets:read'],
     'AssetsWrite' => [TokenScope::AssetsWrite, 'assets:write'],
+    'AssetsDelete' => [TokenScope::AssetsDelete, 'assets:delete'],
     'UsersRead' => [TokenScope::UsersRead, 'users:read'],
     'UsersWrite' => [TokenScope::UsersWrite, 'users:write'],
     'SystemRead' => [TokenScope::SystemRead, 'system:read'],
@@ -30,8 +31,11 @@ it('maps every case to its correct string value', function (TokenScope $scope, s
     'BlueprintsWrite' => [TokenScope::BlueprintsWrite, 'blueprints:write'],
     'EntriesRead' => [TokenScope::EntriesRead, 'entries:read'],
     'EntriesWrite' => [TokenScope::EntriesWrite, 'entries:write'],
+    'EntriesPublish' => [TokenScope::EntriesPublish, 'entries:publish'],
+    'EntriesDelete' => [TokenScope::EntriesDelete, 'entries:delete'],
     'TermsRead' => [TokenScope::TermsRead, 'terms:read'],
     'TermsWrite' => [TokenScope::TermsWrite, 'terms:write'],
+    'TermsDelete' => [TokenScope::TermsDelete, 'terms:delete'],
     'GlobalsRead' => [TokenScope::GlobalsRead, 'globals:read'],
     'GlobalsWrite' => [TokenScope::GlobalsWrite, 'globals:write'],
     'ContentFacadeRead' => [TokenScope::ContentFacadeRead, 'content-facade:read'],
@@ -59,7 +63,7 @@ it('returns the correct label for each case', function (TokenScope $scope, strin
     'StructuresRead' => [TokenScope::StructuresRead, 'Read Structures'],
     'StructuresWrite' => [TokenScope::StructuresWrite, 'Write Structures'],
     'AssetsRead' => [TokenScope::AssetsRead, 'Read Assets'],
-    'AssetsWrite' => [TokenScope::AssetsWrite, 'Write Assets'],
+    'AssetsWrite' => [TokenScope::AssetsWrite, 'Edit Assets'],
     'UsersRead' => [TokenScope::UsersRead, 'Read Users'],
     'UsersWrite' => [TokenScope::UsersWrite, 'Write Users'],
     'SystemRead' => [TokenScope::SystemRead, 'Read System'],
@@ -67,9 +71,9 @@ it('returns the correct label for each case', function (TokenScope $scope, strin
     'BlueprintsRead' => [TokenScope::BlueprintsRead, 'Read Blueprints'],
     'BlueprintsWrite' => [TokenScope::BlueprintsWrite, 'Write Blueprints'],
     'EntriesRead' => [TokenScope::EntriesRead, 'Read Entries'],
-    'EntriesWrite' => [TokenScope::EntriesWrite, 'Write Entries'],
+    'EntriesWrite' => [TokenScope::EntriesWrite, 'Edit Entries'],
     'TermsRead' => [TokenScope::TermsRead, 'Read Terms'],
-    'TermsWrite' => [TokenScope::TermsWrite, 'Write Terms'],
+    'TermsWrite' => [TokenScope::TermsWrite, 'Edit Terms'],
     'GlobalsRead' => [TokenScope::GlobalsRead, 'Read Globals'],
     'GlobalsWrite' => [TokenScope::GlobalsWrite, 'Write Globals'],
     'ContentFacadeRead' => [TokenScope::ContentFacadeRead, 'Read Content Facade'],
@@ -107,15 +111,15 @@ it('returns the correct group for each case', function (TokenScope $scope, strin
 ]);
 
 // ---------------------------------------------------------------------------
-// 4. all() returns all 21 cases
+// 4. all() returns all 25 cases
 // ---------------------------------------------------------------------------
 
-it('returns all 21 cases from all()', function (): void {
+it('returns all 25 cases from all()', function (): void {
     $all = TokenScope::all();
 
     expect($all)
         ->toBeArray()
-        ->toHaveCount(21)
+        ->toHaveCount(25)
         ->each->toBeInstanceOf(TokenScope::class);
 });
 

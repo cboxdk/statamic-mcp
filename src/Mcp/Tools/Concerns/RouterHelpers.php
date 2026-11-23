@@ -110,28 +110,52 @@ trait RouterHelpers
         $mcpToken = request()->attributes->get('mcp_token');
 
         if ($mcpToken) {
+            if (in_array(TokenScope::FullAccess->value, $mcpToken->scopes, true)) {
+                // A v3 token carrying `*` would grow to cover every scope
+                // added later. v4 fixes full access to an explicit list
+                // when a token is issued, so this one must be approved again.
+                return $this->createErrorResponse(
+                    'This token was issued with full access (*) before v4. Full access must be approved again: '
+                    . 'create a new token, or authorize the client again.'
+                )->toArray();
+            }
+
             $requiredScope = $this->getRequiredTokenScope($action);
 
             // A tool another package added, in a domain this package has no
-            // scope for, would otherwise need none. Fail closed: only a
-            // full-access token may reach it.
+            // scope for, would otherwise need none. Fail closed: no token
+            // carries a scope for it. Such a tool must become a registered
+            // action with its own scope.
             if ($requiredScope === null && ExtraTools::isRegistered(static::class)) {
-                $requiredScope = TokenScope::FullAccess;
+                return $this->createErrorResponse(
+                    'This tool declares no token scope. Tools from other packages must be registered actions with their own scope.'
+                )->toArray();
+            }
+
+            // Publishing and deleting need their own scope on top of write.
+            $requiredScopes = $requiredScope === null ? [] : [$requiredScope];
+            $extraScope = TokenScope::extraFor($this->getDomain(), $action);
+            if ($requiredScope !== null && $extraScope !== null) {
+                $requiredScopes[] = $extraScope;
             }
 
             /** @var TokenService $tokenService */
             $tokenService = app(TokenService::class);
-            if ($requiredScope && ! $tokenService->hasScope($mcpToken, $requiredScope)) {
+            foreach ($requiredScopes as $scope) {
+                if ($tokenService->hasScope($mcpToken, $scope)) {
+                    continue;
+                }
+
                 Log::warning('MCP permission denied: token missing scope', [
                     'domain' => $this->getDomain(),
                     'action' => $action,
-                    'required_scope' => $requiredScope->value,
+                    'required_scope' => $scope->value,
                     'token_id' => $mcpToken->id,
                     'ip' => request()->ip(),
                 ]);
 
                 return $this->createErrorResponse(
-                    "Token missing required scope: {$requiredScope->value}"
+                    "Token missing required scope: {$scope->value}"
                 )->toArray();
             }
         }

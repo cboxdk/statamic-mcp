@@ -87,7 +87,7 @@
                                         </td>
                                         <td>
                                             <div v-if="token.scopes?.length" class="flex flex-wrap gap-1">
-                                                <ui-badge v-if="token.scopes.includes('*')" text="Full Access" color="purple" size="sm" />
+                                                <ui-badge v-if="token.scopes.includes('*')" text="Legacy full access: approve again" color="red" size="sm" />
                                                 <template v-else-if="matchingPreset(token.scopes)">
                                                     <ui-badge :text="matchingPreset(token.scopes)" color="blue" size="sm" />
                                                     <ui-badge :text="token.scopes.length + ' scopes'" color="default" size="sm" />
@@ -492,6 +492,15 @@ const scopePresets = [
             'content:read', 'content:write', 'entries:read', 'entries:write',
             'terms:read', 'terms:write', 'globals:read', 'globals:write',
             'blueprints:read', 'structures:read', 'assets:read', 'assets:write',
+        ],
+    },
+    {
+        name: 'Content Publisher',
+        scopes: [
+            'content:read', 'content:write', 'entries:read', 'entries:write',
+            'entries:publish', 'entries:delete',
+            'terms:read', 'terms:write', 'terms:delete', 'globals:read', 'globals:write',
+            'blueprints:read', 'structures:read', 'assets:read', 'assets:write', 'assets:delete',
         ],
     },
     {

@@ -68,13 +68,17 @@ describe('createToken', function () {
         $service = app(TokenService::class);
 
         $result = $service->createToken('user-1', 'Token', [
-            TokenScope::FullAccess,
+            TokenScope::EntriesPublish,
             TokenScope::BlueprintsRead,
             TokenScope::GlobalsWrite,
         ]);
 
-        expect($result['model']->scopes)->toBe(['*', 'blueprints:read', 'globals:write']);
+        expect($result['model']->scopes)->toBe(['entries:publish', 'blueprints:read', 'globals:write']);
     });
+
+    it('refuses to store a raw full-access scope', function () {
+        app(TokenService::class)->createToken('user-1', 'Token', [TokenScope::FullAccess]);
+    })->throws(InvalidArgumentException::class, 'explicit scope list');
 
     it('handles null expiresAt for no expiry', function () {
         config()->set('statamic.mcp.security.max_token_lifetime_days', null);
@@ -513,7 +517,8 @@ describe('hasScope', function () {
         $wildcard = new McpTokenData('id', 'user', 'name', 'hash', ['*'], null, null, Carbon::now());
         $scoped = new McpTokenData('id', 'user', 'name', 'hash', ['content:read'], null, null, Carbon::now());
 
-        expect($service->hasScope($wildcard, TokenScope::ContentRead))->toBeTrue();
+        // `*` is not a wildcard: a v3 token holding it would cover every later scope.
+        expect($service->hasScope($wildcard, TokenScope::ContentRead))->toBeFalse();
         expect($service->hasScope($scoped, TokenScope::ContentRead))->toBeTrue();
         expect($service->hasScope($scoped, TokenScope::ContentWrite))->toBeFalse();
     });
