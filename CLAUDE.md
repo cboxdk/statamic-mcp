@@ -966,6 +966,15 @@ every time on a non-UTC site, and took a `{start, end}` range for a `{date, time
 (3.2.1). The suite runs in UTC, where the shift is invisible, which is why
 `tests/Integration/DateFieldRoundTripTest.php` switches to Europe/Copenhagen.
 
+**Field conditions are evaluated server-side.** Statamic evaluates `if`/`unless` only in
+the CP's JavaScript, which omits hidden fields from the payload; its PHP `Fields\Validator`
+enforces every rule. Content writes therefore validate through
+`Mcp\Support\ConditionalFieldsValidator` (with `withConditionValues()` given the record's
+full data, so conditions on `template` etc. resolve), which drops the rules of an
+**empty** hidden field. A hidden field that carries a value is still validated, because
+this server stores it. **Never use `new Statamic\Fields\Validator` or `$fields->validator()`
+in a write path** — a conditionally required field would block every write again.
+
 **`statamic-terms`** — list, get, create, update, delete
 
 **`statamic-globals`** — list, get, update (global set values with multi-site support)

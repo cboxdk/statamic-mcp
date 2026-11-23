@@ -7,6 +7,7 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Contracts\CollectionTreeEditor;
 use Cboxdk\StatamicMcp\Mcp\Exceptions\FieldFormatException;
+use Cboxdk\StatamicMcp\Mcp\Support\ConditionalFieldsValidator;
 use Cboxdk\StatamicMcp\Mcp\Support\SeoProFieldData;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\HandlesRevisions;
@@ -27,7 +28,6 @@ use Statamic\Facades\Entry;
 use Statamic\Facades\User;
 use Statamic\Fields\Blueprint;
 use Statamic\Fields\Field;
-use Statamic\Fields\Validator as FieldsValidator;
 use Statamic\Rules\UniqueEntryValue;
 use Statamic\Support\Str;
 
@@ -540,8 +540,9 @@ class EntriesRouter extends BaseRouter
                     // `new UniqueEntryValue({collection}, {id}, {site})`,
                     // which needs {collection} and {site} filled in ({id}
                     // resolves to null: nothing to exclude on create).
-                    (new FieldsValidator)
+                    (new ConditionalFieldsValidator)
                         ->fields($fields)
+                        ->withConditionValues($dataWithSlug)
                         ->withContext([
                             'entry' => $entry,
                             'collection' => $collection,
@@ -852,8 +853,9 @@ class EntriesRouter extends BaseRouter
 
                     $fields = $blueprint->fields()->addValues($dataWithSlug);
 
-                    (new FieldsValidator)
+                    (new ConditionalFieldsValidator)
                         ->fields($fields)
+                        ->withConditionValues(array_merge($localization->values()->all(), $dataWithSlug))
                         ->withContext([
                             'entry' => $localization,
                             'collection' => $collection,
@@ -1087,8 +1089,9 @@ class EntriesRouter extends BaseRouter
                 ];
 
                 try {
-                    (new FieldsValidator)
+                    (new ConditionalFieldsValidator)
                         ->fields($blueprint->fields()->addValues($mergedData))
+                        ->withConditionValues($mergedData)
                         ->withContext($validationContext)
                         ->withReplacements($ruleReplacements)
                         ->validate();
@@ -1101,8 +1104,9 @@ class EntriesRouter extends BaseRouter
                     // validating only the incoming fields — the existing data was
                     // already valid when it was saved.
                     try {
-                        (new FieldsValidator)
+                        (new ConditionalFieldsValidator)
                             ->fields($blueprint->fields()->addValues(array_merge($data, $entryPropertyValues)))
+                            ->withConditionValues($mergedData)
                             ->withContext($validationContext)
                             ->withReplacements($ruleReplacements)
                             ->validate();

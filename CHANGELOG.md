@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Entry, term and global writes no longer enforce the rules of a field that its `if`/`unless` conditions hide. Statamic only evaluates conditions in the Control Panel's JavaScript, which leaves hidden fields out of what it submits, so the server-side validator enforced them for every MCP write: a conditionally required field (e.g. a `brochure` asset shown only when `template` equals `Brochure`) blocked every create whose condition was not met with "The Brochure field is required." Conditions are now evaluated server-side with the Control Panel's semantics, at the top level and inside replicator, bard, grid and group fields, and conditions may target non-blueprint data such as an entry's `template`. A hidden field that is sent a value is still validated, since it would still be stored. `custom` conditions and conditions on revealer fields cannot be evaluated server-side and keep validating as before. `content_validate` applies the same rule.
 - Browser clients from an origin listed in `web.allowed_origins` can connect again. laravel/mcp 1.2 added its own Origin check to the web endpoint, which knew only `mcp.allowed_origins`, so those origins got 403 `Forbidden: The request origin is not allowed.` before CORS was reached. The endpoint now accepts both lists and still refuses every other origin.
 
 ## [3.6.1] - 2026-11-10
