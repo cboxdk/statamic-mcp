@@ -223,7 +223,7 @@ Asset container and file operations. Requires a `resource_type` parameter (`cont
 | `create` | container | Create container | `data` |
 | `update` | container | Update container | `handle`, `data` |
 | `delete` | container | Delete container | `handle` |
-| `list` | asset | List assets | `container`, `folder` |
+| `list` | asset | List assets in one folder (the root by default); `recursive` adds its subfolders | `container`, `folder`, `recursive` |
 | `get` | asset | Get asset | `container`, `path` |
 | `upload` | asset | Upload a file | `container`, `folder`, one of `source_url` / `content`+`encoding`+`filename` / `file_path` |
 | `move` | asset | Move asset | `container`, `path`, `destination` |

@@ -7,10 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.2] - 2026-11-23
+
 ### Fixed
 
-- Entry, term and global writes no longer enforce the rules of a field that its `if`/`unless` conditions hide. Statamic only evaluates conditions in the Control Panel's JavaScript, which leaves hidden fields out of what it submits, so the server-side validator enforced them for every MCP write: a conditionally required field (e.g. a `brochure` asset shown only when `template` equals `Brochure`) blocked every create whose condition was not met with "The Brochure field is required." Conditions are now evaluated server-side with the Control Panel's semantics, at the top level and inside replicator, bard, grid and group fields, and conditions may target non-blueprint data such as an entry's `template`. A hidden field that is sent a value is still validated, since it would still be stored. `custom` conditions and conditions on revealer fields cannot be evaluated server-side and keep validating as before. `content_validate` applies the same rule.
-- Browser clients from an origin listed in `web.allowed_origins` can connect again. laravel/mcp 1.2 added its own Origin check to the web endpoint, which knew only `mcp.allowed_origins`, so those origins got 403 `Forbidden: The request origin is not allowed.` before CORS was reached. The endpoint now accepts both lists and still refuses every other origin.
+- **Conditionally hidden fields no longer block writes** (#93, #94, thanks @SteJW). Entry, term and global writes no longer enforce the rules of a field that its `if`/`unless` conditions hide. Statamic only evaluates conditions in the Control Panel's JavaScript, which leaves hidden fields out of what it submits, so the server-side validator enforced them for every MCP write: a conditionally required field (e.g. a `brochure` asset shown only when `template` equals `Brochure`) blocked every create whose condition was not met with "The Brochure field is required." Conditions are now evaluated server-side with the Control Panel's semantics, at the top level and inside replicator, bard, grid and group fields, and conditions may target non-blueprint data such as an entry's `template`. A hidden field that is sent a value is still validated, since it would still be stored. `custom` conditions and conditions on revealer fields cannot be evaluated server-side and keep validating as before. `content_validate` applies the same rule.
+- **`statamic-assets` `list` can be limited to a folder** (#96, #97, thanks @timluigjes). `folder`, or `filters.folder`, lists that folder, and with `recursive` its subfolders too; pagination totals count only those assets. Both were ignored before. A plain `list` also returned no assets at all, because it looked for root assets under folder `''` while Statamic reports `'/'`; it now returns the container root. A folder with `.` or `..` segments is refused, as for `upload`.
+- **Browser clients from an origin listed in `web.allowed_origins` can connect again** (#98). laravel/mcp 1.2 added its own Origin check to the web endpoint, which knew only `mcp.allowed_origins`, so those origins got 403 `Forbidden: The request origin is not allowed.` before CORS was reached. The endpoint now accepts both lists and still refuses every other origin.
 
 ## [3.6.1] - 2026-11-10
 
@@ -735,7 +738,8 @@ straight to the fix. Thanks to @JorisOrangeStudio and @revans-premier-education.
 - Laravel MCP v0.2.0 integration
 - Comprehensive test suite
 
-[Unreleased]: https://github.com/cboxdk/statamic-mcp/compare/v3.6.1...HEAD
+[Unreleased]: https://github.com/cboxdk/statamic-mcp/compare/v3.6.2...HEAD
+[3.6.2]: https://github.com/cboxdk/statamic-mcp/compare/v3.6.1...v3.6.2
 [3.6.1]: https://github.com/cboxdk/statamic-mcp/compare/v3.6.0...v3.6.1
 [3.6.0]: https://github.com/cboxdk/statamic-mcp/compare/v3.5.0...v3.6.0
 [3.5.0]: https://github.com/cboxdk/statamic-mcp/compare/v3.4.1...v3.5.0
