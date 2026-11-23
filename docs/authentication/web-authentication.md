@@ -106,6 +106,8 @@ Desktop MCP clients (Claude Desktop, Cursor, etc.) don't need CORS. If you're bu
 
 When `allowed_origins` is empty (the default), no CORS headers are sent.
 
+The same list feeds laravel/mcp's Origin check on this endpoint, which refuses a request carrying an `Origin` header unless it is localhost, `APP_URL`, in `mcp.allowed_origins` or in this list. Requests without an `Origin` header (desktop and server-side clients) are not affected.
+
 ### Production Checklist
 
 - **HTTPS is enforced by default** — the middleware rejects HTTP in production
