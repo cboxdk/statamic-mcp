@@ -9,6 +9,7 @@ use Cboxdk\StatamicMcp\Actions\CapabilitySnapshot;
 use Cboxdk\StatamicMcp\Contracts\TokenStore;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
+use Symfony\Component\Yaml\Exception\ParseException;
 use Symfony\Component\Yaml\Yaml;
 
 /**
@@ -108,10 +109,9 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
                 return null;
             }
 
-            /** @var array<string, mixed> $data */
-            $data = Yaml::parseFile($filePath);
+            $data = $this->readTokenFile($filePath);
 
-            return $this->arrayToTokenData($data);
+            return $data === null ? null : $this->arrayToTokenData($data);
         });
     }
 
@@ -127,8 +127,11 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
                 return null;
             }
 
-            /** @var array<string, mixed> $existing */
-            $existing = Yaml::parseFile($filePath);
+            $existing = $this->readTokenFile($filePath);
+
+            if ($existing === null) {
+                return null;
+            }
 
             $oldHash = is_string($existing['token_hash'] ?? null) ? $existing['token_hash'] : '';
 
@@ -182,8 +185,7 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
                 return false;
             }
 
-            /** @var array<string, mixed> $data */
-            $data = Yaml::parseFile($filePath);
+            $data = $this->readTokenFile($filePath) ?? [];
             $hash = is_string($data['token_hash'] ?? null) ? $data['token_hash'] : '';
 
             if (! unlink($filePath)) {
@@ -326,12 +328,48 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
                 return;
             }
 
-            /** @var array<string, mixed> $data */
-            $data = Yaml::parseFile($filePath);
+            $data = $this->readTokenFile($filePath);
+
+            // Never write back a record built from an unreadable file: it would
+            // hold only last_used_at, and the token would stop authenticating.
+            if ($data === null) {
+                return;
+            }
+
             $data['last_used_at'] = Carbon::now()->toIso8601String();
 
-            $this->writeYamlFile($id, $data);
+            // Recording use is best effort: a token file that cannot be
+            // replaced (a full disk) keeps its previous record, and the request
+            // goes on. Every other mutation still reports the failure.
+            try {
+                $this->writeYamlFile($id, $data);
+            } catch (\RuntimeException) {
+                return;
+            }
         });
+    }
+
+    /**
+     * Parse a token file, or return null when it does not hold a record:
+     * empty or damaged (not valid YAML). Such a token is treated as missing,
+     * which denies access, instead of failing every request with a 500.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function readTokenFile(string $filePath): ?array
+    {
+        try {
+            $data = Yaml::parseFile($filePath);
+        } catch (ParseException) {
+            return null;
+        }
+
+        if (! is_array($data)) {
+            return null;
+        }
+
+        /** @var array<string, mixed> $data */
+        return $data;
     }
 
     /** @param array<string, mixed> $data */
@@ -612,8 +650,7 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
         }
 
         foreach ($files as $file) {
-            /** @var array<string, mixed>|null $data */
-            $data = Yaml::parseFile($file);
+            $data = $this->readTokenFile($file);
 
             if (is_array($data) && isset($data['id'])) {
                 $tokens[] = $data;

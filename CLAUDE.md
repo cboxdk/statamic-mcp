@@ -125,6 +125,14 @@ A 3.3.0 security audit hardened the tool layer. Keep these when touching routers
   rules in `checkWebPermissions()` match `static::class` whatever the spelling.
 - `deactivate` revokes the user's tokens and `AuthenticateForMcp` refuses an
   `status=inactive` user on both the bearer and Basic paths.
+- **Every `FileTokenStore` mutation runs inside `withMutationLock()`**, and
+  `markAsUsed()` reads the record under that lock. Every authenticated request
+  rewrites its token to record `last_used_at`; outside the lock that write
+  restored the record it had read, undoing a revoke (the token came back and was
+  re-indexed), a regenerate or a scope change made meanwhile (#91). A new write
+  path needs the same lock. Token files are replaced via `writeYamlFile()` (temp
+  file + `rename()`), never rewritten in place, so lock-free readers never see a
+  partial file (#89).
 
 ### OAuth 2.1 Authorization Server
 The addon includes a full OAuth 2.1 authorization server with PKCE for browser-based MCP clients:
@@ -835,6 +843,13 @@ carry no `Access-Control-Allow-Origin`, and the browser would hide both the 400 
 explanation behind a generic network error. Group middleware runs first, which puts CORS
 outermost. **Keep it there.**
 
+Since laravel/mcp 1.2, `Mcp::web()` also attaches `ValidateOrigin`, which answers 403 to
+any `Origin` that is not localhost, `app.url` or in `mcp.allowed_origins` — so the
+addon's own `statamic.mcp.web.allowed_origins` locked out exactly the browser clients it
+was meant to admit. `registerWebMcp()` swaps it **in place** for `ValidateMcpOrigin`,
+which also accepts what `HandleMcpCors::allowsOrigin()` accepts, on this endpoint's
+routes only. Keep the two lists agreeing.
+
 `HandleMcpCors::ALLOWED_HEADERS` must list every header a client is required to send.
 Since protocol 2026-07-28 that includes `MCP-Protocol-Version`, `Mcp-Method` and
 `Mcp-Name` — a browser is blocked if it sends a header the preflight did not allow, and
@@ -950,6 +965,15 @@ used to run on the top level formatted the wall clock with a literal `Z`, which 
 every time on a non-UTC site, and took a `{start, end}` range for a `{date, time}` object
 (3.2.1). The suite runs in UTC, where the shift is invisible, which is why
 `tests/Integration/DateFieldRoundTripTest.php` switches to Europe/Copenhagen.
+
+**Field conditions are evaluated server-side.** Statamic evaluates `if`/`unless` only in
+the CP's JavaScript, which omits hidden fields from the payload; its PHP `Fields\Validator`
+enforces every rule. Content writes therefore validate through
+`Mcp\Support\ConditionalFieldsValidator` (with `withConditionValues()` given the record's
+full data, so conditions on `template` etc. resolve), which drops the rules of an
+**empty** hidden field. A hidden field that carries a value is still validated, because
+this server stores it. **Never use `new Statamic\Fields\Validator` or `$fields->validator()`
+in a write path** — a conditionally required field would block every write again.
 
 **`statamic-terms`** — list, get, create, update, delete
 

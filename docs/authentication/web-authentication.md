@@ -45,6 +45,12 @@ Issuance, scope changes and revocation share an atomic cache lock. Configure `oa
 
 All v4 OAuth drivers must implement `revokeGrantsForUser` through the `OAuthDriver` contract. Revocation includes refresh grants and pending authorization codes whose access tokens have expired or been pruned. Update custom drivers before upgrading; the incomplete legacy fallback has been removed.
 
+### Redirect URI matching
+
+The `redirect_uri` of an authorization request must match one the client registered, exactly. There is one exception, which RFC 8252 §7.3 requires for native apps: a plain-http loopback URI (`http://localhost` or `http://127.0.0.1`) matches on any port. A desktop client such as Claude Code registers `http://localhost/callback` and listens on whatever port the operating system gives it when sign-in starts.
+
+Scheme, host, path and query must still be equal, `localhost` does not match `127.0.0.1`, and a URI with user info or a fragment never qualifies. The authorization code is bound to the exact URI requested, port included, and PKCE is required on every request, so a code delivered to another local port cannot be redeemed.
+
 ### Token Metadata Tracking
 
 OAuth-created tokens store `oauth_client_id` and `oauth_client_name` for integration tracking. The CP dashboard shows an "OAuth" badge and hides the regenerate button for OAuth-created tokens.
@@ -101,6 +107,8 @@ Desktop MCP clients (Claude Desktop, Cursor, etc.) don't need CORS. If you're bu
 ```
 
 When `allowed_origins` is empty (the default), no CORS headers are sent.
+
+The same list feeds laravel/mcp's Origin check on this endpoint, which refuses a request carrying an `Origin` header unless it is localhost, `APP_URL`, in `mcp.allowed_origins` or in this list. Requests without an `Origin` header (desktop and server-side clients) are not affected.
 
 ### Production Checklist
 

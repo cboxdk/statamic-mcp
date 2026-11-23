@@ -56,6 +56,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Allow editors to restore revisions as drafts or working copies without requiring publication rights, matching Statamic's control panel.
 - Use Statamic's actual role and user-group permissions for all corresponding MCP operations, including non-super administrators.
 
+## [3.6.2] - 2026-11-23
+
+### Fixed
+
+- **Conditionally hidden fields no longer block writes** (#93, #94, thanks @SteJW). Entry, term and global writes no longer enforce the rules of a field that its `if`/`unless` conditions hide. Statamic only evaluates conditions in the Control Panel's JavaScript, which leaves hidden fields out of what it submits, so the server-side validator enforced them for every MCP write: a conditionally required field (e.g. a `brochure` asset shown only when `template` equals `Brochure`) blocked every create whose condition was not met with "The Brochure field is required." Conditions are now evaluated server-side with the Control Panel's semantics, at the top level and inside replicator, bard, grid and group fields, and conditions may target non-blueprint data such as an entry's `template`. A hidden field that is sent a value is still validated, since it would still be stored. `custom` conditions and conditions on revealer fields cannot be evaluated server-side and keep validating as before. `content_validate` applies the same rule.
+- **`statamic-assets` `list` can be limited to a folder** (#96, #97, thanks @timluigjes). `folder`, or `filters.folder`, lists that folder, and with `recursive` its subfolders too; pagination totals count only those assets. Both were ignored before. A plain `list` also returned no assets at all, because it looked for root assets under folder `''` while Statamic reports `'/'`; it now returns the container root. A folder with `.` or `..` segments is refused, as for `upload`.
+- **Browser clients from an origin listed in `web.allowed_origins` can connect again** (#98). laravel/mcp 1.2 added its own Origin check to the web endpoint, which knew only `mcp.allowed_origins`, so those origins got 403 `Forbidden: The request origin is not allowed.` before CORS was reached. The endpoint now accepts both lists and still refuses every other origin.
+
+## [3.6.1] - 2026-11-10
+
+### Security
+
+- The file token store serializes every token write behind one store-wide lock (#91). Each authenticated request rewrites its token to record `last_used_at`, and that read-modify-write raced every other change to the token: a request that read the record before a revoke, a regenerate or a scope change wrote the old record back afterwards, so a revoked token came back (and was re-indexed on the next lookup), a regenerated token accepted its old secret again, and narrowed scopes widened back. Usage writes now re-read the token under the lock and never recreate a deleted one. The database token store was not affected.
+
+### Fixed
+
+- OAuth authorization accepts a loopback redirect URI (`http://localhost` or `http://127.0.0.1`) on any port, as RFC 8252 §7.3 requires (#90, thanks @illia-sapryga). Native clients register `http://localhost/callback` and come back on the port the operating system gave them, which was refused with 400 `Invalid redirect_uri.` (Claude Code's client metadata is one example). Scheme, host, path and query must still match, and every other redirect URI still matches exactly.
+- The file token store replaces a token file whole (a temporary file renamed over it) instead of truncating and rewriting it in place (#89, thanks @illia-sapryga). Every authenticated request rewrites its token to record `last_used_at`, and token files are read without a lock, so a request arriving alongside another could read an empty file and fail with a 500 (`arrayToTokenData(): Argument #1 ($data) must be of type array, null given`). A token file that cannot be read as a record (empty, or not valid YAML) now counts as missing, and `markAsUsed()` no longer writes back a record holding only `last_used_at`. When the new file can't be written whole (a full disk), the token file is left as it was: `markAsUsed()` skips recording the use, and `create()`/`update()`/`import()` throw instead of leaving a truncated file.
+
 ## [3.6.0] - 2026-11-05
 
 ### Security
@@ -768,7 +787,10 @@ straight to the fix. Thanks to @JorisOrangeStudio and @revans-premier-education.
 - Laravel MCP v0.2.0 integration
 - Comprehensive test suite
 
-[Unreleased]: https://github.com/cboxdk/statamic-mcp/compare/v3.5.0...HEAD
+[Unreleased]: https://github.com/cboxdk/statamic-mcp/compare/v3.6.2...HEAD
+[3.6.2]: https://github.com/cboxdk/statamic-mcp/compare/v3.6.1...v3.6.2
+[3.6.1]: https://github.com/cboxdk/statamic-mcp/compare/v3.6.0...v3.6.1
+[3.6.0]: https://github.com/cboxdk/statamic-mcp/compare/v3.5.0...v3.6.0
 [3.5.0]: https://github.com/cboxdk/statamic-mcp/compare/v3.4.1...v3.5.0
 [3.4.1]: https://github.com/cboxdk/statamic-mcp/compare/v3.4.0...v3.4.1
 [3.4.0]: https://github.com/cboxdk/statamic-mcp/compare/v3.3.0...v3.4.0

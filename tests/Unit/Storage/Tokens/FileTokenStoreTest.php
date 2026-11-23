@@ -116,6 +116,139 @@ class FileTokenStoreTest extends TestCase
         }
     }
 
+    public function test_mark_as_used_replaces_the_token_file_instead_of_rewriting_it_in_place(): void
+    {
+        $store = new FileTokenStore($this->tempDir);
+
+        $token = $store->create('user-1', 'Atomic Test', 'hash_atomic', ['*'], null);
+        $path = $this->tempDir . '/' . $token->id . '.yaml';
+        $before = (string) file_get_contents($path);
+
+        // A request that opened the token file before another request recorded
+        // its use must still read the whole record. An in-place rewrite
+        // truncates the file it is reading, which is how a concurrent request
+        // ended up parsing an empty file.
+        $reader = fopen($path, 'r');
+        $this->assertNotFalse($reader);
+
+        $store->markAsUsed($token->id);
+
+        $this->assertSame($before, stream_get_contents($reader));
+        fclose($reader);
+
+        $found = $store->findByHash('hash_atomic');
+        $this->assertNotNull($found);
+        $this->assertNotNull($found->lastUsedAt);
+    }
+
+    public function test_writes_leave_no_temporary_files_behind(): void
+    {
+        $store = new FileTokenStore($this->tempDir);
+
+        $token = $store->create('user-1', 'Tmp Test', 'hash_tmp', ['*'], null);
+        $store->markAsUsed($token->id);
+        $store->update($token->id, ['name' => 'Renamed']);
+
+        $files = array_values(array_diff(scandir($this->tempDir) ?: [], ['.', '..']));
+        sort($files);
+
+        // .store.lock persists on purpose: unlinking a lock file other
+        // processes may hold open would let two writers lock different inodes.
+        $this->assertSame(['.index', '.store.lock', $token->id . '.yaml'], $files);
+        $this->assertSame('Renamed', $store->find($token->id)?->name);
+    }
+
+    public function test_an_empty_token_file_is_treated_as_missing(): void
+    {
+        $store = new FileTokenStore($this->tempDir);
+
+        $token = $store->create('user-1', 'Empty Test', 'hash_empty', ['*'], null);
+        $path = $this->tempDir . '/' . $token->id . '.yaml';
+        file_put_contents($path, '');
+
+        $this->assertNull($store->find($token->id));
+        $this->assertNull($store->findByHash('hash_empty'));
+        $this->assertNull($store->update($token->id, ['name' => 'Renamed']));
+        $this->assertSame('', file_get_contents($path));
+    }
+
+    public function test_mark_as_used_never_writes_a_record_from_an_unreadable_file(): void
+    {
+        $store = new FileTokenStore($this->tempDir);
+
+        $token = $store->create('user-1', 'Unreadable Test', 'hash_unreadable', ['*'], null);
+        $path = $this->tempDir . '/' . $token->id . '.yaml';
+        file_put_contents($path, '');
+
+        // Writing back a record that holds only last_used_at would leave a
+        // token file that never authenticates again.
+        $store->markAsUsed($token->id);
+
+        $this->assertSame('', file_get_contents($path));
+    }
+
+    public function test_deleting_an_unreadable_token_file_removes_it(): void
+    {
+        $store = new FileTokenStore($this->tempDir);
+
+        $token = $store->create('user-1', 'Delete Test', 'hash_delete_unreadable', ['*'], null);
+        $path = $this->tempDir . '/' . $token->id . '.yaml';
+        file_put_contents($path, '');
+
+        $this->assertTrue($store->delete($token->id));
+        $this->assertFileDoesNotExist($path);
+    }
+
+    public function test_a_damaged_token_file_is_treated_as_missing(): void
+    {
+        $store = new FileTokenStore($this->tempDir);
+
+        $good = $store->create('user-1', 'Good', 'hash_good', ['*'], null);
+        $damaged = $store->create('user-1', 'Damaged', 'hash_damaged', ['*'], null);
+        file_put_contents($this->tempDir . '/' . $damaged->id . '.yaml', "id: [unclosed\nname: {\n");
+
+        $this->assertNull($store->find($damaged->id));
+        $this->assertNull($store->findByHash('hash_damaged'));
+        $this->assertNull($store->update($damaged->id, ['name' => 'Renamed']));
+
+        // An unknown hash rebuilds the index from every file, the damaged one included.
+        $this->assertNull($store->findByHash('hash_unknown'));
+        $this->assertSame($good->id, $store->findByHash('hash_good')?->id);
+        $this->assertSame([$good->id], $store->listAll()->pluck('id')->all());
+    }
+
+    public function test_a_token_file_is_left_as_it_was_when_the_new_one_cannot_be_written(): void
+    {
+        if (function_exists('posix_geteuid') && posix_geteuid() === 0) {
+            $this->markTestSkipped('root can write to a read-only directory');
+        }
+
+        $store = new FileTokenStore($this->tempDir);
+
+        $token = $store->create('user-1', 'Full Disk', 'hash_full_disk', ['*'], null);
+        $path = $this->tempDir . '/' . $token->id . '.yaml';
+        $before = (string) file_get_contents($path);
+
+        // A directory that can't be written stands in for a full disk: the
+        // temporary file can't be written, while the token file itself still could.
+        chmod($this->tempDir, 0555);
+
+        // The failed write raises a (suppressed) warning on purpose; keep it out of the test run.
+        set_error_handler(static fn (): bool => true, E_WARNING);
+
+        try {
+            $store->markAsUsed($token->id);
+            $this->assertSame($before, file_get_contents($path));
+
+            $this->expectException(\RuntimeException::class);
+            $store->update($token->id, ['name' => 'Renamed']);
+        } finally {
+            restore_error_handler();
+            chmod($this->tempDir, 0755);
+            $this->assertSame($before, file_get_contents($path));
+        }
+    }
+
     private function deleteDirectory(string $dir): void
     {
         if (! is_dir($dir)) {

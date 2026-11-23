@@ -135,12 +135,19 @@ class RegisteredReadTransportTest extends TestCase
 
     public function test_a_non_super_user_can_discover_the_action_for_a_non_default_permitted_site(): void
     {
+        // A multisite Stache reads every entry file from a site folder
+        // (Statamic 6.43+), so the root-level fixture from setUp() is replaced
+        // with a default-site entry once multisite is on.
+        Entry::find($this->entryId)?->delete();
         config(['statamic.editions.pro' => true, 'statamic.system.multisite' => true]);
         Site::setSites([
             'default' => ['name' => 'Default', 'locale' => 'en_US', 'url' => '/'],
             'danish' => ['name' => 'Danish', 'locale' => 'da_DK', 'url' => '/da/'],
         ]);
         Collection::find('pages')->sites(['default', 'danish'])->save();
+        $default = Entry::make()->collection('pages')->locale('default')->slug('draft')->published(false)->data(['title' => 'Private draft']);
+        $default->save();
+        $this->entryId = $default->id();
         $entry = Entry::make()->collection('pages')->locale('danish')->slug('danish-draft')->published(false)->data(['title' => 'Danish draft']);
         $entry->save();
         Role::make()->handle('danish-reader')->permissions(['view pages entries', 'access danish site'])->save();

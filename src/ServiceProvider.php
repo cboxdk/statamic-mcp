@@ -21,6 +21,7 @@ use Cboxdk\StatamicMcp\Http\Middleware\EnsureSecureTransport;
 use Cboxdk\StatamicMcp\Http\Middleware\HandleMcpCors;
 use Cboxdk\StatamicMcp\Http\Middleware\RequireMcpPermission;
 use Cboxdk\StatamicMcp\Http\Middleware\SetOAuthWwwAuthenticate;
+use Cboxdk\StatamicMcp\Http\Middleware\ValidateMcpOrigin;
 use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
 use Cboxdk\StatamicMcp\OAuth\Cimd\CimdResolver;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
@@ -40,6 +41,7 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Laravel\Mcp\Facades\Mcp;
 use Laravel\Mcp\Server\Middleware\AddWwwAuthenticateHeader;
+use Laravel\Mcp\Server\Middleware\ValidateOrigin;
 use Psr\Log\LoggerInterface;
 use Statamic\CP\Navigation\NavItem;
 use Statamic\Facades\CP\Nav;
@@ -515,6 +517,29 @@ class ServiceProvider extends AddonServiceProvider
                     RequireMcpPermission::class,
                 ]);
         });
+
+        // laravel/mcp's ValidateOrigin knows only `mcp.allowed_origins`, so it
+        // answered 403 to the browser origins this addon is configured to
+        // accept. Swap in the subclass that also reads our allowlist, in place
+        // so it still runs before header validation and auth. Mcp::web() also
+        // registers GET and DELETE on the path, so every route on it is swept.
+        foreach (Route::getRoutes()->getRoutes() as $route) {
+            if ($route->uri() !== trim($path, '/')) {
+                continue;
+            }
+
+            $action = $route->getAction();
+            $middleware = is_array($action) ? ($action['middleware'] ?? null) : null;
+
+            if (is_array($action) && is_array($middleware) && in_array(ValidateOrigin::class, $middleware, true)) {
+                $route->setAction(array_merge($action, [
+                    'middleware' => array_map(
+                        fn (mixed $m): mixed => $m === ValidateOrigin::class ? ValidateMcpOrigin::class : $m,
+                        $middleware,
+                    ),
+                ]));
+            }
+        }
     }
 
     /**

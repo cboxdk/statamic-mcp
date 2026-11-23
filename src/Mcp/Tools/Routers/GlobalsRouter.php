@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
+use Cboxdk\StatamicMcp\Mcp\Support\ConditionalFieldsValidator;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\SanitizesFieldData;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
@@ -16,7 +17,6 @@ use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Attributes\Title;
 use Statamic\Contracts\Globals\Variables;
 use Statamic\Facades\GlobalSet;
-use Statamic\Fields\Validator;
 
 #[Name('statamic-globals')]
 #[Title('Statamic Global Sets')]
@@ -313,8 +313,9 @@ class GlobalsRouter extends BaseRouter
                 ];
 
                 try {
-                    (new Validator)
+                    (new ConditionalFieldsValidator)
                         ->fields($blueprint->fields()->addValues($mergedData))
+                        ->withConditionValues($mergedData)
                         ->withContext($validationContext)
                         ->validate();
                 } catch (ValidationException $e) {
@@ -323,8 +324,9 @@ class GlobalsRouter extends BaseRouter
                     // Third-party fieldtype validation crash — fall back to
                     // validating only the incoming fields.
                     try {
-                        (new Validator)
+                        (new ConditionalFieldsValidator)
                             ->fields($blueprint->fields()->addValues($data))
+                            ->withConditionValues($mergedData)
                             ->withContext($validationContext)
                             ->validate();
                     } catch (ValidationException $inner) {

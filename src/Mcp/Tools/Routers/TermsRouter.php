@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
+use Cboxdk\StatamicMcp\Mcp\Support\ConditionalFieldsValidator;
 use Cboxdk\StatamicMcp\Mcp\Support\SeoProFieldData;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\SanitizesFieldData;
@@ -17,7 +18,6 @@ use Laravel\Mcp\Server\Attributes\Title;
 use Statamic\Facades\Taxonomy;
 use Statamic\Facades\Term;
 use Statamic\Fields\Field;
-use Statamic\Fields\Validator as FieldsValidator;
 use Statamic\Rules\UniqueTermValue;
 use Statamic\Support\Str;
 
@@ -355,8 +355,9 @@ class TermsRouter extends BaseRouter
                 try {
                     $fields = $blueprint->fields()->addValues($dataWithSlug);
 
-                    (new FieldsValidator)
+                    (new ConditionalFieldsValidator)
                         ->fields($fields)
+                        ->withConditionValues($dataWithSlug)
                         ->withContext([
                             'term' => $term,
                             'taxonomy' => $taxonomy,
@@ -492,8 +493,9 @@ class TermsRouter extends BaseRouter
                 ];
 
                 try {
-                    (new FieldsValidator)
+                    (new ConditionalFieldsValidator)
                         ->fields($blueprint->fields()->addValues($mergedData))
+                        ->withConditionValues($mergedData)
                         ->withContext($validationContext)
                         ->validate();
                 } catch (ValidationException $e) {
@@ -502,8 +504,9 @@ class TermsRouter extends BaseRouter
                     // Third-party fieldtype validation crash — fall back to
                     // validating only the incoming fields.
                     try {
-                        (new FieldsValidator)
+                        (new ConditionalFieldsValidator)
                             ->fields($blueprint->fields()->addValues($validatedData))
+                            ->withConditionValues($mergedData)
                             ->withContext($validationContext)
                             ->validate();
                     } catch (ValidationException $inner) {

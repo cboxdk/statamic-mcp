@@ -272,6 +272,27 @@ class WebEndpointProtocolTest extends TestCase
         $this->assertSame('https://client.example', $response->headers->get('Access-Control-Allow-Origin'));
     }
 
+    public function test_the_origin_check_admits_configured_origins_and_still_refuses_others(): void
+    {
+        config()->set('statamic.mcp.web.allowed_origins', ['https://client.example']);
+
+        $headers = fn (string $origin): array => [
+            'Authorization' => 'Bearer ' . $this->token,
+            'MCP-Protocol-Version' => self::PROTOCOL_VERSION,
+            'Mcp-Method' => 'tools/list',
+            'Origin' => $origin,
+        ];
+
+        // laravel/mcp's ValidateOrigin knows only mcp.allowed_origins; the
+        // addon's own allowlist must reach it, on POST and on the GET that
+        // clients probe for a stream (405 there, not 403).
+        $this->postJson('/mcp/statamic', $this->body('tools/list'), $headers('https://client.example'))->assertOk();
+        $this->getJson('/mcp/statamic', $headers('https://client.example'))->assertStatus(405);
+
+        $this->postJson('/mcp/statamic', $this->body('tools/list'), $headers('https://evil.example'))->assertStatus(403);
+        $this->getJson('/mcp/statamic', $headers('https://evil.example'))->assertStatus(403);
+    }
+
     public function test_a_preflight_allows_the_headers_the_protocol_requires(): void
     {
         config()->set('statamic.mcp.web.allowed_origins', ['https://client.example']);
