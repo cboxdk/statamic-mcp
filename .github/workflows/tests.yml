@@ -78,7 +78,8 @@ jobs:
 
   test-sqlite:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The V4 suite takes 14-30 min on a busy runner; 30 cut green runs off.
+    timeout-minutes: 45
     needs: code-quality
     strategy:
       fail-fast: false
@@ -133,7 +134,8 @@ jobs:
 
   test-mysql:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The V4 suite takes 14-30 min on a busy runner; 30 cut green runs off.
+    timeout-minutes: 45
     needs: code-quality
     strategy:
       fail-fast: false
