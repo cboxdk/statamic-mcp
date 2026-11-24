@@ -304,16 +304,18 @@ abstract class BaseRouter extends BaseStatamicTool
     private function observedAction(string $action, string $operationId, array $arguments): array
     {
         $start = hrtime(true);
-        $this->emitExecution(Events\ExecutionStarted::class, $action, $operationId, 'none', $start);
+        // One execution id ties started to its terminal event; observers pair them on it.
+        $execution = (string) Str::uuid();
+        $this->emitExecution(Events\ExecutionStarted::class, $action, $operationId, 'none', $start, $execution);
         try {
             $result = $this->executeAction($arguments);
         } catch (\Throwable $error) {
-            $this->emitExecution(Events\ExecutionFailed::class, $action, $operationId, $this->writeEffectsSoFar() ?? 'none', $start);
+            $this->emitExecution(Events\ExecutionFailed::class, $action, $operationId, $this->writeEffectsSoFar() ?? 'none', $start, $execution);
             throw $error;
         }
         $effects = $this->writeEffectsSoFar() ?? 'none';
         $this->emitExecution(($result['success'] ?? true) === false ? Events\ExecutionFailed::class : Events\ExecutionCompleted::class,
-            $action, $operationId, $effects, $start);
+            $action, $operationId, $effects, $start, $execution);
 
         return $result;
     }
@@ -333,7 +335,7 @@ abstract class BaseRouter extends BaseStatamicTool
     }
 
     /** @param  class-string<Events\ExecutionEvent>  $event */
-    private function emitExecution(string $event, string $action, string $operationId, string $effects, int $start): void
+    private function emitExecution(string $event, string $action, string $operationId, string $effects, int $start, ?string $execution = null): void
     {
         $domain = trim((string) preg_replace('/[^a-z0-9-]+/', '-', strtolower($this->getDomain())), '-') ?: 'tool';
         $outcome = match ($event) {
@@ -345,7 +347,8 @@ abstract class BaseRouter extends BaseStatamicTool
         };
         try {
             $instance = new $event((string) Str::uuid(), $operationId, 'statamic-mcp/' . $domain . '/' . ($action !== '' ? $action : 'unknown'), 1,
-                $this->isCliContext() ? 'stdio' : 'http', $outcome, $effects, (hrtime(true) - $start) / 1_000_000, gmdate('Y-m-d\TH:i:s\Z'));
+                $this->isCliContext() ? 'stdio' : 'http', $outcome, $effects, (hrtime(true) - $start) / 1_000_000, gmdate('Y-m-d\TH:i:s\Z'),
+                executionId: $execution ?? (string) Str::uuid());
         } catch (\Throwable) {
             return;
         }

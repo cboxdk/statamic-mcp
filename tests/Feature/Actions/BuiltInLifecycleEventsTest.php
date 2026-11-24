@@ -62,6 +62,8 @@ it('emits started then completed for a write, with committed effects and no cont
     expect($completed['action_id'])->toBe('statamic-mcp/entries/update')
         ->and($completed['effects'])->toBe('committed')
         ->and($completed['operation_id'])->toBe($started['operation_id'])
+        ->and($started['execution_id'])->toBeString()
+        ->and($completed['execution_id'])->toBe($started['execution_id'])
         ->and($completed['transport'])->toBe('stdio');
     evNoContent($this->events);
 });
@@ -94,7 +96,9 @@ it('reports an idempotent replay as replayed, not as a second write', function (
 
     expect(evNames($this->events))->toBe(['execution.started', 'execution.completed', 'execution.replayed'])
         ->and($this->events->events[2]->metadata()['operation_id'])->toBe($first)
-        ->and($this->events->events[2]->metadata()['effects'])->toBe('none');
+        ->and($this->events->events[2]->metadata()['effects'])->toBe('none')
+        ->and($this->events->events[2]->metadata()['execution_id'])->toBeString()
+        ->and($this->events->events[2]->metadata()['execution_id'])->not->toBe($this->events->events[0]->metadata()['execution_id']);
 });
 
 it('follows an approval from request to consumption, and records the person\'s rejection', function () {
