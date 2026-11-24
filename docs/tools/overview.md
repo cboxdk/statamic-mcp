@@ -146,8 +146,13 @@ Taxonomy term management with slug conflict prevention and dependency validation
 | `list` | List terms | `taxonomy`, `search`, `page`, `per_page` |
 | `get` | Get term | `taxonomy`, `slug` |
 | `create` | Create term | `taxonomy`, `slug`, `data` |
-| `update` | Update term | `taxonomy`, `slug`, `data` |
-| `delete` | Delete term | `taxonomy`, `slug` |
+| `update` | Update term | `taxonomy`, `slug`, `data`, `expected_version` |
+| `delete` | Delete term | `taxonomy`, `slug`, `expected_version` |
+
+Term responses carry a `version` too, and `update` and `delete` take
+`expected_version` the same way as entries. A term's version covers every site,
+because Statamic keeps all of a term's localizations in one file: a change to
+the German localization makes the English version stale as well.
 
 ### `statamic-globals`
 
@@ -157,7 +162,12 @@ Global set structure and values management with multi-site support.
 |--------|-------------|----------------|
 | `list` | List global sets | — |
 | `get` | Get global set | `handle`, `site` |
-| `update` | Update values | `handle`, `site`, `data`, `merge_strategy` |
+| `update` | Update values | `handle`, `site`, `data`, `merge_strategy`, `expected_version` |
+
+`get` and `update` report the site's `version`, and `update` takes
+`expected_version` the same way as entries. Each site's values are stored on
+their own, so a version covers one site: a change in another site does not
+conflict.
 
 ### `statamic-structures`
 

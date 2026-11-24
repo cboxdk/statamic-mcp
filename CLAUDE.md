@@ -946,6 +946,9 @@ Entry responses carry a `version` (`EntriesRouter::entryVersion()`: file data, s
 copy, canonicalized), and single-entry writes accept `expected_version`, checked under a per-entry
 cache lock right before the action runs (`withExpectedVersion()`). The lock only serializes MCP
 writers; a CP save is caught when it landed before the check. Tree position is not in the version.
+Terms and globals do the same through the shared `ChecksResourceVersions` concern: a term's version
+is its whole file (all sites), a global set's is one site's variables. A new versioned record type
+uses that concern rather than its own lock.
 
 `update` accepts `merge_sets`: when true, a top-level replicator field in `data` is merged
 into the stored array by item `id` rather than replacing it, so one section of a page

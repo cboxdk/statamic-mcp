@@ -7,6 +7,7 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 use Cboxdk\StatamicMcp\Mcp\Support\ConditionalFieldsValidator;
 use Cboxdk\StatamicMcp\Mcp\Support\SeoProFieldData;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ChecksResourceVersions;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\SanitizesFieldData;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
@@ -22,12 +23,15 @@ use Statamic\Facades\User;
 use Statamic\Fields\Field;
 use Statamic\Rules\UniqueTermValue;
 use Statamic\Support\Str;
+use Statamic\Taxonomies\LocalizedTerm;
+use Statamic\Taxonomies\Term as StoredTerm;
 
 #[Name('statamic-terms')]
 #[Title('Statamic Taxonomy Terms')]
 #[Description('Manage Statamic taxonomy terms. Use statamic-blueprints get first to understand field structure before create/update. Actions: list, get, create, update, delete.')]
 class TermsRouter extends BaseRouter
 {
+    use ChecksResourceVersions;
     use SanitizesFieldData;
 
     protected function getDomain(): string
@@ -71,6 +75,9 @@ class TermsRouter extends BaseRouter
 
             'filters' => JsonSchema::object()
                 ->description('Filter conditions as key-value pairs. Keys are field handles from the blueprint. Example: {"status": "published"}'),
+
+            'expected_version' => JsonSchema::string()
+                ->description('Optimistic concurrency for update and delete: the `version` from your last get/create/update. It covers the whole term, every site included. If the stored term changed since (through MCP, the Control Panel or anything else), the write is refused with a version conflict and nothing is saved; get the term again and redo the change. Omit to write unconditionally.'),
 
             'limit' => JsonSchema::integer()
                 ->description('Maximum results to return (default: 100, max: 500)'),
@@ -118,7 +125,35 @@ class TermsRouter extends BaseRouter
             return $validationError;
         }
 
-        // Execute action
+        if (in_array($action, ['update', 'delete'], true) && array_key_exists('expected_version', $arguments)) {
+            $term = $this->findTerm($arguments);
+            if ($term !== null) {
+                return $this->writeIfVersionMatches(
+                    $arguments['expected_version'],
+                    'term',
+                    $term->id(),
+                    function () use ($arguments, $term): string|array {
+                        $current = $this->findTerm(['id' => $term->id()] + $arguments);
+
+                        return $current === null
+                            ? $this->createErrorResponse('Term not found: ' . $term->id())->toArray()
+                            : $this->termVersion($current);
+                    },
+                    fn (): array => $this->withTermVersion($action, $this->dispatchTermAction($action, $arguments)),
+                );
+            }
+        }
+
+        return $this->withTermVersion($action, $this->dispatchTermAction($action, $arguments));
+    }
+
+    /**
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string, mixed>
+     */
+    private function dispatchTermAction(string $action, array $arguments): array
+    {
         return match ($action) {
             'list' => $this->listTerms($arguments),
             'get' => $this->getTerm($arguments),
@@ -127,6 +162,62 @@ class TermsRouter extends BaseRouter
             'delete' => $this->deleteTerm($arguments),
             default => $this->createErrorResponse("Action {$action} not supported for terms")->toArray(),
         };
+    }
+
+    /**
+     * The term named by id or slug in the requested taxonomy, or null.
+     *
+     * @param  array<string, mixed>  $arguments
+     */
+    private function findTerm(array $arguments): ?\Statamic\Contracts\Taxonomies\Term
+    {
+        if (is_string($arguments['id'] ?? null) && $arguments['id'] !== '') {
+            $term = Term::find($arguments['id']);
+        } elseif (is_string($arguments['slug'] ?? null) && $arguments['slug'] !== '') {
+            $term = Term::query()->where('taxonomy', $arguments['taxonomy'])->where('slug', $arguments['slug'])->first();
+        } else {
+            return null;
+        }
+
+        return $term instanceof \Statamic\Contracts\Taxonomies\Term && $term->taxonomyHandle() === $arguments['taxonomy'] ? $term : null;
+    }
+
+    /**
+     * The term's stored state as an opaque token: its slug and the data of
+     * every site, which Statamic keeps in one file. Any write to the term,
+     * from MCP or not, changes it.
+     */
+    private function termVersion(\Statamic\Contracts\Taxonomies\Term $term): string
+    {
+        $stored = $term instanceof LocalizedTerm ? $term->term() : $term;
+        if (! $stored instanceof StoredTerm) {
+            return self::resourceVersion(['id' => $term->id(), 'data' => $term->data()->all()]);
+        }
+
+        return self::resourceVersion(['slug' => $stored->slug(), 'data' => $stored->fileData()]);
+    }
+
+    /**
+     * Report the term's version after a successful single-term action, so a
+     * caller can pass it back as expected_version on its next write.
+     *
+     * @param  array<string, mixed>  $result
+     *
+     * @return array<string, mixed>
+     */
+    private function withTermVersion(string $action, array $result): array
+    {
+        if (! in_array($action, ['get', 'create', 'update'], true) || ($result['success'] ?? true) === false
+            || ! is_array($result['term'] ?? null) || ! is_string($result['term']['id'] ?? null)) {
+            return $result;
+        }
+
+        $term = Term::find($result['term']['id']);
+        if ($term !== null) {
+            $result['term']['version'] = $this->termVersion($term);
+        }
+
+        return $result;
     }
 
     /** @return array<string, mixed>|null */

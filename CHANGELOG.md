@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Optimistic concurrency for entries. Entry responses carry a `version`; `update`, `delete`, `publish`, `unpublish`, `restore_revision` and `publish_working_copy` accept `expected_version` and refuse with `VERSION_CONFLICT` (nothing saved) when the stored entry changed since, through MCP or not. Two MCP writers with the same version cannot both succeed. Omitting it writes unconditionally as before.
+- The same for terms (`update`, `delete`) and global sets (`update`). A term's version covers all its sites, which share one file; a global set's version covers one site.
 
 ### Changed (breaking)
 

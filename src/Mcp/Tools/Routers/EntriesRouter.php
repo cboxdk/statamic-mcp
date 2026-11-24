@@ -13,24 +13,21 @@ use Cboxdk\StatamicMcp\Mcp\Exceptions\FieldFormatException;
 use Cboxdk\StatamicMcp\Mcp\Support\ConditionalFieldsValidator;
 use Cboxdk\StatamicMcp\Mcp\Support\SeoProFieldData;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ChecksResourceVersions;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\HandlesRevisions;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ParsesDateValues;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\SanitizesFieldData;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Cboxdk\StatamicMcp\Support\McpContext;
-use Illuminate\Contracts\Cache\LockProvider;
-use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\Support\Collection as SupportCollection;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Attributes\Title;
 use Statamic\Contracts\Entries\Entry as EntryContract;
-use Statamic\Facades\Blink;
 use Statamic\Facades\Collection;
 use Statamic\Facades\Entry;
 use Statamic\Facades\Site;
@@ -45,6 +42,7 @@ use Statamic\Support\Str;
 #[Description('Manage Statamic collection entries. Use statamic-blueprints get first to understand field structure before create/update. Actions: list, get, create, update, delete, publish, unpublish, list_revisions, get_revision, restore_revision, publish_working_copy.')]
 class EntriesRouter extends BaseRouter
 {
+    use ChecksResourceVersions;
     use HandlesRevisions;
 
     /** The values of Entry::status(). */
@@ -249,31 +247,12 @@ class EntriesRouter extends BaseRouter
             $workingCopy = $entry->workingCopy()?->attributes();
         }
 
-        return hash('sha256', json_encode(self::canonicalForVersion([
+        return self::resourceVersion([
             'data' => $entry->fileData(),
             'slug' => $entry->slug(),
             'date' => $entry->hasDate() ? $entry->date()?->toIso8601String() : null,
             'working_copy' => $workingCopy,
-        ]), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
-    }
-
-    /**
-     * @param  array<array-key, mixed>  $value
-     *
-     * @return array<array-key, mixed>
-     */
-    private static function canonicalForVersion(array $value): array
-    {
-        if (! array_is_list($value)) {
-            ksort($value);
-        }
-        foreach ($value as $key => $child) {
-            if (is_array($child)) {
-                $value[$key] = self::canonicalForVersion($child);
-            }
-        }
-
-        return $value;
+        ]);
     }
 
     /**
@@ -300,13 +279,6 @@ class EntriesRouter extends BaseRouter
     }
 
     /**
-     * Run a write only if the entry is still the version the caller read.
-     *
-     * The check and the write run under a per-entry lock, so two MCP writers
-     * with the same expected version cannot both succeed. A Control Panel or
-     * queue write does not take this lock: it is caught when it landed before
-     * the check, not when it lands between the check and the save.
-     *
      * @param  array<string, mixed>  $arguments
      * @param  callable(): array<string, mixed>  $write
      *
@@ -314,59 +286,27 @@ class EntriesRouter extends BaseRouter
      */
     private function withExpectedVersion(array $arguments, callable $write): array
     {
-        $expected = $arguments['expected_version'];
         $id = is_string($arguments['id'] ?? null) ? $arguments['id'] : '';
-        if (! is_string($expected) || $expected === '') {
-            return $this->createErrorResponse('expected_version must be the version string returned by a previous get, create or update.')->toArray();
-        }
-
-        $store = Cache::store()->getStore();
-        if (! $store instanceof LockProvider) {
-            return $this->createErrorResponse('expected_version requires a cache store with atomic locks.')->toArray();
-        }
-
-        try {
-            $result = [];
-            $store->lock('statamic-mcp:entry:' . hash('sha256', $id), 30)->block(5, function () use ($arguments, $expected, $id, $write, &$result): void {
-                $result = $this->checkedWrite($arguments, $expected, $id, $write);
-            });
-
-            return $result;
-        } catch (LockTimeoutException) {
-            return $this->createErrorResponse('Another write to this entry is in progress. Nothing was saved; try again.')->toArray();
-        }
-    }
-
-    /**
-     * @param  array<string, mixed>  $arguments
-     * @param  callable(): array<string, mixed>  $write
-     *
-     * @return array<string, mixed>
-     */
-    private function checkedWrite(array $arguments, string $expected, string $id, callable $write): array
-    {
-        Blink::flush();
-        $entry = $this->resolveEntryInCollection($id, $arguments);
-        $site = $this->resolveSiteHandle($arguments);
-        if ($entry !== null && isset($arguments['site']) && $entry->site()->handle() !== $site) {
-            $localized = $entry->in($site);
-            $entry = $localized instanceof EntryContract ? $localized : null;
-        }
-        if ($entry === null) {
-            return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
-        }
-
-        $current = $this->entryVersion($entry);
-        if (! hash_equals($current, $expected)) {
-            return $this->createErrorResponse(
-                'Version conflict: the entry changed since you read it. Nothing was saved. Get the entry again and redo the change.',
-                ['code' => 'VERSION_CONFLICT', 'current_version' => $current],
-            )->toArray();
-        }
-
         $action = is_string($arguments['action'] ?? null) ? $arguments['action'] : '';
 
-        return $this->withVersion($action, $write());
+        return $this->writeIfVersionMatches(
+            $arguments['expected_version'],
+            'entry',
+            $id,
+            function () use ($arguments, $id): string|array {
+                $entry = $this->resolveEntryInCollection($id, $arguments);
+                $site = $this->resolveSiteHandle($arguments);
+                if ($entry !== null && isset($arguments['site']) && $entry->site()->handle() !== $site) {
+                    $localized = $entry->in($site);
+                    $entry = $localized instanceof EntryContract ? $localized : null;
+                }
+
+                return $entry === null
+                    ? $this->createErrorResponse('Entry not found: ' . $id)->toArray()
+                    : $this->entryVersion($entry);
+            },
+            fn (): array => $this->withVersion($action, $write()),
+        );
     }
 
     /**

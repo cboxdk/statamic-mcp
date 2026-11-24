@@ -7,6 +7,7 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Mcp\Support\ConditionalFieldsValidator;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ChecksResourceVersions;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\SanitizesFieldData;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
@@ -23,6 +24,7 @@ use Statamic\Facades\GlobalSet;
 #[Description('Manage Statamic global sets and their values. Use statamic-blueprints get to see field structure before updating. Actions: list, get, update.')]
 class GlobalsRouter extends BaseRouter
 {
+    use ChecksResourceVersions;
     use SanitizesFieldData;
 
     protected function getDomain(): string
@@ -58,6 +60,9 @@ class GlobalsRouter extends BaseRouter
                     . 'Use statamic-blueprints action "get" to see field types before sending data.'
                 ),
 
+            'expected_version' => JsonSchema::string()
+                ->description('Optimistic concurrency for update: the `version` from your last get/update of this global set in this site. If its stored values changed since (through MCP, the Control Panel or anything else), the update is refused with a version conflict and nothing is saved; get the global set again and redo the change. Omit to write unconditionally.'),
+
             'limit' => JsonSchema::integer()
                 ->description('Maximum results to return (default: 100, max: 500)'),
 
@@ -83,13 +88,70 @@ class GlobalsRouter extends BaseRouter
             return $validationError;
         }
 
-        // Execute action
+        if ($action === 'update' && array_key_exists('expected_version', $arguments)) {
+            $handle = $this->globalSetHandle($arguments);
+            $site = $this->resolveSiteHandle($arguments);
+
+            return $this->writeIfVersionMatches(
+                $arguments['expected_version'],
+                'global set',
+                $handle . '@' . $site,
+                function () use ($handle, $site): string|array {
+                    $variables = GlobalSet::find($handle)?->in($site);
+
+                    return $variables === null
+                        ? $this->createErrorResponse("Global set not available in site: {$site}")->toArray()
+                        : $this->globalVersion($variables);
+                },
+                fn (): array => $this->withGlobalVersion($this->updateGlobal($arguments), $handle, $site),
+            );
+        }
+
         return match ($action) {
             'list' => $this->listGlobals($arguments),
-            'get' => $this->getGlobal($arguments),
-            'update' => $this->updateGlobal($arguments),
+            'get' => $this->withGlobalVersion($this->getGlobal($arguments), $this->globalSetHandle($arguments), $this->resolveSiteHandle($arguments)),
+            'update' => $this->withGlobalVersion($this->updateGlobal($arguments), $this->globalSetHandle($arguments), $this->resolveSiteHandle($arguments)),
             default => $this->createErrorResponse("Action {$action} not supported for globals")->toArray(),
         };
+    }
+
+    /** @param  array<string, mixed>  $arguments */
+    private function globalSetHandle(array $arguments): string
+    {
+        $handle = $arguments['global_set'] ?? $arguments['handle'] ?? null;
+
+        return is_string($handle) ? $handle : '';
+    }
+
+    /**
+     * One site's stored values as an opaque token. Statamic keeps each site's
+     * values in their own file, so a write in another site does not change it.
+     */
+    private function globalVersion(Variables $variables): string
+    {
+        return self::resourceVersion(['data' => $variables->data()->all()]);
+    }
+
+    /**
+     * Report the site's version after a successful get or update, so a caller
+     * can pass it back as expected_version on its next update.
+     *
+     * @param  array<string, mixed>  $result
+     *
+     * @return array<string, mixed>
+     */
+    private function withGlobalVersion(array $result, string $handle, string $site): array
+    {
+        if (($result['success'] ?? true) === false || ! is_array($result['global'] ?? null)) {
+            return $result;
+        }
+
+        $variables = GlobalSet::find($handle)?->in($site);
+        if ($variables !== null) {
+            $result['global']['version'] = $this->globalVersion($variables);
+        }
+
+        return $result;
     }
 
     /**
