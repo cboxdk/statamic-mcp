@@ -957,7 +957,10 @@ started but unfinished is `OUTCOME_UNKNOWN` and never runs again. The operation 
 + key only, so a reused key with other input is found and refused. Routers that version a record
 override `currentResourceVersion()` so the unknown answer carries it.
 `tests/Feature/Actions/IdempotentWriteConcurrencyTest.php` races and kills real processes against both
-stores; keep it when touching the flow.
+stores; keep it when touching the flow. Its `mysql` cases (and those of the admission and claim
+races) only run when the suite runs on MySQL, as the MySQL CI job does; worker processes open
+their store through `tests/Support/operation-store.php`. Locally: a `mysql:8.0` container and
+`DB_CONNECTION=mysql DB_HOST=127.0.0.1 DB_DATABASE=testing DB_USERNAME=root DB_PASSWORD=password`.
 
 `update` accepts `merge_sets`: when true, a top-level replicator field in `data` is merged
 into the stored array by item `id` rather than replacing it, so one section of a page

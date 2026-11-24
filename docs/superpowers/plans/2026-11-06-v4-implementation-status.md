@@ -64,7 +64,7 @@ These records do not certify V02–V10. The main plan remains the release checkl
   entries, terms, globals × site × HTTP/stdio, denied fields on output, input and
   list filters). It found terms crossing sites over HTTP; fixed.
   Editor currently handles unpublished entries only; live working-copy editing is refused.
-- V04: entries have resource versions: `version` on every entry response and
+- V04 (done): entries have resource versions: `version` on every entry response and
   `expected_version` on single-entry writes, checked under a per-entry lock
   (`EntryExpectedVersionTest`). Terms and globals have the same through
   `ChecksResourceVersions` (`TermAndGlobalExpectedVersionTest`). Built-in writes
@@ -72,8 +72,10 @@ These records do not certify V02–V10. The main plan remains the release checkl
   replay, spent, reused and an honest `OUTCOME_UNKNOWN`, with process race and
   crash tests for the file and database stores (`IdempotentWriteConcurrencyTest`).
   Unknown outcomes are reconciled with the existing recovery command. Prepare-only handles, admission limits, pruning,
-  capacity repair, driver bindings and SQLite process concurrency are implemented.
-  Shared MySQL admission still needs CI coverage.
+  capacity repair and driver bindings are implemented. Process races on admission,
+  claim and idempotent writes run against the file store, SQLite and MySQL; the
+  MySQL cases run in the MySQL CI job (`mcpMysqlOperationTables()` in
+  `tests/Pest.php`) and skip elsewhere.
 - V05: durable approvals, CP UI, revocation and atomic consumption. Existing
   stateless confirmations have not yet been replaced.
 - V06/V07: complete public lifecycle events and durable audit. The optional

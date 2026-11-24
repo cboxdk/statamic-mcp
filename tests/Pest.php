@@ -1,6 +1,7 @@
 <?php
 
 use Cboxdk\StatamicMcp\Tests\TestCase;
+use PHPUnit\Framework\Assert;
 
 /*
 |--------------------------------------------------------------------------
@@ -38,3 +39,21 @@ pest()->extend(TestCase::class)->in(__DIR__);
 | global functions to help you to reduce the number of lines of code in your test files.
 |
 */
+
+/**
+ * Fresh operation tables on the MySQL server the suite runs against, for the
+ * process tests that race separate connections on one shared store. Skipped
+ * unless the suite runs on MySQL (the MySQL CI job). Call down() when done:
+ * the tables live in the shared test database, not in a per-test file.
+ */
+function mcpMysqlOperationTables(): object
+{
+    if (config('database.default') !== 'mysql') {
+        Assert::markTestSkipped('Needs the suite on MySQL (DB_CONNECTION=mysql), as in the MySQL CI job.');
+    }
+    $migration = require __DIR__ . '/../database/migrations/operations/0001_create_mcp_operations_table.php';
+    $migration->down();
+    $migration->up();
+
+    return $migration;
+}

@@ -179,6 +179,48 @@ class OperationStoreTest extends TestCase
         }
     }
 
+    public function test_mysql_claim_is_atomic_across_processes_and_survives_crash(): void
+    {
+        $migration = mcpMysqlOperationTables();
+        $store = new DatabaseOperationStore(DB::connection());
+        $operation = new Operation(hash('sha256', 'concurrent-mysql'), hash('sha256', 'binding'), OperationState::Prepared, 1, time() + 300);
+        $store->create($operation);
+        $store->transition($operation, $operation->transition(OperationState::Ready));
+        $command = [PHP_BINARY, __DIR__ . '/../../Support/database-operation-claim.php', '-', $operation->id, 'mysql'];
+        $inputs = [new InputStream, new InputStream];
+        $workers = [new Process($command), new Process($command)];
+        try {
+            foreach ($workers as $index => $worker) {
+                $worker->setInput($inputs[$index]);
+                $worker->setTimeout(10);
+                $worker->start();
+            }
+            foreach ($workers as $worker) {
+                $this->assertTrue($worker->waitUntil(fn (): bool => str_contains($worker->getOutput(), "ready\n")), $worker->getErrorOutput());
+            }
+            foreach ($inputs as $input) {
+                $input->write("claim\n");
+                $input->close();
+            }
+            foreach ($workers as $worker) {
+                $worker->wait();
+            }
+            $outputs = array_map(fn (Process $worker): string => $worker->getOutput(), $workers);
+            sort($outputs);
+            $this->assertSame(["ready\nclaimed", "ready\nlost"], $outputs);
+            $this->assertContains(9, array_map(fn (Process $worker): ?int => $worker->getExitCode(), $workers));
+            $this->assertSame(OperationState::Executing, $store->find($operation->id)->state);
+            $retry = new Process($command);
+            $retry->mustRun();
+            $this->assertSame('lost', $retry->getOutput());
+        } finally {
+            foreach ($workers as $worker) {
+                $worker->stop();
+            }
+            $migration->down();
+        }
+    }
+
     public function test_only_one_process_can_claim_and_a_crashed_claim_is_not_released(): void
     {
         $store = new FileOperationStore($this->directory);

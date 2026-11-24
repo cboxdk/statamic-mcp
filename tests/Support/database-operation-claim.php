@@ -4,14 +4,12 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../vendor/autoload.php';
 
-use Cboxdk\StatamicMcp\Actions\Operations\DatabaseOperationStore;
-use Cboxdk\StatamicMcp\Actions\Operations\OperationState;
-use Illuminate\Database\SQLiteConnection;
+require __DIR__ . '/operation-store.php';
 
-$pdo = new PDO('sqlite:' . $argv[1]);
-$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-$pdo->exec('PRAGMA busy_timeout = 5000');
-$store = new DatabaseOperationStore(new SQLiteConnection($pdo));
+use Cboxdk\StatamicMcp\Actions\Operations\OperationState;
+
+// argv: SQLite path, operation id, optional driver (database|mysql)
+$store = mcpWorkerOperationStore($argv[3] ?? 'database', $argv[1]);
 $operation = $store->find($argv[2]);
 if ($operation === null || $operation->state !== OperationState::Ready) {
     echo 'lost';

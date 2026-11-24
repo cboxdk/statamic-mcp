@@ -3,25 +3,16 @@
 declare(strict_types=1);
 
 require __DIR__ . '/../../vendor/autoload.php';
+require __DIR__ . '/operation-store.php';
 
 use Cboxdk\StatamicMcp\Actions\ActionEffect;
-use Cboxdk\StatamicMcp\Actions\Operations\DatabaseOperationStore;
-use Cboxdk\StatamicMcp\Actions\Operations\FileOperationStore;
 use Cboxdk\StatamicMcp\Actions\Operations\IdempotentWrite;
-use Illuminate\Database\SQLiteConnection;
 use Illuminate\Encryption\Encrypter;
 
-// argv: store (file|database), store path, effects file, mode (write|crash)
+// argv: store (file|database|mysql), store path, effects file, mode (write|crash)
 [, $driver, $path, $effects, $mode] = $argv;
 
-if ($driver === 'database') {
-    $pdo = new PDO('sqlite:' . $path);
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    $pdo->exec('PRAGMA busy_timeout = 5000');
-    $store = new DatabaseOperationStore(new SQLiteConnection($pdo));
-} else {
-    $store = new FileOperationStore($path);
-}
+$store = mcpWorkerOperationStore($driver, $path);
 $writes = new IdempotentWrite($store, new Encrypter(str_repeat('k', 32), 'aes-256-cbc'));
 $intent = IdempotentWrite::intent('retry-key-1', 'user:1', 'token:1', 'entries', 'update', ActionEffect::Edit,
     'default', 'editor', 'http', ['collection' => 'pages', 'id' => 'one', 'data' => ['title' => 'New']]);

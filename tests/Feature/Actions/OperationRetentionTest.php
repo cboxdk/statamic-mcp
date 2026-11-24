@@ -122,6 +122,9 @@ it('reserves the last capacity slot atomically across processes', function (stri
         $pdo->exec('CREATE TABLE mcp_operation_capacity (id INTEGER PRIMARY KEY, record_count INTEGER)');
         $pdo->exec('INSERT INTO mcp_operation_capacity VALUES (1, 0)');
     }
+    if ($driver === 'mysql') {
+        mcpMysqlOperationTables();
+    }
     $command = [PHP_BINARY, __DIR__ . '/../../Support/operation-admission.php', $driver, $path];
     $inputs = [new InputStream, new InputStream];
     $workers = [new Process($command), new Process($command)];
@@ -148,7 +151,7 @@ it('reserves the last capacity slot atomically across processes', function (stri
             $worker->stop();
         }
     }
-})->with(['file', 'database']);
+})->with(['file', 'database', 'mysql']);
 
 it('wires storage and pruning while refusing local files on multiple nodes', function () {
     config()->set('statamic.mcp.storage.operations_path', $this->directory);
