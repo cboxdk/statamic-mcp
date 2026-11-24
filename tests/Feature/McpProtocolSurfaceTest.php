@@ -18,6 +18,8 @@ use Cboxdk\StatamicMcp\Mcp\Tools\System\DiscoveryTool;
 use Cboxdk\StatamicMcp\Testing\InteractsWithMcp;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Illuminate\Testing\Fluent\AssertableJson;
+use Opis\JsonSchema\Errors\ErrorFormatter;
+use Opis\JsonSchema\Validator;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Statamic\Facades\Collection;
 use Statamic\Facades\Taxonomy;
@@ -125,6 +127,35 @@ class McpProtocolSurfaceTest extends TestCase
                 ->has('errors', 1)
                 ->etc()
             );
+    }
+
+    /**
+     * Official SDK clients validate structuredContent against the tool's
+     * advertised outputSchema, failures included, and throw away a response
+     * that does not match. So every envelope a tool sends, success or
+     * failure, has to satisfy the schema it publishes.
+     *
+     * @param  class-string  $tool
+     * @param  array<string, mixed>  $arguments
+     */
+    #[DataProvider('readOnlyCalls')]
+    public function test_success_and_failure_envelopes_match_the_advertised_output_schema(string $tool, array $arguments): void
+    {
+        $schema = json_decode((string) json_encode(app($tool)->toArray()['outputSchema']));
+        $validator = new Validator;
+
+        foreach ([$arguments, ['action' => 'no_such_action'] + $arguments] as $call) {
+            $content = null;
+            $this->mcpTool($tool, $call)->assertStructuredContent(function (AssertableJson $json) use (&$content): void {
+                $content = $json->toArray();
+                $json->etc();
+            });
+
+            $result = $validator->validate(json_decode((string) json_encode($content)), $schema);
+            $error = $result->error();
+            $this->assertTrue($result->isValid(), $error === null ? ''
+                : json_encode((new ErrorFormatter)->format($error)) . ' for ' . json_encode($call));
+        }
     }
 
     public function test_tool_names_are_unique(): void

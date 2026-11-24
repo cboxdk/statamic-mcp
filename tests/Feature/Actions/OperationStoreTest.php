@@ -154,7 +154,7 @@ class OperationStoreTest extends TestCase
                 $worker->start();
             }
             foreach ($workers as $worker) {
-                $this->assertTrue($worker->waitUntil(fn (): bool => str_contains($worker->getOutput(), "ready\n")));
+                $this->assertTrue(waitForWorkerReady($worker));
             }
             foreach ($inputs as $input) {
                 $input->write("claim\n");
@@ -196,7 +196,7 @@ class OperationStoreTest extends TestCase
                 $worker->start();
             }
             foreach ($workers as $worker) {
-                $this->assertTrue($worker->waitUntil(fn (): bool => str_contains($worker->getOutput(), "ready\n")), $worker->getErrorOutput());
+                $this->assertTrue(waitForWorkerReady($worker), $worker->getErrorOutput());
             }
             foreach ($inputs as $input) {
                 $input->write("claim\n");

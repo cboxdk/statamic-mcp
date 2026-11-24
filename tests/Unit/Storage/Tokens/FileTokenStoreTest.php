@@ -70,7 +70,7 @@ class FileTokenStoreTest extends TestCase
                 $worker = new Process([PHP_BINARY, __DIR__ . '/../../../Support/token-store-mutation.php', $this->tempDir, $token->id, $action]);
                 $worker->setTimeout(10)->start();
                 $workers[] = $worker;
-                $this->assertTrue($worker->waitUntil(fn (): bool => str_contains($worker->getOutput(), "ready\n")));
+                $this->assertTrue(waitForWorkerReady($worker));
             }
             // Every entry point must wait for the same lock. Without this,
             // last-used may read before revoke and write the credential back.

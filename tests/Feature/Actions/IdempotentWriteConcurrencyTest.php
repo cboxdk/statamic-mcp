@@ -76,7 +76,7 @@ function iwRun(string $driver, string $path, string $effects, array $modes): arr
         $inputs[] = $input;
     }
     foreach ($workers as $worker) {
-        expect($worker->waitUntil(fn (): bool => str_contains($worker->getOutput(), "ready\n")))->toBeTrue($worker->getErrorOutput());
+        expect(waitForWorkerReady($worker))->toBeTrue($worker->getErrorOutput());
     }
     foreach ($inputs as $input) {
         $input->write("go\n");

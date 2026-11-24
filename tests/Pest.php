@@ -2,6 +2,7 @@
 
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use PHPUnit\Framework\Assert;
+use Symfony\Component\Process\Process;
 
 /*
 |--------------------------------------------------------------------------
@@ -56,4 +57,26 @@ function mcpMysqlOperationTables(): object
     $migration->up();
 
     return $migration;
+}
+
+/**
+ * Waits until a worker process has printed "ready". Symfony Process 7.4's
+ * waitUntil() reads the pipes once before its loop without handing that output
+ * to the callback, so a worker that is already ready hangs it until the
+ * timeout. The buffered output is cumulative, so polling it loses nothing.
+ */
+function waitForWorkerReady(Process $worker, float $seconds = 20.0): bool
+{
+    $deadline = microtime(true) + $seconds;
+    while (! str_contains($worker->getOutput(), "ready\n")) {
+        if (! $worker->isRunning()) {
+            return str_contains($worker->getOutput(), "ready\n");
+        }
+        if (microtime(true) > $deadline) {
+            return false;
+        }
+        usleep(2_000);
+    }
+
+    return true;
 }

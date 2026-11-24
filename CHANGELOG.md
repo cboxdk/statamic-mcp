@@ -69,6 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Error responses are no longer discarded by MCP SDK clients. The output schema typed `data` as an object, while a failure carries `data: null`; the official SDKs validate failures against the schema too and replaced every error with `-32602`. `data` is now `object`, `array` or `null`.
 - Store navigation trees on `statamic/eloquent-driver`. The driver saves a new tree as empty, so a navigation `create` or `update` with a tree reported success and stored no items; the items are now written onto the stored tree and read back, and a tree that does not read back as sent is an error.
 - Notice a concurrent change to a collection tree on a database repository. The check hashed a tree file that only the Stache has, so on `statamic/eloquent-driver` it compared nothing and a move could overwrite another writer's tree. It now compares the stored tree, read before the move is planned and again before saving.
 - Return the entry `version` a following write accepts on database repositories. It was taken from the instance just saved, which lacks the columns the database fills, so `expected_version` from a write answered `VERSION_CONFLICT`.

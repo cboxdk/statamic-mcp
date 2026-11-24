@@ -55,7 +55,7 @@ class FileAuditStoreTest extends TestCase
                 $worker = new Process([PHP_BINARY, __DIR__ . '/../../../Support/audit-store-worker.php', $this->tempPath, $action]);
                 $worker->setTimeout(10)->start();
                 $workers[] = $worker;
-                $this->assertTrue($worker->waitUntil(fn (): bool => str_contains($worker->getOutput(), "ready\n")));
+                $this->assertTrue(waitForWorkerReady($worker));
             }
             usleep(100000);
             foreach ($workers as $worker) {

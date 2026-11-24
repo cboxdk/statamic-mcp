@@ -142,9 +142,74 @@ These records do not certify V02–V10. The main plan remains the release checkl
   ignored). `mcp:doctor` also fails (warns without a stdio profile) when a log
   channel the server uses (default and deprecations, stacks expanded) writes to
   stdout; the stdio server already sends PHP errors to stderr itself.
-- V10: dependency/client matrix, performance baseline and release candidate
-  review. No support claim for Statamic 6.40 as a
-  new minimum yet; the requirement remains 6.35.1 pending the matrix.
+- V10 (done as a review; see "V10 release candidate review" below). The
+  minimum stays Statamic 6.35.1: the lowest dependencies pass.
+
+## V10 release candidate review (2026-11-24)
+
+Reviewed at the commit that adds this section. This review records results; it is
+not a release decision, and nothing is tagged.
+
+**Dependency matrix.** CI: PHP 8.3/8.4/8.5 × Laravel 12/13 on SQLite (Statamic
+^6.35.1, plus exactly 6.35.1 on 8.3/L12) and on MySQL 8.0; SEO Pro 7.16.0;
+Eloquent driver 5.14.0; Cbox Relay/ID clients. New job `lowest`:
+`--prefer-lowest` resolves Statamic 6.35.1, laravel/mcp 1.1.2, Laravel 12.71,
+Symfony 7.4, opis/json-schema 2.6.1, Pest 4.3; locally **1962 passed, 39 skipped**.
+It found one defect, in the tests: Symfony Process 7.4's `waitUntil()` reads once
+before handing output to its callback, so a worker already printing `ready` hung
+the five multi-process race tests until their 20 s timeout. They now poll the
+cumulative output (`waitForWorkerReady()` in `tests/Pest.php`).
+
+**Client matrix.** A fresh `statamic/statamic` site (Statamic 6.44.0, Laravel
+13.44, laravel/mcp 1.3.0) with the branch installed by path, driven by the
+official TypeScript SDK 1.32.2 (protocol 2025-11-25) and 1.17.5 (2025-06-18),
+over Streamable HTTP and stdio: connect, `tools/list`, discover, entries
+list/create, delete (HTTP: `APPROVAL_REQUIRED`; stdio is not gated), `search_tools`,
+`execute_tools`, resources list/read, prompts list, and a token holding only
+`entries:read` refused a create (`Token missing required scope: entries:write`).
+All green for both versions on both transports. **It found a defect the suite
+missed:** the advertised output schema typed `data` as an object, but a failure
+sends `data: null` (and list results send an array). The SDK validates failures
+too and threw away every error response with `-32602 Structured content does not
+match the tool's output schema`. `data` is now `object|array|null`;
+`McpProtocolSurfaceTest` validates a success and a failure of every tool against
+its advertised schema with opis (9 of 10 failed before the fix). Not run: Claude
+Desktop, Claude Code, Cursor and OAuth/DCR from a real client; the SDK flows use
+bearer tokens.
+
+**Performance baseline** (same site, HTTP, median of 5, `php artisan serve`, one
+worker; a baseline to compare against, not a budget):
+
+| Call | Response bytes | Median ms |
+|---|---|---|
+| `tools/list` | 14,751 | 28 |
+| entries list (pages) | 3,552 | 39 |
+| blueprints list | 786 | 28 |
+| `search_tools` | 5,955 | 27 |
+| `resources/read statamic://blueprints` | 233 | 25 |
+
+Not measured: query counts and peak memory per call. No exporter I/O exists in
+this package; telemetry lives in statamic-telemetry.
+
+**Release gates (plan section Verifikation).**
+
+| # | Gate | Result |
+|---|---|---|
+| 1 | Extension contracts, synthetic addon | Covered (ExtraTools, registered actions) |
+| 2 | Tools/registry/resources/prompts share one matrix | Covered (`McpAuthorizer`, coverage inventory) |
+| 3 | Grants before/after package, action, role, revoke, site | Covered; V09 migration never widens |
+| 4 | Revisions on/off, working copy | Covered (`WorkingCopyStateTest`, Eloquent) |
+| 5 | Real concurrent processes | Covered on file, SQLite, MySQL; PostgreSQL not run |
+| 6 | Crash before/after write | Covered (`IdempotentWriteConcurrencyTest`) |
+| 7 | Observer throws after write | Covered (`BuiltInLifecycleEventsTest`) |
+| 8 | Private cache, revoke | Covered (cache hints `private`) |
+| 9 | Wire tests and real clients | Wire tests yes; SDK clients yes; desktop clients and OAuth from a client no |
+| 10 | PHP/Laravel/Statamic matrix, file/database, SEO Pro | Covered, lowest included |
+| 11 | Response size, queries, memory | Response size and latency baseline; queries and memory not measured |
+| 12 | PHPStan 9, Pint, audit, migration fixtures, manual security review | Automated parts pass; v3.6.2 token fixture; the manual review of final writes and grants is for a person |
+
+Open before a release: the manual security review (12), a desktop-client and
+OAuth run (9), PostgreSQL concurrency (5), and the release procedure itself.
 
 Registered read actions now have public HTTP/stdio adapters and participate in
 tool search. Registered writes remain unexposed until resource versioning and

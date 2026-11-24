@@ -202,6 +202,32 @@ jobs:
           DB_USERNAME: root
           DB_PASSWORD: password
 
+  lowest:
+    # composer.json promises Statamic 6.35.1, laravel/mcp 1.1.2 and Symfony 7.
+    # Only --prefer-lowest resolves them together; the locked matrix never does.
+    name: PHP 8.3 - lowest dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: code-quality
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962
+        with:
+          php-version: '8.3'
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, intl
+      - name: Install the lowest allowed dependencies
+        run: composer update --prefer-lowest --prefer-stable --prefer-dist --no-progress --no-interaction
+      - name: Show the resolved versions
+        run: composer show | grep -E '^(statamic/cms|laravel/framework|laravel/mcp|symfony/process) '
+      - name: Create temporary .env file
+        run: echo "APP_KEY=base64:SGk1bGF2ZWw=" > .env
+      - name: Execute tests via Pest
+        run: ./vendor/bin/pest
+        env:
+          DB_CONNECTION: sqlite
+
   seo-pro:
     name: SEO Pro integration
     runs-on: ubuntu-latest

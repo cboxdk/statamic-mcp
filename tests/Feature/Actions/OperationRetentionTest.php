@@ -133,7 +133,7 @@ it('reserves the last capacity slot atomically across processes', function (stri
             $worker->setInput($inputs[$index])->setTimeout(10)->start();
         }
         foreach ($workers as $worker) {
-            expect($worker->waitUntil(fn () => str_contains($worker->getOutput(), "ready\n")))->toBeTrue();
+            expect(waitForWorkerReady($worker))->toBeTrue();
         }
         foreach ($inputs as $input) {
             $input->write("create\n");
