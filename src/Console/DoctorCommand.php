@@ -44,6 +44,11 @@ final class DoctorCommand extends Command
         $hasStdioToken = is_string($stdioToken) && $stdioToken !== '';
         $add('stdio.credential', $hasStdioToken ? 'pass' : 'warn', $hasStdioToken
             ? 'A stdio credential is configured; validity was not tested.' : 'Registered stdio actions require an explicitly configured credential.');
+        $stdout = self::stdoutLogChannels();
+        $stdio = in_array(config('statamic.mcp.profiles.stdio'), ['read_only', 'editor', 'operator'], true);
+        $add('stdio.stdout', $stdout === [] ? 'pass' : ($stdio ? 'fail' : 'warn'), $stdout === []
+            ? 'No log channel the server uses writes to stdout, which carries only protocol messages over stdio.'
+            : 'Log channel(s) ' . implode(', ', $stdout) . ' write to stdout and would corrupt the stdio protocol. Log to stderr or a file instead.');
         if ($http) {
             $url = config('app.url');
             $parts = is_string($url) ? parse_url($url) : false;
@@ -148,6 +153,46 @@ final class DoctorCommand extends Command
         }
 
         return $failed === 0 ? self::SUCCESS : self::FAILURE;
+    }
+
+    /**
+     * The log channels the server writes to (the default and the deprecations
+     * channel, stacks expanded) whose stream is stdout. Over stdio, stdout
+     * carries JSON-RPC alone; one log line there breaks the client's parser.
+     * Channel names are config keys, not values, so they are safe to print.
+     *
+     * @return list<string>
+     */
+    private static function stdoutLogChannels(): array
+    {
+        $pending = [config('logging.default'), config('logging.deprecations.channel')];
+        $seen = [];
+        $found = [];
+        for ($i = 0; $i < count($pending); $i++) {
+            $name = $pending[$i];
+            if (! is_string($name) || isset($seen[$name])) {
+                continue;
+            }
+            $seen[$name] = true;
+            $channel = config("logging.channels.{$name}");
+            if (! is_array($channel)) {
+                continue;
+            }
+            if (($channel['driver'] ?? null) === 'stack' && is_array($channel['channels'] ?? null)) {
+                array_push($pending, ...array_values($channel['channels']));
+
+                continue;
+            }
+            $with = is_array($channel['handler_with'] ?? null) ? $channel['handler_with'] : (is_array($channel['with'] ?? null) ? $channel['with'] : []);
+            foreach ([$channel['path'] ?? null, $with['stream'] ?? null] as $target) {
+                if (is_string($target) && in_array(strtolower($target), ['php://stdout', 'php://output'], true)) {
+                    $found[] = $name;
+                    break;
+                }
+            }
+        }
+
+        return $found;
     }
 
     /**

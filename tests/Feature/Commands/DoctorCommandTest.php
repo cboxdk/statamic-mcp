@@ -7,6 +7,7 @@ use Cboxdk\StatamicMcp\OAuth\Drivers\DatabaseOAuthDriver;
 use Cboxdk\StatamicMcp\Storage\Tokens\DatabaseTokenStore;
 use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Support\Facades\Artisan;
+use Monolog\Handler\StreamHandler;
 
 function mcpDoctorReport(): array
 {
@@ -94,4 +95,21 @@ it('fails debug mode on a public endpoint and warns when every proxy is trusted'
     }
     expect($checks['http.debug']['status'])->toBe('pass')
         ->and($checks['http.trusted_proxies']['status'])->toBe('pass');
+});
+
+it('fails a stdout log channel when stdio is configured, through a stack', function () {
+    config(['statamic.mcp.profiles.stdio' => 'editor', 'logging.default' => 'stack',
+        'logging.channels.stack' => ['driver' => 'stack', 'channels' => ['single', 'console']],
+        'logging.channels.console' => ['driver' => 'monolog', 'handler' => StreamHandler::class, 'with' => ['stream' => 'php://stdout']],
+        'logging.deprecations.channel' => 'null']);
+    $check = collect(mcpDoctorReport()['checks'])->keyBy('id')['stdio.stdout'];
+    expect($check['status'])->toBe('fail')->and($check['message'])->toContain('console')->not->toContain('single');
+
+    // stderr is where diagnostics belong.
+    config(['logging.channels.console.with.stream' => 'php://stderr']);
+    expect(collect(mcpDoctorReport()['checks'])->keyBy('id')['stdio.stdout']['status'])->toBe('pass');
+
+    // Without a stdio profile the server never runs over stdio: only a warning.
+    config(['logging.channels.console.with.stream' => 'php://stdout', 'statamic.mcp.profiles.stdio' => null]);
+    expect(collect(mcpDoctorReport()['checks'])->keyBy('id')['stdio.stdout']['status'])->toBe('warn');
 });

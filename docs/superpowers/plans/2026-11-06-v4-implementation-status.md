@@ -139,7 +139,9 @@ These records do not certify V02–V10. The main plan remains the release checkl
   every proxy is trusted, and points at `mcp:migrate-v4`. UPGRADE.md has the
   v3 → v4 guide and the rollback procedure. Not covered: approvals and
   operations are not migrated (v3 has none; the v3 `confirmation_token` is
-  ignored), and the stdio stdout check is not part of the diagnosis.
+  ignored). `mcp:doctor` also fails (warns without a stdio profile) when a log
+  channel the server uses (default and deprecations, stacks expanded) writes to
+  stdout; the stdio server already sends PHP errors to stderr itself.
 - V10: dependency/client matrix, performance baseline and release candidate
   review. No support claim for Statamic 6.40 as a
   new minimum yet; the requirement remains 6.35.1 pending the matrix.
