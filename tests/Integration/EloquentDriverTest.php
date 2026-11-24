@@ -214,4 +214,24 @@ class EloquentDriverTest extends TestCase
         $this->assertTrue($blueprint['success'], json_encode($blueprint) ?: '');
         $this->assertStringContainsString('textarea', (string) DB::table('blueprints')->where('handle', 'page')->value('data'));
     }
+
+    public function test_a_mount_change_and_a_renamed_mount_page_move_the_stored_uris(): void
+    {
+        $about = $this->createPage('about');
+        $company = $this->createPage('company');
+        Collection::make('news')->routes('{mount}/{slug}')->mount($about)->save();
+        $launch = Entry::make()->collection('news')->slug('launch')->data(['title' => 'Launch']);
+        $launch->save();
+        $this->assertSame('/about/launch', UuidEntryModel::find($launch->id())?->uri);
+
+        $mount = (new StructuresRouter)->execute(['action' => 'update', 'resource_type' => 'collection', 'handle' => 'news', 'data' => ['mount' => $company]]);
+        $this->assertTrue($mount['success'], json_encode($mount) ?: '');
+        // findByUri() reads the stored column: a stale one 404s the new URL.
+        $this->assertSame('/company/launch', UuidEntryModel::find($launch->id())?->uri);
+
+        $rename = $this->entries(['action' => 'update', 'id' => $company, 'data' => ['slug' => 'firm']]);
+        $this->assertTrue($rename['success'], json_encode($rename) ?: '');
+        $this->assertSame('/firm/launch', UuidEntryModel::find($launch->id())?->uri);
+        $this->assertSame((string) $launch->id(), Entry::findByUri('/firm/launch')?->id());
+    }
 }

@@ -112,9 +112,14 @@ These records do not certify V02–V10. The main plan remains the release checkl
   navigation, collection route and blueprints, read back from the tables. Found
   and fixed: collection `route` never applied, nav trees stored empty on Eloquent,
   tree version blind on Eloquent, entry version from the Blink copy, Blink reset
-  missing the named stores. Remaining: revision working-copy state after failure,
-  GraphQL (not enabled in the matrix), mount changes, and Eloquent for assets,
-  forms and revisions.
+  missing the named stores. Revisions (`WorkingCopyStateTest`): live entry, slug
+  and working copy are right after an edit, a refused working copy, a refused
+  publish, a publish that throws after saving (reported `unknown`, live changed)
+  and a restore; read again as the next call would. GraphQL (entry, unpublish,
+  term) and mount (mount change, renamed mount page) are in the matrix; GraphQL's
+  response cache is invalidated by Statamic itself, mount needs MCP's static
+  clear. On Eloquent, a mount change and a renamed mount page move the stored
+  URIs (Statamic does it). Remaining: Eloquent for assets, forms and revisions.
 - V09/V10: migration/doctor, rollback fixtures, dependency/client matrix, performance
   baseline and release candidate review. No support claim for Statamic 6.40 as a
   new minimum yet; the requirement remains 6.35.1 pending the matrix.

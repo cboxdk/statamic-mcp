@@ -10,8 +10,11 @@ use Cboxdk\StatamicMcp\Mcp\Tools\Routers\StructuresRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\TermsRouter;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\View;
+use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Statamic\Contracts\GraphQL\ResponseCache;
 use Statamic\Facades\Blueprint;
 use Statamic\Facades\Collection;
 use Statamic\Facades\Entry;
@@ -28,10 +31,13 @@ use Statamic\StaticCaching\Cacher;
  * the static cache warm, and again with the Stache and static cache cold.
  *
  * The site: a layout showing a global and a navigation, a home page listing
- * the blog, blog posts showing their tags, and the REST API.
+ * the blog, blog posts showing their tags, a news collection mounted under
+ * the about page, and the REST and GraphQL APIs (each with its own cache).
  */
 class RenderedCacheMatrixTest extends TestCase
 {
+    private const GRAPHQL_QUERY = '{ entries(collection: "blog") { data { title ... on Entry_Blog_Post { tags { title } } } } }';
+
     /** @var array<string, string> */
     private array $ids = [];
 
@@ -41,6 +47,9 @@ class RenderedCacheMatrixTest extends TestCase
         $app['config']->set('statamic.static_caching.strategy', 'half');
         $app['config']->set('statamic.api.enabled', true);
         $app['config']->set('statamic.api.resources.collections', true);
+        $app['config']->set('statamic.graphql.enabled', true);
+        $app['config']->set('statamic.graphql.resources.collections', true);
+        $app['config']->set('statamic.graphql.resources.taxonomies', true);
         $app['config']->set('statamic.editions.pro', true);
     }
 
@@ -71,6 +80,14 @@ class RenderedCacheMatrixTest extends TestCase
         $home = Entry::make()->collection('pages')->slug('home')->data(['title' => 'Home']);
         $home->save();
         $this->ids['home'] = (string) $home->id();
+        foreach (['about' => 'About', 'company' => 'Company'] as $slug => $title) {
+            $page = Entry::make()->collection('pages')->slug($slug)->data(['title' => $title]);
+            $page->save();
+            $this->ids[$slug] = (string) $page->id();
+        }
+        Collection::make('news')->routes('{mount}/{slug}')->mount($this->ids['about'])->template('post')->save();
+        Blueprint::make('item')->setNamespace('collections.news')->setContents(['fields' => [['handle' => 'title', 'field' => ['type' => 'text']]]])->save();
+        Entry::make()->collection('news')->slug('launch')->data(['title' => 'Launch'])->save();
         foreach (['post-a' => 'Post A', 'post-b' => 'Post B'] as $slug => $title) {
             $post = Entry::make()->collection('blog')->slug($slug)->data(['title' => $title, 'tags' => ['php']]);
             $post->save();
@@ -131,6 +148,26 @@ class RenderedCacheMatrixTest extends TestCase
                 fn (self $t) => (new GlobalsRouter)->execute(['action' => 'update', 'handle' => 'settings', 'data' => ['tagline' => 'New tagline']]),
                 ['/home' => ['TAGLINE=New tagline'], '/blog/post-b' => ['TAGLINE=New tagline']],
             ],
+            'entry title (GraphQL)' => [
+                fn (self $t) => (new EntriesRouter)->execute(['action' => 'update', 'collection' => 'blog', 'id' => $t->ids['post-a'], 'data' => ['title' => 'Post A2']]),
+                ['graphql' => ['Post A2', '!"Post A"']],
+            ],
+            'entry unpublish (GraphQL)' => [
+                fn (self $t) => (new EntriesRouter)->execute(['action' => 'unpublish', 'collection' => 'blog', 'id' => $t->ids['post-b']]),
+                ['graphql' => ['Post A', '!Post B']],
+            ],
+            'term title (GraphQL)' => [
+                fn (self $t) => (new TermsRouter)->execute(['action' => 'update', 'taxonomy' => 'tags', 'slug' => 'php', 'data' => ['title' => 'Modern PHP']]),
+                ['graphql' => ['Modern PHP']],
+            ],
+            'collection mount' => [
+                fn (self $t) => (new StructuresRouter)->execute(['action' => 'update', 'resource_type' => 'collection', 'handle' => 'news', 'data' => ['mount' => $t->ids['company']]]),
+                ['/about/launch' => 404, '/company/launch' => ['POST=Launch']],
+            ],
+            'mounted page slug' => [
+                fn (self $t) => (new EntriesRouter)->execute(['action' => 'update', 'collection' => 'pages', 'id' => $t->ids['about'], 'data' => ['slug' => 'about-us']]),
+                ['/about/launch' => 404, '/about-us/launch' => ['POST=Launch'], '/about' => 404],
+            ],
             'navigation tree (every page)' => [
                 fn (self $t) => (new StructuresRouter)->execute(['action' => 'update', 'resource_type' => 'navigation', 'handle' => 'main',
                     'data' => ['trees' => [['site' => 'default', 'items' => [['entry' => $t->ids['post-b']]]]]]]),
@@ -146,11 +183,12 @@ class RenderedCacheMatrixTest extends TestCase
     #[DataProvider('writes')]
     public function test_a_write_reaches_every_affected_page_warm_and_cold(callable $write, array $expected): void
     {
-        $urls = array_unique([...array_keys($expected), '/home', '/blog/post-a', '/blog/post-b', '/blog/draft']);
+        $urls = array_unique([...array_keys($expected), '/home', '/blog/post-a', '/blog/post-b', '/blog/draft', '/about/launch', 'graphql']);
         foreach ($urls as $url) {
-            $this->get($url);
+            $this->fetch($url);
         }
         $this->assertTrue(app(Cacher::class)->hasCachedPage(Request::create('http://localhost/blog/post-b')), 'The static cache must be warm before the write.');
+        $this->assertNotNull(app(ResponseCache::class)->get(Request::create('/graphql', 'POST', ['query' => self::GRAPHQL_QUERY])), 'The GraphQL cache must be warm before the write.');
 
         $result = $write($this);
         $this->assertTrue($result['success'] ?? false, json_encode($result) ?: '');
@@ -159,6 +197,7 @@ class RenderedCacheMatrixTest extends TestCase
 
         Stache::clear();
         app(Cacher::class)->flush();
+        Cache::flush();
         $this->assertPages($expected, 'cold');
     }
 
@@ -166,7 +205,7 @@ class RenderedCacheMatrixTest extends TestCase
     private function assertPages(array $expected, string $cache): void
     {
         foreach ($expected as $url => $want) {
-            $response = $this->get($url);
+            $response = $this->fetch($url);
             if (is_int($want)) {
                 $this->assertSame($want, $response->status(), "{$cache} {$url}");
 
@@ -180,5 +219,13 @@ class RenderedCacheMatrixTest extends TestCase
                     : $this->assertStringContainsString($text, $html, "{$cache} {$url}");
             }
         }
+    }
+
+    /** A page, or with "graphql" the blog listing through the GraphQL API. */
+    private function fetch(string $url): TestResponse
+    {
+        return $url === 'graphql'
+            ? $this->postJson('/graphql', ['query' => self::GRAPHQL_QUERY])
+            : $this->get($url);
     }
 }

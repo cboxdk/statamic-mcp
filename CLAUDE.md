@@ -1311,7 +1311,9 @@ With MCP's clear switched off, Statamic's own invalidator refreshes only the wri
 entry's URL: listing pages, a post showing a renamed tag, globals and navigation on every
 page, and old URLs after a slug or route change all stay stale. **The full static clear
 is load-bearing; do not narrow it to the record's own URL.** A spy on `Artisan::call`
-cannot show this, which is why the matrix renders pages.
+cannot show this, which is why the matrix renders pages. GraphQL is in the matrix too; its response cache is
+invalidated by Statamic's own events, so there MCP's clear is not what makes it fresh.
+Mount changes and a renamed mount page are not covered by Statamic's invalidator.
 
 ### Performance Optimizations
 - **Pagination support** in all content extraction tools
