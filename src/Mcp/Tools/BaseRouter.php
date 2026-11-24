@@ -4,11 +4,17 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools;
 
+use Cboxdk\StatamicMcp\Actions\ActionEffect;
+use Cboxdk\StatamicMcp\Actions\Contracts\OperationStore;
+use Cboxdk\StatamicMcp\Actions\Operations\IdempotentWrite;
+use Cboxdk\StatamicMcp\Authorization\InstallationProfile;
 use Cboxdk\StatamicMcp\Authorization\McpAuthorizer;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\BuildsPaginatedResponse;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\EnforcesResourcePolicy;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\RequiresConfirmation;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\RouterHelpers;
+use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
+use Illuminate\Contracts\Encryption\Encrypter;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 
@@ -119,6 +125,8 @@ abstract class BaseRouter extends BaseStatamicTool
                 ->enum($types),
             'confirmation_token' => JsonSchema::string()
                 ->description('Optional token returned by a previous confirmation-required response. Provide it unchanged to confirm and execute gated actions.'),
+            'idempotency_key' => JsonSchema::string()
+                ->description('Optional for write actions: a key you choose (8-128 characters: letters, digits, . _ : -), new for each change. Retrying with the same key and the same arguments replays the first result instead of writing again; if the first call stopped without reporting, the retry answers OUTCOME_UNKNOWN and does not write.'),
         ];
     }
 
@@ -159,10 +167,77 @@ abstract class BaseRouter extends BaseStatamicTool
         // Filter denied fields from input
         $arguments = $this->filterInputFields($arguments);
 
-        // Execute the action
-        $result = $this->executeAction($arguments);
+        // Execute the action, at most once per idempotency key
+        $result = $this->isWriteAction($action) && array_key_exists('idempotency_key', $arguments)
+            ? $this->executeIdempotently($action, $arguments)
+            : $this->executeAction($arguments);
 
         // Filter denied fields from output
         return $this->filterOutputFields($result);
+    }
+
+    /**
+     * The record's current version for a write the caller cannot tell landed,
+     * or null when this router does not version that record.
+     *
+     * @param  array<string, mixed>  $arguments
+     */
+    protected function currentResourceVersion(array $arguments): ?string
+    {
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string, mixed>
+     */
+    private function executeIdempotently(string $action, array $arguments): array
+    {
+        $key = $arguments['idempotency_key'];
+        if (! is_string($key) || ! preg_match('/^[A-Za-z0-9._:-]{8,128}$/D', $key)) {
+            return $this->createErrorResponse('idempotency_key must be 8-128 characters of letters, digits, ".", "_", ":" or "-".')->toArray();
+        }
+        $profile = app(InstallationProfile::class)->name();
+        if (! in_array($profile, ['editor', 'operator'], true)) {
+            return $this->createErrorResponse('This action is not allowed by the installation profile.')->toArray();
+        }
+
+        if ($this->isCliContext()) {
+            [$actor, $grant] = ['stdio', 'stdio'];
+        } else {
+            $token = request()->attributes->get('mcp_token');
+            $user = auth()->id();
+            $actor = 'user:' . ($token instanceof McpTokenData ? $token->userId : (is_scalar($user) ? (string) $user : 'anonymous'));
+            $grant = $token instanceof McpTokenData ? 'token:' . $token->id : 'session';
+        }
+        $domain = $this->getDomain();
+        $effect = match (true) {
+            in_array($domain, ['structures', 'blueprints', 'users', 'system'], true) => ActionEffect::Admin,
+            $action === 'delete' => ActionEffect::Delete,
+            in_array($action, ['publish', 'unpublish', 'publish_working_copy'], true) => ActionEffect::Publish,
+            default => ActionEffect::Edit,
+        };
+        $input = $arguments;
+        unset($input['idempotency_key'], $input['confirmation_token']);
+
+        $intent = IdempotentWrite::intent($key, $actor, $grant, $domain, $action, $effect,
+            $this->resolveSiteHandle($arguments), $profile, $this->isCliContext() ? 'stdio' : 'http', $input);
+        $outcome = (new IdempotentWrite(app(OperationStore::class), app(Encrypter::class),
+            config()->integer('statamic.mcp.operations.retry_seconds', 3600)))
+            ->run($intent, fn (): array => $this->executeAction($arguments), fn (): ?string => $this->writeEffectsSoFar());
+
+        return match ($outcome['status']) {
+            'executed' => $outcome['result'],
+            'replayed' => ['idempotent_replay' => true] + $outcome['result'],
+            'reused' => $this->createErrorResponse('This idempotency_key was already used for a different request. Nothing was saved; use a new key for a new change.',
+                ['code' => 'IDEMPOTENCY_KEY_REUSED'])->toArray(),
+            'spent' => $this->createErrorResponse('The call that used this idempotency_key saved nothing. Send the change again with a new key.',
+                ['code' => 'IDEMPOTENCY_KEY_SPENT'])->toArray(),
+            'expired' => $this->createErrorResponse('The retry window for this idempotency_key has passed, so nothing was run. Read the record before sending the change with a new key.',
+                ['code' => 'IDEMPOTENCY_KEY_EXPIRED'])->toArray(),
+            'unknown' => $this->createErrorResponse('A call with this idempotency_key started and has not finished, or stopped without reporting. It will not run again. Read the record to see whether the change landed.',
+                ['code' => 'OUTCOME_UNKNOWN', 'current_version' => $this->currentResourceVersion($arguments)])->toArray(),
+        };
     }
 }

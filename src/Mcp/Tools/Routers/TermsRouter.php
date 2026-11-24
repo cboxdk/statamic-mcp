@@ -197,6 +197,13 @@ class TermsRouter extends BaseRouter
         return self::resourceVersion(['slug' => $stored->slug(), 'data' => $stored->fileData()]);
     }
 
+    protected function currentResourceVersion(array $arguments): ?string
+    {
+        $term = $this->findTerm($arguments);
+
+        return $term === null ? null : $this->termVersion($term);
+    }
+
     /**
      * Report the term's version after a successful single-term action, so a
      * caller can pass it back as expected_version on its next write.

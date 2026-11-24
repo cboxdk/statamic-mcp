@@ -950,6 +950,15 @@ Terms and globals do the same through the shared `ChecksResourceVersions` concer
 is its whole file (all sites), a global set's is one site's variables. A new versioned record type
 uses that concern rather than its own lock.
 
+Every write action accepts an optional `idempotency_key` (`BaseRouter::executeIdempotently()`, after
+authorization and confirmation). `Actions\Operations\IdempotentWrite` creates the operation record
+*before* the write, so a retry always finds it: succeeded replays, failed-no-effect is spent, anything
+started but unfinished is `OUTCOME_UNKNOWN` and never runs again. The operation id is derived from actor
++ key only, so a reused key with other input is found and refused. Routers that version a record
+override `currentResourceVersion()` so the unknown answer carries it.
+`tests/Feature/Actions/IdempotentWriteConcurrencyTest.php` races and kills real processes against both
+stores; keep it when touching the flow.
+
 `update` accepts `merge_sets`: when true, a top-level replicator field in `data` is merged
 into the stored array by item `id` rather than replacing it, so one section of a page
 builder can change without resending the rest. Every item sent must carry an `id`;

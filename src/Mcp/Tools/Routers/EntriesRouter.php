@@ -255,6 +255,13 @@ class EntriesRouter extends BaseRouter
         ]);
     }
 
+    protected function currentResourceVersion(array $arguments): ?string
+    {
+        $entry = is_string($arguments['id'] ?? null) ? $this->resolveEntryInCollection($arguments['id'], $arguments) : null;
+
+        return $entry === null ? null : $this->entryVersion($entry);
+    }
+
     /**
      * Report the entry's version after a successful single-entry action, so a
      * caller can pass it back as expected_version on its next write.

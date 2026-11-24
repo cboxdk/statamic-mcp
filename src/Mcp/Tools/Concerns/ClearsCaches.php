@@ -22,6 +22,12 @@ trait ClearsCaches
 
     private ?string $writeEffects = null;
 
+    /** What this call's writes did so far: null (none), 'unknown' or 'committed'. */
+    protected function writeEffectsSoFar(): ?string
+    {
+        return $this->writeEffects;
+    }
+
     /** @return array<string, mixed> */
     protected function writeMetadata(bool $success): array
     {

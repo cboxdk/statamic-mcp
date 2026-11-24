@@ -67,8 +67,11 @@ These records do not certify V02–V10. The main plan remains the release checkl
 - V04: entries have resource versions: `version` on every entry response and
   `expected_version` on single-entry writes, checked under a per-entry lock
   (`EntryExpectedVersionTest`). Terms and globals have the same through
-  `ChecksResourceVersions` (`TermAndGlobalExpectedVersionTest`). Operations for
-  built-in writes and complete outcome reconciliation remain. Prepare-only handles, admission limits, pruning,
+  `ChecksResourceVersions` (`TermAndGlobalExpectedVersionTest`). Built-in writes
+  take an optional `idempotency_key` on the OperationStore (`IdempotentWrite`):
+  replay, spent, reused and an honest `OUTCOME_UNKNOWN`, with process race and
+  crash tests for the file and database stores (`IdempotentWriteConcurrencyTest`).
+  Unknown outcomes are reconciled with the existing recovery command. Prepare-only handles, admission limits, pruning,
   capacity repair, driver bindings and SQLite process concurrency are implemented.
   Shared MySQL admission still needs CI coverage.
 - V05: durable approvals, CP UI, revocation and atomic consumption. Existing

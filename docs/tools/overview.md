@@ -137,6 +137,25 @@ Control Panel, an import — the call answers `VERSION_CONFLICT` with the
 `current_version`, and nothing is saved. Read the entry again and redo the
 change. Without `expected_version` the write is unconditional, as before.
 
+#### Retrying a write safely
+
+Every write action on every router takes an optional `idempotency_key`: a key
+you choose (8–128 characters: letters, digits, `.`, `_`, `:`, `-`), new for each
+change. Retry a call that timed out with the same key and the same arguments:
+
+- If the first call finished, you get its result again with
+  `idempotent_replay: true`, and nothing is written a second time.
+- If the first call started and never reported (a crash, a killed worker), the
+  retry answers `OUTCOME_UNKNOWN` with the record's `current_version` and does
+  not write. Read the record to see whether the change landed.
+- If the first call saved nothing, the key is spent (`IDEMPOTENCY_KEY_SPENT`);
+  send the change again with a new key.
+- The same key with different arguments is refused (`IDEMPOTENCY_KEY_REUSED`).
+
+Keys are kept for `operations.retry_seconds` (one hour by default) in the
+operation store. Multi-node sites must use `DatabaseOperationStore`, or two nodes
+can each run the same key once.
+
 ### `statamic-terms`
 
 Taxonomy term management with slug conflict prevention and dependency validation.

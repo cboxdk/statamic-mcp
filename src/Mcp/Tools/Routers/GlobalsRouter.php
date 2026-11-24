@@ -132,6 +132,13 @@ class GlobalsRouter extends BaseRouter
         return self::resourceVersion(['data' => $variables->data()->all()]);
     }
 
+    protected function currentResourceVersion(array $arguments): ?string
+    {
+        $variables = GlobalSet::find($this->globalSetHandle($arguments))?->in($this->resolveSiteHandle($arguments));
+
+        return $variables === null ? null : $this->globalVersion($variables);
+    }
+
     /**
      * Report the site's version after a successful get or update, so a caller
      * can pass it back as expected_version on its next update.
