@@ -66,6 +66,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Store navigation trees on `statamic/eloquent-driver`. The driver saves a new tree as empty, so a navigation `create` or `update` with a tree reported success and stored no items; the items are now written onto the stored tree and read back, and a tree that does not read back as sent is an error.
+- Notice a concurrent change to a collection tree on a database repository. The check hashed a tree file that only the Stache has, so on `statamic/eloquent-driver` it compared nothing and a move could overwrite another writer's tree. It now compares the stored tree, read before the move is planned and again before saving.
+- Return the entry `version` a following write accepts on database repositories. It was taken from the instance just saved, which lacks the columns the database fills, so `expected_version` from a write answered `VERSION_CONFLICT`.
+- Start every call from fresh state in all of Statamic's Blink stores, not only the default one. A long-lived (stdio) server kept a blueprint changed in the Control Panel, and a collection's old URIs, until it was restarted.
+- Apply collection `route` on `create` and `update`. It reached Statamic's getter, so the route was never changed although the call reported success. `create`, `update` and `configure` now share one set of settings and refuse unknown keys instead of ignoring them; `configure` no longer fails on `sort_dir` or `structure`. `orderable` is refused on `update`, where it never did anything.
+- Refuse a top-level `slug` on entry `update` instead of ignoring it; the slug goes inside `data`, as the schema says.
+
 - Report a blueprint write that a `BlueprintCreating`, `BlueprintSaving` or `BlueprintDeleting` listener refused as refused. `create`, `update`, `generate` and `delete` answered success although Statamic saved nothing, and a refused `update` left the changed blueprint in memory for the rest of the request.
 - Report moves in the collection tree (an entry `update` or `create` with `parent`, a collection `update` with `data.entry`) with `write_effects` and `retry_requires_reconciliation` when they fail, as other writes already did, and register their cache clear before the tree is touched. A failing move after a saved edit now reports the edit as `committed` instead of hiding it.
 

@@ -191,4 +191,20 @@ class StatamicWriteContractTest extends TestCase
         // The title landed: "unknown" would hide a write that certainly happened.
         $this->assertSame('committed', $result['meta']['write_effects'] ?? null, json_encode($result));
     }
+
+    public function test_each_call_reads_what_another_process_changed_since_the_last(): void
+    {
+        // A long-lived stdio server: the Control Panel edits a blueprint in
+        // another process between two calls. Statamic memoizes blueprints in
+        // named Blink stores, which a flush of the default store leaves alone.
+        $handle = 'fresh_' . bin2hex(random_bytes(4));
+        $blueprint = Blueprint::make($handle)->setNamespace('globals')->setContents(['fields' => [['handle' => 'title', 'field' => ['type' => 'text']]]]);
+        $blueprint->save();
+        $read = fn () => (new BlueprintsRouter)->execute(['action' => 'get', 'namespace' => 'globals', 'handle' => $handle]);
+        $this->assertStringNotContainsString('added_elsewhere', json_encode($read()) ?: '');
+
+        file_put_contents($blueprint->path(), "fields:\n  - handle: title\n    field:\n      type: text\n  - handle: added_elsewhere\n    field:\n      type: text\n");
+
+        $this->assertStringContainsString('added_elsewhere', json_encode($read()) ?: '');
+    }
 }

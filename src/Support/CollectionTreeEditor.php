@@ -15,10 +15,13 @@ use Illuminate\Validation\ValidationException;
 use Statamic\Contracts\Entries\Collection;
 use Statamic\Contracts\Entries\Entry as EntryContract;
 use Statamic\Contracts\Routing\UrlBuilder;
+use Statamic\Contracts\Structures\CollectionTreeRepository;
 use Statamic\Facades\Blink;
 use Statamic\Facades\Entry;
 use Statamic\Facades\Site;
+use Statamic\Stache\Repositories\CollectionTreeRepository as StacheCollectionTreeRepository;
 use Statamic\Structures\CollectionTree;
+use Statamic\Structures\Tree;
 
 /** Moves one existing branch. Never accepts replacement trees or deletes entries. */
 class CollectionTreeEditor implements CollectionTreeEditorContract
@@ -125,8 +128,10 @@ class CollectionTreeEditor implements CollectionTreeEditorContract
         }
         $collection = $entry->collection();
         $site = $entry->locale();
+        // Before the tree is read for planning: a change in between can only
+        // refuse this move, never be overwritten by it.
+        $version = $this->storedTreeVersion($collection, $site);
         $tree = $this->context($collection, $site, true);
-        $version = is_file($tree->path()) ? hash_file('sha256', $tree->path()) : null;
         if (McpContext::isWebRequest() && $entry->id() && Entry::find($entry->id()) && ! Gate::forUser(auth()->user())->allows('edit', $entry)) {
             $this->refuse('Permission denied: Cannot move this entry (author or site restriction).');
         }
@@ -214,6 +219,34 @@ class CollectionTreeEditor implements CollectionTreeEditorContract
         return new CollectionTreeMove($tree, $candidate, $version, $parent);
     }
 
+    /**
+     * The stored tree's version, read past every in-memory cache.
+     *
+     * Read before the move is planned and again before it is saved; the
+     * planned tree cannot serve as the first read, because Statamic adds the
+     * entries the stored tree lacks to it in memory.
+     *
+     * The Stache keeps a tree in a file, so the file's hash is its version.
+     * Another repository (the Eloquent driver keeps trees in a table) has no
+     * file: its path() names one that does not exist, so hashing it gave null
+     * on every read and a concurrent change was never noticed. There the
+     * version is the stored tree's contents.
+     */
+    private function storedTreeVersion(Collection $collection, string $site): string
+    {
+        $repository = app(CollectionTreeRepository::class);
+        if (get_class($repository) === StacheCollectionTreeRepository::class) {
+            $path = $repository->find($collection->handle(), $site)?->path();
+
+            return is_string($path) && is_file($path) ? (hash_file('sha256', $path) ?: 'unreadable') : 'absent';
+        }
+        Blink::flush();
+        $stored = $repository->find($collection->handle(), $site);
+
+        // fileData(), not tree(): tree() validates, dropping ids it cannot find.
+        return $stored instanceof Tree ? hash('sha256', json_encode($stored->fileData()) ?: '') : 'absent';
+    }
+
     public function move(EntryContract $entry, mixed $parent): ?string
     {
         $savedParent = null;
@@ -222,7 +255,7 @@ class CollectionTreeEditor implements CollectionTreeEditorContract
             if (! $plan->candidate) {
                 $this->refuse('The entry must be saved in the collection tree before it can be moved.');
             }
-            if ((is_file($plan->original->path()) ? hash_file('sha256', $plan->original->path()) : null) !== $plan->version) {
+            if ($this->storedTreeVersion($entry->collection(), $entry->locale()) !== $plan->version) {
                 $this->refuse('The tree changed during this operation. Read it again before retrying.');
             }
             if (! $plan->candidate->save()) {

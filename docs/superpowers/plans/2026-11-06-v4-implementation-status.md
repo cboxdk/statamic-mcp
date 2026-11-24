@@ -103,9 +103,18 @@ These records do not certify V02–V10. The main plan remains the release checkl
   Statamic's veto and tree moves reported no `write_effects`; both now go through
   `persistStatamic()` (`StatamicWriteContractTest`). The V00 list (globals site,
   save/delete false, partial update + move, cache exit code) is closed.
-  Remaining: the cache matrix against rendered pages (old/new URLs, dependent
-  pages, REST/GraphQL), revision working-copy state after failure, and supported
-  third-party fieldtypes/repositories beyond SEO Pro (Eloquent driver).
+  Cache matrix done on rendered pages (`RenderedCacheMatrixTest`): entry title,
+  slug, unpublish, publish, delete, collection route, term (dependent page),
+  global and navigation (every page), plus the REST API, each warm and cold.
+  Without MCP's clear only the written entry's own URL refreshes, so the full
+  static clear stays. Eloquent driver 5.14 (`EloquentDriverTest`, own CI job):
+  entries, versions, tree moves and concurrent tree change, terms, globals,
+  navigation, collection route and blueprints, read back from the tables. Found
+  and fixed: collection `route` never applied, nav trees stored empty on Eloquent,
+  tree version blind on Eloquent, entry version from the Blink copy, Blink reset
+  missing the named stores. Remaining: revision working-copy state after failure,
+  GraphQL (not enabled in the matrix), mount changes, and Eloquent for assets,
+  forms and revisions.
 - V09/V10: migration/doctor, rollback fixtures, dependency/client matrix, performance
   baseline and release candidate review. No support claim for Statamic 6.40 as a
   new minimum yet; the requirement remains 6.35.1 pending the matrix.

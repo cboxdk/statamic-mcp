@@ -232,44 +232,9 @@ trait HandlesCollections
 
             $collection = Collection::make($handle);
 
-            // Set configuration
-            if (isset($data['title'])) {
-                $collection->title($data['title']);
-            }
-            if (isset($data['route'])) {
-                $collection->route($data['route']);
-            }
-            if (isset($data['template'])) {
-                $collection->template($data['template']);
-            }
-            if (isset($data['layout'])) {
-                $collection->layout($data['layout']);
-            }
-            if (isset($data['dated'])) {
-                $collection->dated($data['dated']);
-            }
-            if (isset($data['orderable'])) {
-                if ($data['orderable']) {
-                    $collection->orderable();
-                }
-            }
-            if (isset($data['sort_field'])) {
-                $collection->sortField($data['sort_field']);
-            }
-            if (isset($data['sort_direction'])) {
-                $collection->sortDirection($data['sort_direction']);
-            }
-            if (isset($data['default_status'])) {
-                $collection->defaultStatus($data['default_status']);
-            }
-            if (isset($data['past_date_behavior'])) {
-                $collection->pastDateBehavior($data['past_date_behavior']);
-            }
-            if (isset($data['future_date_behavior'])) {
-                $collection->futureDateBehavior($data['future_date_behavior']);
-            }
-            if (isset($data['taxonomies']) && is_array($data['taxonomies'])) {
-                $collection->taxonomies($data['taxonomies']);
+            $data = array_diff_key($data, ['handle' => true]);
+            if (($refused = $this->applyCollectionSettings($collection, $data, 'create')) !== null) {
+                return $this->createErrorResponse($refused)->toArray();
             }
 
             $this->persistStatamic(fn () => $collection->save());
@@ -321,23 +286,12 @@ trait HandlesCollections
                 return $this->createErrorResponse("Collection not found: {$handle}")->toArray();
             }
 
-            // Update configuration
-            foreach ($data as $key => $value) {
-                match ($key) {
-                    'title' => $collection->title($value),
-                    'route' => $collection->route($value),
-                    'template' => $collection->template($value),
-                    'layout' => $collection->layout($value),
-                    'dated' => $collection->dated($value),
-                    'orderable' => $value ? $collection->orderable() : null,
-                    'sort_field' => $collection->sortField($value),
-                    'sort_direction' => $collection->sortDirection($value),
-                    'default_status' => $collection->defaultStatus($value),
-                    'past_date_behavior' => $collection->pastDateBehavior($value),
-                    'future_date_behavior' => $collection->futureDateBehavior($value),
-                    'taxonomies' => is_array($value) ? $collection->taxonomies($value) : null,
-                    default => null, // Ignore unknown fields
-                };
+            // The handle sent back from a get is not a change; another one would be a rename this cannot do.
+            if (array_key_exists('handle', $data) && $data['handle'] === $collection->handle()) {
+                unset($data['handle']);
+            }
+            if (($refused = $this->applyCollectionSettings($collection, $data, 'update')) !== null) {
+                return $this->createErrorResponse($refused)->toArray();
             }
 
             $this->persistStatamic(fn () => $collection->save());
@@ -433,53 +387,8 @@ trait HandlesCollections
                 return $this->createErrorResponse("Collection not found: {$handle}")->toArray();
             }
 
-            // Update collection configuration
-            $currentConfig = $collection->toArray();
-            $updatedConfig = array_merge($currentConfig, $config);
-
-            // Handle specific configuration options
-            if (isset($config['title'])) {
-                $collection->title($config['title']);
-            }
-
-            if (isset($config['sort_dir'])) {
-                $collection->sortDir($config['sort_dir']);
-            }
-
-            if (isset($config['sort_field'])) {
-                $collection->sortField($config['sort_field']);
-            }
-
-            if (isset($config['dated'])) {
-                $collection->dated($config['dated']);
-            }
-
-            if (isset($config['template'])) {
-                $collection->template($config['template']);
-            }
-
-            if (isset($config['layout'])) {
-                $collection->layout($config['layout']);
-            }
-
-            if (isset($config['routes'])) {
-                $collection->routes($config['routes']);
-            }
-
-            if (isset($config['mount'])) {
-                $collection->mount($config['mount']);
-            }
-
-            if (isset($config['structure'])) {
-                $collection->structure($config['structure']);
-            }
-
-            if (isset($config['taxonomies'])) {
-                $collection->taxonomies($config['taxonomies']);
-            }
-
-            if (isset($config['default_status'])) {
-                $collection->defaultStatus($config['default_status']);
+            if (($refused = $this->applyCollectionSettings($collection, $config, 'configure')) !== null) {
+                return $this->createErrorResponse($refused)->toArray();
             }
 
             // Save the collection
@@ -504,5 +413,50 @@ trait HandlesCollections
         } catch (\Exception $e) {
             return $this->createErrorResponse("Failed to configure collection: {$e->getMessage()}")->toArray();
         }
+    }
+
+    /**
+     * Apply collection settings through Statamic's setters, or say why not.
+     *
+     * Unknown keys are refused rather than skipped: `route` used to reach the
+     * getter `route($site)`, so a route change reported success and saved
+     * nothing, as navigation trees once did (#65).
+     *
+     * @param  array<mixed>  $settings
+     */
+    private function applyCollectionSettings(CollectionContract $collection, array $settings, string $action): ?string
+    {
+        $setters = [
+            'title' => fn ($v) => $collection->title($v),
+            'route' => fn ($v) => $collection->routes($v),
+            'routes' => fn ($v) => $collection->routes($v),
+            'template' => fn ($v) => $collection->template($v),
+            'layout' => fn ($v) => $collection->layout($v),
+            'dated' => fn ($v) => $collection->dated((bool) $v),
+            'sort_field' => fn ($v) => $collection->sortField($v),
+            'sort_direction' => fn ($v) => $collection->sortDirection($v),
+            'sort_dir' => fn ($v) => $collection->sortDirection($v),
+            'default_status' => fn ($v) => $collection->defaultStatus($v),
+            'past_date_behavior' => fn ($v) => $collection->pastDateBehavior($v),
+            'future_date_behavior' => fn ($v) => $collection->futureDateBehavior($v),
+            'taxonomies' => fn ($v) => $collection->taxonomies(is_array($v) ? $v : [$v]),
+            'mount' => fn ($v) => $collection->mount($v),
+        ];
+        // The tree's shape: only when the collection is made or explicitly reconfigured.
+        if ($action !== 'update') {
+            $setters['structure'] = fn ($v) => $collection->structureContents(is_array($v) ? $v : null);
+            $setters['orderable'] = fn ($v) => $v ? $collection->structureContents(['max_depth' => 1]) : null;
+        }
+
+        $unknown = array_diff(array_map('strval', array_keys($settings)), array_keys($setters));
+        if ($unknown !== []) {
+            return 'Unsupported collection settings for ' . $action . ': ' . implode(', ', $unknown)
+                . '. Supported: ' . implode(', ', array_keys($setters)) . '. Nothing was saved.';
+        }
+        foreach ($settings as $key => $value) {
+            $setters[(string) $key]($value);
+        }
+
+        return null;
     }
 }

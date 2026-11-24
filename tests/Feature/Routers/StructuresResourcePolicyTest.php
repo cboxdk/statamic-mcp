@@ -124,9 +124,18 @@ class StructuresResourcePolicyTest extends TestCase
         $this->assertTrue($read['success'], json_encode($read) ?: '');
         $this->assertSame('allowed', $read['data']['collection']['handle']);
 
-        $update = $this->router->execute([
+        // data.handle naming another collection neither redirects the write nor is ignored.
+        $redirect = $this->router->execute([
             'action' => 'update', 'resource_type' => 'collection', 'handle' => 'allowed',
             'data' => ['handle' => 'protected', 'title' => 'Updated'],
+        ]);
+        $this->assertFalse($redirect['success'], json_encode($redirect) ?: '');
+        $this->assertSame('Original', Collection::find('allowed')?->title());
+        $this->assertNull(Collection::find('protected'));
+
+        $update = $this->router->execute([
+            'action' => 'update', 'resource_type' => 'collection', 'handle' => 'allowed',
+            'data' => ['handle' => 'allowed', 'title' => 'Updated'],
         ]);
         $this->assertTrue($update['success'], json_encode($update) ?: '');
         $this->assertSame('Updated', Collection::find('allowed')?->title());

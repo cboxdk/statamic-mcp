@@ -7,10 +7,12 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns;
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Illuminate\Support\Collection;
 use Statamic\Contracts\Structures\Nav as NavContract;
+use Statamic\Facades\Blink;
 use Statamic\Facades\Entry;
 use Statamic\Facades\Nav;
 use Statamic\Facades\Site;
 use Statamic\Structures\BranchIds;
+use Statamic\Structures\Tree;
 
 /**
  * Navigation operations for the StructuresRouter.
@@ -344,15 +346,38 @@ trait HandlesNavigations
         $this->persistStatamic(fn () => $navigation->save());
 
         foreach ($trees as $site => $items) {
-            $tree = $navigation->in($site) ?? $navigation->makeTree($site);
+            $existing = $navigation->in($site);
+            $tree = $existing ?? $navigation->makeTree($site);
             // Items without an id get one, the way the Control Panel's save does.
             $tree->tree((new BranchIds)->ensure($items));
+            // What a read must return: the tree as Statamic normalizes it for storage.
+            $items = $tree->fileData()['tree'];
             $this->persistStatamic(fn () => $tree->save());
+
+            // statamic/eloquent-driver stores a tree's first save as [] (a new
+            // NavTree has no model yet), so the items go onto the stored tree.
+            if ($existing === null && $this->storedNavItems($navigation, $site) !== $items) {
+                $stored = $navigation->in($site);
+                $stored?->tree($items);
+                $this->persistStatamic(fn () => $stored?->save());
+            }
+            if ($this->storedNavItems($navigation, $site) !== $items) {
+                throw new \RuntimeException("The navigation tree for site '{$site}' was not stored as sent. Read it before retrying.");
+            }
         }
 
         $this->clearCachesAfterWrite(['stache', 'static']);
 
         return null;
+    }
+
+    /** @return array<mixed>|null the stored items, read past Blink */
+    private function storedNavItems(NavContract $navigation, string $site): ?array
+    {
+        Blink::flush();
+        $tree = $navigation->in($site);
+
+        return $tree instanceof Tree ? $tree->fileData()['tree'] : null;
     }
 
     /**

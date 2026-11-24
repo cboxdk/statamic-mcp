@@ -28,6 +28,7 @@ use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Attributes\Title;
 use Statamic\Contracts\Entries\Entry as EntryContract;
+use Statamic\Facades\Blink;
 use Statamic\Facades\Collection;
 use Statamic\Facades\Entry;
 use Statamic\Facades\Site;
@@ -277,6 +278,10 @@ class EntriesRouter extends BaseRouter
             return $result;
         }
 
+        // Read what was stored, not the instance just saved: a database
+        // repository keeps that in Blink without the columns it filled on save,
+        // so its version never matched the next call's read.
+        Blink::flush();
         $entry = Entry::find($result['entry']['id']);
         if ($entry !== null) {
             $result['entry']['version'] = $this->entryVersion($entry);
@@ -1066,6 +1071,10 @@ class EntriesRouter extends BaseRouter
         $id = is_string($arguments['id']) ? $arguments['id'] : '';
         $site = $this->resolveSiteHandle($arguments);
         $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
+        // Ignoring it reported success for a rename that never happened.
+        if (array_key_exists('slug', $arguments)) {
+            return $this->createErrorResponse('To change the slug on update, pass it inside data: {"data": {"slug": "new-slug"}}. Nothing was saved.')->toArray();
+        }
         $parentRequested = array_key_exists('parent', $data);
         $requestedParent = $data['parent'] ?? null;
         unset($data['parent']);

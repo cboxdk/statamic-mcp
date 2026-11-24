@@ -219,6 +219,23 @@ jobs:
       - name: Test entries and terms with SEO Pro
         run: vendor/bin/pest tests/Feature/Routers/SeoProWritesTest.php
 
+  eloquent-driver:
+    name: Eloquent driver integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962
+        with:
+          php-version: '8.4'
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, intl
+      - name: Install optional Eloquent driver
+        run: composer require --dev 'statamic/eloquent-driver:5.14.0' -W --no-interaction --no-progress
+      - name: Test built-in writes on the database repositories
+        run: vendor/bin/pest tests/Integration/EloquentDriverTest.php
+
   cbox-integrations:
     name: Cbox Relay and Cbox ID approval channels
     runs-on: ubuntu-latest

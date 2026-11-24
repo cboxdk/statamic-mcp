@@ -69,10 +69,16 @@ abstract class BaseStatamicTool extends Tool
      * collection tree. This resets nothing durable: Blink holds only what can
      * be read again, so the cost is a re-read and the gain is that each call
      * starts as a fresh request would.
+     *
+     * Every store, not only the default one: Statamic also memoizes in named
+     * stores (entry-uris, structure-uris, collection-mounts, the blueprint
+     * repository's), and Blink::flush() reaches only the default. Those kept a
+     * long-lived server on blueprints and URIs from before another process
+     * changed them, until it restarted.
      */
     private function startFromAFreshRequestState(): void
     {
-        Blink::flush();
+        Blink::swap(new \Statamic\Support\Blink);
         app(PermissionCache::class)->clear();
     }
 

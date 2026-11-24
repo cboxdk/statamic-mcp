@@ -150,6 +150,15 @@ A 3.3.0 security audit hardened the tool layer. Keep these when touching routers
   actions are listed by hand, so a new action is treated as a write until it is
   listed there. Whether an action writes is decided once, by
   `EnforcesResourcePolicy::isWriteAction()`; the token scope follows it.
+- **The built-in writes are tested on `statamic/eloquent-driver`**
+  (`tests/Integration/EloquentDriverTest.php`, its own CI job; skips locally without
+  the driver). Read back from the tables, not from Statamic's objects. What it found:
+  a new `NavTree`'s first save is stored as `[]` by the driver (the router now writes
+  the items onto the stored tree and verifies the read-back); the collection tree's
+  version hashed a file that does not exist there, so concurrent tree changes were
+  never noticed (now the stored tree's `fileData()`, read before planning — not
+  `tree()`, which drops ids it cannot find); and an entry's returned `version` came
+  from the Blink copy just saved, not the stored row.
 - **Every Statamic write goes through `persistStatamic()`**, tree moves
   included. It registers the cache clear before the write, turns Statamic's
   `false` veto into an error and records `write_effects`; a `save()` outside it
@@ -1184,9 +1193,17 @@ assumption — the request ends, the cache goes away. This server is long-lived,
 without intervention every tool call inherits whatever the last one memoized and
 answers with state that was true several calls ago.
 
-`BaseStatamicTool::execute()` therefore flushes Blink at the start of every call. That
+`BaseStatamicTool::execute()` therefore resets Blink at the start of every call. That
 is the single seam every tool goes through, and it makes each call begin the way a fresh
 request would. Nothing durable is lost: Blink holds only what can be read again.
+
+**Reset every store, not just the default.** `Blink::flush()` reaches only the default
+store, while Statamic also memoizes in named ones (`entry-uris`, `structure-uris`,
+`collection-mounts`, the blueprint repository's `found`/`from-file`). With only a flush,
+a long-lived stdio server kept serving a blueprint the Control Panel had changed, and a
+collection's old URIs after a route change, until it restarted. The call start swaps in
+a fresh `Statamic\Support\Blink` (`StatamicWriteContractTest`:
+`each_call_reads_what_another_process_changed_since_the_last`).
 
 This is not hygiene, it is correctness. Three separate bugs were this cache:
 
@@ -1285,6 +1302,16 @@ immediate version and belongs only to the system router's `cache_clear` action.
 
 The result is not reported in the response — it is not known until after the envelope is
 assembled, and a cache rebuild is not something the caller acts on.
+
+**The matrix is measured on rendered pages** (`tests/Feature/Cache/RenderedCacheMatrixTest.php`):
+a site with a layout showing a global and a navigation, a home page listing the blog, posts
+showing their tags, and the REST API. Each write is followed by reading every affected URL
+with the half-measure static cache warm, then again with the Stache and static cache cold.
+With MCP's clear switched off, Statamic's own invalidator refreshes only the written
+entry's URL: listing pages, a post showing a renamed tag, globals and navigation on every
+page, and old URLs after a slug or route change all stay stale. **The full static clear
+is load-bearing; do not narrow it to the record's own URL.** A spy on `Artisan::call`
+cannot show this, which is why the matrix renders pages.
 
 ### Performance Optimizations
 - **Pagination support** in all content extraction tools
