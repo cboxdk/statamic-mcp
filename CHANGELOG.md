@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.3] - 2026-11-23
+
+### Security
+
+- **Term actions stay within the sites the user may access.** Statamic's `TermPolicy` checks the site only when a term is created; the Control Panel keeps every other term screen to the user's sites through its site selector, which MCP does not have. Over the web endpoint, an editor limited to one site could therefore list, read, create and update terms in another site through `statamic-terms`. Every term action now checks the site it reaches, and `delete` checks the site of the term it resolves. The local stdio server is unchanged.
+
 ## [3.6.2] - 2026-11-23
 
 ### Fixed
@@ -738,7 +744,8 @@ straight to the fix. Thanks to @JorisOrangeStudio and @revans-premier-education.
 - Laravel MCP v0.2.0 integration
 - Comprehensive test suite
 
-[Unreleased]: https://github.com/cboxdk/statamic-mcp/compare/v3.6.2...HEAD
+[Unreleased]: https://github.com/cboxdk/statamic-mcp/compare/v3.6.3...HEAD
+[3.6.3]: https://github.com/cboxdk/statamic-mcp/compare/v3.6.2...v3.6.3
 [3.6.2]: https://github.com/cboxdk/statamic-mcp/compare/v3.6.1...v3.6.2
 [3.6.1]: https://github.com/cboxdk/statamic-mcp/compare/v3.6.0...v3.6.1
 [3.6.0]: https://github.com/cboxdk/statamic-mcp/compare/v3.5.0...v3.6.0

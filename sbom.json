@@ -1,7 +1,7 @@
 {
     "bomFormat": "CycloneDX",
     "specVersion": "1.5",
-    "serialNumber": "urn:uuid:0be8119e-0b7e-f5e0-d405-90664ccca277",
+    "serialNumber": "urn:uuid:ef8a06d8-3a1a-1cd1-2a09-5557742c1d66",
     "version": 1,
     "metadata": {
         "tools": [
@@ -581,11 +581,11 @@
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/inertiajs/inertia-laravel@v3.7.0",
+            "bom-ref": "pkg:composer/inertiajs/inertia-laravel@v3.8.0",
             "group": "inertiajs",
             "name": "inertia-laravel",
-            "version": "v3.7.0",
-            "purl": "pkg:composer/inertiajs/inertia-laravel@v3.7.0",
+            "version": "v3.8.0",
+            "purl": "pkg:composer/inertiajs/inertia-laravel@v3.8.0",
             "scope": "required",
             "licenses": [
                 {
@@ -598,7 +598,7 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "9d3f9060c1614565eb4d3a3208015ed01de347bb"
+                    "content": "ee6aa7a7cb0dc384573abec561a96fea4dc64af9"
                 }
             ]
         },
@@ -2865,11 +2865,11 @@
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/statamic/cms@v6.43.1",
+            "bom-ref": "pkg:composer/statamic/cms@v6.43.2",
             "group": "statamic",
             "name": "cms",
-            "version": "v6.43.1",
-            "purl": "pkg:composer/statamic/cms@v6.43.1",
+            "version": "v6.43.2",
+            "purl": "pkg:composer/statamic/cms@v6.43.2",
             "scope": "required",
             "licenses": [
                 {
@@ -2882,7 +2882,7 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "71387ae6a13659529b135d87b0c5b8eafe2ca7c0"
+                    "content": "9269f2cc1ab7474ba32e0bc96c4ab0b0eb677e3f"
                 }
             ]
         },
@@ -4037,11 +4037,11 @@
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/web-auth/webauthn-lib@5.3.15",
+            "bom-ref": "pkg:composer/web-auth/webauthn-lib@5.3.16",
             "group": "web-auth",
             "name": "webauthn-lib",
-            "version": "5.3.15",
-            "purl": "pkg:composer/web-auth/webauthn-lib@5.3.15",
+            "version": "5.3.16",
+            "purl": "pkg:composer/web-auth/webauthn-lib@5.3.16",
             "scope": "required",
             "licenses": [
                 {
@@ -4054,7 +4054,7 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "768fb8cf7bebaad8a08b3015e206dda95e3320fa"
+                    "content": "7f38dbcf07cd22ec104fa6eb720df22eb4196b47"
                 }
             ]
         },
