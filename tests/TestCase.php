@@ -7,6 +7,7 @@ use Illuminate\Filesystem\Filesystem;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\File;
 use Laravel\Mcp\Server\McpServiceProvider;
+use Statamic\Statamic;
 use Statamic\Testing\AddonTestCase;
 use Statamic\Testing\Concerns\PreventsSavingStacheItemsToDisk;
 
@@ -79,6 +80,16 @@ abstract class TestCase extends AddonTestCase
 
     protected function setUp(): void
     {
+        // Statamic keeps pushed CP routes and install callbacks in static lists
+        // that outlive the application. Every test boots a new app, so each one
+        // re-pushed the addon's routes on top of all earlier tests' and then
+        // registered every one of them: per-test time grew with the test count
+        // until CI jobs hit their timeout. One boot per process in production
+        // never sees this.
+        foreach (['cpRoutes', 'afterInstalledCallbacks'] as $list) {
+            (new \ReflectionProperty(Statamic::class, $list))->setValue(null, []);
+        }
+
         parent::setUp();
 
         self::sweepLeakedBlueprints();
