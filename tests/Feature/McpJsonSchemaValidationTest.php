@@ -216,7 +216,7 @@ class McpJsonSchemaValidationTest extends TestCase
         }
     }
 
-    public function test_router_tools_accept_confirmation_token_parameter(): void
+    public function test_router_tools_accept_approval_id_parameter(): void
     {
         $tools = $this->getServerTools();
 
@@ -239,14 +239,14 @@ class McpJsonSchemaValidationTest extends TestCase
             }
 
             $this->assertArrayHasKey(
-                'confirmation_token',
+                'approval_id',
                 $properties,
-                "Router tool {$toolClass} must expose confirmation_token so MCP clients can resubmit gated actions",
+                "Router tool {$toolClass} must expose approval_id so MCP clients can resubmit approved actions",
             );
 
-            $confirmationTokenSchema = $properties['confirmation_token'] ?? null;
+            $confirmationTokenSchema = $properties['approval_id'] ?? null;
             if (! is_array($confirmationTokenSchema)) {
-                throw new RuntimeException("Router tool {$toolClass} confirmation_token schema must be an array");
+                throw new RuntimeException("Router tool {$toolClass} approval_id schema must be an array");
             }
 
             $this->assertSame('string', $confirmationTokenSchema['type'] ?? null);

@@ -174,23 +174,24 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Confirmation Tokens
+    | Approvals
     |--------------------------------------------------------------------------
     |
-    | Require a two-step confirmation flow for destructive operations.
-    | Uses stateless HMAC-SHA256 tokens bound to the exact operation.
+    | Gated actions over HTTP wait for the person the call acts as to approve
+    | them in the Control Panel (Tools → MCP → Approvals). An approval covers
+    | one exact call, once, and expires after `ttl` seconds. Approving asks for
+    | Statamic's elevated session. The local stdio server is not gated.
     |
-    | When enabled is null (default), confirmation is auto-detected:
-    | enabled in production, disabled in local/development/testing/staging.
+    | When enabled is null (default), approvals are on in production only.
     | Set to true/false to override.
     |
     */
     'confirmation' => [
         'enabled' => env('STATAMIC_MCP_CONFIRMATION_ENABLED', null),
-        'ttl' => (int) env('STATAMIC_MCP_CONFIRMATION_TTL', 300),
+        'ttl' => (int) env('STATAMIC_MCP_CONFIRMATION_TTL', 900),
 
         /*
-        | Per-domain list of actions that require the confirmation-token flow.
+        | Per-domain list of actions that need a person's approval.
         | Domains not listed fall back to 'default'. An empty array disables
         | the gate for that domain. The '*' wildcard gates every action.
         |

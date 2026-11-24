@@ -71,15 +71,15 @@ instead of failing discovery for every client.
 - `AuthenticateForMcp` — Bearer token authentication (Basic Auth removed in v4)
 - `RequireMcpPermission` — Validates token scopes and expiry
 
-### Confirmation Tokens
-Destructive MCP operations require a two-step confirmation flow in production:
-- **ConfirmationTokenManager** (`src/Auth/ConfirmationTokenManager.php`) — Stateless HMAC-SHA256 tokens bound to tool + arguments
-- **ConfirmationActionGate** (`src/Auth/ConfirmationActionGate.php`) — Resolves `(domain, action)` → gated? from `confirmation.actions` config
-- **RequiresConfirmation trait** (`src/Mcp/Tools/Concerns/RequiresConfirmation.php`) — Integrated into BaseRouter
-- **Operations requiring confirmation (defaults):** `delete` on every domain + `create`/`update` on blueprints
-- **Per-domain configurable:** `confirmation.actions.<domain>` lists the actions that trigger the gate. Domains not listed fall back to `default`. `*` gates every action. `[]` disables the gate for that domain. Operators can widen the gate (e.g. `entries => [create, update, delete, publish, unpublish]`) without forking.
-- **Environment-aware:** Auto-enabled in production, disabled in local/dev/testing (configurable via `STATAMIC_MCP_CONFIRMATION_ENABLED`)
-- **CLI bypass:** Confirmation is skipped in CLI context
+### Approvals (V05)
+Gated actions over HTTP wait for a person's approval in the Control Panel. The v3
+stateless confirmation token is gone; a v3 `confirmation_token` is ignored.
+- **ConfirmationActionGate** (`src/Auth/ConfirmationActionGate.php`) — `(domain, action)` → gated? from `confirmation.actions`; `enabled()` is on in production unless configured
+- **Approvals** (`src/Approvals/Approvals.php`) — an approval *is* an operation in the OperationStore: `awaiting_approval` = pending, `ready` = approved, `cancelled` = rejected, `executing` onwards = claimed/consumed. Claiming the approval and the write is one atomic transition, so a crash leaves it spent.
+- **BaseRouter::executeWithApproval()** — without `approval_id` it records the call (random opaque id, binding over actor, grant, action, site, profile and canonical input; preview with the record's `expected_version`) and answers `APPROVAL_REQUIRED`. With it, the call is authorized again in full *before* the claim; a different call, a changed record (`APPROVAL_STALE`), expiry or rejection runs nothing.
+- **CP** (`ApprovalController`, `McpApprovalsPage.vue`, Tools → MCP → Approvals) — only the user the call acts as sees and decides it; decisions are POST with CSRF; **approve needs Statamic's elevated session**, which is what stops a browser agent driving the same CP tab. It proves a fresh re-authentication, not that a human clicked.
+- **Defaults:** `delete` on every domain, blueprint writes, entry `restore_revision`/`publish_working_copy`. `[]` disables a domain, `*` gates every action. Stdio is never gated (the local operator is the person).
+- Tests: `tests/Feature/Approvals/ApprovalFlowTest.php` (binding, CSRF/elevation, expiry, stale, no grant) and `ApprovalConcurrencyTest.php` (process races and crash on file, SQLite, MySQL).
 
 ### Resource Policy
 Granular resource-level access control configured in `config/statamic/mcp.php`:
@@ -98,7 +98,7 @@ Add a gate there, not in one surface, or tools and resources drift apart again.
 2. Token scope? → `TokenScope: {domain}:{read|write}`
 3. Resource allowed? → `ResourcePolicy::canAccess(domain, handle, mode)`
 4. Statamic permissions? → `User::hasPermission()`
-5. Confirmation required? → `ConfirmationActionGate` (configurable per domain; defaults: deletes + blueprint writes) → `ConfirmationTokenManager`
+5. Approval required? → `ConfirmationActionGate` (configurable per domain; defaults: deletes + blueprint writes) → `Approvals` (CP approval, one exact call, once)
 6. Field filtering → `ResourcePolicy::filterFields()` on input + output
 
 ### Authorization invariants (don't regress these)

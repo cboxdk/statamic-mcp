@@ -77,6 +77,7 @@ final class DatabaseOperationStore implements OperationStore
     {
         if ($next->id !== $expected->id || $next->bindingDigest !== $expected->bindingDigest
             || $next->encryptedIntent !== $expected->encryptedIntent
+            || $next->encryptedPreview !== $expected->encryptedPreview
             || ($next->encryptedReconciliation !== $expected->encryptedReconciliation
                 && ! ($expected->state === OperationState::OutcomeUnknown && $next->state === OperationState::Reconciled))
             || ($next->expiresAt !== $expected->expiresAt
@@ -133,6 +134,27 @@ final class DatabaseOperationStore implements OperationStore
 
             return $deleted;
         }, 3);
+    }
+
+    public function awaitingApproval(int $limit = 100): array
+    {
+        if ($limit < 1 || $limit > 1000) {
+            throw new \InvalidArgumentException('List batch must contain 1–1000 records.');
+        }
+
+        return $this->committed(function () use ($limit): array {
+            $found = [];
+            foreach ($this->connection->table('mcp_operations')->useWritePdo()
+                ->where('state', OperationState::AwaitingApproval->value)->where('expires_at', '>', now()->getTimestamp())
+                ->orderBy('expires_at')->limit($limit)->pluck('payload') as $payload) {
+                if (! is_string($payload)) {
+                    throw new \RuntimeException('Corrupt operation record.');
+                }
+                $found[] = Operation::fromJson($payload);
+            }
+
+            return $found;
+        });
     }
 
     public function reconcileCapacity(): int

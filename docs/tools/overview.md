@@ -137,6 +137,21 @@ Control Panel, an import — the call answers `VERSION_CONFLICT` with the
 `current_version`, and nothing is saved. Read the entry again and redo the
 change. Without `expected_version` the write is unconditional, as before.
 
+#### Actions that need a person's approval
+
+Over HTTP, gated actions (by default every `delete`, blueprint writes and entry
+`restore_revision`/`publish_working_copy`; see `confirmation.actions`) do not run
+on the first call. The answer is `APPROVAL_REQUIRED` with an `approval_id`, and
+nothing is saved. The person the call acts as opens **Tools → MCP → Approvals**
+in the Control Panel, checks the exact call and approves it, confirming it is
+them (password, passkey or emailed code). Then repeat the same call with
+`approval_id` added: it runs once. Other answers say why it did not run:
+`APPROVAL_PENDING`, `APPROVAL_REJECTED`, `APPROVAL_STALE` (the record changed
+since the request; ask again), `APPROVAL_MISMATCH` (a different call),
+`APPROVAL_EXPIRED`. Approving grants nothing: the repeated call is checked
+against the token's scopes and the person's permissions again. The local stdio
+server is not gated.
+
 #### Retrying a write safely
 
 Every write action on every router takes an optional `idempotency_key`: a key

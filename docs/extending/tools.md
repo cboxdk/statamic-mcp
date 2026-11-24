@@ -123,7 +123,7 @@ Exactly like a built-in router, in the same order:
 4. **Statamic permission** — whatever `getRequiredPermissions()` returns. If it returns
    nothing, only a super admin may call the tool. Name the permission your tool
    actually needs; `['access cp']` admits every Control Panel user.
-5. **Confirmation gate** — by domain and action, as configured.
+5. **Approval gate** — by domain and action, as configured: the call waits for the person it acts as to approve it in the Control Panel.
 6. **Audit log** — every call.
 
 The two fail-closed rules matter because a third-party router that forgets to declare

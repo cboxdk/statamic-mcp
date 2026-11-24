@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp;
 
 use Cboxdk\StatamicMcp\Auth\AuthServiceProvider;
-use Cboxdk\StatamicMcp\Auth\ConfirmationTokenManager;
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Console\InstallCommand;
 use Cboxdk\StatamicMcp\Console\MigrateStoreCommand;
@@ -267,8 +266,15 @@ class ServiceProvider extends AddonServiceProvider
         // Register CIMD resolver
         $this->app->singleton(CimdResolver::class);
 
-        // Register confirmation token manager
-        $this->app->singleton(ConfirmationTokenManager::class);
+        $this->app->bind(Actions\Operations\IdempotentWrite::class, fn (): Actions\Operations\IdempotentWrite => new Actions\Operations\IdempotentWrite(
+            $this->app->make(Actions\Contracts\OperationStore::class), $this->app->make(Encrypter::class),
+            config()->integer('statamic.mcp.operations.retry_seconds', 3600),
+        ));
+        $this->app->bind(Approvals\Approvals::class, fn (): Approvals\Approvals => new Approvals\Approvals(
+            $this->app->make(Actions\Contracts\OperationStore::class), $this->app->make(Actions\Operations\OperationCoordinator::class),
+            $this->app->make(Actions\Operations\IdempotentWrite::class), $this->app->make(Encrypter::class),
+            config()->integer('statamic.mcp.confirmation.ttl', 900),
+        ));
 
         // Register resource policy
         $this->app->singleton(ResourcePolicy::class);
@@ -565,6 +571,10 @@ class ServiceProvider extends AddonServiceProvider
      */
     private function adminNavChildren(): array
     {
+        $approvals = Nav::item('Approvals');
+        $approvalsRouted = $approvals->route('statamic-mcp.approvals.index');
+        $approvalsItem = $approvalsRouted instanceof NavItem ? $approvalsRouted : $approvals;
+
         $admin = Nav::item('Admin');
 
         // NavItem's fluent setters come from FluentlyGetsAndSets and are untyped,
@@ -572,11 +582,11 @@ class ServiceProvider extends AddonServiceProvider
         $routed = $admin->route('statamic-mcp.admin');
 
         if (! $routed instanceof NavItem) {
-            return [$admin];
+            return [$approvalsItem, $admin];
         }
 
         $gated = $routed->can('manage all mcp tokens');
 
-        return [$gated instanceof NavItem ? $gated : $routed];
+        return [$approvalsItem, $gated instanceof NavItem ? $gated : $routed];
     }
 }

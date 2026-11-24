@@ -47,6 +47,7 @@ final class FileOperationStore implements OperationStore
     {
         if ($next->id !== $expected->id || $next->bindingDigest !== $expected->bindingDigest
             || $next->encryptedIntent !== $expected->encryptedIntent
+            || $next->encryptedPreview !== $expected->encryptedPreview
             || ($next->encryptedReconciliation !== $expected->encryptedReconciliation
                 && ! ($expected->state === OperationState::OutcomeUnknown && $next->state === OperationState::Reconciled))
             || ($next->expiresAt !== $expected->expiresAt
@@ -106,6 +107,29 @@ final class FileOperationStore implements OperationStore
             $this->writeCount($count - $deleted);
 
             return $deleted;
+        });
+    }
+
+    public function awaitingApproval(int $limit = 100): array
+    {
+        if ($limit < 1 || $limit > 1000) {
+            throw new \InvalidArgumentException('List batch must contain 1–1000 records.');
+        }
+        if (! is_dir($this->directory)) {
+            return [];
+        }
+
+        return $this->locked(str_repeat('0', 64), function () use ($limit): array {
+            $found = [];
+            foreach ($this->recordPaths() as $path) {
+                $record = $this->read($path);
+                if ($record !== null && $record->state === OperationState::AwaitingApproval && $record->expiresAt > now()->getTimestamp()) {
+                    $found[] = $record;
+                }
+            }
+            usort($found, fn (Operation $a, Operation $b): int => $a->expiresAt <=> $b->expiresAt);
+
+            return array_slice($found, 0, $limit);
         });
     }
 

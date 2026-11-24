@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `mcp:statamic:install` now guides an upgrade too: on an existing installation it keeps the config, asks for and saves the stdio profile, runs migrations, lists the tokens v4 affects with offer to revoke the ones that no longer work, and ends with `mcp:doctor`.
 - Route tool and resource authorization through one decision, `McpAuthorizer`. A resource refused for a missing Statamic permission now answers `Permission denied: Cannot get blueprints` like the matching tool call.
 - Tools other packages register in a domain with no scope of their own are refused for every token; v3 let a `*` token reach them.
+- Replace the confirmation token with approvals in the Control Panel. A gated action (by default every delete and blueprint writes) over HTTP answers `APPROVAL_REQUIRED` with an `approval_id`; the person the call acts as approves it under Tools → MCP → Approvals, confirming it is them with Statamic's elevated session, and the client repeats the call with `approval_id`. An approval covers that exact call once, expires after `confirmation.ttl` (now 900 seconds), and stops holding if the record changes. `confirmation_token` is no longer accepted. The model could answer the old token itself; a person now has to approve.
 
 ### Security
 

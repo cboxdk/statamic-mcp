@@ -19,6 +19,13 @@ interface OperationStore
     /** Recount occupied slots under the admission lock; never change operation outcomes. */
     public function reconcileCapacity(): int;
 
+    /**
+     * Operations awaiting a person's approval and not yet expired, oldest first.
+     *
+     * @return list<Operation>
+     */
+    public function awaitingApproval(int $limit = 100): array;
+
     /** Atomic transition; refuses stale versions and changes to immutable bindings. */
     public function transition(Operation $expected, Operation $next): bool;
 }

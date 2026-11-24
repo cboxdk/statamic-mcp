@@ -15,6 +15,8 @@ final readonly class Operation
         public ?string $encryptedResult = null,
         public ?string $encryptedIntent = null,
         public ?string $encryptedReconciliation = null,
+        // What a person is asked to approve. Immutable, like the intent.
+        public ?string $encryptedPreview = null,
     ) {
         if (! preg_match('/^[a-f0-9]{64}$/D', $id) || ! preg_match('/^[a-f0-9]{64}$/D', $bindingDigest)
             || $version < 1 || $expiresAt < 1 || ($encryptedResult !== null && strlen($encryptedResult) > 2_097_152)) {
@@ -22,6 +24,9 @@ final readonly class Operation
         }
         if ($encryptedIntent !== null && ($encryptedIntent === '' || strlen($encryptedIntent) > 32768)) {
             throw new \InvalidArgumentException('Invalid encrypted operation intent.');
+        }
+        if ($encryptedPreview !== null && ($encryptedPreview === '' || strlen($encryptedPreview) > 131072)) {
+            throw new \InvalidArgumentException('Invalid encrypted operation preview.');
         }
         if (($state === OperationState::Reconciled) !== ($encryptedReconciliation !== null)
             || ($encryptedReconciliation !== null && ($encryptedReconciliation === '' || strlen($encryptedReconciliation) > 32768))) {
@@ -44,10 +49,10 @@ final readonly class Operation
             throw new \LogicException('Expired operation cannot start.');
         }
 
-        return new self($this->id, $this->bindingDigest, $next, $this->version + 1, $retainUntil ?? $this->expiresAt, $encryptedResult, $this->encryptedIntent, $encryptedReconciliation);
+        return new self($this->id, $this->bindingDigest, $next, $this->version + 1, $retainUntil ?? $this->expiresAt, $encryptedResult, $this->encryptedIntent, $encryptedReconciliation, $this->encryptedPreview);
     }
 
-    /** @return array{id: string, binding: string, state: string, version: int, expires_at: int, result: ?string, intent: ?string, reconciliation?: string} */
+    /** @return array{id: string, binding: string, state: string, version: int, expires_at: int, result: ?string, intent: ?string, reconciliation?: string, preview?: string} */
     public function toArray(): array
     {
         $data = ['id' => $this->id, 'binding' => $this->bindingDigest, 'state' => $this->state->value,
@@ -55,6 +60,9 @@ final readonly class Operation
         // Preserve the exact serialization of existing v4 prepared records.
         if ($this->encryptedReconciliation !== null) {
             $data['reconciliation'] = $this->encryptedReconciliation;
+        }
+        if ($this->encryptedPreview !== null) {
+            $data['preview'] = $this->encryptedPreview;
         }
 
         return $data;
@@ -68,10 +76,11 @@ final readonly class Operation
             || ! is_int($value['expires_at'] ?? null) || ! array_key_exists('result', $value)
             || (! is_string($value['result']) && $value['result'] !== null)
             || (isset($value['intent']) && ! is_string($value['intent']))
-            || (isset($value['reconciliation']) && ! is_string($value['reconciliation']))) {
+            || (isset($value['reconciliation']) && ! is_string($value['reconciliation']))
+            || (isset($value['preview']) && ! is_string($value['preview']))) {
             throw new \RuntimeException('Corrupt operation record.');
         }
 
-        return new self($value['id'], $value['binding'], OperationState::from($value['state']), $value['version'], $value['expires_at'], $value['result'], $value['intent'] ?? null, $value['reconciliation'] ?? null);
+        return new self($value['id'], $value['binding'], OperationState::from($value['state']), $value['version'], $value['expires_at'], $value['result'], $value['intent'] ?? null, $value['reconciliation'] ?? null, $value['preview'] ?? null);
     }
 }

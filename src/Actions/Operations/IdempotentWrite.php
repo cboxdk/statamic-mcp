@@ -9,14 +9,13 @@ use Cboxdk\StatamicMcp\Actions\Contracts\OperationStore;
 use Illuminate\Contracts\Encryption\Encrypter;
 
 /**
- * Runs a built-in write at most once per idempotency key.
+ * Runs a built-in write at most once per operation record.
  *
- * The operation record is created before the write starts, so a retry finds it
- * whatever happened since: a finished write replays its stored result, a write
- * that saved nothing leaves the key spent, and a write that started and never
- * reported (a crash, a killed worker, a lost store) answers "unknown" and is
- * never run a second time. Two concurrent calls with the same key race on the
- * store's atomic create; only the winner writes.
+ * The record exists before the write starts, so a retry finds it whatever
+ * happened since: a finished write replays its stored result, a write that
+ * saved nothing is spent, and a write that started and never reported (a
+ * crash, a killed worker, a lost store) answers "unknown" and is never run a
+ * second time. Idempotency keys and approvals both run through here.
  */
 final class IdempotentWrite
 {
@@ -40,17 +39,8 @@ final class IdempotentWrite
     public static function intent(string $key, string $actorId, string $grantId, string $domain, string $action,
         ActionEffect $effect, string $site, string $profile, string $transport, array $input): OperationIntent
     {
-        $canonical = json_encode(self::canonical($input), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        $domain = trim((string) preg_replace('/[^a-z0-9-]+/', '-', strtolower($domain)), '-') ?: 'tool';
-        $actionId = 'statamic-mcp/' . $domain . '/' . $action;
-        $fingerprint = hash('sha256', $actionId);
-
-        return new OperationIntent(
-            hash('sha256', "statamic-mcp:idempotency\0{$actorId}\0{$key}"),
-            hash('sha256', implode("\0", [$actorId, $grantId, $actionId, $site, $profile, $transport, $canonical])),
-            $actorId, $grantId, $actionId, 1, $fingerprint, $effect, $site, $profile, $transport,
-            hash('sha256', $canonical), now()->getTimestamp(),
-        );
+        return OperationIntent::forToolCall(hash('sha256', "statamic-mcp:idempotency\0{$actorId}\0{$key}"),
+            $actorId, $grantId, $domain, $action, $effect, $site, $profile, $transport, $input);
     }
 
     /**
@@ -65,11 +55,32 @@ final class IdempotentWrite
             now()->getTimestamp() + $this->retrySeconds,
             encryptedIntent: $this->encrypter->encrypt($intent->toJson(), false));
         if (! $this->store->create($prepared)) {
-            return $this->existing($intent);
+            $existing = $this->store->find($intent->operationId);
+
+            // Gone already: created by someone else and pruned, its window passed.
+            return $existing === null ? ['status' => 'expired'] : $this->outcome($existing, $intent->bindingDigest);
         }
         $ready = $prepared->transition(OperationState::Ready);
+        if (! $this->store->transition($prepared, $ready)) {
+            return ['status' => 'unknown'];
+        }
+
+        return $this->runReady($ready, $write, $effects);
+    }
+
+    /**
+     * Claim a ready operation and run its write. Only one caller can claim it;
+     * every other caller is told the outcome is unknown.
+     *
+     * @param  callable(): array<string, mixed>  $write
+     * @param  callable(): ?string  $effects
+     *
+     * @return array{status: 'executed', result: array<string, mixed>}|array{status: 'unknown'}
+     */
+    public function runReady(Operation $ready, callable $write, callable $effects): array
+    {
         $executing = $ready->transition(OperationState::Executing);
-        if (! $this->store->transition($prepared, $ready) || ! $this->store->transition($ready, $executing)) {
+        if (! $this->store->transition($ready, $executing)) {
             return ['status' => 'unknown'];
         }
 
@@ -92,15 +103,14 @@ final class IdempotentWrite
         return ['status' => 'executed', 'result' => $result];
     }
 
-    /** @return array{status: 'replayed', result: array<string, mixed>}|array{status: 'reused'|'spent'|'unknown'|'expired'} */
-    private function existing(OperationIntent $intent): array
+    /**
+     * What a retry of an operation that is not ready gets.
+     *
+     * @return array{status: 'replayed', result: array<string, mixed>}|array{status: 'reused'|'spent'|'unknown'|'expired'}
+     */
+    public function outcome(Operation $operation, string $bindingDigest): array
     {
-        $operation = $this->store->find($intent->operationId);
-        if ($operation === null) {
-            // Created by someone else and already pruned: its window has passed.
-            return ['status' => 'expired'];
-        }
-        if (! hash_equals($operation->bindingDigest, $intent->bindingDigest)) {
+        if (! hash_equals($operation->bindingDigest, $bindingDigest)) {
             return ['status' => 'reused'];
         }
 
@@ -109,7 +119,7 @@ final class IdempotentWrite
                 ? ['status' => 'expired']
                 : ['status' => 'replayed', 'result' => $this->decryptResult($operation->encryptedResult)],
             OperationState::FailedNoEffect => ['status' => 'spent'],
-            OperationState::Prepared, OperationState::Ready, OperationState::Executing,
+            OperationState::Prepared, OperationState::Ready, OperationState::AwaitingApproval, OperationState::Executing,
             OperationState::OutcomeUnknown, OperationState::Reconciled => ['status' => 'unknown'],
             default => ['status' => 'expired'],
         };
@@ -150,24 +160,5 @@ final class IdempotentWrite
         }
 
         return $result;
-    }
-
-    /**
-     * @param  array<array-key, mixed>  $value
-     *
-     * @return array<array-key, mixed>
-     */
-    private static function canonical(array $value): array
-    {
-        if (! array_is_list($value)) {
-            ksort($value);
-        }
-        foreach ($value as $key => $child) {
-            if (is_array($child)) {
-                $value[$key] = self::canonical($child);
-            }
-        }
-
-        return $value;
     }
 }

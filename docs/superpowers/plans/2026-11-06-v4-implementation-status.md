@@ -76,8 +76,13 @@ These records do not certify V02–V10. The main plan remains the release checkl
   claim and idempotent writes run against the file store, SQLite and MySQL; the
   MySQL cases run in the MySQL CI job (`mcpMysqlOperationTables()` in
   `tests/Pest.php`) and skip elsewhere.
-- V05: durable approvals, CP UI, revocation and atomic consumption. Existing
-  stateless confirmations have not yet been replaced.
+- V05 (done): approvals are operations in the OperationStore (`Approvals`):
+  owner-bound, one exact call, expiring, decided by POST with CSRF in the CP
+  (Tools → MCP → Approvals); approve needs Statamic's elevated session, so a
+  browser agent driving the CP tab cannot approve on the session alone. The
+  retried call is authorized again in full; a changed record makes the approval
+  stale. Claim is atomic with the write (process races and crash on file,
+  SQLite, MySQL). Stateless confirmation tokens are removed.
 - V06/V07: complete public lifecycle events and durable audit. The optional
   telemetry adapter is implemented in statamic-telemetry PR #5 against published
   SDK 3.9.3; execution coverage still depends on the public router migration.

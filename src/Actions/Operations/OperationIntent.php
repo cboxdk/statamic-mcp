@@ -52,6 +52,45 @@ final readonly class OperationIntent
             $context->profile, $context->transport, $inputDigest, now()->getTimestamp());
     }
 
+    /**
+     * The intent of one built-in tool call. The binding covers actor, grant,
+     * action, site, profile, transport and the canonical input, so the same
+     * call by the same actor through the same grant binds the same way.
+     *
+     * @param  array<string, mixed>  $input
+     */
+    public static function forToolCall(string $operationId, string $actorId, string $grantId, string $domain, string $action,
+        ActionEffect $effect, string $site, string $profile, string $transport, array $input): self
+    {
+        $canonical = json_encode(self::canonical($input), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $domain = trim((string) preg_replace('/[^a-z0-9-]+/', '-', strtolower($domain)), '-') ?: 'tool';
+        $actionId = 'statamic-mcp/' . $domain . '/' . $action;
+
+        return new self($operationId,
+            hash('sha256', implode("\0", [$actorId, $grantId, $actionId, $site, $profile, $transport, $canonical])),
+            $actorId, $grantId, $actionId, 1, hash('sha256', $actionId), $effect, $site, $profile, $transport,
+            hash('sha256', $canonical), now()->getTimestamp());
+    }
+
+    /**
+     * @param  array<array-key, mixed>  $value
+     *
+     * @return array<array-key, mixed>
+     */
+    private static function canonical(array $value): array
+    {
+        if (! array_is_list($value)) {
+            ksort($value);
+        }
+        foreach ($value as $key => $child) {
+            if (is_array($child)) {
+                $value[$key] = self::canonical($child);
+            }
+        }
+
+        return $value;
+    }
+
     public function toJson(): string
     {
         return json_encode([

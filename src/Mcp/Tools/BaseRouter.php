@@ -5,18 +5,19 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools;
 
 use Cboxdk\StatamicMcp\Actions\ActionEffect;
-use Cboxdk\StatamicMcp\Actions\Contracts\OperationStore;
 use Cboxdk\StatamicMcp\Actions\Operations\IdempotentWrite;
+use Cboxdk\StatamicMcp\Actions\Operations\OperationIntent;
+use Cboxdk\StatamicMcp\Approvals\Approvals;
+use Cboxdk\StatamicMcp\Auth\ConfirmationActionGate;
 use Cboxdk\StatamicMcp\Authorization\InstallationProfile;
 use Cboxdk\StatamicMcp\Authorization\McpAuthorizer;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\BuildsPaginatedResponse;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\EnforcesResourcePolicy;
-use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\RequiresConfirmation;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\RouterHelpers;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
-use Illuminate\Contracts\Encryption\Encrypter;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
+use Illuminate\Support\Str;
 
 /**
  * Base router class providing action routing and audit logging.
@@ -25,7 +26,6 @@ abstract class BaseRouter extends BaseStatamicTool
 {
     use BuildsPaginatedResponse;
     use EnforcesResourcePolicy;
-    use RequiresConfirmation;
     use RouterHelpers;
 
     /**
@@ -123,8 +123,8 @@ abstract class BaseRouter extends BaseStatamicTool
             'resource_type' => JsonSchema::string()
                 ->description('Resource subtype for routers that manage multiple resource kinds. See the specific tool description for valid values and required combinations with actions.')
                 ->enum($types),
-            'confirmation_token' => JsonSchema::string()
-                ->description('Optional token returned by a previous confirmation-required response. Provide it unchanged to confirm and execute gated actions.'),
+            'approval_id' => JsonSchema::string()
+                ->description('For actions that need a person\'s approval: the approval_id from the APPROVAL_REQUIRED answer. After the person approved it in the Control Panel, repeat the same call with approval_id added. The approval covers exactly that call, once.'),
             'idempotency_key' => JsonSchema::string()
                 ->description('Optional for write actions: a key you choose (8-128 characters: letters, digits, . _ : -), new for each change. Retrying with the same key and the same arguments replays the first result instead of writing again; if the first call stopped without reporting, the retry answers OUTCOME_UNKNOWN and does not write.'),
         ];
@@ -158,19 +158,18 @@ abstract class BaseRouter extends BaseStatamicTool
             return $this->createErrorResponse($denial)->toArray();
         }
 
-        // Confirmation check (skipped in CLI and when disabled)
-        $confirmationResponse = $this->handleConfirmation($action, $arguments);
-        if ($confirmationResponse) {
-            return $confirmationResponse;
-        }
-
         // Filter denied fields from input
         $arguments = $this->filterInputFields($arguments);
 
-        // Execute the action, at most once per idempotency key
-        $result = $this->isWriteAction($action) && array_key_exists('idempotency_key', $arguments)
-            ? $this->executeIdempotently($action, $arguments)
-            : $this->executeAction($arguments);
+        // A gated action runs only with a person's approval (HTTP); otherwise
+        // at most once per idempotency key.
+        if ($this->needsApproval($action)) {
+            $result = $this->executeWithApproval($action, $arguments);
+        } elseif ($this->isWriteAction($action) && array_key_exists('idempotency_key', $arguments)) {
+            $result = $this->executeIdempotently($action, $arguments);
+        } else {
+            $result = $this->executeAction($arguments);
+        }
 
         // Filter denied fields from output
         return $this->filterOutputFields($result);
@@ -203,28 +202,10 @@ abstract class BaseRouter extends BaseStatamicTool
             return $this->createErrorResponse('This action is not allowed by the installation profile.')->toArray();
         }
 
-        if ($this->isCliContext()) {
-            [$actor, $grant] = ['stdio', 'stdio'];
-        } else {
-            $token = request()->attributes->get('mcp_token');
-            $user = auth()->id();
-            $actor = 'user:' . ($token instanceof McpTokenData ? $token->userId : (is_scalar($user) ? (string) $user : 'anonymous'));
-            $grant = $token instanceof McpTokenData ? 'token:' . $token->id : 'session';
-        }
-        $domain = $this->getDomain();
-        $effect = match (true) {
-            in_array($domain, ['structures', 'blueprints', 'users', 'system'], true) => ActionEffect::Admin,
-            $action === 'delete' => ActionEffect::Delete,
-            in_array($action, ['publish', 'unpublish', 'publish_working_copy'], true) => ActionEffect::Publish,
-            default => ActionEffect::Edit,
-        };
-        $input = $arguments;
-        unset($input['idempotency_key'], $input['confirmation_token']);
-
-        $intent = IdempotentWrite::intent($key, $actor, $grant, $domain, $action, $effect,
-            $this->resolveSiteHandle($arguments), $profile, $this->isCliContext() ? 'stdio' : 'http', $input);
-        $outcome = (new IdempotentWrite(app(OperationStore::class), app(Encrypter::class),
-            config()->integer('statamic.mcp.operations.retry_seconds', 3600)))
+        [$actor, $grant] = $this->callIdentity();
+        $intent = IdempotentWrite::intent($key, $actor, $grant, $this->getDomain(), $action, $this->actionEffect($action),
+            $this->resolveSiteHandle($arguments), $profile, $this->isCliContext() ? 'stdio' : 'http', $this->boundInput($arguments));
+        $outcome = app(IdempotentWrite::class)
             ->run($intent, fn (): array => $this->executeAction($arguments), fn (): ?string => $this->writeEffectsSoFar());
 
         return match ($outcome['status']) {
@@ -238,6 +219,129 @@ abstract class BaseRouter extends BaseStatamicTool
                 ['code' => 'IDEMPOTENCY_KEY_EXPIRED'])->toArray(),
             'unknown' => $this->createErrorResponse('A call with this idempotency_key started and has not finished, or stopped without reporting. It will not run again. Read the record to see whether the change landed.',
                 ['code' => 'OUTCOME_UNKNOWN', 'current_version' => $this->currentResourceVersion($arguments)])->toArray(),
+        };
+    }
+
+    /** Gated actions need approval over HTTP; the local stdio operator is the person. */
+    protected function needsApproval(string $action): bool
+    {
+        return ! $this->isCliContext() && ConfirmationActionGate::enabled()
+            && ConfirmationActionGate::gates($this->getDomain(), $action);
+    }
+
+    /**
+     * Without approval_id: record the call and ask the person to approve it in
+     * the Control Panel. With it: run that exact call once, if it was approved
+     * and the record has not changed since.
+     *
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string, mixed>
+     */
+    private function executeWithApproval(string $action, array $arguments): array
+    {
+        [$actor, $grant] = $this->callIdentity();
+        if (! str_starts_with($actor, 'user:') || $actor === 'user:anonymous') {
+            return $this->createErrorResponse('This action needs a person\'s approval, and the call has no Control Panel user to ask.')->toArray();
+        }
+        $profile = app(InstallationProfile::class)->name();
+        $approvals = app(Approvals::class);
+        $id = $arguments['approval_id'] ?? null;
+
+        if ($id === null) {
+            $intent = OperationIntent::forToolCall(bin2hex(random_bytes(32)), $actor, $grant, $this->getDomain(), $action,
+                $this->actionEffect($action), $this->resolveSiteHandle($arguments), $profile, 'http', $this->boundInput($arguments));
+            $preview = [
+                'tool' => $this->name(), 'action' => $action, 'site' => $this->resolveSiteHandle($arguments),
+                'description' => $this->describeForApproval($action, $arguments),
+                'arguments' => $this->boundInput($arguments),
+                'expected_version' => $this->currentResourceVersion($arguments),
+            ];
+            $operation = $approvals->request($intent, $preview);
+
+            return $this->createErrorResponse(
+                'This action needs a person\'s approval. Ask them to approve it in the Control Panel, then repeat the same call with approval_id. Nothing was saved.',
+                ['code' => 'APPROVAL_REQUIRED', 'approval_id' => $operation->id, 'approve_url' => cp_route('statamic-mcp.approvals.index'),
+                    'description' => $preview['description'], 'expires_in' => $approvals->ttlSeconds()],
+            )->toArray();
+        }
+
+        if (! is_string($id)) {
+            return $this->createErrorResponse('approval_id must be the string from the APPROVAL_REQUIRED answer.')->toArray();
+        }
+        $intent = OperationIntent::forToolCall(str_repeat('0', 64), $actor, $grant, $this->getDomain(), $action,
+            $this->actionEffect($action), $this->resolveSiteHandle($arguments), $profile, 'http', $this->boundInput($arguments));
+        $outcome = $approvals->execute($id, $intent, $this->currentResourceVersion($arguments),
+            fn (): array => $this->executeAction($arguments), fn (): ?string => $this->writeEffectsSoFar());
+
+        return match ($outcome['status']) {
+            'executed' => $outcome['result'],
+            'replayed' => ['approval_replay' => true] + $outcome['result'],
+            'pending' => $this->createErrorResponse('Not approved yet. Nothing was saved; repeat the call once the person approved it.', ['code' => 'APPROVAL_PENDING'])->toArray(),
+            'rejected' => $this->createErrorResponse('The person rejected this action. Nothing was saved.', ['code' => 'APPROVAL_REJECTED'])->toArray(),
+            'stale' => $this->createErrorResponse('The record changed after the approval was asked for, so the approval no longer holds. Nothing was saved; ask again.', ['code' => 'APPROVAL_STALE'])->toArray(),
+            'mismatch' => $this->createErrorResponse('This approval was for a different call. Nothing was saved; repeat exactly the approved call, or ask again.', ['code' => 'APPROVAL_MISMATCH'])->toArray(),
+            'expired' => $this->createErrorResponse('This approval has expired or is unknown. Nothing was saved; ask again.', ['code' => 'APPROVAL_EXPIRED'])->toArray(),
+            'spent' => $this->createErrorResponse('The approved call ran and saved nothing. The approval is used; ask again.', ['code' => 'APPROVAL_SPENT'])->toArray(),
+            'unknown' => $this->createErrorResponse('The approved call started and has not finished, or stopped without reporting. It will not run again. Read the record to see whether the change landed.',
+                ['code' => 'OUTCOME_UNKNOWN', 'current_version' => $this->currentResourceVersion($arguments)])->toArray(),
+        };
+    }
+
+    /** @return array{0: string, 1: string} actor and grant, never a credential */
+    private function callIdentity(): array
+    {
+        if ($this->isCliContext()) {
+            return ['stdio', 'stdio'];
+        }
+        $token = request()->attributes->get('mcp_token');
+        $user = auth()->id();
+        $actor = 'user:' . ($token instanceof McpTokenData ? $token->userId : (is_scalar($user) ? (string) $user : 'anonymous'));
+
+        return [$actor, $token instanceof McpTokenData ? 'token:' . $token->id : 'session'];
+    }
+
+    private function actionEffect(string $action): ActionEffect
+    {
+        return match (true) {
+            in_array($this->getDomain(), ['structures', 'blueprints', 'users', 'system'], true) => ActionEffect::Admin,
+            $action === 'delete' => ActionEffect::Delete,
+            in_array($action, ['publish', 'unpublish', 'publish_working_copy'], true) => ActionEffect::Publish,
+            default => ActionEffect::Edit,
+        };
+    }
+
+    /**
+     * The arguments an approval or idempotency key binds: the call itself.
+     *
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string, mixed>
+     */
+    private function boundInput(array $arguments): array
+    {
+        unset($arguments['idempotency_key'], $arguments['approval_id']);
+
+        return $arguments;
+    }
+
+    /** @param  array<string, mixed>  $arguments */
+    protected function describeForApproval(string $action, array $arguments): string
+    {
+        $domain = Str::singular($this->getDomain());
+        $handle = $arguments['handle'] ?? $arguments['slug'] ?? $arguments['id'] ?? 'unknown';
+        $handle = is_string($handle) ? $handle : 'unknown';
+        $context = '';
+        foreach (['collection' => 'collection', 'taxonomy' => 'taxonomy', 'namespace' => 'namespace', 'container' => 'container'] as $key => $label) {
+            if (isset($arguments[$key]) && is_string($arguments[$key])) {
+                $context = " in {$label} '{$arguments[$key]}'";
+                break;
+            }
+        }
+
+        return match ($action) {
+            'delete' => "Delete {$domain} '{$handle}'{$context}. This cannot be undone.",
+            default => ucfirst(str_replace('_', ' ', $action)) . " {$domain} '{$handle}'{$context}.",
         };
     }
 }
