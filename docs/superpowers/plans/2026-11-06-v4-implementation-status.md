@@ -94,8 +94,18 @@ These records do not certify V02–V10. The main plan remains the release checkl
 - V07: the optional
   telemetry adapter is implemented in statamic-telemetry PR #5 against published
   SDK 3.9.3; execution coverage still depends on the public router migration.
-- V08: migrate built-ins, close the remaining Statamic policy/data/cache matrix,
-  and test supported third-party fieldtypes and repositories.
+- V08 (in progress): coverage inventory done (`ActionCoverageInventoryTest`): all
+  9 routers, every action × resource type, mode, scopes and Statamic permission;
+  only `assets list container` and `structures list collection` carry none and
+  filter per item. No action writes on a `:read` scope. The other tools
+  (discover, schema) are read-only and both resources run the tool gates. Write
+  classification has one source (`isWriteAction()`). Blueprint writes ignored
+  Statamic's veto and tree moves reported no `write_effects`; both now go through
+  `persistStatamic()` (`StatamicWriteContractTest`). The V00 list (globals site,
+  save/delete false, partial update + move, cache exit code) is closed.
+  Remaining: the cache matrix against rendered pages (old/new URLs, dependent
+  pages, REST/GraphQL), revision working-copy state after failure, and supported
+  third-party fieldtypes/repositories beyond SEO Pro (Eloquent driver).
 - V09/V10: migration/doctor, rollback fixtures, dependency/client matrix, performance
   baseline and release candidate review. No support claim for Statamic 6.40 as a
   new minimum yet; the requirement remains 6.35.1 pending the matrix.

@@ -57,7 +57,9 @@ trait ClearsCaches
     protected function persistStatamic(callable $write, array $cacheTypes = ['stache', 'static']): mixed
     {
         $this->clearCachesAfterWrite($cacheTypes);
-        $this->writeEffects = 'unknown';
+        // An earlier write that landed stays reported: a failing later step
+        // makes the whole call partial, not unknown.
+        $this->writeEffects ??= 'unknown';
         $result = $write();
         if ($result === false) {
             throw new \RuntimeException('Statamic refused the write.');

@@ -66,6 +66,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Report a blueprint write that a `BlueprintCreating`, `BlueprintSaving` or `BlueprintDeleting` listener refused as refused. `create`, `update`, `generate` and `delete` answered success although Statamic saved nothing, and a refused `update` left the changed blueprint in memory for the rest of the request.
+- Report moves in the collection tree (an entry `update` or `create` with `parent`, a collection `update` with `data.entry`) with `write_effects` and `retry_requires_reconciliation` when they fail, as other writes already did, and register their cache clear before the tree is touched. A failing move after a saved edit now reports the edit as `committed` instead of hiding it.
+
 - Preserve committed operation effects when final output filtering fails. Audit/exporter/fallback logger failures after a write cannot turn its stored success into a retryable failure; legacy tool envelopes report unavailable outcome audit separately.
 
 - Respect configured input budgets for registered actions, including 10 MiB asset uploads. Align encrypted result storage with output validation for deep and Unicode-heavy content.

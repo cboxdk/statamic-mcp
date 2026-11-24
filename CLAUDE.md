@@ -144,6 +144,16 @@ A 3.3.0 security audit hardened the tool layer. Keep these when touching routers
   `configure asset containers` satisfies every asset action, as in
   `AssetPolicy::before()`, and `copy` needs `upload` like `DuplicateAsset`.
   An unscoped `list` has no handle to check, so it filters per item.
+- **Every built-in action is in the coverage inventory**
+  (`tests/Feature/Authorization/ActionCoverageInventoryTest.php`): mode, token
+  scopes and a Statamic permission per action and resource type. Its read
+  actions are listed by hand, so a new action is treated as a write until it is
+  listed there. Whether an action writes is decided once, by
+  `EnforcesResourcePolicy::isWriteAction()`; the token scope follows it.
+- **Every Statamic write goes through `persistStatamic()`**, tree moves
+  included. It registers the cache clear before the write, turns Statamic's
+  `false` veto into an error and records `write_effects`; a `save()` outside it
+  answers success for a write a listener refused (blueprints did, until V08).
 - **`statamic-users` must not exceed the caller's own authority:** only a super
   admin grants `super` (in a role or via the flag); attaching `data.roles`
   (user create, group create/update) requires `assign roles`; changing another

@@ -711,7 +711,7 @@ class EntriesRouter extends BaseRouter
 
             if ($parentRequested) {
                 try {
-                    app(CollectionTreeEditor::class)->move($entry, $requestedParent);
+                    $this->persistStatamic(fn () => app(CollectionTreeEditor::class)->move($entry, $requestedParent));
                 } catch (\Throwable $e) {
                     // This call created the entry; do not leave a partial creation behind.
                     $this->persistStatamic(fn () => $entry->delete());
@@ -1103,8 +1103,7 @@ class EntriesRouter extends BaseRouter
                 if ($data !== []) {
                     return $this->createErrorResponse('Move a published entry separately from content edits when revisions are enabled.')->toArray();
                 }
-                $parent = app(CollectionTreeEditor::class)->move($entry, $requestedParent);
-                $this->clearCachesAfterWrite(['stache', 'static']);
+                $parent = $this->persistStatamic(fn () => app(CollectionTreeEditor::class)->move($entry, $requestedParent));
 
                 return ['entry' => ['id' => $entry->id(), 'parent' => $parent], 'updated' => true];
             }
@@ -1296,7 +1295,7 @@ class EntriesRouter extends BaseRouter
             $this->persistStatamic(fn () => $this->touchedBy($entry->merge($data))->save());
 
             if ($parentRequested) {
-                app(CollectionTreeEditor::class)->move($entry, $requestedParent);
+                $this->persistStatamic(fn () => app(CollectionTreeEditor::class)->move($entry, $requestedParent));
             }
 
             // Clear relevant caches

@@ -117,13 +117,8 @@ trait RouterHelpers
     protected function getRequiredTokenScope(string $action): ?TokenScope
     {
         $domain = $this->getDomain();
-        $isWrite = in_array($action, [
-            'create', 'generate', 'update', 'delete', 'publish', 'unpublish', 'localize',
-            'activate', 'deactivate', 'assign_role', 'remove_role',
-            'move', 'copy', 'upload', 'configure',
-            'cache_clear', 'cache_warm', 'config_set',
-            'restore_revision', 'publish_working_copy',
-        ]);
+        // One classification for scope and resource policy: EnforcesResourcePolicy::isWriteAction().
+        $isWrite = $this->isWriteAction($action);
 
         return $isWrite ? TokenScope::writeFor($domain) : TokenScope::tryFrom("{$domain}:read");
     }
@@ -217,4 +212,6 @@ trait RouterHelpers
      * Get domain name - must be implemented by concrete router classes.
      */
     abstract protected function getDomain(): string;
+
+    abstract protected function isWriteAction(string $action): bool;
 }

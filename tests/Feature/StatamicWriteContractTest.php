@@ -4,11 +4,16 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Tests\Feature;
 
+use Cboxdk\StatamicMcp\Contracts\CollectionTreeEditor;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\BlueprintsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\EntriesRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\GlobalsRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\StructuresRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\UsersRouter;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Illuminate\Support\Facades\Event;
+use Statamic\Events\BlueprintDeleting;
+use Statamic\Events\BlueprintSaving;
 use Statamic\Events\EntryDeleting;
 use Statamic\Events\EntrySaving;
 use Statamic\Events\UserDeleting;
@@ -118,5 +123,72 @@ class StatamicWriteContractTest extends TestCase
         $result = (new EntriesRouter)->execute(['action' => 'create', 'collection' => $handle, 'data' => ['title' => 'Refused']]);
         $this->assertFalse($result['success'], json_encode($result));
         $this->assertSame(0, Entry::query()->where('collection', $handle)->count());
+    }
+
+    public function test_blueprint_save_and_delete_vetoes_are_not_reported_as_success(): void
+    {
+        $handle = 'veto_' . bin2hex(random_bytes(4));
+        // create takes Statamic's field format; generate takes the flat one.
+        $fields = ['create' => [['handle' => 'title', 'field' => ['type' => 'text']]], 'generate' => [['handle' => 'title', 'type' => 'text']]];
+        Event::listen(BlueprintSaving::class, fn () => false);
+
+        foreach (['create', 'generate'] as $action) {
+            $result = (new BlueprintsRouter)->execute(['action' => $action, 'namespace' => 'globals', 'handle' => $handle, 'fields' => $fields[$action], 'title' => 'Refused']);
+            $this->assertFalse($result['success'], $action . ': ' . json_encode($result));
+            $this->assertTrue($result['meta']['retry_requires_reconciliation'], $action);
+            $this->assertNull(Blueprint::find('globals.' . $handle), $action);
+        }
+
+        Event::forget(BlueprintSaving::class);
+        Blueprint::make($handle)->setNamespace('globals')->setContents(['title' => 'Before', 'fields' => [['handle' => 'title', 'field' => ['type' => 'text']]]])->save();
+        Event::listen(BlueprintSaving::class, fn () => false);
+        Event::listen(BlueprintDeleting::class, fn () => false);
+
+        $update = (new BlueprintsRouter)->execute(['action' => 'update', 'namespace' => 'globals', 'handle' => $handle, 'fields' => [['handle' => 'body', 'field' => ['type' => 'text']]]]);
+        $this->assertFalse($update['success'], json_encode($update));
+        $this->assertFalse(Blueprint::find('globals.' . $handle)?->hasField('body'));
+
+        $delete = (new BlueprintsRouter)->execute(['action' => 'delete', 'namespace' => 'globals', 'handle' => $handle]);
+        $this->assertFalse($delete['success'], json_encode($delete));
+        $this->assertNotNull(Blueprint::find('globals.' . $handle));
+    }
+
+    public function test_a_failed_tree_move_reports_that_the_tree_may_have_changed(): void
+    {
+        $handle = 'contract-' . bin2hex(random_bytes(4));
+        Collection::make($handle)->structureContents(['root' => false])->save();
+        $entry = Entry::make()->collection($handle)->slug('page')->data(['title' => 'Page']);
+        $entry->save();
+        // The tree may be saved before the editor finds it did not apply.
+        $editor = $this->createMock(CollectionTreeEditor::class);
+        $editor->method('move')->willThrowException(new \RuntimeException('The tree save did not apply the requested parent.'));
+        app()->instance(CollectionTreeEditor::class, $editor);
+
+        $result = (new StructuresRouter)->execute(['action' => 'update', 'resource_type' => 'collection', 'handle' => $handle,
+            'site' => 'default', 'data' => ['entry' => $entry->id(), 'parent' => null]]);
+
+        $this->assertFalse($result['success'], json_encode($result));
+        $this->assertSame('unknown', $result['meta']['write_effects'] ?? null, json_encode($result));
+        $this->assertTrue($result['meta']['retry_requires_reconciliation']);
+        $this->assertArrayHasKey('stache', $result['meta']['cache'] ?? [], 'the cache clear must be registered before the tree is touched');
+    }
+
+    public function test_a_failed_move_after_a_saved_edit_still_reports_the_committed_edit(): void
+    {
+        $handle = 'contract-' . bin2hex(random_bytes(4));
+        Collection::make($handle)->structureContents(['root' => false])->save();
+        $entry = Entry::make()->collection($handle)->slug('page')->published(false)->data(['title' => 'Before']);
+        $entry->save();
+        $editor = $this->createMock(CollectionTreeEditor::class);
+        $editor->method('move')->willThrowException(new \RuntimeException('The tree changed during this operation.'));
+        app()->instance(CollectionTreeEditor::class, $editor);
+
+        $result = (new EntriesRouter)->execute(['action' => 'update', 'collection' => $handle, 'id' => $entry->id(),
+            'data' => ['title' => 'After', 'parent' => 'elsewhere']]);
+
+        $this->assertFalse($result['success'], json_encode($result));
+        $this->assertSame('After', Entry::find($entry->id())->get('title'));
+        // The title landed: "unknown" would hide a write that certainly happened.
+        $this->assertSame('committed', $result['meta']['write_effects'] ?? null, json_encode($result));
     }
 }

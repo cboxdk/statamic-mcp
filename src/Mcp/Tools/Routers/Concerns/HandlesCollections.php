@@ -78,8 +78,7 @@ trait HandlesCollections
         if (! $entry || $entry->collectionHandle() !== $arguments['handle'] || $entry->locale() !== $this->resolveSiteHandle($arguments)) {
             return $this->createErrorResponse('Entry must exist in the requested collection and site.')->toArray();
         }
-        $parent = app(CollectionTreeEditor::class)->move($entry, $data['parent']);
-        $this->clearCachesAfterWrite(['stache', 'static']);
+        $parent = $this->persistStatamic(fn () => app(CollectionTreeEditor::class)->move($entry, $data['parent']));
 
         return ['collection' => ['handle' => $entry->collectionHandle()], 'entry' => $entry->id(), 'parent' => $parent, 'updated' => true];
     }

@@ -568,11 +568,7 @@ class BlueprintsRouter extends BaseRouter
                     ->setNamespace($blueprintNamespace)
                     ->setContents($contents);
 
-                // Save the blueprint
-                $blueprint->save();
-
-                // Clear Statamic caches
-                $this->clearCachesAfterWrite(['stache']);
+                $this->persistStatamic(fn () => $blueprint->save(), ['stache']);
 
                 return [
                     'blueprint' => [
@@ -850,6 +846,8 @@ class BlueprintsRouter extends BaseRouter
             if ($blueprint === null) {
                 return $this->createErrorResponse('Blueprint not found: ' . $handle)->toArray();
             }
+            // Blink holds the found instance: a refused save must not leave it changed.
+            $blueprint = clone $blueprint;
 
             // Update the blueprint contents
             $contents = $blueprint->contents();
@@ -878,10 +876,7 @@ class BlueprintsRouter extends BaseRouter
             }
 
             $blueprint->setContents($contents);
-            $blueprint->save();
-
-            // Clear Statamic caches
-            $this->clearCachesAfterWrite(['stache']);
+            $this->persistStatamic(fn () => $blueprint->save(), ['stache']);
 
             return [
                 'blueprint' => [
@@ -933,11 +928,7 @@ class BlueprintsRouter extends BaseRouter
                 'namespace' => $blueprint->namespace(),
             ];
 
-            // Delete the blueprint
-            $blueprint->delete();
-
-            // Clear Statamic caches
-            $this->clearCachesAfterWrite(['stache']);
+            $this->persistStatamic(fn () => $blueprint->delete(), ['stache']);
 
             return [
                 'deleted' => true,
@@ -1029,11 +1020,7 @@ class BlueprintsRouter extends BaseRouter
                     'fields' => $fieldDefinitions,
                 ]);
 
-            // Save the blueprint
-            $blueprint->save();
-
-            // Clear Statamic caches
-            $this->clearCachesAfterWrite(['stache']);
+            $this->persistStatamic(fn () => $blueprint->save(), ['stache']);
 
             return [
                 'blueprint' => [
