@@ -13,4 +13,5 @@ extension points that let a site or an addon close that gap.
 
 - **[Tools](tools.md)** — Serve your own tools from this server, behind the same tokens, permissions and audit log
 - **[Approval channels](approval-channels.md)** — Tell people about waiting approvals by mail, web push and webhooks (Cbox Relay), let them approve on their phone (Cbox ID), or add your own channel
+- **[Lifecycle events](lifecycle-events.md)** — Observe tool executions, approvals and grants for metrics, traces or your own audit
 - **[Fieldtypes](fieldtypes.md)** — Describe the wire format of a fieldtype the package does not know, and coerce or reject incoming values for it

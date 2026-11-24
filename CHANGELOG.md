@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Approval channels. A waiting approval is announced by mail through the site's mailer, or with [Cbox Relay](https://cboxrelay.com) by mail, web push to the person's browsers and a `statamic_mcp.approval.requested` webhook event; with [Cbox ID](https://cboxid.com) the person can approve on their phone (OpenID CIBA). Notifications carry the description and a link to the Approvals page, never the call's arguments, and never approve anything. Add your own with the `ApprovalNotifier` and `ApprovalAuthority` contracts; see `approvals.channels`.
 
+- Lifecycle events for every built-in tool call and every approval: `execution.started`/`completed`/`failed`/`denied`/`replayed` and `approval.requested`/`approved`/`rejected`/`consumed`, next to the existing grant events. Metadata only (action, outcome, effects, duration; never arguments, results or who the person is). Observers registered through `ObserverRegistry` cannot veto or change anything, and one that throws does not affect the call. See `docs/extending/lifecycle-events.md`.
+
 ### Changed (breaking)
 
 - Split publishing and deleting out of the write scopes. `entries:write` now covers create and update; publishing (including `published: true` on create or update) needs `entries:publish`, and deleting needs `entries:delete`, `terms:delete` or `assets:delete`. Existing write tokens keep editing and answer `Token missing required scope: …` for the rest. Admin domains keep `:write` for delete.

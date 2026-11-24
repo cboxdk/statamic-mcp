@@ -83,7 +83,15 @@ These records do not certify V02–V10. The main plan remains the release checkl
   retried call is authorized again in full; a changed record makes the approval
   stale. Claim is atomic with the write (process races and crash on file,
   SQLite, MySQL). Stateless confirmation tokens are removed.
-- V06/V07: complete public lifecycle events and durable audit. The optional
+- V06 (done): built-in tools emit `execution.*` events through the same observers
+  as registered actions (`BaseRouter::observedAction()`: started only after
+  authorization and claims, denied without started, replayed for stored results),
+  and approvals emit `approval.requested/approved/rejected/consumed`. Metadata only;
+  observer failure after a write leaves the result intact (`BuiltInLifecycleEventsTest`).
+  Registered writes keep their mandatory durable audit (`ExecutionAudit`); built-in
+  writes keep the tool audit log, which is secondary and never turns a committed
+  write into an error.
+- V07: the optional
   telemetry adapter is implemented in statamic-telemetry PR #5 against published
   SDK 3.9.3; execution coverage still depends on the public router migration.
 - V08: migrate built-ins, close the remaining Statamic policy/data/cache matrix,

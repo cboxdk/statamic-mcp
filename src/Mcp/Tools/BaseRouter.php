@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools;
 
 use Cboxdk\StatamicMcp\Actions\ActionEffect;
+use Cboxdk\StatamicMcp\Actions\Events;
+use Cboxdk\StatamicMcp\Actions\LifecycleEvents;
 use Cboxdk\StatamicMcp\Actions\Operations\IdempotentWrite;
 use Cboxdk\StatamicMcp\Actions\Operations\OperationIntent;
 use Cboxdk\StatamicMcp\Approvals\Approvals;
@@ -155,6 +157,8 @@ abstract class BaseRouter extends BaseStatamicTool
         // transport): the same decision resources ask for.
         $denial = app(McpAuthorizer::class)->denial($this->describeCall($action, $arguments));
         if ($denial !== null) {
+            $this->emitExecution(Events\ExecutionDenied::class, $action, $this->freshOperationId(), 'none', hrtime(true));
+
             return $this->createErrorResponse($denial)->toArray();
         }
 
@@ -168,7 +172,7 @@ abstract class BaseRouter extends BaseStatamicTool
         } elseif ($this->isWriteAction($action) && array_key_exists('idempotency_key', $arguments)) {
             $result = $this->executeIdempotently($action, $arguments);
         } else {
-            $result = $this->executeAction($arguments);
+            $result = $this->observedAction($action, $this->freshOperationId(), $arguments);
         }
 
         // Filter denied fields from output
@@ -206,11 +210,11 @@ abstract class BaseRouter extends BaseStatamicTool
         $intent = IdempotentWrite::intent($key, $actor, $grant, $this->getDomain(), $action, $this->actionEffect($action),
             $this->resolveSiteHandle($arguments), $profile, $this->isCliContext() ? 'stdio' : 'http', $this->boundInput($arguments));
         $outcome = app(IdempotentWrite::class)
-            ->run($intent, fn (): array => $this->executeAction($arguments), fn (): ?string => $this->writeEffectsSoFar());
+            ->run($intent, fn (): array => $this->observedAction($action, $intent->operationId, $arguments), fn (): ?string => $this->writeEffectsSoFar());
 
         return match ($outcome['status']) {
             'executed' => $outcome['result'],
-            'replayed' => ['idempotent_replay' => true] + $outcome['result'],
+            'replayed' => $this->replayed($action, $intent->operationId, ['idempotent_replay' => true] + $outcome['result']),
             'reused' => $this->createErrorResponse('This idempotency_key was already used for a different request. Nothing was saved; use a new key for a new change.',
                 ['code' => 'IDEMPOTENCY_KEY_REUSED'])->toArray(),
             'spent' => $this->createErrorResponse('The call that used this idempotency_key saved nothing. Send the change again with a new key.',
@@ -272,11 +276,11 @@ abstract class BaseRouter extends BaseStatamicTool
         $intent = OperationIntent::forToolCall(str_repeat('0', 64), $actor, $grant, $this->getDomain(), $action,
             $this->actionEffect($action), $this->resolveSiteHandle($arguments), $profile, 'http', $this->boundInput($arguments));
         $outcome = $approvals->execute($id, $intent, $this->currentResourceVersion($arguments),
-            fn (): array => $this->executeAction($arguments), fn (): ?string => $this->writeEffectsSoFar());
+            fn (): array => $this->observedAction($action, $id, $arguments), fn (): ?string => $this->writeEffectsSoFar());
 
         return match ($outcome['status']) {
             'executed' => $outcome['result'],
-            'replayed' => ['approval_replay' => true] + $outcome['result'],
+            'replayed' => $this->replayed($action, $id, ['approval_replay' => true] + $outcome['result']),
             'pending' => $this->createErrorResponse('Not approved yet. Nothing was saved; repeat the call once the person approved it.', ['code' => 'APPROVAL_PENDING'])->toArray(),
             'rejected' => $this->createErrorResponse('The person rejected this action. Nothing was saved.', ['code' => 'APPROVAL_REJECTED'])->toArray(),
             'stale' => $this->createErrorResponse('The record changed after the approval was asked for, so the approval no longer holds. Nothing was saved; ask again.', ['code' => 'APPROVAL_STALE'])->toArray(),
@@ -286,6 +290,71 @@ abstract class BaseRouter extends BaseStatamicTool
             'unknown' => $this->createErrorResponse('The approved call started and has not finished, or stopped without reporting. It will not run again. Read the record to see whether the change landed.',
                 ['code' => 'OUTCOME_UNKNOWN', 'current_version' => $this->currentResourceVersion($arguments)])->toArray(),
         };
+    }
+
+    /**
+     * Run the handler between ExecutionStarted and its terminal event. Started
+     * is emitted only here, after authorization and any approval or
+     * idempotency claim, so a refused call never looks like an execution.
+     *
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string, mixed>
+     */
+    private function observedAction(string $action, string $operationId, array $arguments): array
+    {
+        $start = hrtime(true);
+        $this->emitExecution(Events\ExecutionStarted::class, $action, $operationId, 'none', $start);
+        try {
+            $result = $this->executeAction($arguments);
+        } catch (\Throwable $error) {
+            $this->emitExecution(Events\ExecutionFailed::class, $action, $operationId, $this->writeEffectsSoFar() ?? 'none', $start);
+            throw $error;
+        }
+        $effects = $this->writeEffectsSoFar() ?? 'none';
+        $this->emitExecution(($result['success'] ?? true) === false ? Events\ExecutionFailed::class : Events\ExecutionCompleted::class,
+            $action, $operationId, $effects, $start);
+
+        return $result;
+    }
+
+    /**
+     * A stored result handed back again: no new write, so no Started/Completed.
+     *
+     * @param  array<string, mixed>  $result
+     *
+     * @return array<string, mixed>
+     */
+    private function replayed(string $action, string $operationId, array $result): array
+    {
+        $this->emitExecution(Events\ExecutionReplayed::class, $action, $operationId, 'none', hrtime(true));
+
+        return $result;
+    }
+
+    /** @param  class-string<Events\ExecutionEvent>  $event */
+    private function emitExecution(string $event, string $action, string $operationId, string $effects, int $start): void
+    {
+        $domain = trim((string) preg_replace('/[^a-z0-9-]+/', '-', strtolower($this->getDomain())), '-') ?: 'tool';
+        $outcome = match ($event) {
+            Events\ExecutionStarted::class => 'started',
+            Events\ExecutionCompleted::class => 'completed',
+            Events\ExecutionDenied::class => 'denied',
+            Events\ExecutionFailed::class => 'failed',
+            default => 'replayed',
+        };
+        try {
+            $instance = new $event((string) Str::uuid(), $operationId, 'statamic-mcp/' . $domain . '/' . ($action !== '' ? $action : 'unknown'), 1,
+                $this->isCliContext() ? 'stdio' : 'http', $outcome, $effects, (hrtime(true) - $start) / 1_000_000, gmdate('Y-m-d\TH:i:s\Z'));
+        } catch (\Throwable) {
+            return;
+        }
+        LifecycleEvents::dispatch($instance);
+    }
+
+    private function freshOperationId(): string
+    {
+        return bin2hex(random_bytes(32));
     }
 
     /** @return array{0: string, 1: string} actor and grant, never a credential */

@@ -5,12 +5,15 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Approvals;
 
 use Cboxdk\StatamicMcp\Actions\Contracts\OperationStore;
+use Cboxdk\StatamicMcp\Actions\Events;
+use Cboxdk\StatamicMcp\Actions\LifecycleEvents;
 use Cboxdk\StatamicMcp\Actions\Operations\IdempotentWrite;
 use Cboxdk\StatamicMcp\Actions\Operations\Operation;
 use Cboxdk\StatamicMcp\Actions\Operations\OperationCoordinator;
 use Cboxdk\StatamicMcp\Actions\Operations\OperationIntent;
 use Cboxdk\StatamicMcp\Actions\Operations\OperationState;
 use Illuminate\Contracts\Encryption\Encrypter;
+use Illuminate\Support\Str;
 
 /**
  * Approvals for gated tool calls, kept as operations in the OperationStore.
@@ -57,6 +60,7 @@ final class Approvals
         if (! $this->store->transition($prepared, $pending)) {
             throw new \RuntimeException('Cannot record the approval request.');
         }
+        $this->emit(Events\ApprovalRequested::class, $pending->id, $intent->actionId);
         $this->channels->announce($this->pendingApproval($pending, $intent->actorId, $preview));
 
         return $pending;
@@ -107,15 +111,15 @@ final class Approvals
     }
 
     /** @throws ApprovalRefused */
-    public function approve(string $id, string $actorId): void
+    public function approve(string $id, string $actorId, string $via = 'control_panel'): void
     {
-        $this->decide($id, $actorId, OperationState::Ready);
+        $this->decide($id, $actorId, OperationState::Ready, $via);
     }
 
     /** @throws ApprovalRefused */
-    public function reject(string $id, string $actorId): void
+    public function reject(string $id, string $actorId, string $via = 'control_panel'): void
     {
-        $this->decide($id, $actorId, OperationState::Cancelled);
+        $this->decide($id, $actorId, OperationState::Cancelled, $via);
     }
 
     /**
@@ -160,12 +164,19 @@ final class Approvals
                 $expected = $this->preview($operation)['expected_version'] ?? null;
                 if (is_string($expected) && $currentVersion !== $expected) {
                     // Approved for a record that has changed since: ask again.
-                    $this->store->transition($operation, $operation->transition(OperationState::Cancelled));
+                    if ($this->store->transition($operation, $operation->transition(OperationState::Cancelled))) {
+                        $this->emit(Events\ApprovalRejected::class, $id, $intent->actionId, reason: 'stale');
+                    }
 
                     return ['status' => 'stale'];
                 }
 
-                return $this->writes->runReady($operation, $write, $effects);
+                $outcome = $this->writes->runReady($operation, $write, $effects);
+                if ($outcome['status'] === 'executed') {
+                    $this->emit(Events\ApprovalConsumed::class, $id, $intent->actionId);
+                }
+
+                return $outcome;
             default:
                 $outcome = $this->writes->outcome($operation, $intent->bindingDigest);
 
@@ -208,7 +219,7 @@ final class Approvals
             return null;
         }
         try {
-            $answer ? $this->approve($operation->id, $actorId) : $this->reject($operation->id, $actorId);
+            $answer ? $this->approve($operation->id, $actorId, 'authority') : $this->reject($operation->id, $actorId, 'authority');
         } catch (ApprovalRefused) {
             // Decided meanwhile in the Control Panel: that answer stands.
         }
@@ -232,9 +243,10 @@ final class Approvals
         return $this->ttlSeconds;
     }
 
-    private function decide(string $id, string $actorId, OperationState $next): void
+    private function decide(string $id, string $actorId, OperationState $next, string $via): void
     {
-        if ($this->pendingRequest($id, $actorId) === null) {
+        $intent = $this->pendingRequest($id, $actorId);
+        if ($intent === null) {
             throw new ApprovalRefused('This approval is not waiting for you. It may have expired, been decided already, or belong to someone else.');
         }
         $operation = $this->store->find($id);
@@ -242,5 +254,14 @@ final class Approvals
             || ! $this->store->transition($operation, $operation->transition($next))) {
             throw new ApprovalRefused('This approval changed while you decided. Reload and try again.');
         }
+        $this->emit($next === OperationState::Ready ? Events\ApprovalApproved::class : Events\ApprovalRejected::class,
+            $id, $intent->actionId, $via, $next === OperationState::Ready ? null : 'person');
+    }
+
+    /** @param  class-string<Events\ApprovalEvent>  $event */
+    private function emit(string $event, string $approvalId, string $actionId, ?string $via = null, ?string $reason = null): void
+    {
+        // After the state change is durable: an observer can never veto or undo it.
+        LifecycleEvents::dispatch(new $event((string) Str::uuid(), $approvalId, $actionId, gmdate('Y-m-d\TH:i:s\Z'), $via, $reason));
     }
 }

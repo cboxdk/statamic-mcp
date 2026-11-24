@@ -82,6 +82,19 @@ stateless confirmation token is gone; a v3 `confirmation_token` is ignored.
 - Tests: `tests/Feature/Approvals/ApprovalFlowTest.php` (binding, CSRF/elevation, expiry, stale, no grant) and `ApprovalConcurrencyTest.php` (process races and crash on file, SQLite, MySQL).
 - **Channels** (`ApprovalChannels`, config `approvals.channels`, default `auto`). **Notifiers** (`Contracts\ApprovalNotifier`) only tell: they get a `PendingApproval` (description + CP link, *never the arguments*) and must not offer anything that decides. **Authorities** (`Contracts\ApprovalAuthority`, e.g. Cbox ID CIBA) answer `settle()`, and `Approvals` records the answer through `approve()`/`reject()` — never let an authority transition the operation itself, or the owner binding and single use stop holding. A throwing channel is reported and skipped. Built in: `mail` (site mailer), `relay` (Cbox Relay: mail, web push, webhook event `statamic_mcp.approval.requested`), `cbox_id` (CIBA). The Cbox clients need PHP 8.4, so they are `suggest`, referenced only from `src/Approvals/Cbox/` behind `CboxRelay::available()`/`CboxId::available()`; CI's Code Quality and `cbox-integrations` jobs install them. `approvals.promote_cbox` mentions Cbox Relay/ID in mails and on the page (Sylvester's call: built in, with a little promotion).
 
+### Lifecycle events (V06)
+`src/Actions/Events/` + `LifecycleEvents::dispatch()` → `LifecycleObservers` (from the frozen `ObserverRegistry`).
+- Built-in routers: `BaseRouter::observedAction()` wraps the handler. `execution.started` is emitted **only there**, after
+  authorization and after any approval/idempotency claim, so a refused call (`execution.denied`, from the
+  `McpAuthorizer` denial) never looks like an execution. Terminal event is `completed`, or `failed` when the
+  envelope says `success: false` or the handler throws; `effects` comes from `writeEffectsSoFar()`. A stored
+  result handed back is `execution.replayed`, never a second `started`/`completed`.
+- Approvals (`Approvals::emit()`): `requested`, `approved`/`rejected` (`via` control_panel|authority, `reason`
+  person|stale), `consumed` after the approved call ran. Emitted after the state change is durable.
+- Events carry metadata only (`metadata()`), never arguments, results, descriptions or actor ids. Observers
+  cannot veto; a throwing observer is logged and skipped. `BuiltInLifecycleEventsTest` pins order, no content
+  and observer failure after a write.
+
 ### Resource Policy
 Granular resource-level access control configured in `config/statamic/mcp.php`:
 - **ResourcePolicy** (`src/Auth/ResourcePolicy.php`) — Glob-based resource allowlists + field deny lists
