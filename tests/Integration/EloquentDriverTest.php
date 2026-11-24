@@ -4,13 +4,16 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Tests\Integration;
 
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\AssetsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\BlueprintsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\EntriesRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\GlobalsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\StructuresRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\SystemRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\TermsRouter;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Statamic\Contracts\Structures\CollectionTreeRepository;
 use Statamic\Contracts\Structures\Tree;
 use Statamic\Eloquent\Entries\EntryRepository;
@@ -21,6 +24,7 @@ use Statamic\Facades\Blink;
 use Statamic\Facades\Blueprint;
 use Statamic\Facades\Collection;
 use Statamic\Facades\Entry;
+use Statamic\Facades\Form;
 use Statamic\Facades\GlobalSet;
 use Statamic\Facades\Nav;
 use Statamic\Facades\Taxonomy;
@@ -35,8 +39,8 @@ use Statamic\Stache\Stache;
  */
 class EloquentDriverTest extends TestCase
 {
-    /** Kept on files: not part of what this suite claims to support yet. */
-    private const FILE_DRIVERS = ['sites', 'asset_containers', 'assets', 'forms', 'form_submissions', 'tokens', 'addon_settings'];
+    /** Kept on files: MCP neither reads nor writes these. */
+    private const FILE_DRIVERS = ['sites', 'tokens', 'addon_settings'];
 
     protected function getPackageProviders($app)
     {
@@ -233,5 +237,84 @@ class EloquentDriverTest extends TestCase
         $this->assertTrue($rename['success'], json_encode($rename) ?: '');
         $this->assertSame('/firm/launch', UuidEntryModel::find($launch->id())?->uri);
         $this->assertSame((string) $launch->id(), Entry::findByUri('/firm/launch')?->id());
+    }
+
+    public function test_asset_writes_land_in_the_asset_tables(): void
+    {
+        config(['filesystems.disks.assets' => ['driver' => 'local', 'root' => storage_path('framework/testing/disks/assets')]]);
+        Storage::fake('assets');
+        $assets = new AssetsRouter;
+
+        $container = $assets->execute(['action' => 'create', 'resource_type' => 'container', 'data' => ['handle' => 'images', 'title' => 'Images', 'disk' => 'assets']]);
+        $this->assertTrue($container['success'], json_encode($container) ?: '');
+        $this->assertSame('Images', DB::table('asset_containers')->where('handle', 'images')->value('title'));
+
+        $create = $assets->execute(['action' => 'create', 'resource_type' => 'asset', 'container' => 'images', 'filename' => 'hero.txt', 'content' => 'hero']);
+        $this->assertTrue($create['success'], json_encode($create) ?: '');
+        $this->assertSame(1, DB::table('assets_meta')->where('container', 'images')->where('path', 'hero.txt')->count());
+
+        $update = $assets->execute(['action' => 'update', 'resource_type' => 'asset', 'container' => 'images', 'path' => 'hero.txt', 'data' => ['alt' => 'A hero']]);
+        $this->assertTrue($update['success'], json_encode($update) ?: '');
+        $meta = json_decode((string) DB::table('assets_meta')->where('path', 'hero.txt')->value('meta'), true);
+        $this->assertSame('A hero', $meta['data']['alt'] ?? null, json_encode($meta));
+
+        $move = $assets->execute(['action' => 'move', 'resource_type' => 'asset', 'container' => 'images', 'path' => 'hero.txt', 'destination' => 'archive/hero.txt']);
+        $this->assertTrue($move['success'], json_encode($move) ?: '');
+        $this->assertSame(['archive/hero.txt'], DB::table('assets_meta')->where('container', 'images')->pluck('path')->all());
+
+        $copy = $assets->execute(['action' => 'copy', 'resource_type' => 'asset', 'container' => 'images', 'path' => 'archive/hero.txt', 'destination' => 'hero-copy.txt']);
+        $this->assertTrue($copy['success'], json_encode($copy) ?: '');
+        $copied = json_decode((string) DB::table('assets_meta')->where('path', 'hero-copy.txt')->value('meta'), true);
+        $this->assertSame('A hero', $copied['data']['alt'] ?? null, json_encode($copied));
+
+        $delete = $assets->execute(['action' => 'delete', 'resource_type' => 'asset', 'container' => 'images', 'path' => 'hero-copy.txt']);
+        $this->assertTrue($delete['success'], json_encode($delete) ?: '');
+        $this->assertSame(0, DB::table('assets_meta')->where('path', 'hero-copy.txt')->count());
+        $this->assertFalse(Storage::disk('assets')->exists('hero-copy.txt'));
+    }
+
+    public function test_revision_writes_land_in_the_revisions_table(): void
+    {
+        config(['statamic.editions.pro' => true, 'statamic.revisions.enabled' => true]);
+        Collection::make('posts')->routes('/posts/{slug}')->revisionsEnabled(true)->save();
+        Blueprint::make('post')->setNamespace('collections.posts')->setContents(['fields' => [['handle' => 'title', 'field' => ['type' => 'text']]]])->save();
+        $entry = Entry::make()->collection('posts')->slug('live')->published(true)->data(['title' => 'Live']);
+        $entry->save();
+        $id = (string) $entry->id();
+        $call = fn (array $arguments) => (new EntriesRouter)->execute(['collection' => 'posts', 'id' => $id, ...$arguments]);
+
+        $edit = $call(['action' => 'update', 'data' => ['title' => 'Draft']]);
+        $this->assertTrue($edit['success'], json_encode($edit) ?: '');
+        $this->assertSame('Live', UuidEntryModel::find($id)?->data['title']);
+        $working = DB::table('revisions')->where('action', 'working')->value('attributes');
+        $this->assertSame('Draft', json_decode((string) $working, true)['data']['title'] ?? null);
+
+        $publish = $call(['action' => 'publish_working_copy']);
+        $this->assertTrue($publish['success'], json_encode($publish) ?: '');
+        $this->assertSame('Draft', UuidEntryModel::find($id)?->data['title']);
+        $this->assertSame(0, DB::table('revisions')->where('action', 'working')->count());
+        $this->assertSame(1, DB::table('revisions')->where('action', 'publish')->count());
+
+        $list = $call(['action' => 'list_revisions']);
+        $this->assertTrue($list['success'], json_encode($list) ?: '');
+        $this->assertNotEmpty($list['data']['revisions']);
+        $restore = $call(['action' => 'restore_revision', 'revision_id' => $list['data']['revisions'][0]['id']]);
+        $this->assertTrue($restore['success'], json_encode($restore) ?: '');
+        $this->assertSame(1, DB::table('revisions')->where('action', 'working')->count());
+    }
+
+    public function test_forms_on_the_database_are_read_like_files(): void
+    {
+        Form::make('contact')->title('Contact')->save();
+        $this->assertSame(1, DB::table('forms')->where('handle', 'contact')->count());
+
+        $blueprint = (new BlueprintsRouter)->execute(['action' => 'create', 'namespace' => 'forms', 'handle' => 'contact',
+            'fields' => [['handle' => 'email', 'field' => ['type' => 'text']]]]);
+        $this->assertTrue($blueprint['success'], json_encode($blueprint) ?: '');
+        $this->assertStringContainsString('email', (string) DB::table('blueprints')->where('namespace', 'forms')->where('handle', 'contact')->value('data'));
+
+        $info = (new SystemRouter)->execute(['action' => 'info', 'include_details' => true]);
+        $this->assertTrue($info['success'], json_encode($info) ?: '');
+        $this->assertStringContainsString('"form_count":1', json_encode($info) ?: '');
     }
 }

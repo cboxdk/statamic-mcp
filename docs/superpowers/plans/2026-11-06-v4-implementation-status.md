@@ -94,7 +94,7 @@ These records do not certify V02–V10. The main plan remains the release checkl
 - V07: the optional
   telemetry adapter is implemented in statamic-telemetry PR #5 against published
   SDK 3.9.3; execution coverage still depends on the public router migration.
-- V08 (in progress): coverage inventory done (`ActionCoverageInventoryTest`): all
+- V08 (done): coverage inventory done (`ActionCoverageInventoryTest`): all
   9 routers, every action × resource type, mode, scopes and Statamic permission;
   only `assets list container` and `structures list collection` carry none and
   filter per item. No action writes on a `:read` scope. The other tools
@@ -119,7 +119,11 @@ These records do not certify V02–V10. The main plan remains the release checkl
   term) and mount (mount change, renamed mount page) are in the matrix; GraphQL's
   response cache is invalidated by Statamic itself, mount needs MCP's static
   clear. On Eloquent, a mount change and a renamed mount page move the stored
-  URIs (Statamic does it). Remaining: Eloquent for assets, forms and revisions.
+  URIs (Statamic does it). Eloquent now covers every repository MCP touches:
+  asset containers and assets (create, update, move, copy, delete read back from
+  `asset_containers`/`assets_meta`), revisions (working copy, publish, restore in
+  `revisions`) and forms (MCP only reads them: form blueprints and `system info`).
+  Only sites, tokens and addon settings stay on files; MCP does not use them.
 - V09/V10: migration/doctor, rollback fixtures, dependency/client matrix, performance
   baseline and release candidate review. No support claim for Statamic 6.40 as a
   new minimum yet; the requirement remains 6.35.1 pending the matrix.

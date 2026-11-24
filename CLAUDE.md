@@ -152,7 +152,8 @@ A 3.3.0 security audit hardened the tool layer. Keep these when touching routers
   `EnforcesResourcePolicy::isWriteAction()`; the token scope follows it.
 - **The built-in writes are tested on `statamic/eloquent-driver`**
   (`tests/Integration/EloquentDriverTest.php`, its own CI job; skips locally without
-  the driver). Read back from the tables, not from Statamic's objects. What it found:
+  the driver). Every repository MCP touches runs on the driver there (entries, trees,
+  terms, globals, navs, collections, blueprints, assets, revisions, forms). Read back from the tables, not from Statamic's objects. What it found:
   a new `NavTree`'s first save is stored as `[]` by the driver (the router now writes
   the items onto the stored tree and verifies the read-back); the collection tree's
   version hashed a file that does not exist there, so concurrent tree changes were
