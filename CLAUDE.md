@@ -34,6 +34,9 @@ The addon provides scoped API tokens for fine-grained MCP access control:
   `replacedBy()` marks them and they grant nothing; `TokenScope::v3Changes()` is the single
   description of what v4 changed for a token (used by `mcp:doctor`, the installer's upgrade
   review and the OAuth refresh refusal).
+- **`mcp:migrate-v4`** (`Auth\V4TokenMigration`) is the one place stored tokens are brought to
+  v4 (and back with `--rollback`); the installer shows the same plan. It only narrows or
+  revokes, never adds a scope, journals before changing anything and is safe to rerun.
 - **`*` is not a wildcard** (`TokenService::hasScope()`). It is expanded to an explicit list at
   issuance (`ScopeAvailability::expandFullAccess()`, called by the CP and OAuth consent paths);
   `createToken()` refuses a raw `*`, and a v3 token or refresh grant carrying one is refused so the

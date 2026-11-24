@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Cboxdk\StatamicMcp\Actions\Operations\DatabaseOperationStore;
 use Cboxdk\StatamicMcp\OAuth\Drivers\DatabaseOAuthDriver;
 use Cboxdk\StatamicMcp\Storage\Tokens\DatabaseTokenStore;
+use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Support\Facades\Artisan;
 
 function mcpDoctorReport(): array
@@ -71,4 +72,26 @@ it('flags non-origin URLs and local locks without testing external connectivity'
     $checks = collect(mcpDoctorReport()['checks'])->keyBy('id');
     expect($checks['http.origins']['status'])->toBe('fail')
         ->and($checks['storage.shared_lock']['status'])->toBe('fail');
+});
+
+it('fails debug mode on a public endpoint and warns when every proxy is trusted', function () {
+    config(['statamic.mcp.web.enabled' => true, 'app.debug' => true]);
+    TrustProxies::at('*');
+    try {
+        $checks = collect(mcpDoctorReport()['checks'])->keyBy('id');
+    } finally {
+        TrustProxies::flushState();
+    }
+    expect($checks['http.debug']['status'])->toBe('fail')
+        ->and($checks['http.trusted_proxies']['status'])->toBe('warn');
+
+    config(['app.debug' => false]);
+    TrustProxies::at(['10.0.0.1']);
+    try {
+        $checks = collect(mcpDoctorReport()['checks'])->keyBy('id');
+    } finally {
+        TrustProxies::flushState();
+    }
+    expect($checks['http.debug']['status'])->toBe('pass')
+        ->and($checks['http.trusted_proxies']['status'])->toBe('pass');
 });

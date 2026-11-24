@@ -13,6 +13,7 @@ use Cboxdk\StatamicMcp\OAuth\Drivers\BuiltInOAuthDriver;
 use Cboxdk\StatamicMcp\Storage\Tokens\FileTokenStore;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Cache\LockProvider;
+use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Support\Facades\Cache;
 
 /** Read-only configuration preflight, not a proof of deployment or release safety. */
@@ -66,6 +67,14 @@ final class DoctorCommand extends Command
             }
             $add('http.origins', $restricted ? 'pass' : 'fail', $restricted
                 ? 'CORS is disabled or restricted to configured origins; review those origins.' : 'Use an explicit origin list instead of wildcard or malformed configuration.');
+            $debug = config('app.debug') === true;
+            $add('http.debug', $debug ? 'fail' : 'pass', $debug
+                ? 'Debug mode is on: error pages over HTTP expose stack traces and configuration. Set APP_DEBUG=false.' : 'Debug mode is off.');
+            $proxies = self::trustedProxies();
+            $everyProxy = $proxies === '*' || $proxies === '**' || (is_array($proxies) && array_intersect($proxies, ['*', '**', '0.0.0.0/0', '::/0']) !== []);
+            $add('http.trusted_proxies', $everyProxy ? 'warn' : 'pass', $everyProxy
+                ? 'Every proxy is trusted, so any caller can claim HTTPS or a client address with X-Forwarded-* headers. Trust only your ingress, unless the app is reachable through it alone.'
+                : 'Forwarded headers are trusted only from configured proxies, if any.');
             $add('http.proxy', 'warn', 'Verify trusted proxies and externally observed HTTPS/Origin handling at the actual ingress; local configuration cannot prove it.');
         }
         foreach (['security.url_import.block_private_ips', 'oauth.cimd_block_private_ips'] as $key) {
@@ -118,17 +127,17 @@ final class DoctorCommand extends Command
             [$legacyFull, $replaced, $narrowed] = [$counts['full_access'], $counts['replaced'], $counts['publish_delete']];
             $add('migration.full_access', $legacyFull === 0 ? 'pass' : 'warn', $legacyFull === 0
                 ? 'No token carries the v3 full-access scope.'
-                : "{$legacyFull} token(s) carry the v3 full-access scope (*), which v4 refuses. Their owners must create a new token or authorize the client again.");
+                : "{$legacyFull} token(s) carry the v3 full-access scope (*), which v4 refuses. Their owners must create a new token or authorize the client again; php artisan mcp:migrate-v4 revokes them.");
             $add('migration.admin_scopes', $replaced === 0 ? 'pass' : 'warn', $replaced === 0
                 ? 'No token carries a v3 admin write scope.'
-                : "{$replaced} token(s) carry structures:write, blueprints:write, users:write or system:write, which v4 replaced with :admin scopes. Run php artisan mcp:statamic:install to review them.");
+                : "{$replaced} token(s) carry structures:write, blueprints:write, users:write or system:write, which v4 replaced with :admin scopes. Run php artisan mcp:migrate-v4 to review them.");
             $add('migration.publish_delete', $narrowed === 0 ? 'pass' : 'warn', $narrowed === 0
                 ? 'No write token lost publish or delete access in v4.'
-                : "{$narrowed} token(s) can still edit but no longer publish or delete: v4 grants those through entries:publish, entries:delete, terms:delete and assets:delete.");
+                : "{$narrowed} token(s) can still edit but no longer publish or delete: v4 grants those through entries:publish, entries:delete, terms:delete and assets:delete. Before downgrading to v3, run php artisan mcp:migrate-v4 --rollback.");
         } catch (\Throwable) {
             $add('migration.full_access', 'fail', 'The token store could not be read. Details are omitted to protect credentials.');
         }
-        $add('migration.consent', 'warn', 'This command does not migrate tokens, approvals or content.');
+        $add('migration.consent', 'warn', 'This command does not migrate tokens, approvals or content; php artisan mcp:migrate-v4 plans token changes and --apply carries them out.');
         $add('storage.verification', 'warn', 'Check protected storage paths, committed SQL connections, retention jobs and crash recovery separately; no write or lock probe was performed.');
         $failed = count(array_filter($checks, static fn (array $check): bool => $check['status'] === 'fail'));
         if ($this->option('json')) {
@@ -139,5 +148,25 @@ final class DoctorCommand extends Command
         }
 
         return $failed === 0 ? self::SUCCESS : self::FAILURE;
+    }
+
+    /**
+     * The proxies Laravel's TrustProxies middleware trusts, as set with
+     * `$middleware->trustProxies(at: ...)`. Laravel offers no getter.
+     *
+     * @return list<string>|string|null
+     */
+    private static function trustedProxies(): array|string|null
+    {
+        if (! property_exists(TrustProxies::class, 'alwaysTrustProxies')) {
+            return null;
+        }
+        $value = (new \ReflectionProperty(TrustProxies::class, 'alwaysTrustProxies'))->getValue();
+
+        if (is_array($value)) {
+            return array_values(array_filter($value, is_string(...)));
+        }
+
+        return is_string($value) ? $value : null;
     }
 }

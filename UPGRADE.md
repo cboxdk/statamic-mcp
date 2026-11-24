@@ -1,3 +1,67 @@
+# Upgrading from v3.x to v4.0
+
+v4 never widens what an existing token or OAuth grant may do. A credential
+whose meaning changed is narrowed or must be approved again. Content is not
+touched by any step below.
+
+## Steps
+
+1. Back up `storage/statamic-mcp/` (or the MCP tables) and your config.
+2. `composer require cboxdk/statamic-mcp:^4.0`
+3. `php artisan mcp:statamic:install --upgrade` keeps your config, asks for the
+   stdio profile (`read_only`, `editor` or `operator`), runs migrations and shows
+   the token plan below.
+4. `php artisan mcp:doctor` checks HTTPS, origins, debug mode, trusted proxies,
+   profiles, storage contracts and how many tokens v4 affects. It changes nothing.
+5. `php artisan mcp:migrate-v4` shows the token plan as a dry run. Run it again
+   with `--apply` to carry it out. `--json` prints the plan for scripts.
+
+## What the token plan does
+
+| v3 token | v4 |
+|---|---|
+| `*` (full access) | Refused by v4. Revoked; the owner creates a new token or authorizes the client again |
+| `structures:write`, `blueprints:write`, `users:write`, `system:write` | Replaced by `{domain}:admin` and grant nothing. A personal token keeps its other scopes and loses these; an OAuth grant, or a token with nothing else, is revoked |
+| `entries:write`, `terms:write`, `assets:write` | Still edit. Publishing and deleting need `entries:publish`, `entries:delete`, `terms:delete`, `assets:delete`. Kept as is; add the scopes in Tools → MCP where they belong |
+| Read scopes | Unchanged |
+
+No scope is ever added. The plan acts only on a token that still looks the way
+it did when planned, and a second run finds only what is left. Before changing
+anything it writes a journal (mode `0600`) to `storage/statamic-mcp/migrations/`
+(`storage.migrations_path`) with each token's scopes before and after. The
+journal never holds secrets or hashes. If it cannot be written, nothing changes.
+
+## Clients
+
+- Basic Auth is gone. Use a Bearer token or OAuth.
+- The HTTP endpoint must be enabled explicitly (`STATAMIC_MCP_WEB_ENABLED=true`).
+- `confirmation_token` is ignored. A gated action answers `APPROVAL_REQUIRED`
+  with an `approval_id`; the person approves it in Tools → MCP → Approvals and
+  the client repeats the call with that id.
+- Stdio needs an explicit profile, and registered actions over stdio need a
+  configured v4 token (`statamic.mcp.stdio.token`).
+
+## Custom drivers and tools
+
+- Token stores must keep the capability snapshot fields; OAuth drivers must
+  implement user-wide grant revocation; audit drivers must implement
+  `DurableAuditStore`. `mcp:doctor` reports the last two.
+- A tool from another package in a domain with no scope of its own is refused
+  for every token. Make it a registered action with its own scope.
+
+## Rolling back to v3
+
+A rollback is a procedure, not only `composer require` of an older version.
+
+1. While v4 is still installed: `php artisan mcp:migrate-v4 --rollback`, then
+   again with `--apply`. It revokes every token that v3 would let publish or
+   delete although v4 did not (an `{entries,terms,assets}:write` token without
+   the matching publish/delete scopes), OAuth grants included.
+2. `composer require cboxdk/statamic-mcp:^3.6`
+3. Do not restore tokens from the backup. A token revoked during the upgrade or
+   the rollback stays revoked; its owner creates a new one. Pending approvals
+   are not carried back, and content changed under v4 stays changed.
+
 # Upgrading from v1.x to v2.0
 
 ## Requirements Changed

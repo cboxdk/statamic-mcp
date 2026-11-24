@@ -4,8 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Console;
 
-use Cboxdk\StatamicMcp\Auth\TokenScope;
-use Cboxdk\StatamicMcp\Auth\TokenService;
+use Cboxdk\StatamicMcp\Auth\V4TokenMigration;
 use Cboxdk\StatamicMcp\Contracts\TokenStore;
 use Cboxdk\StatamicMcp\OAuth\Drivers\DatabaseOAuthDriver;
 use Cboxdk\StatamicMcp\Storage\Audit\DatabaseAuditStore;
@@ -145,22 +144,18 @@ class InstallCommand extends Command
     }
 
     /**
-     * v4 narrowed what some v3 tokens may do. Show which ones, and let the
-     * operator revoke them now instead of leaving their holders to discover
-     * it from a refusal. Nothing is widened: changed scopes need consent.
+     * v4 narrowed what some v3 tokens may do. Show the same plan as
+     * mcp:migrate-v4 and let the operator carry it out now, instead of
+     * leaving token holders to discover it from a refusal. Nothing is
+     * widened: changed scopes need consent.
      */
     protected function reviewTokensForV4(): void
     {
         $this->info('🔑 Reviewing tokens for v4 scope changes...');
 
+        $migration = app(V4TokenMigration::class);
         try {
-            $affected = [];
-            foreach (app(TokenStore::class)->listAll() as $token) {
-                $changes = TokenScope::v3Changes($token->scopes);
-                if ($changes !== []) {
-                    $affected[] = [$token, $changes];
-                }
-            }
+            $steps = $migration->plan(V4TokenMigration::UPGRADE);
         } catch (\Throwable) {
             $this->warn('⚠️  The token store could not be read; run php artisan mcp:doctor after fixing storage.');
             $this->newLine();
@@ -168,37 +163,38 @@ class InstallCommand extends Command
             return;
         }
 
-        if ($affected === []) {
+        if ($steps === []) {
             $this->info('✅ No token is affected.');
             $this->newLine();
 
             return;
         }
 
-        $explain = [
-            'full_access' => 'full access (*) is refused until approved again',
-            'replaced' => 'admin :write scopes were replaced by :admin and are refused',
-            'publish_delete' => 'still edits, but needs %s to publish or delete',
-        ];
+        $this->table(['Action', 'Token', 'Owner', 'What changes in v4'], array_map(static fn (array $step): array => [
+            $step['action'] === 'narrow' ? 'narrow → ' . implode(', ', $step['after'] ?? []) : $step['action'],
+            $step['name'] . ($step['oauth_client_id'] !== null ? ' (OAuth)' : ''),
+            $step['owner'],
+            $step['reason'],
+        ], $steps));
 
-        $this->table(['Token', 'Owner', 'What changes in v4'], array_map(function (array $row) use ($explain): array {
-            [$token, $changes] = $row;
-            $lines = [];
-            foreach ($changes as $change => $scopes) {
-                $lines[] = $change === 'publish_delete' ? sprintf($explain[$change], implode(', ', $scopes)) : $explain[$change];
+        $changing = count(array_filter($steps, static fn (array $step): bool => $step['action'] !== 'keep'));
+        if ($changing === 0) {
+            $this->newLine();
+
+            return;
+        }
+
+        if ($this->confirm("Apply the {$changing} revoke/narrow step(s) now? Nothing gains access; revoked owners create a new token or authorize the client again.", false)) {
+            try {
+                $result = $migration->apply(V4TokenMigration::UPGRADE, $steps);
+                $result['error'] === null
+                    ? $this->info("✅ Applied {$result['applied']} step(s). Journal: {$result['journal']}")
+                    : $this->error($result['error']);
+            } catch (\Throwable) {
+                $this->error('The migration journal could not be written, so nothing was changed.');
             }
-
-            return [$token->name . ($token->oauthClientId !== null ? ' (OAuth)' : ''), $token->userId, implode('; ', $lines)];
-        }, $affected));
-
-        $refused = array_values(array_filter($affected, fn (array $row): bool => isset($row[1]['full_access']) || isset($row[1]['replaced'])));
-        $this->line('Tokens that only lost publish/delete keep working; add the new scopes in Tools → MCP where they should.');
-
-        if ($refused !== [] && $this->confirm(count($refused) . ' token(s) no longer work at all. Revoke them now? Their owners create a new token or authorize the client again.', false)) {
-            foreach ($refused as [$token]) {
-                app(TokenService::class)->revokeToken($token->id);
-            }
-            $this->info('✅ Revoked ' . count($refused) . ' token(s).');
+        } else {
+            $this->line('Nothing was changed. Run php artisan mcp:migrate-v4 --apply when ready.');
         }
 
         $this->newLine();

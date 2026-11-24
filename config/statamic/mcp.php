@@ -87,6 +87,8 @@ return [
         'oauth_clients_path' => storage_path('statamic-mcp/oauth/clients'),
         'oauth_codes_path' => storage_path('statamic-mcp/oauth/codes'),
         'oauth_refresh_path' => storage_path('statamic-mcp/oauth/refresh'),
+        // Journals of mcp:migrate-v4 runs (scopes before/after, never secrets).
+        'migrations_path' => storage_path('statamic-mcp/migrations'),
     ],
 
     /*

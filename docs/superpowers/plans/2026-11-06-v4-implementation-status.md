@@ -124,8 +124,24 @@ These records do not certify V02–V10. The main plan remains the release checkl
   `asset_containers`/`assets_meta`), revisions (working copy, publish, restore in
   `revisions`) and forms (MCP only reads them: form blueprints and `system info`).
   Only sites, tokens and addon settings stay on files; MCP does not use them.
-- V09/V10: migration/doctor, rollback fixtures, dependency/client matrix, performance
-  baseline and release candidate review. No support claim for Statamic 6.40 as a
+- V09 (done): `mcp:migrate-v4` (`Auth\V4TokenMigration`) plans the token changes
+  as a dry run and applies them with `--apply`: v3 `*` revoked; a replaced admin
+  `:write` dropped from a personal token with other live scopes, otherwise
+  revoked (OAuth grants with their refresh tokens). It never adds a scope
+  (asserted per token), acts only on a token unchanged since planning, journals
+  scopes before/after (`0600`, no secrets) before the first change and stops with
+  nothing changed when the journal cannot be written; a second run finds only
+  what is left. `--rollback` revokes before a downgrade every token v3 would let
+  publish or delete. Fixture: token files in v3.6.2's exact format migrate in
+  place, index included. The installer shows the same plan (it used to call a
+  token with a replaced scope dead although its other scopes still worked).
+  `mcp:doctor` now fails debug mode on an enabled HTTP endpoint and warns when
+  every proxy is trusted, and points at `mcp:migrate-v4`. UPGRADE.md has the
+  v3 → v4 guide and the rollback procedure. Not covered: approvals and
+  operations are not migrated (v3 has none; the v3 `confirmation_token` is
+  ignored), and the stdio stdout check is not part of the diagnosis.
+- V10: dependency/client matrix, performance baseline and release candidate
+  review. No support claim for Statamic 6.40 as a
   new minimum yet; the requirement remains 6.35.1 pending the matrix.
 
 Registered read actions now have public HTTP/stdio adapters and participate in
