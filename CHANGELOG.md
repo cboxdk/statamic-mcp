@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The same for terms (`update`, `delete`) and global sets (`update`). A term's version covers all its sites, which share one file; a global set's version covers one site.
 - Optional `idempotency_key` on every write action. A retry with the same key and arguments replays the first result without writing again; a retry after a call that never reported answers `OUTCOME_UNKNOWN` with the current version and does not write; the same key with other arguments is refused. Kept in the operation store (file or database).
 
+- Approval channels. A waiting approval is announced by mail through the site's mailer, or with [Cbox Relay](https://cboxrelay.com) by mail, web push to the person's browsers and a `statamic_mcp.approval.requested` webhook event; with [Cbox ID](https://cboxid.com) the person can approve on their phone (OpenID CIBA). Notifications carry the description and a link to the Approvals page, never the call's arguments, and never approve anything. Add your own with the `ApprovalNotifier` and `ApprovalAuthority` contracts; see `approvals.channels`.
+
 ### Changed (breaking)
 
 - Split publishing and deleting out of the write scopes. `entries:write` now covers create and update; publishing (including `published: true` on create or update) needs `entries:publish`, and deleting needs `entries:delete`, `terms:delete` or `assets:delete`. Existing write tokens keep editing and answer `Token missing required scope: …` for the rest. Admin domains keep `:write` for delete.

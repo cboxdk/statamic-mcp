@@ -30,6 +30,7 @@ final class Approvals
         private readonly IdempotentWrite $writes,
         private readonly Encrypter $encrypter,
         private readonly int $ttlSeconds = 900,
+        private readonly ApprovalChannels $channels = new ApprovalChannels,
     ) {
         if ($ttlSeconds < 60 || $ttlSeconds > 86400) {
             throw new \InvalidArgumentException('Approval window must be between one minute and one day.');
@@ -56,6 +57,7 @@ final class Approvals
         if (! $this->store->transition($prepared, $pending)) {
             throw new \RuntimeException('Cannot record the approval request.');
         }
+        $this->channels->announce($this->pendingApproval($pending, $intent->actorId, $preview));
 
         return $pending;
     }
@@ -74,7 +76,7 @@ final class Approvals
             } catch (\Throwable) {
                 continue;
             }
-            if (! hash_equals($intent->actorId, $actorId)) {
+            if (! hash_equals($intent->actorId, $actorId) || $this->settle($operation, $actorId) !== null) {
                 continue;
             }
             $pending[] = ['id' => $operation->id, 'expires_at' => $operation->expiresAt,
@@ -136,7 +138,19 @@ final class Approvals
 
         switch ($operation->state) {
             case OperationState::AwaitingApproval:
-                return ['status' => $operation->expiresAt <= now()->getTimestamp() ? 'expired' : 'pending'];
+                if ($operation->expiresAt <= now()->getTimestamp()) {
+                    return ['status' => 'expired'];
+                }
+                $settled = $this->settle($operation, $intent->actorId);
+                if ($settled === null) {
+                    return ['status' => 'pending'];
+                }
+                // Re-read: the answer was recorded on the stored approval, not on $operation.
+                if (! in_array($this->store->find($id)?->state, [OperationState::Ready, OperationState::Cancelled], true)) {
+                    return ['status' => 'pending'];
+                }
+
+                return $this->execute($id, $intent, $currentVersion, $write, $effects);
             case OperationState::Cancelled:
                 return ['status' => 'rejected'];
             case OperationState::Ready:
@@ -176,6 +190,41 @@ final class Approvals
         }
 
         return $preview;
+    }
+
+    /**
+     * Ask the authorities whether the person answered elsewhere (on their phone),
+     * and record the answer the same way the Control Panel does.
+     *
+     * @return bool|null true approved, false rejected, null no answer
+     */
+    private function settle(Operation $operation, string $actorId): ?bool
+    {
+        if (! $this->channels->hasAuthorities() || $operation->expiresAt <= now()->getTimestamp()) {
+            return null;
+        }
+        $answer = $this->channels->settle($operation->id);
+        if ($answer === null) {
+            return null;
+        }
+        try {
+            $answer ? $this->approve($operation->id, $actorId) : $this->reject($operation->id, $actorId);
+        } catch (ApprovalRefused) {
+            // Decided meanwhile in the Control Panel: that answer stands.
+        }
+
+        return $answer;
+    }
+
+    /** @param  array<string, mixed>  $preview */
+    private function pendingApproval(Operation $operation, string $actorId, array $preview): PendingApproval
+    {
+        $string = static fn (mixed $value): string => is_string($value) ? $value : '';
+
+        return new PendingApproval($operation->id, substr($actorId, strlen('user:')), $string($preview['description'] ?? null),
+            $string($preview['tool'] ?? null), $string($preview['action'] ?? null),
+            is_string($preview['site'] ?? null) ? $preview['site'] : null, $operation->expiresAt,
+            cp_route('statamic-mcp.approvals.index'));
     }
 
     public function ttlSeconds(): int

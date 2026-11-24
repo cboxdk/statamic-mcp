@@ -7,6 +7,19 @@
             you are still allowed to do it yourself. Approving asks you to confirm it is you.
         </p>
 
+        <ui-card v-if="pushKey && pushState !== 'on'">
+            <div class="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div class="text-sm">
+                    <div class="font-semibold">Get a notification when an assistant asks</div>
+                    <p class="text-gray-600 dark:text-gray-400">
+                        Turn on notifications in this browser. Sent through Cbox Relay; a notification only opens this page.
+                    </p>
+                </div>
+                <ui-button text="Turn on notifications" :disabled="pushState === 'busy' || pushState === 'blocked'" @click="enablePush" />
+            </div>
+            <p v-if="pushState === 'blocked'" class="px-4 pb-4 text-xs text-gray-500">Notifications are blocked for this site in your browser settings.</p>
+        </ui-card>
+
         <div v-if="error" class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-800/60 dark:bg-red-950/30 dark:text-red-200">
             {{ error }}
         </div>
@@ -19,6 +32,19 @@
                 </p>
             </div>
         </ui-card>
+
+        <div v-if="cbox.promote && (!cbox.relay || !cbox.id)" class="flex flex-col gap-1 rounded-lg border border-gray-200 px-4 py-3 text-sm text-gray-600 dark:border-gray-700 dark:text-gray-400" data-cbox-promo>
+            <span class="font-medium text-gray-800 dark:text-gray-200">Approve from anywhere</span>
+            <span v-if="!cbox.relay">
+                Get approval requests by mail, web push and webhooks with
+                <a href="https://cboxrelay.com" target="_blank" rel="noopener" class="underline">Cbox Relay</a>.
+            </span>
+            <span v-if="!cbox.id">
+                Approve on your phone with
+                <a href="https://cboxid.com" target="_blank" rel="noopener" class="underline">Cbox ID</a>.
+            </span>
+            <span class="text-xs text-gray-500">Both are built into Statamic MCP: install the client and add its keys.</span>
+        </div>
 
         <ui-card v-for="item in items" :key="item.id" :data-approval="item.id">
             <div class="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
@@ -51,7 +77,53 @@ import { ref } from 'vue';
 const props = defineProps({
     approvals: { type: Array, default: () => [] },
     elevatedSessions: { type: Boolean, default: true },
+    pushKey: { type: String, default: null },
+    cbox: { type: Object, default: () => ({ promote: false, relay: false, id: false }) },
 });
+
+const pushState = ref(null);
+if (typeof Notification !== 'undefined' && Notification.permission === 'denied') {
+    pushState.value = 'blocked';
+}
+
+function urlBase64ToUint8Array(base64) {
+    const padded = (base64 + '='.repeat((4 - (base64.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/');
+    return Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
+}
+
+async function enablePush() {
+    const cpUrl = Statamic.$config.get('cpUrl');
+    pushState.value = 'busy';
+    error.value = null;
+    try {
+        if (Notification.permission !== 'granted' && (await Notification.requestPermission()) !== 'granted') {
+            pushState.value = 'blocked';
+            return;
+        }
+        const registration = await navigator.serviceWorker.register(cpUrl + '/mcp/approvals/sw.js', { scope: cpUrl + '/mcp/approvals/' });
+        await navigator.serviceWorker.ready;
+        const subscription = (await registration.pushManager.getSubscription())
+            || (await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(props.pushKey) }));
+        const response = await fetch(cpUrl + '/mcp/approvals/push', {
+            method: 'POST',
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-CSRF-TOKEN': Statamic.$config.get('csrfToken'),
+            },
+            body: JSON.stringify(subscription.toJSON()),
+        });
+        if (!response.ok) {
+            throw new Error();
+        }
+        pushState.value = 'on';
+        Statamic.$toast.success('Notifications are on in this browser.');
+    } catch {
+        pushState.value = null;
+        error.value = 'Could not turn on notifications in this browser.';
+    }
+}
 
 const items = ref([...props.approvals]);
 const busy = ref(null);

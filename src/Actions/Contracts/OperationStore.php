@@ -11,6 +11,11 @@ interface OperationStore
     /** Atomic insert; false means the id is already reserved. */
     public function create(Operation $operation): bool;
 
+    /**
+     * The record as stored now; another process may have changed it since the last read.
+     *
+     * @phpstan-impure
+     */
     public function find(string $id): ?Operation;
 
     /** Delete expired records, retaining executing and unknown outcomes for reconciliation. */

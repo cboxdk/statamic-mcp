@@ -152,6 +152,10 @@ since the request; ask again), `APPROVAL_MISMATCH` (a different call),
 against the token's scopes and the person's permissions again. The local stdio
 server is not gated.
 
+The person is told by mail, and with Cbox Relay also by web push and webhooks;
+with Cbox ID they can approve on their phone. See
+[Approval channels](../extending/approval-channels.md).
+
 #### Retrying a write safely
 
 Every write action on every router takes an optional `idempotency_key`: a key

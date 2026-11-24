@@ -214,6 +214,48 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Approval channels
+    |--------------------------------------------------------------------------
+    |
+    | Where a waiting approval is announced, besides the Approvals page.
+    | 'auto' (default) picks what this site has:
+    |   - Cbox Relay (cboxrelay.com) when cboxdk/laravel-relay-client is
+    |     configured: mail, web push to the person's browsers and a webhook
+    |     event (statamic_mcp.approval.requested) for Slack, Teams, n8n…
+    |   - otherwise the site's own mailer.
+    |   - Cbox ID (cboxid.com) when cboxdk/laravel-id-client is configured:
+    |     the person approves on their phone (OpenID CIBA). Needs a client an
+    |     operator registered at Cbox ID.
+    | Or list them: 'mail', 'relay', 'cbox_id', or the class name of your own
+    | ApprovalNotifier / ApprovalAuthority. 'none' turns them all off.
+    |
+    | Notifiers only tell; they link to the Approvals page and never approve.
+    |
+    */
+    'approvals' => [
+        'channels' => env('STATAMIC_MCP_APPROVAL_CHANNELS', 'auto'),
+
+        // Mention Cbox Relay and Cbox ID in mails sent without them, and on
+        // the Approvals page.
+        'promote_cbox' => (bool) env('STATAMIC_MCP_PROMOTE_CBOX', true),
+
+        'relay' => [
+            'mail' => (bool) env('STATAMIC_MCP_APPROVAL_RELAY_MAIL', true),
+            'push' => (bool) env('STATAMIC_MCP_APPROVAL_RELAY_PUSH', true),
+            'webhook' => (bool) env('STATAMIC_MCP_APPROVAL_RELAY_WEBHOOK', true),
+        ],
+
+        'cbox_id' => [
+            // The user field holding the person's Cbox ID user id (usr_…);
+            // without it, their email is used (Cbox ID needs it confirmed).
+            'user_field' => env('STATAMIC_MCP_APPROVAL_CBOX_ID_FIELD', 'cbox_id'),
+            'scope' => env('STATAMIC_MCP_APPROVAL_CBOX_ID_SCOPE', 'openid'),
+            'resource' => env('STATAMIC_MCP_APPROVAL_CBOX_ID_RESOURCE'),
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Rate Limiting
     |--------------------------------------------------------------------------
     |

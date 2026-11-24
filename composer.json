@@ -77,7 +77,9 @@
         }
     },
     "suggest": {
-        "laravel/boost": "Enhances the development experience when working with this Statamic MCP server by providing powerful Laravel-specific tools and debugging capabilities"
+        "laravel/boost": "Enhances the development experience when working with this Statamic MCP server by providing powerful Laravel-specific tools and debugging capabilities",
+        "cboxdk/laravel-relay-client": "Cbox Relay (cboxrelay.com): approval requests by mail, web push and webhooks (^0.2.3, PHP 8.4)",
+        "cboxdk/laravel-id-client": "Cbox ID (cboxid.com): approve agent actions on your phone with OpenID CIBA (^0.19.8, PHP 8.4)"
     },
     "minimum-stability": "stable",
     "prefer-stable": true

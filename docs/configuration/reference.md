@@ -392,6 +392,16 @@ STATAMIC_MCP_URL_IMPORT_BLOCK_PRIVATE_IPS=true
 # Unset auto-detects: on in production, off in local/dev/testing
 STATAMIC_MCP_CONFIRMATION_ENABLED=
 STATAMIC_MCP_CONFIRMATION_TTL=900
+# Where a waiting approval is announced: auto, none, or a list of
+# mail, relay, cbox_id and your own classes (docs/extending/approval-channels.md)
+STATAMIC_MCP_APPROVAL_CHANNELS=auto
+STATAMIC_MCP_PROMOTE_CBOX=true
+STATAMIC_MCP_APPROVAL_RELAY_MAIL=true
+STATAMIC_MCP_APPROVAL_RELAY_PUSH=true
+STATAMIC_MCP_APPROVAL_RELAY_WEBHOOK=true
+STATAMIC_MCP_APPROVAL_CBOX_ID_FIELD=cbox_id
+STATAMIC_MCP_APPROVAL_CBOX_ID_SCOPE=openid
+STATAMIC_MCP_APPROVAL_CBOX_ID_RESOURCE=
 
 # Rate limiting
 STATAMIC_MCP_RATE_LIMIT_MAX=60

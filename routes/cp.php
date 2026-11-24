@@ -25,6 +25,8 @@ Route::delete('/tokens/{token}', [TokenController::class, 'destroy'])->name('tok
 Route::get('/approvals', [ApprovalController::class, 'index'])->name('approvals.index');
 Route::post('/approvals/{approval}/approve', [ApprovalController::class, 'approve'])
     ->where('approval', '[a-f0-9]{64}')->middleware(RequireElevatedSession::class)->name('approvals.approve');
+Route::post('/approvals/push', [ApprovalController::class, 'subscribe'])->name('approvals.push');
+Route::get('/approvals/sw.js', [ApprovalController::class, 'serviceWorker'])->name('approvals.sw');
 Route::post('/approvals/{approval}/reject', [ApprovalController::class, 'reject'])
     ->where('approval', '[a-f0-9]{64}')->name('approvals.reject');
 

@@ -49,6 +49,11 @@ jobs:
       - name: Install dependencies
         run: composer install --prefer-dist --no-progress
 
+      # The Cbox Relay and Cbox ID channels are built in but optional (their
+      # clients need PHP 8.4). Install them so static analysis sees their types.
+      - name: Install optional Cbox clients
+        run: composer require --dev 'cboxdk/laravel-relay-client:^0.2.3' 'cboxdk/laravel-id-client:^0.19.8' -W --no-interaction --no-progress
+
       - name: Check code formatting
         run: ./vendor/bin/pint --test
 
@@ -213,3 +218,20 @@ jobs:
         run: composer require --dev 'statamic/seo-pro:7.16.0' -W --no-interaction --no-progress
       - name: Test entries and terms with SEO Pro
         run: vendor/bin/pest tests/Feature/Routers/SeoProWritesTest.php
+
+  cbox-integrations:
+    name: Cbox Relay and Cbox ID approval channels
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962
+        with:
+          php-version: '8.4'
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, intl
+      - name: Install the Cbox clients
+        run: composer require --dev 'cboxdk/laravel-relay-client:^0.2.3' 'cboxdk/laravel-id-client:^0.19.8' -W --no-interaction --no-progress
+      - name: Test approvals with Cbox Relay and Cbox ID
+        run: vendor/bin/pest tests/Feature/Approvals

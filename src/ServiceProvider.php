@@ -274,7 +274,9 @@ class ServiceProvider extends AddonServiceProvider
             $this->app->make(Actions\Contracts\OperationStore::class), $this->app->make(Actions\Operations\OperationCoordinator::class),
             $this->app->make(Actions\Operations\IdempotentWrite::class), $this->app->make(Encrypter::class),
             config()->integer('statamic.mcp.confirmation.ttl', 900),
+            $this->app->make(Approvals\ApprovalChannels::class),
         ));
+        $this->app->bind(Approvals\ApprovalChannels::class, fn (): Approvals\ApprovalChannels => Approvals\ApprovalChannels::fromConfig($this->app));
 
         // Register resource policy
         $this->app->singleton(ResourcePolicy::class);
