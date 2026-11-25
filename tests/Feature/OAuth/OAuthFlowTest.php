@@ -19,6 +19,35 @@ class OAuthFlowTest extends TestCase
      *
      * This exercises: discovery → registration → authorize → token exchange → validation.
      */
+    /**
+     * A client sends back the `resource` that protected-resource metadata
+     * advertised. On a non-default port (php artisan serve, Docker on 8080)
+     * the authorize endpoint left the port out of what it expected and
+     * refused it with "Invalid resource parameter", so no client could finish.
+     */
+    public function test_authorize_accepts_the_advertised_resource_on_a_non_default_port(): void
+    {
+        config()->set('app.url', 'https://cms.example.com');
+        $origin = 'http://mcp.test:8080';
+        $resource = $this->getJson($origin . '/.well-known/oauth-protected-resource')->json('resource');
+        $this->assertSame($origin . '/mcp/statamic', $resource);
+
+        $redirectUri = 'https://example.com/callback';
+        $clientId = $this->postJson($origin . '/mcp/oauth/register', ['client_name' => 'PortClient', 'redirect_uris' => [$redirectUri]])->json('client_id');
+        $user = User::make()->id('oauth-port-user')->email('port@example.com')->makeSuper();
+        $user->save();
+
+        $query = ['response_type' => 'code', 'client_id' => $clientId, 'redirect_uri' => $redirectUri, 'scope' => 'entries:read',
+            'code_challenge' => rtrim(strtr(base64_encode(hash('sha256', 'verifier', true)), '+/', '-_'), '='),
+            'code_challenge_method' => 'S256', 'state' => 's'];
+        $authorize = $origin . '/' . trim((string) config('statamic.cp.route', 'cp'), '/') . '/mcp/oauth/authorize?';
+
+        $this->actingAs($user, 'web')->get($authorize . http_build_query($query + ['resource' => $resource]))->assertOk();
+        // Another port is still another resource.
+        $this->actingAs($user, 'web')->get($authorize . http_build_query($query + ['resource' => 'http://mcp.test:9090/mcp/statamic']))
+            ->assertRedirectContains('error=invalid_request');
+    }
+
     public function test_complete_oauth_flow(): void
     {
         // ── Step 1: Protected Resource Discovery ──

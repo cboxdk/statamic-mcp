@@ -191,9 +191,9 @@ class AuthorizeController extends Controller
         if ($resource !== '') {
             /** @var string $mcpPath */
             $mcpPath = config('statamic.mcp.web.path', '/mcp/statamic');
-            $scheme = $request->getScheme();
-            $host = $request->getHost();
-            $expectedResource = $scheme . '://' . $host . $mcpPath;
+            // Same origin the protected-resource metadata advertises: the
+            // port is part of it unless it is the scheme's default.
+            $expectedResource = $request->getSchemeAndHttpHost() . $mcpPath;
 
             // Also accept config-based URL as fallback
             /** @var string $appUrl */

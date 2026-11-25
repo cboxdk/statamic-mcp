@@ -173,9 +173,28 @@ sends `data: null` (and list results send an array). The SDK validates failures
 too and threw away every error response with `-32602 Structured content does not
 match the tool's output schema`. `data` is now `object|array|null`;
 `McpProtocolSurfaceTest` validates a success and a failure of every tool against
-its advertised schema with opis (9 of 10 failed before the fix). Not run: Claude
-Desktop, Claude Code, Cursor and OAuth/DCR from a real client; the SDK flows use
-bearer tokens.
+its advertised schema with opis (9 of 10 failed before the fix). 
+
+**Claude Code 2.1.332** (2026-11-25), against the same site: bearer over HTTP and
+stdio connect (`claude mcp list`). OAuth through `claude mcp login`: Claude Code
+uses CIMD (`client_id` is `https://claude.ai/oauth/claude-code-client-metadata`),
+PKCE and a localhost callback. **It failed first**: the authorize endpoint built the
+expected `resource` without the port, so on any non-default port (`artisan serve`,
+Docker on 8080) it refused the resource the metadata itself advertised with
+`Invalid resource parameter`. Fixed (`getSchemeAndHttpHost()`, regression test in
+`OAuthFlowTest`). Then: the consent page names the client, spells out `*` and hides
+the replaced v3 scopes; granting only `entries:read`, `entries:write` and
+`blueprints:read` issued exactly those. With the token Claude Code stored: entries
+list, draft create and blueprints list allowed; `data.published: true`
+(`Token missing required scope: entries:publish`) and users refused. Refresh keeps
+the three scopes; replaying the used refresh token answers `invalid_grant ...
+grant revoked`, and Claude Code then reports "Needs authentication". Not run: a
+chat session (no model account in the orb), Claude Desktop and Cursor.
+
+Seen while testing, not changed: `scopes_supported` advertises `*` and the replaced
+v3 `:write` scopes, and Claude Code asks for all of them (consent hides them, so
+nothing is granted); a top-level `published` on entry create is not in the schema
+and is ignored, so the call succeeds as a draft.
 
 **Performance baseline** (same site, HTTP, median of 5, `php artisan serve`, one
 worker; a baseline to compare against, not a budget):
@@ -188,8 +207,39 @@ worker; a baseline to compare against, not a budget):
 | `search_tools` | 5,955 | 27 |
 | `resources/read statamic://blueprints` | 233 | 25 |
 
-Not measured: query counts and peak memory per call. No exporter I/O exists in
-this package; telemetry lives in statamic-telemetry.
+**Queries and memory per call** (2026-11-25, same site with 1,500 pages in a
+structured collection, PHP 8.4 with opcache under `php artisan serve`; measured by
+a request middleware and a lifecycle observer in the site, warm medians):
+
+| Call | SQL, file stores | SQL, database stores | Stache queries | Peak memory | ms |
+|---|---|---|---|---|---|
+| entries list | 0 | 3 | 1 | 4.4 MB | 87 |
+| entries get | 0 | 3 | 3 | 5.2 MB | 55 |
+| entries create | 0 | 3 | 7 | 26 MB | 1,380 |
+| entries update | 0 | 3 | 7 | 17 MB | 1,500 |
+| content_audit | 0 | 3 | 2 | 12.7 MB | 212 |
+| blueprints/structures list, discover, `tools/list` | 0 | 2–3 | 0 | 2.6–2.8 MB | 4–20 |
+
+With database stores every call costs 2 token queries (lookup, last used) and 1
+audit insert, whatever the content size; a delete that waits for approval costs 8.
+No N+1. The "Stache queries" are not SQL: Statamic 6.44 emits a `QueryExecuted` on
+an in-memory `fake` connection for every Stache query, for debug bars.
+
+Writes are slow because of the deliberate full Stache clear after every write
+(see CLAUDE.md, "Cache clearing is deferred, not removed"): the next read rebuilds
+every store from disk. Statamic alone, find + save on a warm Stache, 15 ms at 300
+pages and 34 ms at 1,500; after `statamic:stache:clear`, 364 ms and 1,539 ms. It is
+linear, about 1 ms per entry, and an update in a collection with one entry costs the
+same, because the rebuild covers the whole site. The next request after a write,
+Control Panel and front end included, pays it too.
+
+Stdio (one process, 130 mixed calls): reads are flat over 150 calls. Writes grow
+about 18 kB each. That is Statamic: `stache:clear` followed by find + save grows
+18 kB per round without MCP, find + save without the clear grows nothing, and
+neither container instances, event listeners nor static properties grow. HTTP is
+unaffected (a process per request).
+
+No exporter I/O exists in this package; telemetry lives in statamic-telemetry.
 
 **Release gates (plan section Verifikation).**
 
@@ -203,13 +253,14 @@ this package; telemetry lives in statamic-telemetry.
 | 6 | Crash before/after write | Covered (`IdempotentWriteConcurrencyTest`) |
 | 7 | Observer throws after write | Covered (`BuiltInLifecycleEventsTest`) |
 | 8 | Private cache, revoke | Covered (cache hints `private`) |
-| 9 | Wire tests and real clients | Wire tests yes; SDK clients yes; desktop clients and OAuth from a client no |
+| 9 | Wire tests and real clients | Wire tests, SDK clients and Claude Code (bearer, stdio, OAuth with CIMD, refresh, replay) yes; Claude Desktop and Cursor no |
 | 10 | PHP/Laravel/Statamic matrix, file/database, SEO Pro | Covered, lowest included |
-| 11 | Response size, queries, memory | Response size and latency baseline; queries and memory not measured |
+| 11 | Response size, queries, memory | Measured: constant SQL per call, peak 2.6–26 MB; writes O(site size) through the post-write Stache clear |
 | 12 | PHPStan 9, Pint, audit, migration fixtures, manual security review | Automated parts pass; v3.6.2 token fixture; the manual review of final writes and grants is for a person |
 
-Open before a release: the manual security review (12), a desktop-client and
-OAuth run (9), PostgreSQL concurrency (5), and the release procedure itself.
+Open before a release: the manual security review (12), Claude Desktop and
+Cursor (9), PostgreSQL concurrency (5), a decision on the write cost on large sites
+(11), and the release procedure itself.
 
 Registered read actions now have public HTTP/stdio adapters and participate in
 tool search. Registered writes remain unexposed until resource versioning and
