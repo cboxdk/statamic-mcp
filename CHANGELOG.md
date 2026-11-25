@@ -30,6 +30,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tools other packages register in a domain with no scope of their own are refused for every token; v3 let a `*` token reach them.
 - Replace the confirmation token with approvals in the Control Panel. A gated action (by default every delete and blueprint writes) over HTTP answers `APPROVAL_REQUIRED` with an `approval_id`; the person the call acts as approves it under Tools → MCP → Approvals, confirming it is them with Statamic's elevated session, and the client repeats the call with `approval_id`. An approval covers that exact call once, expires after `confirmation.ttl` (now 900 seconds), and stops holding if the record changes. `confirmation_token` is no longer accepted. The model could answer the old token itself; a person now has to approve.
 
+### Changed
+
+- Writes no longer clear the whole Stache. A write now repairs only the indexes it leaves stale outside its own store: a deleted entry's term usage, the order of a moved page's siblings, the URIs of a collection mounted on a deleted page, the entry and term indexes of a collection whose route, mount, dating or taxonomies changed, and users' role and group membership. An update on a 1,500-entry site took about 1.5 s and now takes what a Statamic save takes. A test compares every index of every store after 33 kinds of write with a rebuild from disk. The new setting `cache.stache_after_write` (`repair`, `clear` or `none`) replaces `clear_stache_after_write`; `false` there is still read as `none`. The static cache is still flushed after content writes.
+
+- A write that carries an argument the tool does not declare is refused (`Unknown argument: published. Nothing was written. Field values and flags such as published go inside data.`). A top-level `published` on entries `create` used to be ignored and the entry saved as a draft with success reported; a misspelled argument name used to read as a missing one.
+- OAuth discovery no longer advertises the v3 admin `:write` scopes, which grant nothing in v4. `*` stays advertised; consent expands it to the scopes the user holds.
+
 ### Security
 
 - Keep term actions to the sites the user may access. Statamic's `TermPolicy` checks the site only on create and the Control Panel relies on its site selector, so an editor limited to one site could read and change terms in another through MCP.

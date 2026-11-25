@@ -50,7 +50,7 @@ class CollectionParentMoveTest extends TestCase
         $create = function ($slug, $parent = null) use ($router, $handle) {
             $result = $router->execute([
                 'action' => 'create', 'collection' => $handle, 'site' => 'default',
-                'slug' => $slug, 'published' => false, 'data' => ['title' => $slug, 'parent' => $parent],
+                'slug' => $slug, 'data' => ['title' => $slug, 'parent' => $parent, 'published' => false],
             ]);
             $this->assertTrue($result['success'], json_encode($result) ?: '');
 

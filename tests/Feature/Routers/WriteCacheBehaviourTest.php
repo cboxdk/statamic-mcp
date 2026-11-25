@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Tests\Feature\Routers;
 
+use Cboxdk\StatamicMcp\Mcp\Support\StacheRepair;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\EntriesRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\StructuresRouter;
 use Cboxdk\StatamicMcp\Tests\TestCase;
@@ -18,12 +19,11 @@ use Statamic\Facades\Entry;
 use Statamic\StaticCaching\Invalidator;
 
 /**
- * When a write clears the cache, and what it must not do while the call runs.
+ * What a write does to the caches, and what it must not do while the call runs.
  *
- * Clearing after a write is necessary: Statamic does not rebuild the indexes
- * that depend on one, so without it a changed max_items leaves an index that
- * later throws, a changed mount leaves every entry 404ing, a removed taxonomy
- * leaves whereTaxonomy() returning entries.
+ * Statamic does not rebuild the indexes that depend on a write, so a write
+ * repairs them (StacheRepair, proven against a rebuild by
+ * StacheConsistencyTest) and flushes the static cache.
  *
  * Clearing *during* the call is what broke a live site (#53): Artisan resets
  * the in-memory stores there and then, so the rest of the call read emptied
@@ -94,8 +94,33 @@ class WriteCacheBehaviourTest extends TestCase
         return $entry;
     }
 
-    public function test_a_write_still_clears_the_caches(): void
+    public function test_a_write_repairs_the_stache_and_clears_the_static_cache(): void
     {
+        // The Stache is repaired (StacheConsistencyTest proves the result
+        // equals a rebuild); the static cache still goes, because listing
+        // pages, globals and navigation render more than the record written.
+        $entry = $this->makeEntry();
+
+        $called = [];
+        $this->spyArtisan($called);
+
+        $result = (new EntriesRouter)->execute([
+            'action' => 'update',
+            'collection' => $this->collection,
+            'id' => $entry->id(),
+            'data' => ['title' => 'Renamed'],
+        ]);
+
+        Artisan::clearResolvedInstances();
+
+        $this->assertSame('repaired', $result['meta']['cache']['stache'], json_encode($result));
+        $this->assertNotContains('statamic:stache:clear', $called);
+        $this->assertContains('statamic:static:clear', $called);
+    }
+
+    public function test_the_full_stache_clear_is_still_available(): void
+    {
+        config(['statamic.mcp.cache.stache_after_write' => 'clear']);
         $entry = $this->makeEntry();
 
         $called = [];
@@ -112,6 +137,35 @@ class WriteCacheBehaviourTest extends TestCase
 
         $this->assertContains('statamic:stache:clear', $called);
         $this->assertContains('statamic:static:clear', $called);
+    }
+
+    public function test_a_failing_repair_falls_back_to_the_full_clear(): void
+    {
+        // A repair that fails must not leave the Stache stale.
+        $entry = $this->makeEntry();
+        $this->app->instance(StacheRepair::class, new class extends StacheRepair
+        {
+            public function apply(): void
+            {
+                throw new \RuntimeException('Synthetic repair failure');
+            }
+        });
+
+        $called = [];
+        $this->spyArtisan($called);
+
+        $result = (new EntriesRouter)->execute([
+            'action' => 'update',
+            'collection' => $this->collection,
+            'id' => $entry->id(),
+            'data' => ['title' => 'Renamed'],
+        ]);
+
+        Artisan::clearResolvedInstances();
+
+        $this->assertTrue($result['success'], json_encode($result));
+        $this->assertSame('cleared', $result['meta']['cache']['stache']);
+        $this->assertContains('statamic:stache:clear', $called);
     }
 
     public function test_cleanup_survives_a_saved_listener_throwing_after_persist(): void
@@ -132,14 +186,14 @@ class WriteCacheBehaviourTest extends TestCase
         $this->assertSame('unknown', $result['meta']['write_effects']);
         $this->assertTrue($result['meta']['retry_requires_reconciliation']);
         $this->assertSame('Persisted', Entry::find($entry->id())->get('title'));
-        $this->assertContains('statamic:stache:clear', $called);
+        $this->assertSame('repaired', $result['meta']['cache']['stache']);
         $this->assertContains('statamic:static:clear', $called);
     }
 
     public function test_nonzero_cache_exit_is_visible_without_repeating_the_write(): void
     {
         $entry = $this->makeEntry();
-        config(['statamic.static_caching.strategy' => null]);
+        config(['statamic.static_caching.strategy' => null, 'statamic.mcp.cache.stache_after_write' => 'clear']);
         Artisan::swap(new class extends Kernel
         {
             public function __construct() {}
@@ -223,7 +277,7 @@ class WriteCacheBehaviourTest extends TestCase
     public function test_clearing_can_be_switched_off(): void
     {
         config([
-            'statamic.mcp.cache.clear_stache_after_write' => false,
+            'statamic.mcp.cache.stache_after_write' => 'none',
             'statamic.mcp.cache.clear_static_after_write' => false,
         ]);
 
@@ -247,6 +301,7 @@ class WriteCacheBehaviourTest extends TestCase
 
         $this->assertNotContains('statamic:stache:clear', $called);
         $this->assertNotContains('statamic:static:clear', $called);
+        $this->assertArrayNotHasKey('cache', $result['meta'] ?? []);
     }
 
     public function test_a_collection_write_still_invalidates_its_static_pages(): void

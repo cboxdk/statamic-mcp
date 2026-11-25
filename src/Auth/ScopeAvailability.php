@@ -37,6 +37,17 @@ class ScopeAvailability
         )));
     }
 
+    /**
+     * What a client may ask for: every scope but the v3 ones v4 replaced, which
+     * still load on old tokens but grant nothing. `*` stays: consent expands it.
+     *
+     * @return list<string>
+     */
+    public function advertised(): array
+    {
+        return array_values(array_filter($this->names(), fn (string $name): bool => TokenScope::tryFrom($name)?->replacedBy() === null));
+    }
+
     /** @return list<array{value: string, label: string, description: string, group: string}> */
     public function options(?User $user): array
     {

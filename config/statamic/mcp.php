@@ -336,27 +336,32 @@ return [
     | Cache
     |--------------------------------------------------------------------------
     |
-    | Whether a write clears Statamic's caches, and it does — because Statamic
-    | does not rebuild the indexes that DEPEND on a write. Change a field's
-    | max_items and its index keeps the old shape until a query throws on it;
-    | change a collection's mount and every entry 404s; remove a taxonomy and
-    | whereTaxonomy() goes on returning entries. That list is long and version
-    | dependent, so it is not worth enumerating by hand.
+    | What a write does to Statamic's caches once the tool call is finished.
     |
-    | What changed in 3.1.0 is WHEN. The clear used to run through Artisan in
-    | the middle of the request, resetting the in-memory stores while the call
-    | was still using them: on a live multisite the tree repository returned
-    | nothing, Statamic padded the empty tree with every entry at root, and a
-    | random entry became the homepage (issue #53). It now runs once the tool
-    | call is finished, when the response is built and nothing further reads
-    | Statamic — same coverage, without the mechanism that did the damage.
+    | Statamic keeps the store of the item it saves current, but not indexes
+    | elsewhere that depend on the write: a deleted entry's term usage, the
+    | order of a moved page's siblings, the URIs of a collection mounted on a
+    | deleted page, every index of a collection whose route, mount or
+    | taxonomies changed, users' role membership when a group changes.
     |
-    | Turn either off if you would rather trade index freshness for speed on a
-    | large site, and rely on your own invalidation rules.
+    | stache_after_write:
+    |   'repair' (default) — bring exactly those indexes up to date. The result
+    |            equals a rebuild from disk (tests/Feature/Cache/
+    |            StacheConsistencyTest) and a write costs what a Statamic save
+    |            costs, not a rebuild of the whole site.
+    |   'clear'  — clear the whole Stache, as 3.x did. About 1 ms per entry on
+    |            the site, on every write.
+    |   'none'   — leave the Stache alone and rely on your own invalidation.
+    |
+    | The static cache is flushed in full by default: listing pages, globals
+    | and navigation render other records than the one written.
+    |
+    | Either runs after the call, never in the middle of it: a clear mid-call
+    | emptied a live site's collection tree (issue #53).
     |
     */
     'cache' => [
-        'clear_stache_after_write' => env('STATAMIC_MCP_CLEAR_STACHE_AFTER_WRITE', true),
+        'stache_after_write' => env('STATAMIC_MCP_STACHE_AFTER_WRITE', 'repair'),
         'clear_static_after_write' => env('STATAMIC_MCP_CLEAR_STATIC_AFTER_WRITE', true),
     ],
 

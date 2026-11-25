@@ -9,6 +9,7 @@ use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorResponse;
 use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ResponseMeta;
 use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\SuccessResponse;
 use Cboxdk\StatamicMcp\Mcp\Exceptions\FieldFormatException;
+use Cboxdk\StatamicMcp\Mcp\Support\StacheRepair;
 use Cboxdk\StatamicMcp\Mcp\Support\ToolLogger;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
 use Cboxdk\StatamicMcp\Support\InputBudget;
@@ -80,6 +81,7 @@ abstract class BaseStatamicTool extends Tool
     {
         Blink::swap(new \Statamic\Support\Blink);
         app(PermissionCache::class)->clear();
+        app(StacheRepair::class)->start();
     }
 
     /**
@@ -202,6 +204,7 @@ abstract class BaseStatamicTool extends Tool
             // This catches the throwing path, where a write may well have
             // landed before the throw and left its indexes stale.
             $this->flushPendingCacheClears();
+            app(StacheRepair::class)->stop();
         }
 
         $writeMetadata = $this->writeMetadata(($result['success'] ?? false) === true);

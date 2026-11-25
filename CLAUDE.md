@@ -1166,19 +1166,33 @@ Legacy `initialize` clients (2025-06-18, 2025-11-25) still connect and skip head
 validation entirely. There is a test pinning that, because it is the compatibility
 promise most likely to be broken by accident.
 
-## Cache clearing is deferred, not removed
+## The Stache is repaired after a write, late
 
-A write asks for a cache clear; `BaseStatamicTool::execute()` runs it in a `finally`,
-once the call is over. Both halves of that matter.
+A write asks for its caches to be brought up to date; `BaseStatamicTool::execute()` does
+it in a `finally`, once the call is over.
 
-**It still clears**, because Statamic does not rebuild the indexes that *depend* on a
-write: a changed `max_items` leaves an index whose shape later throws, a changed mount
-leaves every entry 404ing, a removed taxonomy leaves `whereTaxonomy()` returning entries,
-a group's roles leave its members' role indexes stale. Repeated passes over the code kept
-turning up more — the set is not enumerable, so do not try to replace the clear with a
-list of special cases. That was tried and abandoned.
+**Repaired, not cleared** (v4, `cache.stache_after_write = repair`). Statamic keeps the
+store of the item it saves current, but not indexes elsewhere that depend on the write.
+`Mcp\Support\StacheRepair` records Statamic's own events during the call (entry deleted,
+collection tree saved, collection/taxonomy/group/role/container saved or deleted) and
+fixes exactly those indexes afterwards. The full clear it replaces cost every write ~1 ms
+per entry on the site (1.5 s per update at 1,500 entries).
 
-**It clears late**, because clearing mid-call is what broke a live site (#53).
+**Do not decide by reading code what a write leaves stale.** That was tried in 3.x and
+abandoned after nine review passes each found more. The oracle is
+`tests/Feature/Cache/StacheConsistencyTest`: each write runs with no clear, then every index
+of every store, as the next request reads it, must equal a rebuild from disk. A new kind
+of write gets a row there; a failing row gets a repair in `StacheRepair`. With the repair
+off, 13 of its 33 rows fail — that is the control.
+
+Two things it found that reading code would not: `CollectionSaved` fires after the
+collection stops reporting itself dirty, so Statamic's own `isDirty('route')` URI update
+never runs (every collection save repairs its entries); and a group's deleted index must
+be cleared, not rebuilt.
+
+A repair that throws falls back to the full clear. `clear` and `none` remain as modes.
+
+**It runs late**, because clearing mid-call is what broke a live site (#53).
 `statamic:stache:clear` goes through Artisan and resets the in-memory stores immediately,
 so the rest of the call reads emptied stores — a structured collection's tree came back
 empty, Statamic padded it with every entry at root, and a random entry became the
@@ -1292,7 +1306,8 @@ bypasses stream wrappers and silently returns nothing under a wrapped path.
 - Validation against blueprint field definitions
 
 ### Automatic Cache Purging
-Writes queue a clear of what their change invalidates. Content and structure writes that
+Writes queue an update of what their change invalidates (the Stache is repaired, the
+static cache cleared). Content and structure writes that
 can change a rendered page — entries, terms, collections, taxonomies, navigations, global
 sets, revisions — queue **stache + static**. Writes that cannot — blueprints, assets,
 users, roles, groups — queue **stache** only, since Statamic's own invalidator already
@@ -1300,7 +1315,7 @@ subscribes to `BlueprintSaved` and `AssetSaved`. Collection writes additionally 
 their own static URLs directly, because `CollectionSaved` is not in that subscriber list.
 
 **The clear is deferred**, and that matters more than the list above: see
-"Cache clearing is deferred, not removed". It runs once the response is built, never
+"The Stache is repaired after a write, late". It runs once the response is built, never
 mid-call. Queue it with `clearCachesAfterWrite()`; `clearStatamicCaches()` is the
 immediate version and belongs only to the system router's `cache_clear` action.
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Concerns;
 
+use Cboxdk\StatamicMcp\Mcp\Support\StacheRepair;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Log;
 use Statamic\StaticCaching\Invalidator;
@@ -71,39 +72,49 @@ trait ClearsCaches
     }
 
     /**
-     * Ask for a cache clear once the current tool call is done.
+     * Ask for the caches a write affects to be brought up to date once the
+     * current tool call is done.
      *
-     * The timing is the whole fix for #53, and it is worth being precise about
-     * why. Clearing after a write was never wrong in itself — Statamic does not
-     * rebuild the indexes that *depend* on a write, so without it a changed
-     * max_items leaves an index of arrays that later throws, a removed taxonomy
-     * leaves whereTaxonomy() returning entries, a changed mount leaves every
-     * entry 404ing. That set is long, version-dependent, and was not exhausted by
-     * repeated attempts to enumerate it — every pass over the code turned up
-     * another one.
+     * The Stache is repaired, not cleared: Statamic keeps the store of the item
+     * it saves current, and StacheRepair fixes the indexes elsewhere that the
+     * write left stale (see there, and StacheConsistencyTest, which proves the
+     * result equals a rebuild from disk). A full clear cost every write about
+     * 1 ms per entry on the whole site. 'clear' in the config brings it back.
      *
-     * What was wrong was clearing **mid-request**. `statamic:stache:clear` runs
-     * through Artisan and resets the in-memory stores there and then, so the
-     * rest of the call read from emptied stores: on a live multisite the tree
-     * repository returned nothing, CollectionStructure::validateTree() padded
-     * the empty tree with every entry at root, and a random entry became the
-     * homepage.
+     * Either way it waits until the call is finished. Clearing **mid-request**
+     * is what broke a live site (#53): `statamic:stache:clear` resets the
+     * in-memory stores there and then, so the rest of the call read emptied
+     * stores, the tree repository returned nothing, Statamic padded the empty
+     * tree with every entry at root, and a random entry became the homepage.
      *
-     * Deferring to the end of the call keeps the coverage and removes the
-     * mechanism. By then the response is built and nothing further reads
-     * Statamic; the next call starts fresh, with Blink flushed too.
+     * The static cache is still flushed in full: listing pages, globals and
+     * navigation render other records than the one written, and Statamic's
+     * invalidator only refreshes the written record's own URL
+     * (RenderedCacheMatrixTest).
      *
      * @param  array<int, string>  $types
      */
     protected function clearCachesAfterWrite(array $types = ['stache', 'static']): void
     {
         $wanted = array_filter($types, fn (string $type): bool => match ($type) {
-            'stache' => (bool) config('statamic.mcp.cache.clear_stache_after_write', true),
+            'stache' => $this->stacheAfterWrite() !== 'none',
             'static' => (bool) config('statamic.mcp.cache.clear_static_after_write', true),
             default => true,
         });
 
         $this->pendingCacheClears = array_values(array_unique([...$this->pendingCacheClears, ...$wanted]));
+    }
+
+    /** 'repair' (default), 'clear' (the whole Stache) or 'none'. */
+    private function stacheAfterWrite(): string
+    {
+        $mode = config('statamic.mcp.cache.stache_after_write');
+        if (in_array($mode, ['repair', 'clear', 'none'], true)) {
+            return $mode;
+        }
+
+        // A config published before v4 carries only the old on/off switch.
+        return config('statamic.mcp.cache.clear_stache_after_write', true) === false ? 'none' : 'repair';
     }
 
     /**
@@ -120,7 +131,21 @@ trait ClearsCaches
         $types = $this->pendingCacheClears;
         $this->pendingCacheClears = [];
 
-        $results = $this->clearStatamicCaches($types);
+        $results = [];
+        if (in_array('stache', $types, true) && $this->stacheAfterWrite() === 'repair') {
+            $types = array_values(array_diff($types, ['stache']));
+            try {
+                app(StacheRepair::class)->apply();
+                $results['stache'] = 'repaired';
+            } catch (\Throwable $e) {
+                // A repair that fails must not leave the Stache stale: fall back
+                // to what always works.
+                Log::warning('MCP Stache repair failed, clearing the Stache instead: ' . $e->getMessage());
+                $types = ['stache', ...$types];
+            }
+        }
+
+        $results = [...$results, ...$this->clearStatamicCaches($types)];
         $this->completedCacheClears = [...$this->completedCacheClears, ...$results];
 
         return $results;

@@ -141,13 +141,21 @@ the damage.
 
 ```php
 'cache' => [
-    'clear_stache_after_write' => env('STATAMIC_MCP_CLEAR_STACHE_AFTER_WRITE', true),
+    'stache_after_write' => env('STATAMIC_MCP_STACHE_AFTER_WRITE', 'repair'),
     'clear_static_after_write' => env('STATAMIC_MCP_CLEAR_STATIC_AFTER_WRITE', true),
 ],
 ```
 
-Turn either off if you would rather trade index freshness for speed on a large site and
-rely on your own invalidation rules. The `statamic-system` tool's `cache_clear` action is
+`stache_after_write` is `repair` by default: the indexes a write leaves stale outside its
+own store (term usage, sibling order, URIs of a mounted collection, a changed collection's
+entry indexes, role membership) are brought up to date, and nothing else is rebuilt. A write
+costs what a Statamic save costs, however large the site. `clear` clears the whole Stache
+after every write, as 3.x did (about 1 ms per entry on the site); `none` leaves it alone.
+The 3.x switch `clear_stache_after_write => false` is still read as `none`.
+
+The static cache is flushed in full after a content write, because listing pages, globals
+and navigation render more than the record written. Turn it off only if you invalidate
+those pages yourself. The `statamic-system` tool's `cache_clear` action is
 unaffected — that clear runs immediately, because it was asked for.
 
 ### `url_import`
@@ -410,7 +418,7 @@ STATAMIC_MCP_RATE_LIMIT_MAX=60
 STATAMIC_MCP_SEARCHABLE_CATALOG=true
 
 # Cache
-STATAMIC_MCP_CLEAR_STACHE_AFTER_WRITE=false
+STATAMIC_MCP_STACHE_AFTER_WRITE=repair
 STATAMIC_MCP_CLEAR_STATIC_AFTER_WRITE=true
 
 # Resources

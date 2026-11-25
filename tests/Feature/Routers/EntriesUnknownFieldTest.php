@@ -130,6 +130,25 @@ class EntriesUnknownFieldTest extends TestCase
         $this->assertTrue($result['success'], json_encode($result['errors'] ?? []));
     }
 
+    public function test_rejects_an_argument_the_tool_does_not_declare(): void
+    {
+        // A different thing from the data check above: an argument beside
+        // data. A top-level published on create was ignored, and the entry
+        // was saved as a draft with success reported.
+        $result = $this->router->execute([
+            'action' => 'create',
+            'collection' => $this->collectionHandle,
+            'slug' => 'launch',
+            'published' => true,
+            'data' => ['title' => 'Launch'],
+        ]);
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('Unknown argument: published', $result['errors'][0]);
+        $this->assertStringContainsString('inside data', $result['errors'][0]);
+        $this->assertNull(Entry::query()->where('collection', $this->collectionHandle)->where('slug', 'launch')->first());
+    }
+
     public function test_rejects_an_unknown_handle_inside_a_replicator_set(): void
     {
         $this->makeEntry('home');

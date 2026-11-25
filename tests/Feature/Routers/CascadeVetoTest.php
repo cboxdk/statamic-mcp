@@ -44,7 +44,11 @@ class CascadeVetoTest extends TestCase
         $entry->save();
         Event::listen(EntryDeleting::class, fn () => false);
 
-        $result = (new StructuresRouter)->execute(['action' => 'delete', 'resource_type' => 'collection', 'handle' => $handle, 'force' => true]);
+        // v3's `force` is no longer an argument at all, and without it the
+        // delete refuses to cascade.
+        $forced = (new StructuresRouter)->execute(['action' => 'delete', 'resource_type' => 'collection', 'handle' => $handle, 'force' => true]);
+        $this->assertStringContainsString('Unknown argument: force', implode(' ', $forced['errors'] ?? []));
+        $result = (new StructuresRouter)->execute(['action' => 'delete', 'resource_type' => 'collection', 'handle' => $handle]);
 
         $this->assertFalse($result['success'], json_encode($result));
         $this->assertNotNull(Entry::find($entry->id()));
@@ -62,7 +66,11 @@ class CascadeVetoTest extends TestCase
         $term->save();
         Event::listen(TermDeleting::class, fn () => false);
 
-        $result = (new StructuresRouter)->execute(['action' => 'delete', 'resource_type' => 'taxonomy', 'handle' => $handle, 'force' => true]);
+        // v3's `force` is no longer an argument at all, and without it the
+        // delete refuses to cascade.
+        $forced = (new StructuresRouter)->execute(['action' => 'delete', 'resource_type' => 'taxonomy', 'handle' => $handle, 'force' => true]);
+        $this->assertStringContainsString('Unknown argument: force', implode(' ', $forced['errors'] ?? []));
+        $result = (new StructuresRouter)->execute(['action' => 'delete', 'resource_type' => 'taxonomy', 'handle' => $handle]);
 
         $this->assertFalse($result['success'], json_encode($result));
         $this->assertNotNull(Term::find($term->id()));

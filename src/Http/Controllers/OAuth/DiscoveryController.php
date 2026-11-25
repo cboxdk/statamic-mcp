@@ -22,7 +22,7 @@ class DiscoveryController extends Controller
         /** @var string $mcpPath */
         $mcpPath = config('statamic.mcp.web.path', '/mcp/statamic');
 
-        $scopes = app(ScopeAvailability::class)->names();
+        $scopes = app(ScopeAvailability::class)->advertised();
 
         return response()->json([
             'resource' => $baseUrl . $mcpPath,
@@ -41,7 +41,7 @@ class DiscoveryController extends Controller
     {
         $baseUrl = $this->getBaseUrl();
 
-        $scopes = app(ScopeAvailability::class)->names();
+        $scopes = app(ScopeAvailability::class)->advertised();
 
         $metadata = [
             'issuer' => $baseUrl,

@@ -158,7 +158,7 @@ class UsersRouterTest extends TestCase
         $result = $this->router->execute([
             'action' => 'create',
             'resource_type' => 'role',
-            'title' => 'No Handle Role',
+            'data' => ['title' => 'No Handle Role'],
         ]);
 
         $this->assertFalse($result['success']);
@@ -174,7 +174,8 @@ class UsersRouterTest extends TestCase
             'role_handle' => 'nonexistent_role',
         ]);
 
+        // Wrong argument names are refused by name rather than reported as missing.
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('User identifier and role handle are required', $result['errors'][0]);
+        $this->assertStringContainsString('Unknown arguments: user_id, role_handle', $result['errors'][0]);
     }
 }

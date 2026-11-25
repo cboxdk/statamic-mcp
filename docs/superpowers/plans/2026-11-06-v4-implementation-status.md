@@ -225,17 +225,21 @@ audit insert, whatever the content size; a delete that waits for approval costs 
 No N+1. The "Stache queries" are not SQL: Statamic 6.44 emits a `QueryExecuted` on
 an in-memory `fake` connection for every Stache query, for debug bars.
 
-Writes are slow because of the deliberate full Stache clear after every write
-(see CLAUDE.md, "Cache clearing is deferred, not removed"): the next read rebuilds
-every store from disk. Statamic alone, find + save on a warm Stache, 15 ms at 300
-pages and 34 ms at 1,500; after `statamic:stache:clear`, 364 ms and 1,539 ms. It is
-linear, about 1 ms per entry, and an update in a collection with one entry costs the
-same, because the rebuild covers the whole site. The next request after a write,
-Control Panel and front end included, pays it too.
+Writes used to be slow because of the full Stache clear after every write: the next
+read rebuilt every store from disk, about 1 ms per entry on the site. Statamic alone,
+find + save on a warm Stache, takes 15 ms at 300 pages and 34 ms at 1,500; after
+`statamic:stache:clear`, 364 ms and 1,539 ms.
 
-Stdio (one process, 130 mixed calls): reads are flat over 150 calls. Writes grow
-about 18 kB each. That is Statamic: `stache:clear` followed by find + save grows
-18 kB per round without MCP, find + save without the clear grows nothing, and
+Since then a write repairs only the indexes it leaves stale (`StacheRepair`, see
+CLAUDE.md, "The Stache is repaired after a write, late"). `StacheConsistencyTest`
+compares every index of every store after 33 kinds of write with a rebuild from disk;
+13 of them fail without the repair. On the 1,500-page site, in-process through the
+router (median of 5): update 34 ms, create 48 ms, delete 37 ms, against 1,575, 1,621 and
+937 ms with `stache_after_write = clear`.
+
+Stdio (one process, 130 mixed calls): reads are flat over 150 calls. With the full
+clear, writes grew about 18 kB each. That is Statamic: `stache:clear` followed by find
++ save grows 18 kB per round without MCP, find + save without the clear grows nothing, and
 neither container instances, event listeners nor static properties grow. HTTP is
 unaffected (a process per request).
 
@@ -255,12 +259,11 @@ No exporter I/O exists in this package; telemetry lives in statamic-telemetry.
 | 8 | Private cache, revoke | Covered (cache hints `private`) |
 | 9 | Wire tests and real clients | Wire tests, SDK clients and Claude Code (bearer, stdio, OAuth with CIMD, refresh, replay) yes; Claude Desktop and Cursor no |
 | 10 | PHP/Laravel/Statamic matrix, file/database, SEO Pro | Covered, lowest included |
-| 11 | Response size, queries, memory | Measured: constant SQL per call, peak 2.6–26 MB; writes O(site size) through the post-write Stache clear |
+| 11 | Response size, queries, memory | Measured: constant SQL per call, peak 2.6–26 MB; writes repair the Stache instead of clearing it (34 ms against 1,575 ms at 1,500 pages) |
 | 12 | PHPStan 9, Pint, audit, migration fixtures, manual security review | Automated parts pass; v3.6.2 token fixture; the manual review of final writes and grants is for a person |
 
 Open before a release: the manual security review (12), Claude Desktop and
-Cursor (9), PostgreSQL concurrency (5), a decision on the write cost on large sites
-(11), and the release procedure itself.
+Cursor (9), PostgreSQL concurrency (5), and the release procedure itself.
 
 Registered read actions now have public HTTP/stdio adapters and participate in
 tool search. Registered writes remain unexposed until resource versioning and

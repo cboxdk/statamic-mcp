@@ -19,6 +19,7 @@ use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\RouterHelpers;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
+use Illuminate\JsonSchema\JsonSchemaTypeFactory;
 use Illuminate\Support\Str;
 
 /**
@@ -153,6 +154,15 @@ abstract class BaseRouter extends BaseStatamicTool
 
         $action = is_string($arguments['action'] ?? null) ? $arguments['action'] : '';
 
+        // A write must not drop what it was asked to do: a top-level
+        // `published` on create was ignored, and the entry saved as a draft.
+        if ($this->isWriteAction($action) && ($unknown = $this->unknownArguments($arguments)) !== []) {
+            return $this->createErrorResponse(
+                'Unknown argument' . (count($unknown) > 1 ? 's' : '') . ': ' . implode(', ', $unknown) . '. Nothing was written.'
+                . ($this->acceptsArgument('data') ? ' Field values and flags such as published go inside data.' : '')
+            )->toArray();
+        }
+
         // Token scope and Statamic permissions (HTTP), resource policy (every
         // transport): the same decision resources ask for.
         $denial = app(McpAuthorizer::class)->denial($this->describeCall($action, $arguments));
@@ -177,6 +187,28 @@ abstract class BaseRouter extends BaseStatamicTool
 
         // Filter denied fields from output
         return $this->filterOutputFields($result);
+    }
+
+    /**
+     * Top-level arguments the tool's schema does not declare.
+     *
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return list<string>
+     */
+    private function unknownArguments(array $arguments): array
+    {
+        return array_values(array_filter(array_map('strval', array_keys($arguments)), fn (string $key): bool => ! $this->acceptsArgument($key)));
+    }
+
+    /** @var array<string, mixed>|null */
+    private ?array $declaredArguments = null;
+
+    private function acceptsArgument(string $key): bool
+    {
+        $this->declaredArguments ??= $this->defineSchema(new JsonSchemaTypeFactory);
+
+        return array_key_exists($key, $this->declaredArguments);
     }
 
     /**

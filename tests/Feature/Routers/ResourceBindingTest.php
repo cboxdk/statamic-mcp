@@ -125,7 +125,8 @@ class ResourceBindingTest extends TestCase
             'handle' => 'protected_one', 'collection' => 'allowed_one',
         ]);
         $this->assertFalse($denied['success']);
-        $this->assertStringContainsString('not permitted by resource policy', (string) ($denied['errors'][0] ?? ''));
+        // An undeclared argument cannot reach the policy at all any more.
+        $this->assertStringContainsString('Unknown argument: collection', (string) ($denied['errors'][0] ?? ''));
         $this->assertNotNull(Collection::find('protected_one'));
 
         // Control: a bare allowed handle is not blocked by the policy.

@@ -98,7 +98,7 @@ afterEach(function () {
 
 function chDelete(array $extra = []): array
 {
-    return (new EntriesRouter)->execute(['action' => 'delete', 'collection' => 'ch_pages', 'id' => 'ch-one', 'secret_marker' => 'do-not-leak'] + $extra);
+    return (new EntriesRouter)->execute(['action' => 'delete', 'collection' => 'ch_pages', 'id' => 'ch-one', 'revision_message' => 'do-not-leak'] + $extra);
 }
 
 it('mails the owner through the site mailer by default, without the call arguments', function () {

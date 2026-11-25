@@ -22,6 +22,7 @@ use Cboxdk\StatamicMcp\Http\Middleware\RequireMcpPermission;
 use Cboxdk\StatamicMcp\Http\Middleware\SetOAuthWwwAuthenticate;
 use Cboxdk\StatamicMcp\Http\Middleware\ValidateMcpOrigin;
 use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
+use Cboxdk\StatamicMcp\Mcp\Support\StacheRepair;
 use Cboxdk\StatamicMcp\OAuth\Cimd\CimdResolver;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
 use Cboxdk\StatamicMcp\OAuth\Drivers\BuiltInOAuthDriver;
@@ -36,6 +37,7 @@ use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Database\DatabaseManager;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Laravel\Mcp\Facades\Mcp;
@@ -77,6 +79,10 @@ class ServiceProvider extends AddonServiceProvider
         }
 
         $this->alignToolSearchOutputBudget();
+
+        // Writes made through MCP repair the Stache indexes they leave stale.
+        Event::listen(StacheRepair::EVENTS,
+            fn (object $event) => $this->app->make(StacheRepair::class)->record($event));
 
         // Only load routes if MCP is available
         if (class_exists('Laravel\Mcp\Facades\Mcp')) {
@@ -253,6 +259,7 @@ class ServiceProvider extends AddonServiceProvider
             $this->app->make(Actions\ObserverRegistry::class), $this->app, $this->app->make(LoggerInterface::class),
         ));
         $this->app->singleton(Actions\ScopeRegistry::class);
+        $this->app->singleton(StacheRepair::class);
         $this->app->singleton(Actions\CapabilityRegistry::class);
         $this->app->booted(function (): void {
             // AddonServiceProvider defers bootAddon to Statamic's booted queue.

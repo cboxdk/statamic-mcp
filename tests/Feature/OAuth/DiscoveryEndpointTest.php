@@ -34,9 +34,14 @@ class DiscoveryEndpointTest extends TestCase
         $data = $response->json();
         $scopes = $data['scopes_supported'];
 
-        // Ensure all TokenScope values are present
+        // Every scope a client can be granted; the v3 admin :write scopes
+        // load on old tokens but grant nothing, so they are not offered.
         foreach (TokenScope::cases() as $scope) {
-            $this->assertContains($scope->value, $scopes, "Scope {$scope->value} should be present");
+            if ($scope->replacedBy() === null) {
+                $this->assertContains($scope->value, $scopes, "Scope {$scope->value} should be present");
+            } else {
+                $this->assertNotContains($scope->value, $scopes, "Replaced scope {$scope->value} must not be advertised");
+            }
         }
 
         $this->assertContains('*', $scopes);
@@ -72,8 +77,11 @@ class DiscoveryEndpointTest extends TestCase
         $scopes = $data['scopes_supported'];
 
         foreach (TokenScope::cases() as $scope) {
-            $this->assertContains($scope->value, $scopes, "Scope {$scope->value} should be present");
+            $scope->replacedBy() === null
+                ? $this->assertContains($scope->value, $scopes, "Scope {$scope->value} should be present")
+                : $this->assertNotContains($scope->value, $scopes, "Replaced scope {$scope->value} must not be advertised");
         }
+        $this->assertContains('structures:admin', $scopes);
     }
 
     public function test_authorization_server_includes_s256_code_challenge(): void
