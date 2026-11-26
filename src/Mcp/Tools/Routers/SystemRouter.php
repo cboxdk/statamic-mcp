@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
+use Cboxdk\StatamicMcp\Mcp\Exceptions\ToolFailure;
+use Cboxdk\StatamicMcp\Mcp\Support\ContentSearch;
+use Cboxdk\StatamicMcp\Mcp\Support\StaticCacheMaintenance;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
@@ -13,6 +16,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Validator;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Attributes\Title;
@@ -42,8 +46,11 @@ class SystemRouter extends BaseRouter
             RouterAction::read('health', 'Run the health checks and report what they found', optional: []),
             RouterAction::read('cache_status', 'Report the state of each cache, or of one', optional: ['cache_type']),
             RouterAction::admin('cache_clear', 'Clear a cache; cache_type defaults to all', optional: ['cache_type']),
-            RouterAction::admin('cache_warm', 'Warm a cache; cache_type defaults to stache', optional: ['cache_type']),
+            RouterAction::admin('cache_warm', 'Warm stache, queue static pages, or both (all). Defaults to stache. Static warming requires an asynchronous queue.', optional: ['cache_type']),
+            RouterAction::admin('invalidate_urls', 'Invalidate specific static-cache URLs within configured sites.', needs: ['urls']),
             RouterAction::read('config_get', 'Read an MCP configuration value', needs: ['config_key']),
+            RouterAction::read('search', 'Search a configured index for readable entries, terms and assets. Domains with protected fields are omitted to prevent search-value leaks.', needs: ['handle', 'query'], optional: ['site', 'limit', 'cursor']),
+            RouterAction::admin('reindex', 'Rebuild a configured search index; native queues may finish later. Requires approval by default.', needs: ['handle'], optional: ['site']),
         ];
     }
 
@@ -56,14 +63,20 @@ class SystemRouter extends BaseRouter
     {
         return array_merge(parent::defineSchema($schema), [
             'cache_type' => JsonSchema::string()
-                ->description('Cache type to clear or warm. "all" clears everything, "stache" for content index, "static" for static page cache, "views" for compiled views')
-                ->enum(['all', 'stache', 'static', 'views', 'app', 'config', 'route']),
+                ->description('Cache type: stache, static pages, glide images, views, app, config or route. cache_warm supports only stache, static and all.')
+                ->enum(['all', 'stache', 'static', 'glide', 'views', 'app', 'config', 'route']),
+            'urls' => JsonSchema::array()->items(JsonSchema::string())->description('Absolute site URLs to invalidate. No wildcards, credentials or dot segments. Maximum 500.'),
             'config_key' => JsonSchema::string()
                 ->description('Laravel/Statamic configuration key in dot notation. Example: "statamic.mcp.web.enabled", "app.name"'),
             'include_details' => JsonSchema::boolean()
                 ->description('Include detailed metrics and diagnostic information'),
             'include_performance' => JsonSchema::boolean()
                 ->description('Include performance metrics like response times and memory usage'),
+            'handle' => JsonSchema::string()->description('Configured Statamic search index handle.'),
+            'query' => JsonSchema::string()->description('Text to search for.')->min(1)->max(1000),
+            'site' => JsonSchema::string()->description('Restrict search results or index rebuild to this site.'),
+            'limit' => JsonSchema::integer()->description('Maximum search results per page, from 1 to 500.')->min(1)->max(500),
+            'cursor' => JsonSchema::string()->description('Opaque next_cursor returned by the previous search page.'),
         ]);
     }
 
@@ -84,9 +97,47 @@ class SystemRouter extends BaseRouter
             'cache_status' => $this->getCacheStatus($arguments),
             'cache_clear' => $this->clearCache($arguments),
             'cache_warm' => $this->warmCache($arguments),
+            'invalidate_urls' => $this->invalidateUrls($arguments),
             'config_get' => $this->getConfig($arguments),
+            'search' => $this->search($arguments),
+            'reindex' => $this->reindex($arguments),
             default => $this->createErrorResponse("Unknown system action: {$action}")->toArray(),
         };
+    }
+
+    /** @param array<string, mixed> $arguments
+     * @return array<string, mixed>
+     */
+    private function search(array $arguments): array
+    {
+        $items = app(ContentSearch::class)->search($this->getStringArgument($arguments, 'handle'),
+            isset($arguments['site']) ? $this->getStringArgument($arguments, 'site') : null,
+            $this->getStringArgument($arguments, 'query'));
+        ['limit' => $limit, 'offset' => $offset] = $this->getPaginationArgs($arguments);
+
+        return $this->buildPage(array_slice($items, $offset, $limit), count($items), $offset, $arguments);
+    }
+
+    /** @param array<string, mixed> $arguments
+     * @return array<string, mixed>
+     */
+    private function reindex(array $arguments): array
+    {
+        $indexes = app(ContentSearch::class)->indexes($this->getStringArgument($arguments, 'handle'),
+            isset($arguments['site']) ? $this->getStringArgument($arguments, 'site') : null);
+        $names = [];
+        foreach ($indexes as $index) {
+            $this->persistStatamic(fn () => $index->update(), []);
+            $names[] = $index->name();
+        }
+
+        return ['indexes' => $names, 'status' => 'submitted'];
+    }
+
+    protected function writesReachOutside(): bool
+    {
+        // The operator may configure a hosted search driver such as Algolia.
+        return true;
     }
 
     /**
@@ -250,7 +301,7 @@ class SystemRouter extends BaseRouter
         $cleared = [];
         /** @var array<int, string> $cacheTypes */
         $cacheTypes = $cacheType === 'all'
-            ? ['stache', 'static', 'views', 'app', 'config', 'route']
+            ? ['stache', 'static', 'glide', 'views', 'app', 'config', 'route']
             : [$cacheType];
         foreach ($cacheTypes as $type) {
             $result = $this->clearCacheType($type);
@@ -274,21 +325,37 @@ class SystemRouter extends BaseRouter
             return $this->createErrorResponse('Permission denied: Cannot warm cache', code: ErrorCode::Forbidden)->toArray();
         }
         $cacheType = $arguments['cache_type'] ?? 'stache';
-        $warmed = [];
-        if ($cacheType === 'stache' || $cacheType === 'all') {
-            // Warm Stache cache
-            Artisan::call('statamic:stache:warm');
-            $warmed['stache'] = ['status' => 'warmed', 'command' => 'statamic:stache:warm'];
+        if (! in_array($cacheType, ['stache', 'static', 'all'], true)) {
+            throw new ToolFailure(ErrorCode::Validation, 'Warming supports stache, static or all.', 'cache_type');
         }
+        $warmed = [];
         if ($cacheType === 'static' || $cacheType === 'all') {
-            // Static cache warming would go here if available
-            $warmed['static'] = ['status' => 'skipped', 'reason' => 'No warming command available'];
+            $maintenance = app(StaticCacheMaintenance::class);
+            $urls = $maintenance->warmableUrls();
+            $this->persistStatamic(fn () => $maintenance->queueWarm($urls), []);
+            $warmed['static'] = ['status' => 'queued', 'urls' => count($urls)];
+        }
+        if ($cacheType === 'stache' || $cacheType === 'all') {
+            $this->persistStatamic(fn () => Artisan::call('statamic:stache:warm'), []);
+            $warmed['stache'] = ['status' => 'warmed', 'command' => 'statamic:stache:warm'];
         }
 
         return [
             'cache_warmed' => $warmed,
             'timestamp' => now()->toISOString(),
         ];
+    }
+
+    /** @param array<string, mixed> $arguments
+     * @return array<string, mixed>
+     */
+    private function invalidateUrls(array $arguments): array
+    {
+        Validator::make($arguments, ['urls' => ['required', 'array', 'list', 'min:1', 'max:500'], 'urls.*' => ['required', 'string']])->validate();
+        $urls = is_array($arguments['urls']) ? array_values(array_filter($arguments['urls'], is_string(...))) : [];
+        $this->persistStatamic(fn () => app(StaticCacheMaintenance::class)->invalidate($urls), []);
+
+        return ['urls' => array_values(array_unique($urls)), 'status' => 'invalidated'];
     }
 
     /**
@@ -391,6 +458,7 @@ class SystemRouter extends BaseRouter
         return match ($type) {
             'stache' => $this->runArtisanCommand('statamic:stache:clear'),
             'static' => $this->runArtisanCommand('statamic:static:clear'),
+            'glide' => $this->runArtisanCommand('statamic:glide:clear'),
             'views' => $this->runArtisanCommand('view:clear'),
             'app' => $this->runArtisanCommand('cache:clear'),
             'config' => $this->runArtisanCommand('config:clear'),
@@ -477,8 +545,8 @@ class SystemRouter extends BaseRouter
         // 'super' will never match a real permission, so only super admins (who bypass
         // permission checks entirely in checkWebPermissions) can execute them.
         return match ($action) {
-            'info', 'health', 'cache_status', 'config_get' => ['access utilities'],
-            'cache_clear', 'cache_warm' => ['super'],
+            'info', 'health', 'cache_status', 'config_get', 'search' => ['access utilities'],
+            'cache_clear', 'cache_warm', 'reindex' => ['super'],
             default => ['super'],
         };
     }

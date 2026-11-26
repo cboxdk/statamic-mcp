@@ -46,6 +46,7 @@ use Laravel\Mcp\Server\Middleware\AddWwwAuthenticateHeader;
 use Laravel\Mcp\Server\Middleware\ValidateOrigin;
 use Psr\Log\LoggerInterface;
 use Statamic\CP\Navigation\NavItem;
+use Statamic\Facades\Addon;
 use Statamic\Facades\CP\Nav;
 use Statamic\Facades\Git;
 use Statamic\Facades\Permission;
@@ -80,6 +81,13 @@ class ServiceProvider extends AddonServiceProvider
         }
 
         $this->alignToolSearchOutputBudget();
+
+        if (Statamic::formsProInstalled()) {
+            Integration\FormsPro::register();
+        }
+        if (Addon::all()->has('statamic/seo-pro')) {
+            Integration\SeoPro::register();
+        }
 
         // Writes made through MCP repair the Stache indexes they leave stale.
         Event::listen(StacheRepair::EVENTS,

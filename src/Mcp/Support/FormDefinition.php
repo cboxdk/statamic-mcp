@@ -29,6 +29,7 @@ final class FormDefinition
             'definition.pages.*.id' => ['required', 'string', 'distinct', 'regex:/^[a-zA-Z0-9_-]+$/D'],
             'definition.pages.*.sections' => ['present', 'array', 'list'],
         ])->validate();
+        FormPageRules::validate($definition);
         $fields = new FormFields($definition);
         if (is_array($definition['pages'] ?? null) && count($definition['pages']) > 1 && ! Statamic::formsProInstalled()) {
             throw new ToolFailure(ErrorCode::Validation, 'Multiple pages require Forms Pro.', 'data.fields.pages');
@@ -182,8 +183,10 @@ final class FormDefinition
                 $node[$key] = $resolved->fields()->except($denied)->map(fn (FormField $field, string $handle): array => [
                     'handle' => $handle, 'field' => $this->filterDefinitions($field->config(), $denied),
                 ])->values()->all();
-            } else {
-                $node[$key] = $this->filterDefinitions($value, $denied);
+            } elseif ($key === 'rules' && isset($node['sections'])) {
+                $node[$key] = array_values(array_filter($value, fn (mixed $rule): bool => is_array($rule) && ! FormPageRules::referencesProtectedField($rule, $denied)));
+            } elseif ($key === 'pages' || $key === 'sections') {
+                $node[$key] = array_map(fn (mixed $child): mixed => is_array($child) ? $this->filterDefinitions($child, $denied) : $child, $value);
             }
         }
 

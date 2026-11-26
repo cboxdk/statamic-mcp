@@ -30,7 +30,7 @@ class ActionCoverageInventoryTest extends TestCase
         'forms' => ['list', 'get', 'list_submissions', 'get_submission', 'export', 'summary'],
         'globals' => ['list', 'get'],
         'structures' => ['list', 'get'],
-        'system' => ['info', 'health', 'cache_status', 'config_get'],
+        'system' => ['info', 'health', 'cache_status', 'config_get', 'search'],
         'terms' => ['list', 'get'],
         'users' => ['list', 'get', 'search'],
     ];

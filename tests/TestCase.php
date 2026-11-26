@@ -7,6 +7,7 @@ use Illuminate\Filesystem\Filesystem;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\File;
 use Laravel\Mcp\Server\McpServiceProvider;
+use Statamic\Exceptions\NotFoundHttpException;
 use Statamic\Statamic;
 use Statamic\Testing\AddonTestCase;
 use Statamic\Testing\Concerns\PreventsSavingStacheItemsToDisk;
@@ -38,6 +39,8 @@ abstract class TestCase extends AddonTestCase
         $app['config']->set('statamic.users.repositories.file.paths.groups', $directory . '/groups.yaml');
         // Forms 2 definitions also bypass the Stache fixture trait.
         $app['config']->set('statamic.forms.forms', $directory . '/forms');
+        // Approval/idempotency records must not fill the shared store across tests.
+        $app['config']->set('statamic.mcp.storage.operations_path', $directory . '/operations');
     }
 
     protected function tearDown(): void
@@ -83,9 +86,12 @@ abstract class TestCase extends AddonTestCase
         // registered every one of them: per-test time grew with the test count
         // until CI jobs hit their timeout. One boot per process in production
         // never sees this.
-        foreach (['cpRoutes', 'afterInstalledCallbacks'] as $list) {
+        foreach (['cpRoutes', 'webRoutes', 'actionRoutes', 'afterInstalledCallbacks'] as $list) {
             (new \ReflectionProperty(Statamic::class, $list))->setValue(null, []);
         }
+        // SEO Pro installs a process-wide 404 callback. The next test may boot
+        // without its provider and repositories, so it must start without it.
+        NotFoundHttpException::renderUsing(fn () => null);
 
         parent::setUp();
 

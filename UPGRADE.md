@@ -54,6 +54,26 @@ to the integration API requires fresh consent. Contract or version changes also
 require re-authorization rather than expanding an existing token. See
 [extending tools](docs/extending/tools.md) for the migration and deferred cache effects.
 
+Forms Pro and SEO Pro are optional reference integrations, installed and licensed
+separately. Neither is a runtime dependency. Grant their package-owned scopes through
+fresh consent; existing tokens remain unchanged. SEO redirect creation also needs
+delete authority because the native save deletes matching 404 errors. Reports and
+sitemap require separate site-wide authority. See [Forms Pro](docs/extending/forms-pro.md)
+and [SEO Pro](docs/extending/seo-pro.md).
+
+## Search and cache
+
+System `search` reads only built-in local indexes and filters by the content scopes,
+permissions, sites and resource policies. Missing indexes are not created by reads.
+`reindex` requires a super user and approval by default. Domains with denied fields
+are omitted from search to prevent revealing protected values through hit presence.
+
+`cache.static_after_write` accepts `full`, `statamic` or `refresh`. Leaving it unset
+preserves `clear_static_after_write`. `refresh` needs an asynchronous Statamic warm
+queue and worker: it clears first, then queues previously cached pages. Explicit
+`cache_warm` can now warm static pages, and `cache_clear all` now includes Glide.
+See [search and cache](docs/tools/search-and-cache.md) before changing these settings.
+
 ## What the token plan does
 
 | v3 token | v4 |

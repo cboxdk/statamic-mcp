@@ -47,6 +47,8 @@ final class ResultSchema
             'users' => ['anyOf' => [self::wrapped('user', $action !== 'get'), self::wrapped('role'), self::wrapped('group')]],
             'structures' => ['anyOf' => array_map(self::wrapped(...), ['collection', 'taxonomy', 'navigation', 'globalset', 'site'])],
             'system' => match ($action) {
+                'reindex' => self::object(['indexes' => ['type' => 'array', 'items' => $string], 'status' => ['const' => 'submitted']], ['indexes', 'status']),
+                'invalidate_urls' => self::object(['urls' => ['type' => 'array', 'items' => $string], 'status' => ['const' => 'invalidated']], ['urls', 'status']),
                 'info' => self::object(['system_info' => self::object([
                     'environment' => $string, 'debug_mode' => $boolean, 'timezone' => $string,
                 ], ['environment', 'debug_mode', 'timezone'])], ['system_info']),

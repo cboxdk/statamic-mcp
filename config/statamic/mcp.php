@@ -368,6 +368,9 @@ return [
     */
     'cache' => [
         'stache_after_write' => env('STATAMIC_MCP_STACHE_AFTER_WRITE', 'repair'),
+        // full: clear; statamic: native rules only; refresh: clear, then queue
+        // previously cached pages. Null preserves the legacy switch below.
+        'static_after_write' => env('STATAMIC_MCP_STATIC_AFTER_WRITE'),
         'clear_static_after_write' => env('STATAMIC_MCP_CLEAR_STATIC_AFTER_WRITE', true),
     ],
 

@@ -11,6 +11,8 @@ extension points that let a site or an addon close that gap.
 
 ## Guides
 
+- **[Forms Pro](forms-pro.md)** — Automagic settings, native page logic and Address fields
+- **[SEO Pro](seo-pro.md)** — Defaults, redirects, errors, reports and sitemap
 - **[Tools](tools.md)** — Serve your own tools from this server, behind the same tokens, permissions and audit log
 - **[Approval channels](approval-channels.md)** — Tell people about waiting approvals by mail, web push and webhooks (Cbox Relay), let them approve on their phone (Cbox ID), or add your own channel
 - **[Lifecycle events](lifecycle-events.md)** — Observe tool executions, approvals and grants for metrics, traces or your own audit

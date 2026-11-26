@@ -104,7 +104,7 @@ The blueprint read tool advertises `anthropic/maxResultSizeChars`, capped at 500
 
 Record writes return the saved record, including its opaque `version`, under the same key as `get` (`entry`, `term`, `global`, etc.). Deletes return the final snapshot. An asset copy returns the new record under `copy`. A collection move returns its saved tree and only the configuration the caller may see; a reorder-only editor does not gain administrative settings. Denied-field policies apply to write responses too, and user credentials are never included.
 
-Versions fingerprint record state; they are not framework versions. Only entries, terms and globals accept `expected_version` for optimistic concurrency. Collection responses with `include_tree` also version the selected site's tree; those without it version the collection settings. User IDs are strings on both storage backends. System operations, such as cache clearing, do not have record versions.
+Versions fingerprint record state; they are not framework versions. Entries, terms, globals and forms accept `expected_version` for optimistic concurrency, as do the optional Forms Pro settings and SEO Pro defaults/redirects. Check the action schema for supported arguments. Collection responses with `include_tree` also version the selected site's tree; those without it version the collection settings. User IDs are strings on both storage backends. System operations, such as cache clearing, do not have record versions.
 
 Every built-in tool publishes an `outputSchema` for its envelope and result variants. Clients can validate `structuredContent` directly. Failed calls require `error`; successful calls carry the tool's records or list page. A completed write whose full response exceeds the configured limit remains successful with `response_truncated: true` and identifying metadata; do not repeat the write to retrieve its content.
 
@@ -416,9 +416,16 @@ System information, health checks, cache management, and configuration access.
 | `info` | Get system information | — |
 | `health` | Health check status | — |
 | `cache_status` | Check cache status and statistics | `include_details` |
-| `cache_clear` | Clear system caches | `cache_type` (all, stache, static, views, app, config, route) |
-| `cache_warm` | Warm system caches | `cache_type` |
+| `cache_clear` | Clear system caches | `cache_type` (all, stache, static, glide, views, app, config, route) |
+| `cache_warm` | Warm the Stache or queue static pages | `cache_type` (stache, static, all) |
+| `invalidate_urls` | Invalidate a validated batch of site URLs | `urls` |
+| `search` | Permission-filtered local-index search | `handle`, `query`, `site`, `limit`, `cursor` |
+| `reindex` | Submit a native index rebuild; approval required by default | `handle`, `site` |
 | `config_get` | Read config value | `config_key` |
+
+See [Search and cache](search-and-cache.md) for driver limits, content authorization,
+queue requirements and post-write cache modes. Optional [Forms Pro](../extending/forms-pro.md)
+and [SEO Pro](../extending/seo-pro.md) tools have separately approved integration scopes.
 
 ### `statamic-content-facade`
 

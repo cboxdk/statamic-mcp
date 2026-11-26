@@ -77,6 +77,8 @@
         }
     },
     "suggest": {
+        "statamic/forms-pro": "Forms Pro reference integration: Automagic settings, page logic and Address fields (^1.0.1; separately licensed)",
+        "statamic/seo-pro": "SEO Pro reference integration: defaults, redirects, errors, reports and sitemap (^7.16; separately licensed)",
         "laravel/boost": "Enhances the development experience when working with this Statamic MCP server by providing powerful Laravel-specific tools and debugging capabilities",
         "cboxdk/laravel-relay-client": "Cbox Relay (cboxrelay.com): approval requests by mail, web push and webhooks (^0.2.3, PHP 8.4)",
         "cboxdk/laravel-id-client": "Cbox ID (cboxid.com): approve agent actions on your phone with OpenID CIBA (^0.19.8, PHP 8.4)"

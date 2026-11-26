@@ -9,6 +9,65 @@ Branch: `sd/release/v4`. Worktree: `security-review-hardening/statamic-mcp`.
 Status: implementation in progress, not release-ready. No public release or tag.
 Draft PR: https://github.com/cboxdk/statamic-mcp/pull/88.
 
+## Phase 3.4–3.6 — SEO Pro, search and cache
+
+SEO Pro uses the integration API for native defaults, redirects, errors, reports,
+sitemap and field data. Redirect creation also checks delete authority because
+the native save removes matching errors. Site-wide reports and sitemap require a
+super user, dedicated grant and unrestricted content/SEO policies. Report reads
+never regenerate; generation uses native chunks and retention.
+
+Search checks each candidate's scope, resource policy, native record permission
+and site before paging. Domains with denied fields are omitted to prevent a hit
+from leaking protected values. Reads support the native local Comb index only;
+hosted/custom drivers are refused instead of returning an incomplete first page.
+Reindex uses the configured driver and requires approval over HTTP.
+
+Static cache modes are `full`, native-only `statamic`, and clear-then-queue
+`refresh`. Warming preserves worker connection/queue through pagination and never
+follows redirects. URL batches are validated before invalidation against configured
+site origins, not the request Host. Glide is included in explicit cache clearing.
+Avoiding a duplicate `rules: all` flush checks actual files as well as metadata.
+
+Independent reviews found redirect site binding, hit metadata loss, swallowed
+native persistence vetoes, inherited-default copying, malformed opening hours,
+report generation edge cases, asset search permissions, incomplete hosted search,
+lost warmer queue configuration, Host poisoning and stale file-cache detection.
+These are fixed and regression-covered. Follow-up review found the configured
+redirect response code, encoded pagination names and application-subdirectory URL
+joining; those final corrections passed local regressions, not another review.
+
+Final optional suite: **2246 passed, 6 database-dependent skips, 12627 assertions**
+(539.25 seconds). Combined focused gate: **104 passed, 1802 assertions** (54.36
+seconds). With Forms Pro and SEO Pro uninstalled, the integration/protocol/forms/
+search/cache gate passed **104 tests, 1757 assertions**, with 17 optional-addon
+tests skipped. PHPStan 9, Pint, Composer audit, all 184 core-lock dependency
+licenses and CycloneDX 1.5 generation passed. The committed SBOM remains the
+release snapshot, as required by the library CI policy.
+
+The full run exposed shared operation storage and SEO Pro's process-global 404
+callback leaking between test applications; the base fixture now isolates both.
+Native inherited-default validation still prints an upstream Antlers
+`str_replace(null)` deprecation; it is not suppressed. Remote CI is pending.
+
+On the disposable 1,512-page site, seven warm updates measured a median **47.65 ms
+before / 44.52 ms after** the cache changes. This is no observed regression, not a
+statistically established speedup; the complete release budgets remain phase 5.
+
+## Phase 3.3 — Forms Pro
+
+Optional package-owned read/write tools cover Automagic settings and native page
+logic. Address fields use the integration format/sanitizer API. Connector settings
+stay inaccessible; rule conditions on protected fields cannot be read or probed.
+Native permissions apply to the token's actor, including stdio. A dedicated CI job
+installs Forms Pro 1.0.1; it is not a runtime dependency or bundled commercial code.
+
+Independent review found that an unanswered form could not be evaluated. The new
+regression failed before the fix; omitted or empty data now uses native empty-input
+evaluation. The focused Forms Pro/core Forms run passed **21 tests, 163 assertions**.
+The later combined gate above includes this correction. Phase 3 is prepared as a
+checkpoint on `sd/release/v4`; remote CI remains pending.
+
 ## Phase 3.2 — Forms 2
 
 Native form definitions and site-bound submissions now have separate scopes.
@@ -43,8 +102,8 @@ Final local gate: **2161 passed, 33 environment-dependent skips, 11653 assertion
 all 183 locked dependency licenses passed. Real cache/search/filesystem assertions
 cover deferred effects after both a successful write and a throw-after-save.
 
-Forms Pro, SEO Pro, system search and the cache modes in 3.3–3.6 remain
-outstanding. No phase-3 merge, tag or release.
+The later phase-3 sections above supersede this foundation-only checkpoint.
+No phase-3 merge, tag or release.
 
 ## Polish plan checkpoint — 2026-11-26
 

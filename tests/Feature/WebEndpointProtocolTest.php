@@ -313,7 +313,7 @@ class WebEndpointProtocolTest extends TestCase
     {
         $tools = collect($this->rpc('tools/list')->json('result.tools'))->keyBy('name');
         $this->assertSame(['create', 'update', 'move', 'delete'], $tools['statamic-structures-admin']['inputSchema']['properties']['action']['enum']);
-        $this->assertSame(['cache_clear', 'cache_warm'], $tools['statamic-system-admin']['inputSchema']['properties']['action']['enum']);
+        $this->assertSame(['cache_clear', 'cache_warm', 'invalidate_urls', 'reindex'], $tools['statamic-system-admin']['inputSchema']['properties']['action']['enum']);
         $this->assertArrayNotHasKey('config_value', $tools['statamic-system-admin']['inputSchema']['properties']);
 
         foreach ([

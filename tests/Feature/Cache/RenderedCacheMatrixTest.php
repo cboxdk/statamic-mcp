@@ -4,14 +4,21 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Tests\Feature\Cache;
 
+use Cboxdk\StatamicMcp\Mcp\Support\StaticCacheMaintenance;
+use Cboxdk\StatamicMcp\Mcp\Support\WarmSitePage as StaticWarmJob;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\EntriesRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\GlobalsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\StructuresRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\SystemRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\TermsRouter;
 use Cboxdk\StatamicMcp\Tests\TestCase;
+use GuzzleHttp\Promise\Create;
+use GuzzleHttp\Psr7\Response;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\View;
+use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Statamic\Contracts\GraphQL\ResponseCache;
@@ -20,10 +27,15 @@ use Statamic\Facades\Collection;
 use Statamic\Facades\Entry;
 use Statamic\Facades\GlobalSet;
 use Statamic\Facades\Nav;
+use Statamic\Facades\Site;
 use Statamic\Facades\Stache;
 use Statamic\Facades\Taxonomy;
 use Statamic\Facades\Term;
 use Statamic\StaticCaching\Cacher;
+use Statamic\StaticCaching\Cachers\ApplicationCacher;
+use Statamic\StaticCaching\DefaultInvalidator;
+use Statamic\StaticCaching\Invalidator;
+use Statamic\StaticCaching\StaticCacheManager;
 
 /**
  * The V08 cache matrix, measured on rendered pages rather than on which
@@ -199,6 +211,151 @@ class RenderedCacheMatrixTest extends TestCase
         app(Cacher::class)->flush();
         Cache::flush();
         $this->assertPages($expected, 'cold');
+    }
+
+    public static function cacheModes(): array
+    {
+        return [['full', false], ['statamic', false], ['refresh', false], ['full', true], ['refresh', true]];
+    }
+
+    #[DataProvider('cacheModes')]
+    public function test_static_modes_render_fresh_pages_or_preserve_native_invalidation(string $mode, bool $all): void
+    {
+        config(['statamic.mcp.cache.static_after_write' => $mode, 'statamic.static_caching.invalidation.rules' => $all ? 'all' : [],
+            'statamic.static_caching.warm_queue_connection' => 'database']);
+        Queue::fake([StaticWarmJob::class]);
+        $cacher = new class(Cache::store(), config('statamic.static_caching.strategies.half')) extends ApplicationCacher
+        {
+            public int $flushes = 0;
+
+            public function flush()
+            {
+                $this->flushes++;
+                parent::flush();
+            }
+        };
+        app(StaticCacheManager::class)->extend('counted', fn () => $cacher);
+        config(['statamic.static_caching.strategies.counted' => ['driver' => 'counted'], 'statamic.static_caching.strategy' => 'counted']);
+        app()->instance(Cacher::class, $cacher);
+        app()->instance(Invalidator::class, new DefaultInvalidator($cacher, $all ? 'all' : []));
+        $this->fetch('/home')->assertSee('Post A^');
+        $this->fetch('/blog/post-a')->assertSee('POST=Post A');
+        $result = (new EntriesRouter)->execute(['action' => 'update', 'collection' => 'blog', 'id' => $this->ids['post-a'], 'data' => ['title' => 'Changed']]);
+        $this->assertTrue($result['success'], json_encode($result));
+        $this->assertSame($mode === 'statamic' ? 0 : 1, $cacher->flushes, 'Native rules:all must not be followed by a duplicate full flush.');
+        if ($mode === 'refresh') {
+            Queue::assertPushed(StaticWarmJob::class, 2);
+            $this->assertFalse($cacher->hasCachedPage(Request::create('http://localhost/home')));
+            foreach (Queue::pushed(StaticWarmJob::class) as $job) {
+                $this->assertFalse($job->clientConfig['allow_redirects']);
+                // Exercise the native worker with HTTP responses from the real
+                // test kernel instead of opening an external socket.
+                $job->clientConfig['handler'] = function ($request) {
+                    $response = $this->get((string) $request->getUri());
+
+                    return Create::promiseFor(new Response($response->status(), $response->headers->all(), $response->getContent()));
+                };
+                $job->handle();
+            }
+            $this->assertTrue($cacher->hasCachedPage(Request::create('http://localhost/home')));
+        } else {
+            Queue::assertNothingPushed();
+        }
+        $this->fetch('/blog/post-a')->assertSee('POST=Changed');
+        $this->fetch('/home')->assertSee($mode === 'statamic' ? 'Post A^' : 'Changed^');
+    }
+
+    public function test_explicit_invalidation_is_atomic_site_bounded_and_warming_uses_native_jobs(): void
+    {
+        $this->fetch('/home');
+        $this->fetch('/blog/post-a');
+        $cacher = app(Cacher::class);
+        foreach (['https://other.test/home', 'http://localhost/../secret', 'http://localhost/%2e%2e/secret', 'http://localhost@other.test/home'] as $invalid) {
+            $result = (new SystemRouter)->execute(['action' => 'invalidate_urls', 'urls' => ['http://localhost/home', $invalid]]);
+            $this->assertFalse($result['success']);
+            $this->assertTrue($cacher->hasCachedPage(Request::create('http://localhost/home')));
+        }
+        $args = ['action' => 'invalidate_urls', 'urls' => ['http://localhost/home'], 'idempotency_key' => (string) Str::uuid()];
+        $result = (new SystemRouter)->execute($args);
+        $this->assertTrue($result['success'], json_encode($result));
+        $this->assertFalse($cacher->hasCachedPage(Request::create('http://localhost/home')));
+        $this->assertTrue($cacher->hasCachedPage(Request::create('http://localhost/blog/post-a')));
+        $this->fetch('/home');
+        $replay = (new SystemRouter)->execute($args);
+        $this->assertTrue($replay['data']['idempotent_replay']);
+        $this->assertTrue($cacher->hasCachedPage(Request::create('http://localhost/home')));
+
+        $result = (new SystemRouter)->execute(['action' => 'cache_warm', 'cache_type' => 'static']);
+        $this->assertFalse($result['success'], 'Sync warming must not block the MCP process.');
+        config(['statamic.static_caching.warm_queue_connection' => 'database']);
+        Queue::fake();
+        $result = (new SystemRouter)->execute(['action' => 'cache_warm', 'cache_type' => 'static']);
+        $this->assertTrue($result['success'], json_encode($result));
+        $this->assertSame('queued', $result['data']['cache_warmed']['static']['status']);
+        Queue::assertPushed(StaticWarmJob::class, fn ($job) => (string) $job->request->getUri() === 'http://localhost/blog/post-a');
+        Queue::assertNotPushed(StaticWarmJob::class, fn ($job) => str_contains((string) $job->request->getUri(), '/draft'));
+    }
+
+    public function test_relative_site_urls_do_not_trust_the_request_host(): void
+    {
+        $this->app->instance('request', Request::create('https://attacker.test/'));
+        config(['app.url' => 'https://site.test']);
+        $result = (new SystemRouter)->execute(['action' => 'invalidate_urls', 'urls' => ['https://attacker.test/home']]);
+        $this->assertFalse($result['success']);
+        $result = (new SystemRouter)->execute(['action' => 'invalidate_urls', 'urls' => ['https://site.test/home']]);
+        $this->assertTrue($result['success'], json_encode($result));
+        config(['app.url' => 'https://site.test/cms']);
+        Site::setSites(['default' => ['name' => 'Default', 'url' => '/en', 'locale' => 'en_US']]);
+        $result = (new SystemRouter)->execute(['action' => 'invalidate_urls', 'urls' => ['https://site.test/en/home']]);
+        $this->assertFalse($result['success']);
+        $result = (new SystemRouter)->execute(['action' => 'invalidate_urls', 'urls' => ['https://site.test/cms/en/home']]);
+        $this->assertTrue($result['success'], json_encode($result));
+    }
+
+    public function test_full_clear_removes_html_even_when_url_metadata_was_lost(): void
+    {
+        $path = config('statamic.forms.forms') . '/static';
+        config(['statamic.static_caching.strategy' => 'full', 'statamic.static_caching.strategies.full.path' => $path,
+            'statamic.static_caching.invalidation.rules' => 'all', 'statamic.mcp.cache.static_after_write' => 'full']);
+        $manager = app(StaticCacheManager::class);
+        $cacher = $manager->driver('full');
+        app()->instance(Cacher::class, $cacher);
+        app()->instance(Invalidator::class, new DefaultInvalidator($cacher, 'all'));
+        $request = Request::create('http://localhost/home');
+        $cacher->cachePage($request, 'old rendered page');
+        Cache::flush();
+        $this->assertTrue($cacher->hasCachedPage($request));
+        $this->assertSame([], app(StaticCacheMaintenance::class)->cachedUrls());
+        // TaxonomySaved has no native static-cache listener.
+        $result = (new StructuresRouter)->execute(['action' => 'update', 'resource_type' => 'taxonomy',
+            'handle' => 'tags', 'data' => ['title' => 'Renamed taxonomy']]);
+        $this->assertTrue($result['success'], json_encode($result));
+        $this->assertFalse($cacher->hasCachedPage($request));
+    }
+
+    public static function paginationNames(): array
+    {
+        return [['page'], ['news,page']];
+    }
+
+    #[DataProvider('paginationNames')]
+    public function test_warming_pagination_keeps_the_selected_connection_and_queue(string $pageName): void
+    {
+        config(['statamic.static_caching.warm_queue_connection' => 'database', 'statamic.static_caching.warm_queue' => 'pages']);
+        Queue::fake([StaticWarmJob::class]);
+        $result = (new SystemRouter)->execute(['action' => 'cache_warm', 'cache_type' => 'static']);
+        $this->assertTrue($result['success'], json_encode($result));
+        $job = Queue::pushed(StaticWarmJob::class)->first();
+        $job->clientConfig['handler'] = fn () => Create::promiseFor(new Response(200, ['X-Statamic-Pagination' => "1,3,{$pageName}"]));
+        $job->handle();
+        foreach ([1, 2, 3] as $page) {
+            Queue::assertPushed(StaticWarmJob::class, fn ($child) => $child->request->getUri()->getQuery() === rawurlencode($pageName) . "={$page}"
+                && $child->connection === 'database' && $child->queue === 'pages');
+        }
+        $child = Queue::pushed(StaticWarmJob::class)->last();
+        $count = Queue::pushed(StaticWarmJob::class)->count();
+        $child->handle();
+        $this->assertCount($count, Queue::pushed(StaticWarmJob::class), 'A pagination page must not recursively enqueue itself.');
     }
 
     /** @param  array<string, list<string>|int>  $expected */

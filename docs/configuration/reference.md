@@ -151,6 +151,7 @@ the damage.
 ```php
 'cache' => [
     'stache_after_write' => env('STATAMIC_MCP_STACHE_AFTER_WRITE', 'repair'),
+    'static_after_write' => env('STATAMIC_MCP_STATIC_AFTER_WRITE'),
     'clear_static_after_write' => env('STATAMIC_MCP_CLEAR_STATIC_AFTER_WRITE', true),
 ],
 ```
@@ -162,10 +163,17 @@ costs what a Statamic save costs, however large the site. `clear` clears the who
 after every write, as 3.x did (about 1 ms per entry on the site); `none` leaves it alone.
 The 3.x switch `clear_stache_after_write => false` is still read as `none`.
 
-The static cache is flushed in full after a content write, because listing pages, globals
-and navigation render more than the record written. Turn it off only if you invalidate
-those pages yourself. The `statamic-system` tool's `cache_clear` action is
-unaffected — that clear runs immediately, because it was asked for.
+`static_after_write` selects `full` (clear after content writes), `statamic` (native
+invalidation rules only) or `refresh` (clear, then queue previously cached pages).
+When unset, `clear_static_after_write` selects `full` when true or `statamic` when false.
+Listing pages, globals and navigation render more than the record written: use native-only
+invalidation only when your rules cover those pages. Refresh needs an asynchronous
+`statamic.static_caching.warm_queue_connection` and a running worker; a stopped worker
+leaves pages uncached, not stale. Native `rules: all` avoids a duplicate flush when
+the cache is already empty, including checking actual HTML files for the file driver.
+See [search and cache](../tools/search-and-cache.md) for queue behavior and explicit
+maintenance. The `statamic-system-admin` tool's `cache_clear` action is unaffected:
+that clear runs immediately, because it was asked for.
 
 ### `url_import`
 

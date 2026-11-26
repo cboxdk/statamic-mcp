@@ -7,7 +7,6 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Concerns;
 use Carbon\Exceptions\InvalidFormatException;
 use Cboxdk\StatamicMcp\Mcp\Exceptions\FieldFormatException;
 use Cboxdk\StatamicMcp\Mcp\Support\FieldtypeExtensions;
-use Cboxdk\StatamicMcp\Mcp\Support\SeoProFieldData;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -242,8 +241,8 @@ trait SanitizesFieldData
      */
     private function sanitizeFieldValue(Field $field, mixed $value, bool $allowLegacyCoercion, string $path): mixed
     {
-        if (in_array($field->type(), ['seo_pro', 'seo_pro_source'], true)) {
-            return SeoProFieldData::sanitize($field, $value, $path);
+        if (FieldtypeExtensions::hasSanitizer($field)) {
+            return FieldtypeExtensions::applySanitizer($field, $value, $path);
         }
 
         if ($value === null) {
@@ -262,11 +261,9 @@ trait SanitizesFieldData
                 ? $this->sanitizeRelationshipValue($value)
                 : $this->resolveReferences($field, $this->sanitizeRelationshipValue($value), $path),
             'checkboxes' => $this->sanitizeRelationshipValue($value),
-            // A registered sanitizer replaces the built-in string check, so a
-            // site can still decide for itself what a string field accepts.
-            default => FieldtypeExtensions::hasSanitizer($field) || ! in_array($field->type(), self::STRING_FIELDTYPES, true)
-                ? FieldtypeExtensions::applySanitizer($field, $value, $path)
-                : $this->sanitizeStringValue($field, $value, $allowLegacyCoercion, $path),
+            default => in_array($field->type(), self::STRING_FIELDTYPES, true)
+                ? $this->sanitizeStringValue($field, $value, $allowLegacyCoercion, $path)
+                : $value,
         };
     }
 

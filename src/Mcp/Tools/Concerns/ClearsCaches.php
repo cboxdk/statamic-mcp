@@ -6,6 +6,7 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Concerns;
 
 use Cboxdk\StatamicMcp\Integration\Effects;
 use Cboxdk\StatamicMcp\Mcp\Support\StacheRepair;
+use Cboxdk\StatamicMcp\Mcp\Support\StaticCacheMaintenance;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Log;
 use Statamic\Facades\Search;
@@ -27,6 +28,9 @@ trait ClearsCaches
 
     /** @var list<string> */
     private array $pendingSearchIndexes = [];
+
+    /** @var list<string> */
+    private array $pendingRefreshUrls = [];
 
     /** @var array<string, string> */
     private array $completedCacheClears = [];
@@ -115,9 +119,14 @@ trait ClearsCaches
             $this->pendingSearchIndexes = array_values(array_unique([...$this->pendingSearchIndexes, ...$types->searchIndexes]));
             $types = [...($types->stache ? ['stache'] : []), ...($types->static ? ['static'] : []), ...($types->glide ? ['images'] : [])];
         }
+        if (in_array('static', $types, true) && app(StaticCacheMaintenance::class)->mode() === 'refresh') {
+            $this->pendingRefreshUrls = array_values(array_unique([
+                ...$this->pendingRefreshUrls, ...app(StaticCacheMaintenance::class)->cachedUrls(),
+            ]));
+        }
         $wanted = array_filter($types, fn (string $type): bool => match ($type) {
             'stache' => $this->stacheAfterWrite() !== 'none',
-            'static' => (bool) config('statamic.mcp.cache.clear_static_after_write', true),
+            'static' => app(StaticCacheMaintenance::class)->mode() !== 'statamic',
             default => true,
         });
 
@@ -150,9 +159,11 @@ trait ClearsCaches
         $types = $this->pendingCacheClears;
         $urls = $this->pendingStaticUrls;
         $indexes = $this->pendingSearchIndexes;
+        $refresh = $this->pendingRefreshUrls;
         $this->pendingCacheClears = [];
         $this->pendingStaticUrls = [];
         $this->pendingSearchIndexes = [];
+        $this->pendingRefreshUrls = [];
 
         $results = [];
         if (in_array('stache', $types, true) && $this->stacheAfterWrite() === 'repair') {
@@ -168,7 +179,21 @@ trait ClearsCaches
             }
         }
 
+        if (in_array('static', $types, true) && app(StaticCacheMaintenance::class)->alreadyEmptyAfterNativeInvalidation()) {
+            $types = array_values(array_diff($types, ['static']));
+            $results['static'] = 'cleared';
+        }
         $results = [...$results, ...$this->clearStatamicCaches($types)];
+        if ($refresh !== []) {
+            try {
+                // Flush first, so a stopped queue cannot leave stale pages served.
+                app(StaticCacheMaintenance::class)->queueWarm($refresh);
+                $results['static_refresh'] = 'queued';
+            } catch (\Throwable $error) {
+                $results['static_refresh'] = 'failed';
+                report($error);
+            }
+        }
         if ($urls !== [] && ! in_array($results['static'] ?? '', ['cleared', 'disabled'], true)) {
             try {
                 app(Cacher::class)->invalidateUrls($urls);

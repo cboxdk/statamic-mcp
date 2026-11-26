@@ -12,3 +12,4 @@ The Statamic MCP Server groups actions by domain, with separate read and write/a
 
 - **[Tool Overview](overview.md)** — All tools, their actions, and how routing works
 - **[Forms](forms.md)** — Forms 2 definitions, connectors and stored submissions
+- **[Search and cache](search-and-cache.md)** — Permission-filtered search, index rebuilding and cache maintenance

@@ -49,17 +49,6 @@ jobs:
       - name: Install dependencies
         run: composer install --prefer-dist --no-progress
 
-      # The Cbox Relay and Cbox ID channels are built in but optional (their
-      # clients need PHP 8.4). Install them so static analysis sees their types.
-      - name: Install optional Cbox clients
-        run: composer require --dev 'cboxdk/laravel-relay-client:^0.2.3' 'cboxdk/laravel-id-client:^0.19.8' -W --no-interaction --no-progress
-
-      - name: Check code formatting
-        run: ./vendor/bin/pint --test
-
-      - name: Run static analysis
-        run: ./vendor/bin/phpstan analyse --error-format=github --memory-limit=2G
-
       - name: Check dependency licenses
         run: composer license-check
 
@@ -80,6 +69,17 @@ jobs:
 
       - name: Audit dependencies for known vulnerabilities
         run: composer audit --no-dev
+
+      # Commercial addons are separately licensed optional integrations, not
+      # part of the distributed dependency tree checked above.
+      - name: Install optional integration types for static analysis
+        run: composer require --dev 'statamic/seo-pro:7.16.0' 'statamic/forms-pro:1.0.1' 'cboxdk/laravel-relay-client:^0.2.3' 'cboxdk/laravel-id-client:^0.19.8' -W --no-interaction --no-progress
+
+      - name: Check code formatting
+        run: ./vendor/bin/pint --test
+
+      - name: Run static analysis
+        run: ./vendor/bin/phpstan analyse --error-format=github --memory-limit=2G
 
   test-sqlite:
     runs-on: ubuntu-latest
@@ -228,6 +228,23 @@ jobs:
         env:
           DB_CONNECTION: sqlite
 
+  forms-pro:
+    name: Forms Pro integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962
+        with:
+          php-version: '8.4'
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, intl
+      - name: Install optional Forms Pro integration
+        run: composer require --dev 'statamic/forms-pro:1.0.1' -W --no-interaction --no-progress
+      - name: Test Forms Pro and core Forms together
+        run: vendor/bin/pest tests/Integration/FormsProTest.php tests/Feature/FormsRouterTest.php
+
   seo-pro:
     name: SEO Pro integration
     runs-on: ubuntu-latest
@@ -241,9 +258,9 @@ jobs:
           php-version: '8.4'
           extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, intl
       - name: Install optional SEO Pro integration
-        run: composer require --dev 'statamic/seo-pro:7.16.0' -W --no-interaction --no-progress
-      - name: Test entries and terms with SEO Pro
-        run: vendor/bin/pest tests/Feature/Routers/SeoProWritesTest.php
+        run: composer require --dev 'statamic/seo-pro:7.16.0' 'statamic/eloquent-driver:5.14.0' -W --no-interaction --no-progress
+      - name: Test SEO Pro fields, defaults and file/database redirects
+        run: vendor/bin/pest tests/Feature/Routers/SeoProWritesTest.php tests/Integration/SeoProTest.php
 
   eloquent-driver:
     name: Eloquent driver integration
