@@ -15,8 +15,10 @@ use Illuminate\Validation\ValidationException;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Attributes\Title;
+use Statamic\Facades\Site;
 use Statamic\Facades\Taxonomy;
 use Statamic\Facades\Term;
+use Statamic\Facades\User;
 use Statamic\Fields\Field;
 use Statamic\Rules\UniqueTermValue;
 use Statamic\Support\Str;
@@ -102,6 +104,14 @@ class TermsRouter extends BaseRouter
             return $this->createErrorResponse("Taxonomy not found: {$taxonomyHandle}")->toArray();
         }
 
+        // Statamic's TermPolicy checks the site only on create; the CP keeps
+        // every other term screen to sites the user may access through its
+        // site selector. MCP has no selector, so every action checks the site
+        // it reaches here, the way entries do.
+        if ($this->isWebContext() && ($siteError = $this->authorizeTermSite($this->resolveSiteHandle($arguments)))) {
+            return $siteError;
+        }
+
         // Validate action-specific requirements
         $validationError = $this->validateActionRequirements($action, $arguments);
         if ($validationError) {
@@ -117,6 +127,18 @@ class TermsRouter extends BaseRouter
             'delete' => $this->deleteTerm($arguments),
             default => $this->createErrorResponse("Action {$action} not supported for terms")->toArray(),
         };
+    }
+
+    /** @return array<string, mixed>|null */
+    private function authorizeTermSite(string $handle): ?array
+    {
+        $site = Site::get($handle);
+        $user = User::current();
+        if ($site === null || $user === null || ! $user->can('view', $site)) {
+            return $this->createErrorResponse('Permission denied: Cannot access this site')->toArray();
+        }
+
+        return null;
     }
 
     /**
@@ -581,6 +603,10 @@ class TermsRouter extends BaseRouter
                 $identifier = is_string($rawIdentifier) ? $rawIdentifier : '';
 
                 return $this->createErrorResponse("Term not found: {$identifier}")->toArray();
+            }
+
+            if ($this->isWebContext() && ($siteError = $this->authorizeTermSite($term->site()->handle()))) {
+                return $siteError;
             }
 
             $termData = [
