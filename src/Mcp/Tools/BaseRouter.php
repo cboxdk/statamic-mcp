@@ -290,7 +290,7 @@ abstract class BaseRouter extends BaseStatamicTool
             $preview = [
                 'tool' => $this->name(), 'action' => $action, 'site' => $this->resolveSiteHandle($arguments),
                 'description' => $this->describeForApproval($action, $arguments),
-                'arguments' => $this->boundInput($arguments),
+                'arguments' => self::withoutSecrets($this->boundInput($arguments)),
                 'expected_version' => $this->currentResourceVersion($arguments),
             ];
             $operation = $approvals->request($intent, $preview);
@@ -425,6 +425,28 @@ abstract class BaseRouter extends BaseStatamicTool
     private function boundInput(array $arguments): array
     {
         unset($arguments['idempotency_key'], $arguments['approval_id']);
+
+        return $arguments;
+    }
+
+    /**
+     * The arguments as the approval record stores and the Control Panel shows
+     * them, with secrets such as a new password replaced. The approval stays
+     * bound to the full input through the intent's hash.
+     *
+     * @param  array<array-key, mixed>  $arguments
+     *
+     * @return array<array-key, mixed>
+     */
+    private static function withoutSecrets(array $arguments): array
+    {
+        foreach ($arguments as $key => $value) {
+            if (is_string($key) && preg_match('/password|secret|token|api_?key/i', $key) === 1 && $value !== null) {
+                $arguments[$key] = '[hidden]';
+            } elseif (is_array($value)) {
+                $arguments[$key] = self::withoutSecrets($value);
+            }
+        }
 
         return $arguments;
     }

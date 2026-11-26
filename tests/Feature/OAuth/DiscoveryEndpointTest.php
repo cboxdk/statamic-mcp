@@ -37,16 +37,16 @@ class DiscoveryEndpointTest extends TestCase
         // Every scope a client can be granted; the v3 admin :write scopes
         // load on old tokens but grant nothing, so they are not offered.
         foreach (TokenScope::cases() as $scope) {
-            if ($scope->replacedBy() === null) {
+            if (! $scope->isRetired()) {
                 $this->assertContains($scope->value, $scopes, "Scope {$scope->value} should be present");
             } else {
-                $this->assertNotContains($scope->value, $scopes, "Replaced scope {$scope->value} must not be advertised");
+                $this->assertNotContains($scope->value, $scopes, "Retired scope {$scope->value} must not be advertised");
             }
         }
 
         $this->assertContains('*', $scopes);
-        $this->assertContains('content:read', $scopes);
-        $this->assertContains('content:write', $scopes);
+        $this->assertNotContains('content:read', $scopes);
+        $this->assertNotContains('content:write', $scopes);
     }
 
     public function test_authorization_server_returns_correct_structure(): void
@@ -77,9 +77,9 @@ class DiscoveryEndpointTest extends TestCase
         $scopes = $data['scopes_supported'];
 
         foreach (TokenScope::cases() as $scope) {
-            $scope->replacedBy() === null
+            ! $scope->isRetired()
                 ? $this->assertContains($scope->value, $scopes, "Scope {$scope->value} should be present")
-                : $this->assertNotContains($scope->value, $scopes, "Replaced scope {$scope->value} must not be advertised");
+                : $this->assertNotContains($scope->value, $scopes, "Retired scope {$scope->value} must not be advertised");
         }
         $this->assertContains('structures:admin', $scopes);
     }

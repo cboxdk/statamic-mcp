@@ -310,6 +310,7 @@ Configure the OAuth 2.1 authorization server for browser-based MCP client regist
 | `oauth.refresh_token_ttl` | `STATAMIC_MCP_OAUTH_REFRESH_TOKEN_TTL` | `2592000` | Maximum grant lifetime in seconds, including rotated successors (30 days) |
 | `oauth.default_scopes` | `STATAMIC_MCP_OAUTH_DEFAULT_SCOPES` | every `:read` scope | Comma-separated scopes offered when a client requests none |
 | `oauth.max_clients` | `STATAMIC_MCP_OAUTH_MAX_CLIENTS` | `50` | Maximum number of registered OAuth clients |
+| `oauth.unused_client_ttl` | `STATAMIC_MCP_OAUTH_UNUSED_CLIENT_TTL` | `86400` | Seconds after which a registered client that was never authorized is removed and stops counting toward `max_clients` |
 | `oauth.max_clients_per_ip` | `STATAMIC_MCP_OAUTH_MAX_CLIENTS_PER_IP` | `5` | Maximum client registrations per IP address |
 
 ```php
@@ -320,8 +321,9 @@ Configure the OAuth 2.1 authorization server for browser-based MCP client regist
     'client_ttl' => (int) env('STATAMIC_MCP_OAUTH_CLIENT_TTL', 2592000),
     'token_ttl' => (int) env('STATAMIC_MCP_OAUTH_TOKEN_TTL', 604800),
     'refresh_token_ttl' => (int) env('STATAMIC_MCP_OAUTH_REFRESH_TOKEN_TTL', 2592000),
-    'default_scopes' => array_filter(explode(',', env('STATAMIC_MCP_OAUTH_DEFAULT_SCOPES', 'content:read,blueprints:read,structures:read,entries:read,terms:read,globals:read,assets:read,system:read,content-facade:read'))),
+    'default_scopes' => array_filter(explode(',', env('STATAMIC_MCP_OAUTH_DEFAULT_SCOPES', 'blueprints:read,structures:read,entries:read,terms:read,globals:read,assets:read,system:read,content-facade:read'))),
     'max_clients' => (int) env('STATAMIC_MCP_OAUTH_MAX_CLIENTS', 50),
+    'unused_client_ttl' => (int) env('STATAMIC_MCP_OAUTH_UNUSED_CLIENT_TTL', 86400),
     'max_clients_per_ip' => (int) env('STATAMIC_MCP_OAUTH_MAX_CLIENTS_PER_IP', 5),
 ],
 ```
@@ -432,7 +434,7 @@ STATAMIC_MCP_OAUTH_CODE_TTL=600
 STATAMIC_MCP_OAUTH_CLIENT_TTL=2592000
 STATAMIC_MCP_OAUTH_TOKEN_TTL=604800
 STATAMIC_MCP_OAUTH_REFRESH_TOKEN_TTL=2592000
-STATAMIC_MCP_OAUTH_DEFAULT_SCOPES=content:read,blueprints:read,structures:read,entries:read,terms:read,globals:read,assets:read,system:read,content-facade:read
+STATAMIC_MCP_OAUTH_DEFAULT_SCOPES=blueprints:read,structures:read,entries:read,terms:read,globals:read,assets:read,system:read,content-facade:read
 STATAMIC_MCP_OAUTH_MAX_CLIENTS=50
 STATAMIC_MCP_OAUTH_MAX_CLIENTS_PER_IP=5
 

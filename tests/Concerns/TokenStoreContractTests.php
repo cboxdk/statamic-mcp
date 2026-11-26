@@ -47,7 +47,7 @@ trait TokenStoreContractTests
             userId: 'user-1',
             name: 'My Token',
             tokenHash: 'hash_abc',
-            scopes: ['content:read', 'content:write'],
+            scopes: ['entries:read', 'entries:write'],
             expiresAt: $expiresAt,
         );
 
@@ -55,7 +55,7 @@ trait TokenStoreContractTests
         $this->assertSame('user-1', $token->userId);
         $this->assertSame('My Token', $token->name);
         $this->assertSame('hash_abc', $token->tokenHash);
-        $this->assertSame(['content:read', 'content:write'], $token->scopes);
+        $this->assertSame(['entries:read', 'entries:write'], $token->scopes);
         $this->assertNotNull($token->expiresAt);
         $this->assertInstanceOf(Carbon::class, $token->createdAt);
 
@@ -65,7 +65,7 @@ trait TokenStoreContractTests
         $this->assertSame('user-1', $found->userId);
         $this->assertSame('My Token', $found->name);
         $this->assertSame('hash_abc', $found->tokenHash);
-        $this->assertSame(['content:read', 'content:write'], $found->scopes);
+        $this->assertSame(['entries:read', 'entries:write'], $found->scopes);
     }
 
     public function test_find_by_id(): void
@@ -102,18 +102,18 @@ trait TokenStoreContractTests
             userId: 'user-1',
             name: 'Original',
             tokenHash: 'hash_update',
-            scopes: ['content:read'],
+            scopes: ['entries:read'],
             expiresAt: null,
         );
 
         $updated = $store->update($token->id, [
             'name' => 'Updated Name',
-            'scopes' => ['content:read', 'content:write'],
+            'scopes' => ['entries:read', 'entries:write'],
         ]);
 
         $this->assertNotNull($updated);
         $this->assertSame('Updated Name', $updated->name);
-        $this->assertSame(['content:read', 'content:write'], $updated->scopes);
+        $this->assertSame(['entries:read', 'entries:write'], $updated->scopes);
         $this->assertNotNull($updated->updatedAt);
     }
 
@@ -308,7 +308,7 @@ trait TokenStoreContractTests
             userId: 'user-1',
             name: 'Imported Token',
             tokenHash: 'hash_import',
-            scopes: ['content:read', 'entries:write'],
+            scopes: ['entries:read', 'entries:write'],
             lastUsedAt: $now->copy()->subHour(),
             expiresAt: $now->copy()->addDays(60),
             createdAt: $now->copy()->subDays(10),
@@ -320,7 +320,7 @@ trait TokenStoreContractTests
         $this->assertSame('user-1', $imported->userId);
         $this->assertSame('Imported Token', $imported->name);
         $this->assertSame('hash_import', $imported->tokenHash);
-        $this->assertSame(['content:read', 'entries:write'], $imported->scopes);
+        $this->assertSame(['entries:read', 'entries:write'], $imported->scopes);
         $this->assertNotNull($imported->lastUsedAt);
         $this->assertNotNull($imported->expiresAt);
 

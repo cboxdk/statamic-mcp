@@ -92,7 +92,7 @@ class ScopesFollowPermissionsTest extends TestCase
         // @phpstan-ignore-next-line (assertInertia is a TestResponse macro registered by Inertia)
         $response->assertInertia(fn (AssertableInertia $page) => $page
             ->where('availableScopes', fn ($scopes) => collect($scopes)->pluck('value')->all() === [
-                'content:read', 'content:write', 'structures:read', 'entries:read', 'entries:write',
+                'structures:read', 'entries:read', 'entries:write',
             ])
         );
     }
@@ -107,7 +107,7 @@ class ScopesFollowPermissionsTest extends TestCase
 
         // @phpstan-ignore-next-line
         $response->assertInertia(fn (AssertableInertia $page) => $page
-            ->where('availableScopes', fn ($scopes) => count($scopes) === count(TokenScope::cases()) - 4)
+            ->where('availableScopes', fn ($scopes) => count($scopes) === count(TokenScope::cases()) - 6)
         );
     }
 
@@ -119,7 +119,7 @@ class ScopesFollowPermissionsTest extends TestCase
                 'scopes' => ['entries:read', 'users:admin'],
             ])
             ->assertStatus(422)
-            ->assertJsonFragment(['message' => 'These scopes are not available to this user: users:admin. Available scopes: content:read, content:write, structures:read, entries:read, entries:write']);
+            ->assertJsonFragment(['message' => 'These scopes are not available to this user: users:admin. Available scopes: structures:read, entries:read, entries:write']);
 
         $this->actingAs($this->editor)
             ->postJson(cp_route('statamic-mcp.tokens.store'), [
@@ -165,8 +165,8 @@ class ScopesFollowPermissionsTest extends TestCase
         $response = $this->actingAs($this->editor, 'web')
             ->get($this->authorizeUrl() . '?' . http_build_query($this->oauthParams('users:admin')));
 
-        $response->assertRedirect();
-        $this->assertStringContainsString('error=invalid_scope', $response->headers->get('Location', ''));
+        // Before consent nothing is sent to the client: an error page instead.
+        $response->assertStatus(400)->assertSee('invalid_scope')->assertHeaderMissing('Location');
     }
 
     public function test_approval_cannot_grant_more_than_was_offered(): void
@@ -225,7 +225,7 @@ class ScopesFollowPermissionsTest extends TestCase
                 'scopes' => ['*', 'users:admin'],
             ])
             ->assertStatus(422)
-            ->assertJsonFragment(['message' => 'These scopes are not available to this user: users:admin. Available scopes: content:read, content:write, structures:read, entries:read, entries:write']);
+            ->assertJsonFragment(['message' => 'These scopes are not available to this user: users:admin. Available scopes: structures:read, entries:read, entries:write']);
     }
 
     public function test_a_client_asking_for_everything_is_offered_the_editors_reach(): void
@@ -255,7 +255,7 @@ class ScopesFollowPermissionsTest extends TestCase
                 'code_challenge' => self::CODE_CHALLENGE,
                 'code_challenge_method' => 'S256',
                 'scope' => '*',
-                'scopes' => ['content:read', 'content:write', 'structures:read', 'entries:read', 'entries:write'],
+                'scopes' => ['structures:read', 'entries:read', 'entries:write'],
             ]));
 
         $approve->assertRedirect();
@@ -270,8 +270,7 @@ class ScopesFollowPermissionsTest extends TestCase
             'code_verifier' => self::CODE_VERIFIER,
         ])->assertOk();
 
-        // The legacy content umbrellas are not part of an expanded `*`, so
-        // the approved list is the editor's concrete reach, stored explicitly.
+        // The approved list is the editor's concrete reach, stored explicitly.
         $this->assertSame('structures:read entries:read entries:write', $exchange->json('scope'));
 
         $issued = $this->app->make(TokenService::class)->validateToken((string) $exchange->json('access_token'));

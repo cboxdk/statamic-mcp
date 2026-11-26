@@ -551,8 +551,8 @@ class ContentFacadeRouter extends BaseRouter
     private function validationUnitCount(RecordType $recordType, string $collection, string $taxonomy): int
     {
         return match ($recordType) {
-            RecordType::Entry => $this->entryQuery($collection)->count(),
-            RecordType::Term => $this->termQuery($taxonomy)->count(),
+            RecordType::Entry => $this->entryQuery($collection)?->count() ?? 0,
+            RecordType::Term => $this->termQuery($taxonomy)?->count() ?? 0,
             // Globals and navigations are bounded by configuration rather than
             // content volume, so materializing them to count is cheap.
             RecordType::Global => count($this->globalValidationUnits()),
@@ -578,34 +578,31 @@ class ContentFacadeRouter extends BaseRouter
         };
     }
 
-    private function entryQuery(string $collection): EntryQueryBuilder
+    /**
+     * The entries a sweep may read, or null when it may read none.
+     *
+     * A named collection that does not exist or that the policy denies, and an
+     * "all collections" sweep with nothing permitted, resolve to no query at
+     * all: the Stache has no store for a handle it does not know, so querying
+     * one fails instead of answering empty.
+     */
+    private function entryQuery(string $collection): ?EntryQueryBuilder
     {
         $allowed = $this->readableCollectionHandles();
-        $query = Entry::query();
+        $handles = $collection !== '' ? array_intersect([$collection], $allowed) : $allowed;
 
-        if ($collection !== '') {
-            // A named collection the policy denies resolves to nothing.
-            $query->where('collection', in_array($collection, $allowed, true) ? $collection : '__mcp_denied__');
-        } else {
-            // The "all collections" sweep is limited to the permitted ones.
-            $query->whereIn('collection', $allowed !== [] ? $allowed : ['__mcp_denied__']);
-        }
-
-        return $query;
+        return $handles === [] ? null : Entry::query()->whereIn('collection', array_values($handles));
     }
 
-    private function termQuery(string $taxonomy): TermQueryBuilder
+    /**
+     * The terms a sweep may read, or null when it may read none (see entryQuery()).
+     */
+    private function termQuery(string $taxonomy): ?TermQueryBuilder
     {
         $allowed = $this->readableTaxonomyHandles();
-        $query = Term::query();
+        $handles = $taxonomy !== '' ? array_intersect([$taxonomy], $allowed) : $allowed;
 
-        if ($taxonomy !== '') {
-            $query->where('taxonomy', in_array($taxonomy, $allowed, true) ? $taxonomy : '__mcp_denied__');
-        } else {
-            $query->whereIn('taxonomy', $allowed !== [] ? $allowed : ['__mcp_denied__']);
-        }
-
-        return $query;
+        return $handles === [] ? null : Term::query()->whereIn('taxonomy', array_values($handles));
     }
 
     /**
@@ -614,8 +611,9 @@ class ContentFacadeRouter extends BaseRouter
     private function entryValidationUnits(string $collection, int $offset, int $limit): array
     {
         $units = [];
+        $query = $this->entryQuery($collection);
 
-        foreach ($this->entryQuery($collection)->offset($offset)->limit($limit)->get() as $entry) {
+        foreach ($query?->offset($offset)->limit($limit)->get() ?? [] as $entry) {
             /** @var \Statamic\Contracts\Entries\Entry $entry */
             $units[] = function () use ($entry): array {
                 $blueprint = $entry->blueprint();
@@ -678,8 +676,9 @@ class ContentFacadeRouter extends BaseRouter
     private function termValidationUnits(string $taxonomy, int $offset, int $limit): array
     {
         $units = [];
+        $query = $this->termQuery($taxonomy);
 
-        foreach ($this->termQuery($taxonomy)->offset($offset)->limit($limit)->get() as $term) {
+        foreach ($query?->offset($offset)->limit($limit)->get() ?? [] as $term) {
             /** @var \Statamic\Contracts\Taxonomies\Term $term */
             $units[] = function () use ($term): array {
                 $blueprint = $term->blueprint();

@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Console;
 
 use Cboxdk\StatamicMcp\Actions\Operations\FileOperationStore;
+use Cboxdk\StatamicMcp\Auth\ConfirmationActionGate;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
+use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\Contracts\DurableAuditStore;
 use Cboxdk\StatamicMcp\Contracts\TokenStore;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
@@ -123,11 +125,21 @@ final class DoctorCommand extends Command
             $add('storage.lock_contract', 'fail', 'The configured lock store could not be resolved. Details are omitted to protect credentials.');
         }
         try {
-            $counts = ['full_access' => 0, 'replaced' => 0, 'publish_delete' => 0];
+            $counts = ['full_access' => 0, 'replaced' => 0, 'inert' => 0, 'publish_delete' => 0];
+            $maxExpiry = TokenService::maxExpiry();
+            $overCap = 0;
             foreach (app(TokenStore::class)->listAll() as $token) {
                 foreach (array_keys(TokenScope::v3Changes($token->scopes)) as $change) {
                     $counts[$change]++;
                 }
+                if ($maxExpiry !== null && ! $token->isExpired() && ($token->expiresAt === null || $token->expiresAt->greaterThan($maxExpiry))) {
+                    $overCap++;
+                }
+            }
+            if ($maxExpiry !== null) {
+                $add('tokens.lifetime_cap', $overCap === 0 ? 'pass' : 'warn', $overCap === 0
+                    ? 'Every token expires within security.max_token_lifetime_days.'
+                    : "{$overCap} token(s) were issued before the lifetime cap and outlive it (security.max_token_lifetime_days). Give them an earlier expiry in Tools → MCP, or revoke them and create new ones.");
             }
             [$legacyFull, $replaced, $narrowed] = [$counts['full_access'], $counts['replaced'], $counts['publish_delete']];
             $add('migration.full_access', $legacyFull === 0 ? 'pass' : 'warn', $legacyFull === 0
@@ -136,11 +148,20 @@ final class DoctorCommand extends Command
             $add('migration.admin_scopes', $replaced === 0 ? 'pass' : 'warn', $replaced === 0
                 ? 'No token carries a v3 admin write scope.'
                 : "{$replaced} token(s) carry structures:write, blueprints:write, users:write or system:write, which v4 replaced with :admin scopes. Run php artisan mcp:migrate-v4 to review them.");
+            $add('migration.inert_scopes', $counts['inert'] === 0 ? 'pass' : 'warn', $counts['inert'] === 0
+                ? 'No token carries content:read or content:write.'
+                : "{$counts['inert']} token(s) carry content:read or content:write, which never granted anything. php artisan mcp:migrate-v4 --apply drops them from personal tokens; an OAuth client's next refresh drops them from its grant.");
             $add('migration.publish_delete', $narrowed === 0 ? 'pass' : 'warn', $narrowed === 0
                 ? 'No write token lost publish or delete access in v4.'
                 : "{$narrowed} token(s) can still edit but no longer publish or delete: v4 grants those through entries:publish, entries:delete, terms:delete and assets:delete. Before downgrading to v3, run php artisan mcp:migrate-v4 --rollback.");
         } catch (\Throwable) {
             $add('migration.full_access', 'fail', 'The token store could not be read. Details are omitted to protect credentials.');
+        }
+        if (ConfirmationActionGate::enabled()) {
+            $elevated = (bool) config('statamic.users.elevated_sessions_enabled', true);
+            $add('approvals.elevated_session', $elevated ? 'pass' : 'warn', $elevated
+                ? 'Approving an MCP call needs a fresh re-authentication (Statamic elevated session).'
+                : 'Statamic elevated sessions are off (STATAMIC_ELEVATED_SESSIONS_ENABLED=false), so an approval needs only a signed-in Control Panel session, and a browser agent driving that session could approve its own calls. Turn them back on.');
         }
         $add('migration.consent', 'warn', 'This command does not migrate tokens, approvals or content; php artisan mcp:migrate-v4 plans token changes and --apply carries them out.');
         $add('storage.verification', 'warn', 'Check protected storage paths, committed SQL connections, retention jobs and crash recovery separately; no write or lock probe was performed.');

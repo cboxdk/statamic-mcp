@@ -77,6 +77,26 @@ trait AuditStoreContractTests
         }
     }
 
+    public function test_query_filters_by_who_made_the_call(): void
+    {
+        $store = $this->createStore();
+        $store->write($this->makeEntry() + ['user_id' => 'alice-id', 'user' => 'Alice', 'context' => 'web']);
+        $store->write($this->makeEntry() + ['user_id' => 'bob-id', 'user' => 'Bob', 'context' => 'web']);
+        $store->write($this->makeEntry() + ['context' => 'cli']);
+        $store->write($this->makeEntry() + ['user_id' => 'alice-id', 'user' => 'Alice', 'context' => 'web']);
+
+        $alice = $store->query(null, null, 1, 25, 'user:alice-id');
+        $this->assertSame(2, $alice->total);
+        $this->assertSame(['alice-id', 'alice-id'], array_column($alice->entries, 'user_id'));
+
+        $cli = $store->query(null, null, 1, 25, 'cli');
+        $this->assertSame(1, $cli->total);
+        $this->assertArrayNotHasKey('user_id', $cli->entries[0]);
+
+        $this->assertSame(0, $store->query(null, null, 1, 25, 'user:nobody')->total);
+        $this->assertSame(4, $store->query(null, null, 1, 25)->total);
+    }
+
     public function test_query_paginates(): void
     {
         $store = $this->createStore();

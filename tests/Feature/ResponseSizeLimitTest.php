@@ -85,4 +85,26 @@ class ResponseSizeLimitTest extends TestCase
 
         $this->assertTrue($this->fetch()['success']);
     }
+
+    public function test_a_saved_write_with_an_oversized_response_still_succeeds(): void
+    {
+        // The write landed; reporting it as an error made agents retry and
+        // create the record twice.
+        config(['statamic.mcp.security.max_response_size' => 5000]);
+
+        $result = $this->router->execute([
+            'action' => 'create',
+            'collection' => $this->collectionHandle,
+            'data' => ['title' => 'Huge', 'slug' => 'huge', 'body' => str_repeat('b', 20000)],
+        ]);
+
+        $this->assertTrue($result['success'], json_encode($result));
+        $this->assertSame('committed', $result['meta']['write_effects']);
+        $this->assertTrue($result['data']['response_truncated']);
+        $this->assertSame('huge', $result['data']['entry']['slug']);
+        $this->assertArrayHasKey('version', $result['data']['entry']);
+        $this->assertArrayNotHasKey('data', $result['data']['entry']);
+        $this->assertLessThan(5000, strlen((string) json_encode($result)));
+        $this->assertCount(1, Entry::query()->where('collection', $this->collectionHandle)->where('slug', 'huge')->get());
+    }
 }

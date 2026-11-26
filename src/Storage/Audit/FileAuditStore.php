@@ -91,14 +91,15 @@ class FileAuditStore implements DurableAuditStore
         ?string $tool,
         ?string $status,
         int $page,
-        int $perPage
+        int $perPage,
+        ?string $actor = null,
     ): AuditResult {
-        return $this->withLock(function () use ($tool, $status, $page, $perPage): AuditResult {
+        return $this->withLock(function () use ($tool, $status, $page, $perPage, $actor): AuditResult {
             if ($page < 1 || $perPage < 1) {
                 throw new \InvalidArgumentException('Audit pagination must be positive.');
             }
             $total = 0;
-            foreach ($this->matchingEntries($tool, $status) as $entry) {
+            foreach ($this->matchingEntries($tool, $status, $actor) as $entry) {
                 $total++;
             }
             $lastPage = max(1, (int) ceil($total / $perPage));
@@ -109,7 +110,7 @@ class FileAuditStore implements DurableAuditStore
             $pageEntries = [];
             $index = 0;
             if ($end > $start) {
-                foreach ($this->matchingEntries($tool, $status) as $entry) {
+                foreach ($this->matchingEntries($tool, $status, $actor) as $entry) {
                     if ($index >= $end) {
                         break;
                     }
@@ -336,7 +337,7 @@ class FileAuditStore implements DurableAuditStore
     }
 
     /** @return \Generator<int, array<string, mixed>> */
-    private function matchingEntries(?string $tool, ?string $status): \Generator
+    private function matchingEntries(?string $tool, ?string $status, ?string $actor = null): \Generator
     {
         foreach ($this->readLines() as $line) {
             $decoded = json_decode($line, true);
@@ -357,8 +358,21 @@ class FileAuditStore implements DurableAuditStore
             if ($status !== null && ($entry['status'] ?? '') !== $status) {
                 continue;
             }
+            if ($actor !== null && ! self::madeBy($entry, $actor)) {
+                continue;
+            }
             yield $entry;
         }
+    }
+
+    /** @param  array<string, mixed>  $entry */
+    private static function madeBy(array $entry, string $actor): bool
+    {
+        $userId = $entry['user_id'] ?? null;
+
+        return $actor === 'cli'
+            ? ($userId === null || $userId === '') && ($entry['context'] ?? null) === 'cli'
+            : is_string($userId) && $actor === 'user:' . $userId;
     }
 
     private function syncDirectory(): void

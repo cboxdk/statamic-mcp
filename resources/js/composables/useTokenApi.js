@@ -30,6 +30,18 @@ function parseValidationErrors(data) {
     return errors;
 }
 
+/**
+ * The server's message for a failed request, or the fallback when it sent none.
+ */
+async function errorMessage(response, fallback) {
+    try {
+        const data = await response.json();
+        return data.message || fallback;
+    } catch {
+        return fallback;
+    }
+}
+
 export function useTokenApi() {
     const submitting = ref(false);
 
@@ -85,13 +97,14 @@ export function useTokenApi() {
 
     async function deleteToken(tokenId) {
         try {
-            await fetch(cp_url('mcp/tokens/' + tokenId), {
+            const response = await fetch(cp_url('mcp/tokens/' + tokenId), {
                 method: 'DELETE',
                 headers: headers(),
             });
-            return { ok: true };
+            if (response.ok) return { ok: true };
+            return { ok: false, message: await errorMessage(response, 'The token could not be deleted.') };
         } catch {
-            return { ok: false };
+            return { ok: false, message: 'The token could not be deleted. Check your connection and try again.' };
         }
     }
 
@@ -105,9 +118,9 @@ export function useTokenApi() {
                 const result = await response.json();
                 return { ok: true, token: result.token };
             }
-            return { ok: false };
+            return { ok: false, message: await errorMessage(response, 'The token could not be regenerated.') };
         } catch {
-            return { ok: false };
+            return { ok: false, message: 'The token could not be regenerated. Check your connection and try again.' };
         }
     }
 
@@ -119,9 +132,9 @@ export function useTokenApi() {
             if (response.ok) {
                 return { ok: true, data: await response.json() };
             }
-            return { ok: false };
+            return { ok: false, message: await errorMessage(response, 'The client configuration could not be loaded.') };
         } catch {
-            return { ok: false };
+            return { ok: false, message: 'The client configuration could not be loaded. Check your connection and try again.' };
         }
     }
 

@@ -49,20 +49,7 @@ class McpTokenGuard implements Guard
             return null;
         }
 
-        $mcpToken = $this->tokenService->validateToken($token);
-
-        if ($mcpToken === null) {
-            return null;
-        }
-
-        $statamicUser = User::find($mcpToken->userId);
-
-        if ($statamicUser === null) {
-            return null;
-        }
-
-        /** @var Authenticatable $statamicUser */
-        $this->user = $statamicUser;
+        $this->user = $this->resolve($token);
 
         return $this->user;
     }
@@ -90,7 +77,27 @@ class McpTokenGuard implements Guard
             return false;
         }
 
-        return $this->tokenService->validateToken($token) !== null;
+        return $this->resolve($token) !== null;
+    }
+
+    /**
+     * The user a token acts for, held to the same rules as the MCP endpoint:
+     * a deactivated account gets nothing, and neither does a v3 full-access
+     * token (`*`), which v4 never honours and its owner must replace.
+     */
+    private function resolve(string $plainToken): ?Authenticatable
+    {
+        $mcpToken = $this->tokenService->validateToken($plainToken);
+        if ($mcpToken === null || in_array(TokenScope::FullAccess->value, $mcpToken->scopes, true)) {
+            return null;
+        }
+
+        $statamicUser = User::find($mcpToken->userId);
+        if ($statamicUser === null || $statamicUser->get('status') === 'inactive') {
+            return null;
+        }
+
+        return $statamicUser;
     }
 
     /**

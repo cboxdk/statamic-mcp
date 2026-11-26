@@ -32,7 +32,7 @@ it('prunes expired tokens and reports the count', function () {
     $service = app(TokenService::class);
 
     // Create 2 expired tokens
-    $service->createToken('user-1', 'Expired A', [TokenScope::ContentRead], Carbon::now()->subDays(5));
+    $service->createToken('user-1', 'Expired A', [TokenScope::EntriesRead], Carbon::now()->subDays(5));
     $service->createToken('user-1', 'Expired B', [TokenScope::EntriesRead], Carbon::now()->subHour());
 
     // Create 1 active token
@@ -54,7 +54,7 @@ it('prunes expired tokens and reports the count', function () {
 it('reports no expired tokens when all are active', function () {
     $service = app(TokenService::class);
 
-    $service->createToken('user-1', 'No Expiry', [TokenScope::ContentRead]);
+    $service->createToken('user-1', 'No Expiry', [TokenScope::EntriesRead]);
     $service->createToken('user-1', 'Future', [TokenScope::EntriesRead], Carbon::now()->addYear());
 
     $this->artisan('mcp:prune-tokens')

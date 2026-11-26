@@ -84,7 +84,7 @@ class UsersRouter extends BaseRouter
                 ->description('Role or group handle in snake_case. Required for role/group get, update, delete'),
             'data' => JsonSchema::object()
                 ->description(
-                    'Resource data. For users: {"email": "...", "name": "...", "password": "..."}. '
+                    'Resource data. For users: {"email": "...", "name": "...", "password": "..."}; changing your own email or password over HTTP also needs "current_password". '
                     . 'For roles: {"handle": "...", "title": "...", "permissions": [...]}. '
                     . 'For groups: {"handle": "...", "title": "...", "roles": [...]}'
                 ),

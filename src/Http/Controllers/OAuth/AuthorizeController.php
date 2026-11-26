@@ -23,6 +23,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\Log;
 use Statamic\Facades\User;
 
 class AuthorizeController extends Controller
@@ -79,26 +80,27 @@ class AuthorizeController extends Controller
         }
 
         if ($client === null) {
-            abort(400, 'Unknown client_id.');
+            return $this->errorPage('invalid_client', 'The app is not registered with this site, or its registration expired.');
         }
 
         /** @var string $redirectUri */
         $redirectUri = $request->query('redirect_uri', '');
 
         if (! RedirectUriMatcher::matches($redirectUri, $client->redirectUris)) {
-            abort(400, 'Invalid redirect_uri.');
+            return $this->errorPage('invalid_request', 'The address the app asked to return to is not one it registered.');
         }
 
-        // Now safe to use redirect-based errors — redirect_uri is validated
+        // Nothing is sent to redirect_uri before the person has seen the
+        // consent screen. Registration is anonymous, so a client can name any
+        // address; redirecting an error there straight away would make this
+        // site an open redirect (RFC 9700 §4.11.2).
         /** @var string $responseType */
         $responseType = $request->query('response_type', '');
 
         if ($responseType !== 'code') {
-            return $this->redirectWithError(
-                $request,
+            return $this->errorPage(
                 'unsupported_response_type',
                 'Only response_type=code is supported.',
-                $redirectUri,
             );
         }
 
@@ -106,11 +108,9 @@ class AuthorizeController extends Controller
         $codeChallenge = $request->query('code_challenge', '');
 
         if ($codeChallenge === '') {
-            return $this->redirectWithError(
-                $request,
+            return $this->errorPage(
                 'invalid_request',
                 'The code_challenge parameter is required.',
-                $redirectUri,
             );
         }
 
@@ -118,11 +118,9 @@ class AuthorizeController extends Controller
         $codeChallengeMethod = $request->query('code_challenge_method', '');
 
         if ($codeChallengeMethod !== 'S256') {
-            return $this->redirectWithError(
-                $request,
+            return $this->errorPage(
                 'invalid_request',
                 'Only code_challenge_method=S256 is supported.',
-                $redirectUri,
             );
         }
 
@@ -139,11 +137,9 @@ class AuthorizeController extends Controller
 
             foreach ($scopeParts as $scopeValue) {
                 if (! in_array($scopeValue, $validScopeValues, true)) {
-                    return $this->redirectWithError(
-                        $request,
+                    return $this->errorPage(
                         'invalid_scope',
                         "Unknown scope: {$scopeValue}",
-                        $redirectUri,
                     );
                 }
 
@@ -175,11 +171,9 @@ class AuthorizeController extends Controller
         );
 
         if ($requestedScopes === []) {
-            return $this->redirectWithError(
-                $request,
+            return $this->errorPage(
                 'invalid_scope',
                 'None of the requested scopes are available to this user.',
-                $redirectUri,
             );
         }
 
@@ -201,11 +195,9 @@ class AuthorizeController extends Controller
             $configResource = rtrim($appUrl, '/') . $mcpPath;
 
             if ($resource !== $expectedResource && $resource !== $configResource) {
-                return $this->redirectWithError(
-                    $request,
+                return $this->errorPage(
                     'invalid_request',
                     'Invalid resource parameter.',
-                    $redirectUri,
                 );
             }
         }
@@ -358,57 +350,39 @@ class AuthorizeController extends Controller
      * Attempt to resolve a client_id via CIMD (Client ID Metadata Document).
      *
      * Returns null if CIMD is disabled, the client_id is not a valid CIMD URL,
-     * or if fetching/validation fails.
+     * or fetching or validating the document fails. Why it failed goes to the
+     * log, not to the browser: the reason would tell anyone probing with a
+     * crafted client_id what this server can reach.
      */
     private function resolveClientViaCimd(string $clientId): ?OAuthClient
     {
         $cimdClientId = CimdClientId::tryFrom($clientId);
 
-        if ($cimdClientId === null) {
+        if ($cimdClientId === null || ! (bool) config('statamic.mcp.oauth.cimd_enabled', true)) {
             return null;
         }
 
-        if (! (bool) config('statamic.mcp.oauth.cimd_enabled', true)) {
-            abort(400, 'CIMD client_id resolution is disabled.');
-        }
-
         try {
-            $metadata = $this->cimdResolver->resolve($cimdClientId);
-        } catch (CimdFetchException $e) {
-            abort(400, 'Failed to fetch CIMD metadata: ' . $e->getMessage());
-        } catch (CimdValidationException $e) {
-            abort(400, 'Invalid CIMD metadata: ' . $e->getMessage());
-        }
+            return OAuthClient::fromCimdMetadata($this->cimdResolver->resolve($cimdClientId));
+        } catch (CimdFetchException|CimdValidationException $e) {
+            Log::info('MCP OAuth: client metadata document could not be used.', ['client_id' => $clientId, 'reason' => $e->getMessage()]);
 
-        return OAuthClient::fromCimdMetadata($metadata);
+            return null;
+        }
     }
 
     /**
-     * Build a redirect response with an OAuth error.
+     * An error page for a request that never reached the consent screen.
+     * Nothing is sent to the client's redirect_uri (see show()).
      */
-    private function redirectWithError(
-        Request $request,
-        string $error,
-        string $description,
-        ?string $redirectUri = null,
-    ): RedirectResponse {
-        $uri = $redirectUri;
+    private function errorPage(string $error, string $description): Response
+    {
+        /** @var view-string $viewName */
+        $viewName = 'statamic-mcp::oauth.error';
 
-        if ($uri === null || $uri === '') {
-            /** @var string $fallback */
-            $fallback = $request->query('redirect_uri', '');
-            $uri = $fallback;
-        }
-
-        // If we still have no redirect URI, redirect back
-        if ($uri === '') {
-            return redirect()->back()->withErrors(['error' => $error, 'error_description' => $description]);
-        }
-
-        return redirect($uri . '?' . http_build_query(array_filter([
-            'error' => $error,
-            'error_description' => $description,
-            'state' => $request->query('state', ''),
-        ])));
+        return response(view($viewName, ['error' => $error, 'description' => $description]), 400)->withHeaders([
+            'X-Frame-Options' => 'DENY',
+            'Content-Security-Policy' => "frame-ancestors 'none'",
+        ]);
     }
 }

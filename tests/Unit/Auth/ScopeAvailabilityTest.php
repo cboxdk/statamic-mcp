@@ -50,13 +50,26 @@ function scopeValues(array $scopes): array
     return array_map(fn (TokenScope $s): string => $s->value, $scopes);
 }
 
+/**
+ * Every scope value in enum order, minus the six retired v3 ones (listed by
+ * hand so the expectation does not come from the code under test).
+ *
+ * @return list<string>
+ */
+function liveScopeValues(): array
+{
+    $retired = ['content:read', 'content:write', 'structures:write', 'users:write', 'system:write', 'blueprints:write'];
+
+    return array_values(array_filter(scopeValues(TokenScope::cases()), fn (string $v): bool => ! in_array($v, $retired, true)));
+}
+
 it('gives a super admin every scope', function () {
     $user = User::make()->id('super-1')->email('super@example.com');
     $user->makeSuper();
     $user->save();
 
-    // Every scope except the v3 ones v4 replaced, which grant nothing.
-    expect($this->availability->forUser($user))->toBe(array_values(array_filter(TokenScope::cases(), fn (TokenScope $s): bool => $s->replacedBy() === null)));
+    // Every scope except the retired v3 ones, which grant nothing.
+    expect(scopeValues($this->availability->forUser($user)))->toBe(liveScopeValues());
 });
 
 it('gives nobody anything', function () {
@@ -79,15 +92,15 @@ it('never offers full access, system writes or the content facade below super', 
 
 it('follows the entries router: view gives read, any write permission gives write', function () {
     expect(scopeValues($this->availability->forUser(userHolding(['view blog entries']))))
-        ->toBe(['content:read', 'structures:read', 'entries:read']);
+        ->toBe(['structures:read', 'entries:read']);
 
     expect(scopeValues($this->availability->forUser(userHolding(['publish blog entries']))))
-        ->toBe(['content:write', 'entries:write', 'entries:publish']);
+        ->toBe(['entries:write', 'entries:publish']);
 });
 
 it('follows the terms, globals, assets and structures routers', function () {
-    expect(scopeValues($this->availability->forUser(userHolding(['view tags terms']))))->toBe(['content:read', 'terms:read']);
-    expect(scopeValues($this->availability->forUser(userHolding(['edit tags terms']))))->toBe(['content:write', 'terms:write']);
+    expect(scopeValues($this->availability->forUser(userHolding(['view tags terms']))))->toBe(['terms:read']);
+    expect(scopeValues($this->availability->forUser(userHolding(['edit tags terms']))))->toBe(['terms:write']);
 
     // The globals router asks for edit on reads as well.
     expect(scopeValues($this->availability->forUser(userHolding(['edit footer globals']))))->toBe(['globals:read', 'globals:write']);
@@ -151,22 +164,20 @@ it('drops both scopes of a tool that is switched off', function () {
     expect($values)->toBe([]);
 });
 
-it('keeps a legacy content scope while entries or terms still allow it', function () {
-    Config::set('statamic.mcp.tools.terms.resources.write', []);
+it('never offers a retired scope, whatever the user holds', function () {
+    $editor = userHolding(['view blog entries', 'edit blog entries', 'view tags terms', 'edit tags terms']);
 
-    expect(scopeValues($this->availability->forUser(userHolding(['edit blog entries', 'edit tags terms']))))
-        ->toBe(['content:write', 'entries:write']);
-
-    Config::set('statamic.mcp.tools.entries.resources.write', []);
-
-    expect(scopeValues($this->availability->forUser(userHolding(['edit blog entries', 'edit tags terms']))))->toBe([]);
+    foreach ([TokenScope::ContentRead, TokenScope::ContentWrite, TokenScope::StructuresWrite, TokenScope::UsersWrite] as $retired) {
+        expect($this->availability->allows($editor, $retired))->toBeFalse($retired->value);
+    }
+    expect($this->availability->advertised())->not->toContain('content:read', 'content:write', 'users:write');
 });
 
 it('offers everything to everyone when switched off', function () {
     Config::set('statamic.mcp.security.scopes_follow_permissions', false);
     Config::set('statamic.mcp.tools.structures.resources.write', []);
 
-    expect($this->availability->forUser(userHolding([])))->toBe(array_values(array_filter(TokenScope::cases(), fn (TokenScope $s): bool => $s->replacedBy() === null)));
+    expect(scopeValues($this->availability->forUser(userHolding([]))))->toBe(liveScopeValues());
 });
 
 it('offers structures to a user who configures globals, as the structures router lets them', function () {

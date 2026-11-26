@@ -10,6 +10,7 @@ use Cboxdk\StatamicMcp\OAuth\Exceptions\OAuthException;
 use Cboxdk\StatamicMcp\Storage\Tokens\FileTokenStore;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
+use Statamic\Facades\User;
 use Symfony\Component\Yaml\Yaml;
 
 beforeEach(function () {
@@ -104,6 +105,32 @@ it('ends an OAuth grant carrying a replaced scope, refresh token included', func
     expect($code)->toBe(0)->and(app(TokenStore::class)->find($id))->toBeNull()
         ->and(fn () => $oauth->exchangeRefreshToken($refresh, $client->clientId))->toThrow(OAuthException::class, 'Refresh token not found')
         ->and($oauth->exchangeRefreshToken($untouched, $other->clientId)->scopes)->toBe(['entries:read']);
+});
+
+it('drops the content umbrellas, which never granted anything, without ending an OAuth grant', function () {
+    $oauth = app(OAuthDriver::class);
+    $client = $oauth->registerClient('Client', ['https://client.example/callback']);
+    $ids = [
+        'mixed' => v3Token('Mixed', ['content:read', 'entries:read', 'content:write']),
+        'only' => v3Token('Only content', ['content:read']),
+        'oauth' => v3Token('Client (OAuth)', ['content:read', 'entries:read'], $client->clientId),
+    ];
+    $refresh = $oauth->createRefreshToken('owner-1', $client->clientId, ['content:read', 'entries:read']);
+
+    [$code, $report] = migrateV4(['--apply' => true]);
+
+    $after = scopesOf($ids);
+    expect($code)->toBe(0)
+        ->and(array_column($report['steps'], 'action', 'name'))->toBe(['Client (OAuth)' => 'keep', 'Mixed' => 'narrow', 'Only content' => 'revoke'])
+        ->and($after['mixed'])->toBe(['entries:read'])
+        ->and($after['only'])->toBeNull()
+        ->and($after['oauth'])->toBe(['content:read', 'entries:read']);
+
+    // The client keeps its grant; refreshing it drops the umbrella.
+    User::make()->id('owner-1')->email('owner@example.com')->makeSuper()->save();
+    $refreshed = $this->post('/mcp/oauth/token', ['grant_type' => 'refresh_token', 'refresh_token' => $refresh, 'client_id' => $client->clientId]);
+    expect($refreshed->status())->toBe(200, (string) $refreshed->getContent());
+    expect($refreshed->json('scope'))->toBe('entries:read');
 });
 
 it('revokes before a downgrade only the tokens v3 would let publish or delete', function () {

@@ -10,6 +10,8 @@ use Cboxdk\StatamicMcp\OAuth\Drivers\BuiltInOAuthDriver;
 use Cboxdk\StatamicMcp\OAuth\Exceptions\OAuthException;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Illuminate\Support\Facades\File;
+use Statamic\Facades\Collection;
+use Statamic\Facades\Role;
 use Statamic\Facades\User;
 
 class RefreshTokenTest extends TestCase
@@ -25,7 +27,7 @@ class RefreshTokenTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        User::make()->id('user-1')->email('oauth-user@example.test')->save();
+        User::make()->id('user-1')->email('oauth-user@example.test')->makeSuper()->save();
 
         $this->clientsDir = sys_get_temp_dir() . '/statamic-mcp-test-oauth-clients-' . uniqid();
         $this->codesDir = sys_get_temp_dir() . '/statamic-mcp-test-oauth-codes-' . uniqid();
@@ -61,7 +63,7 @@ class RefreshTokenTest extends TestCase
         $code = $appDriver->createAuthCode(
             clientId: $client->clientId,
             userId: 'user-1',
-            scopes: ['content:read', 'content:write'],
+            scopes: ['entries:read', 'entries:write'],
             codeChallenge: $codeChallenge,
             codeChallengeMethod: 'S256',
             redirectUri: 'https://example.com/callback',
@@ -82,7 +84,7 @@ class RefreshTokenTest extends TestCase
         $this->assertArrayHasKey('access_token', $data);
         $this->assertArrayHasKey('refresh_token', $data);
         $this->assertSame('Bearer', $data['token_type']);
-        $this->assertSame('content:read content:write', $data['scope']);
+        $this->assertSame('entries:read entries:write', $data['scope']);
 
         // Use refresh token to get new tokens
         $refreshResponse = $this->post('/mcp/oauth/token', [
@@ -97,17 +99,38 @@ class RefreshTokenTest extends TestCase
         $this->assertArrayHasKey('access_token', $refreshData);
         $this->assertArrayHasKey('refresh_token', $refreshData);
         $this->assertSame('Bearer', $refreshData['token_type']);
-        $this->assertSame('content:read content:write', $refreshData['scope']);
+        $this->assertSame('entries:read entries:write', $refreshData['scope']);
         // New tokens should be different
         $this->assertNotSame($data['access_token'], $refreshData['access_token']);
         $this->assertNotSame($data['refresh_token'], $refreshData['refresh_token']);
+    }
+
+    public function test_a_refresh_drops_scopes_whose_permission_the_user_lost(): void
+    {
+        config(['statamic.editions.pro' => true]);
+        Collection::make('rt_posts')->save();
+        Role::make()->handle('rt_editor')->permissions(['access cp', 'view rt_posts entries', 'edit rt_posts entries'])->save();
+        User::make()->id('editor-1')->email('editor@example.test')->assignRole('rt_editor')->save();
+
+        /** @var OAuthDriver $appDriver */
+        $appDriver = $this->app->make(OAuthDriver::class);
+        $client = $appDriver->registerClient('Test Client', ['https://example.com/callback']);
+        $refresh = $appDriver->createRefreshToken('editor-1', $client->clientId, ['entries:read', 'entries:write']);
+
+        // The editor can no longer edit; reading is still theirs.
+        Role::find('rt_editor')->permissions(['access cp', 'view rt_posts entries'])->save();
+
+        $response = $this->post('/mcp/oauth/token', ['grant_type' => 'refresh_token', 'refresh_token' => $refresh, 'client_id' => $client->clientId]);
+
+        $response->assertOk();
+        $this->assertSame('entries:read', $response->json('scope'));
     }
 
     public function test_create_and_exchange_refresh_token(): void
     {
         $client = $this->driver->registerClient('Test App', ['https://example.com/callback']);
 
-        $refreshToken = $this->driver->createRefreshToken('user-1', $client->clientId, ['content:read']);
+        $refreshToken = $this->driver->createRefreshToken('user-1', $client->clientId, ['entries:read']);
 
         expect($refreshToken)->toBeString();
         expect(strlen($refreshToken))->toBe(64); // 32 bytes = 64 hex chars
@@ -116,14 +139,14 @@ class RefreshTokenTest extends TestCase
 
         expect($authCode->userId)->toBe('user-1');
         expect($authCode->clientId)->toBe($client->clientId);
-        expect($authCode->scopes)->toBe(['content:read']);
+        expect($authCode->scopes)->toBe(['entries:read']);
     }
 
     public function test_refresh_token_is_single_use(): void
     {
         $client = $this->driver->registerClient('Test App', ['https://example.com/callback']);
 
-        $refreshToken = $this->driver->createRefreshToken('user-1', $client->clientId, ['content:read']);
+        $refreshToken = $this->driver->createRefreshToken('user-1', $client->clientId, ['entries:read']);
 
         // First exchange succeeds
         $this->driver->exchangeRefreshToken($refreshToken, $client->clientId);
@@ -141,7 +164,7 @@ class RefreshTokenTest extends TestCase
 
         $client = $this->driver->registerClient('Test App', ['https://example.com/callback']);
 
-        $refreshToken = $this->driver->createRefreshToken('user-1', $client->clientId, ['content:read']);
+        $refreshToken = $this->driver->createRefreshToken('user-1', $client->clientId, ['entries:read']);
 
         // Advance time to ensure expiry
         Carbon::setTestNow(Carbon::now()->addSeconds(2));
@@ -156,7 +179,7 @@ class RefreshTokenTest extends TestCase
     {
         $client = $this->driver->registerClient('Test App', ['https://example.com/callback']);
 
-        $refreshToken = $this->driver->createRefreshToken('user-1', $client->clientId, ['content:read']);
+        $refreshToken = $this->driver->createRefreshToken('user-1', $client->clientId, ['entries:read']);
 
         $this->expectException(OAuthException::class);
         $this->expectExceptionMessage('Client ID mismatch');
@@ -205,16 +228,16 @@ class RefreshTokenTest extends TestCase
         $client = $this->driver->registerClient('Test App', ['https://example.com/callback']);
 
         // Rotation retains the consumed hash alongside its successor.
-        $usedToken = $this->driver->createRefreshToken('user-1', $client->clientId, ['content:read']);
+        $usedToken = $this->driver->createRefreshToken('user-1', $client->clientId, ['entries:read']);
         $this->driver->exchangeRefreshToken($usedToken, $client->clientId);
 
         // Create an expired refresh token
         Carbon::setTestNow(Carbon::now()->subSeconds(120));
-        $this->driver->createRefreshToken('user-2', $client->clientId, ['content:read']);
+        $this->driver->createRefreshToken('user-2', $client->clientId, ['entries:read']);
         Carbon::setTestNow(null);
 
         // Create a valid refresh token that should survive pruning
-        $this->driver->createRefreshToken('user-3', $client->clientId, ['content:read']);
+        $this->driver->createRefreshToken('user-3', $client->clientId, ['entries:read']);
 
         // Consumed token, successor, expired token and unrelated live token remain.
         $refreshFiles = glob($this->refreshDir . '/*.json');

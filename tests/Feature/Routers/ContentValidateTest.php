@@ -13,6 +13,8 @@ use Statamic\Facades\Collection;
 use Statamic\Facades\Entry;
 use Statamic\Facades\Nav;
 use Statamic\Facades\Site;
+use Statamic\Facades\Taxonomy;
+use Statamic\Facades\Term;
 
 /**
  * Covers the content_validate sweep — the read-side check for content that
@@ -404,6 +406,35 @@ class ContentValidateTest extends TestCase
 
         $this->assertSame(['error' => 1], $summary['by_severity']);
         $this->assertSame(['invalid_option' => 1], $summary['by_type']);
+    }
+
+    public function test_a_full_sweep_works_on_a_site_without_taxonomies(): void
+    {
+        foreach (Taxonomy::all() as $taxonomy) {
+            $taxonomy->delete();
+        }
+        $this->storeEntry('valid', ['title' => 'A Valid Page', 'status' => 'live']);
+
+        // With nothing to read the term query used to name a placeholder
+        // taxonomy, and the Stache has no store for it: the sweep failed.
+        $result = $this->router->execute(['action' => 'content_validate']);
+
+        $this->assertTrue($result['success'], json_encode($result));
+        $this->assertSame(1, $result['data']['summary']['records_scanned']);
+    }
+
+    public function test_an_unknown_or_denied_taxonomy_validates_nothing(): void
+    {
+        Taxonomy::make('cv_tags')->title('Tags')->save();
+        Term::make()->taxonomy('cv_tags')->slug('one')->data(['title' => 'One'])->save();
+        config(['statamic.mcp.tools.terms.resources.read' => ['other_*']]);
+
+        foreach (['cv_missing', 'cv_tags'] as $taxonomy) {
+            $result = $this->router->execute(['action' => 'content_validate', 'scope' => 'terms', 'taxonomy' => $taxonomy]);
+
+            $this->assertTrue($result['success'], json_encode($result));
+            $this->assertSame(0, $result['data']['summary']['records_scanned'], $taxonomy);
+        }
     }
 
     public function test_rejects_an_unknown_scope(): void

@@ -34,24 +34,15 @@ class AuthenticateForMcp
             : Str::uuid()->toString();
         $request->attributes->set('mcp_correlation_id', $correlationId);
 
-        // IP-level rate limiting for brute-force auth protection
-        // Per-request throttling is handled by the separate throttle:mcp middleware
-        $ip = $request->ip() ?? 'unknown';
-        $rateLimitKey = "mcp_auth:{$ip}";
-        if (RateLimiter::tooManyAttempts($rateLimitKey, 5)) {
-            return response()->json([
-                'error' => 'Too many authentication attempts',
-                'message' => 'Please wait before trying again',
-            ], 429, [
-                'Retry-After' => (string) RateLimiter::availableIn($rateLimitKey),
-            ]);
-        }
-
         // Mark this as a web request authoritatively, so context detection does
         // not depend on the process SAPI (Octane/Swoole workers report console).
         $request->attributes->set(McpContext::WEB_ATTRIBUTE, true);
 
-        // Try Bearer token first (scoped MCP API tokens)
+        // Try Bearer token first (scoped MCP API tokens). A valid token always
+        // gets through: only failed attempts are counted, so a scanner or a
+        // stale client behind a shared address (an office, a cloud egress)
+        // cannot lock out everyone else there. Per-request throttling is the
+        // separate throttle:mcp middleware.
         $plainToken = $request->bearerToken();
         if ($plainToken) {
             $mcpToken = $this->tokenService->validateToken($plainToken);
@@ -67,14 +58,13 @@ class AuthenticateForMcp
                     return $next($request);
                 }
             }
-
-            // Bearer token was provided but invalid — rate limit
-            RateLimiter::hit($rateLimitKey, 60);
         }
 
         // Password-only access was removed in v4, even with legacy config.
-        if (! $plainToken && $request->hasHeader('Authorization')) {
-            RateLimiter::hit($rateLimitKey, 60);
+        if ($plainToken || $request->hasHeader('Authorization')) {
+            if ($limited = $this->countFailure($request, (string) $request->header('Authorization'))) {
+                return $limited;
+            }
         }
 
         $wwwAuth = 'Bearer realm="Statamic MCP"';
@@ -89,6 +79,33 @@ class AuthenticateForMcp
         ], 401, [
             'WWW-Authenticate' => $wwwAuth,
         ]);
+    }
+
+    /**
+     * Counts a failed credential against the credential itself (a stale
+     * token retried in a loop) and against the address (many guesses), and
+     * answers 429 once either is over its limit.
+     */
+    private function countFailure(Request $request, string $credential): ?Response
+    {
+        $keys = [
+            'mcp_auth:credential:' . substr(hash('sha256', $credential), 0, 32) => 5,
+            'mcp_auth:ip:' . ($request->ip() ?? 'unknown') => 30,
+        ];
+
+        foreach ($keys as $key => $limit) {
+            if (RateLimiter::tooManyAttempts($key, $limit)) {
+                return response()->json([
+                    'error' => 'Too many authentication attempts',
+                    'message' => 'Please wait before trying again',
+                ], 429, ['Retry-After' => (string) RateLimiter::availableIn($key)]);
+            }
+        }
+        foreach (array_keys($keys) as $key) {
+            RateLimiter::hit($key, 60);
+        }
+
+        return null;
     }
 
     /**

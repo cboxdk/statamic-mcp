@@ -122,7 +122,12 @@ class StacheConsistencyTest extends TestCase
             'entry date' => [$entries(['action' => 'update', 'collection' => 'blog', 'id' => '@post-a', 'data' => ['date' => '2025-06-01']])],
             'entry tags added' => [$entries(['action' => 'update', 'collection' => 'blog', 'id' => '@post-a', 'data' => ['tags' => ['php', 'unused']]])],
             'entry tags cleared' => [$entries(['action' => 'update', 'collection' => 'blog', 'id' => '@post-b', 'data' => ['tags' => []]])],
-            'entry create tagged' => [$entries(['action' => 'create', 'collection' => 'blog', 'data' => ['title' => 'New', 'slug' => 'new', 'date' => '2026-03-01', 'tags' => ['laravel', 'fresh']]])],
+            // A new tag is created with the terms tool first: an entry write
+            // refuses an unknown term instead of letting Statamic invent it.
+            'entry create tagged' => [fn (self $t) => $t->steps(
+                fn () => (new TermsRouter)->execute(['action' => 'create', 'taxonomy' => 'tags', 'slug' => 'fresh', 'data' => ['title' => 'Fresh']]),
+                fn () => $entries(['action' => 'create', 'collection' => 'blog', 'data' => ['title' => 'New', 'slug' => 'new', 'date' => '2026-03-01', 'tags' => ['laravel', 'fresh']]])($t),
+            )],
             'entry delete (last use of a term)' => [$entries(['action' => 'delete', 'collection' => 'blog', 'id' => '@post-b'])],
             'entry unpublish' => [$entries(['action' => 'unpublish', 'collection' => 'blog', 'id' => '@post-a'])],
             'entry publish' => [$entries(['action' => 'publish', 'collection' => 'blog', 'id' => '@draft'])],

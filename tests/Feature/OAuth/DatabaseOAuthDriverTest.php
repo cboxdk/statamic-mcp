@@ -44,7 +44,7 @@ class DatabaseOAuthDriverTest extends TestCase
         $code = $driver->createAuthCode(
             clientId: $client->clientId,
             userId: 'user-123',
-            scopes: ['content:read'],
+            scopes: ['entries:read'],
             codeChallenge: $codeChallenge,
             codeChallengeMethod: 'S256',
             redirectUri: 'https://example.com/callback',
@@ -82,7 +82,7 @@ class DatabaseOAuthDriverTest extends TestCase
         $code = $driver->createAuthCode(
             clientId: $client->clientId,
             userId: 'user-123',
-            scopes: ['content:read'],
+            scopes: ['entries:read'],
             codeChallenge: $codeChallenge,
             codeChallengeMethod: 'S256',
             redirectUri: 'https://example.com/callback',

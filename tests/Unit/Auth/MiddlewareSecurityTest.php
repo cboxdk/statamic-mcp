@@ -12,7 +12,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\RateLimiter;
 use Statamic\Contracts\Auth\User as StatamicUser;
 use Statamic\Facades\User;
 use Symfony\Component\HttpFoundation\Response;
@@ -96,7 +95,7 @@ describe('AuthenticateForMcp', function () {
         $result = $this->tokenService->createToken(
             'user-1',
             'Test Token',
-            [TokenScope::ContentRead],
+            [TokenScope::EntriesRead],
         );
         $plainToken = $result['token'];
 
@@ -116,7 +115,7 @@ describe('AuthenticateForMcp', function () {
     it('refuses a deactivated user holding a valid Bearer token', function () {
         $mockUser = createMockStatamicUser(overrides: ['status' => 'inactive']);
 
-        $result = $this->tokenService->createToken('user-1', 'Test Token', [TokenScope::ContentRead]);
+        $result = $this->tokenService->createToken('user-1', 'Test Token', [TokenScope::EntriesRead]);
 
         User::shouldReceive('find')->with('user-1')->andReturn($mockUser);
 
@@ -139,7 +138,7 @@ describe('AuthenticateForMcp', function () {
         $result = $this->tokenService->createToken(
             'user-1',
             'Expired Token',
-            [TokenScope::ContentRead],
+            [TokenScope::EntriesRead],
             Carbon::now()->subDay(),
         );
 
@@ -155,7 +154,7 @@ describe('AuthenticateForMcp', function () {
         $result = $this->tokenService->createToken(
             'deleted-user-id',
             'Orphan Token',
-            [TokenScope::ContentRead],
+            [TokenScope::EntriesRead],
         );
 
         User::shouldReceive('find')->with('deleted-user-id')->andReturn(null);
@@ -239,7 +238,7 @@ describe('AuthenticateForMcp', function () {
         $result = $this->tokenService->createToken(
             'user-1',
             'Token Auth',
-            [TokenScope::ContentRead],
+            [TokenScope::EntriesRead],
         );
 
         User::shouldReceive('find')->with('user-1')->andReturn($mockUser);
@@ -275,7 +274,7 @@ describe('AuthenticateForMcp', function () {
         $result = $this->tokenService->createToken(
             'user-1',
             'Auth Check Token',
-            [TokenScope::ContentRead],
+            [TokenScope::EntriesRead],
         );
 
         User::shouldReceive('find')->with('user-1')->andReturn($mockUser);
@@ -297,69 +296,40 @@ describe('AuthenticateForMcp', function () {
 
 describe('AuthenticateForMcp Rate Limiting', function () {
 
-    it('locks out IP after 5 failed Basic Auth attempts', function () {
+    it('answers 429 once the same failed credential is retried five times', function () {
         $middleware = new AuthenticateForMcp($this->tokenService);
-
-        User::shouldReceive('findByEmail')->with('attacker@example.com')->andReturn(null);
 
         for ($i = 0; $i < 5; $i++) {
-            $request = createBasicAuthRequest('attacker@example.com', 'wrong-password');
-            $response = $middleware->handle($request, $this->passThrough);
-            expect($response->getStatusCode())->toBe(401);
+            expect($middleware->handle(createBearerRequest('stale-token'), $this->passThrough)->getStatusCode())->toBe(401);
         }
 
-        // 6th attempt should be locked out
-        $request = createBasicAuthRequest('attacker@example.com', 'wrong-password');
-        $response = $middleware->handle($request, $this->passThrough);
-
+        $response = $middleware->handle(createBearerRequest('stale-token'), $this->passThrough);
         expect($response->getStatusCode())->toBe(429);
-        $retryAfter = (int) $response->headers->get('Retry-After');
-        expect($retryAfter)->toBeGreaterThanOrEqual(1)->toBeLessThanOrEqual(60);
+        expect((int) $response->headers->get('Retry-After'))->toBeGreaterThanOrEqual(1)->toBeLessThanOrEqual(60);
     });
 
-    it('uses atomic increment for rate limiting counter', function () {
+    it('answers 429 once one address has failed thirty times with different credentials', function () {
         $middleware = new AuthenticateForMcp($this->tokenService);
 
-        User::shouldReceive('findByEmail')->with('test@example.com')->andReturn(null);
+        for ($i = 0; $i < 30; $i++) {
+            expect($middleware->handle(createBearerRequest("guess-{$i}"), $this->passThrough)->getStatusCode())->toBe(401);
+        }
 
-        $request = createBasicAuthRequest('test@example.com', 'wrong');
-        $middleware->handle($request, $this->passThrough);
-
-        $ip = $request->ip() ?? 'unknown';
-        $rateLimitKey = "mcp_auth:{$ip}";
-
-        // RateLimiter should have recorded 1 attempt after one failed attempt
-        expect(RateLimiter::tooManyAttempts($rateLimitKey, 5))->toBeFalse();
-
-        // Second attempt
-        $request2 = createBasicAuthRequest('test@example.com', 'wrong');
-        $middleware->handle($request2, $this->passThrough);
-
-        // Still under the limit after 2 attempts
-        expect(RateLimiter::tooManyAttempts($rateLimitKey, 5))->toBeFalse();
+        expect($middleware->handle(createBearerRequest('guess-31'), $this->passThrough)->getStatusCode())->toBe(429);
     });
 
-    it('does not increment counter on successful authentication', function () {
+    it('lets a valid token through from an address that is over its failure limit', function () {
+        $middleware = new AuthenticateForMcp($this->tokenService);
+        for ($i = 0; $i < 31; $i++) {
+            $middleware->handle(createBearerRequest("guess-{$i}"), $this->passThrough);
+        }
+
+        // Someone else behind the same address (an office, a cloud egress).
         $mockUser = createMockStatamicUser();
-        $token = $this->tokenService->createToken('user-123', 'Test', [TokenScope::EntriesRead]);
+        $token = $this->tokenService->createToken('user-123', 'Colleague', [TokenScope::EntriesRead]);
         User::shouldReceive('find')->with('user-123')->andReturn($mockUser);
-        $request = createBearerRequest($token['token']);
-        $response = (new AuthenticateForMcp($this->tokenService))->handle($request, $this->passThrough);
-        expect($response->getStatusCode())->toBe(200);
-        expect(RateLimiter::tooManyAttempts('mcp_auth:' . ($request->ip() ?? 'unknown'), 1))->toBeFalse();
-    });
 
-    it('increments counter on failed Bearer token attempt', function () {
-        $middleware = new AuthenticateForMcp($this->tokenService);
-        $request = createBearerRequest('invalid-token-here');
-        $response = $middleware->handle($request, $this->passThrough);
-
-        expect($response->getStatusCode())->toBe(401);
-
-        $ip = $request->ip() ?? 'unknown';
-        $rateLimitKey = "mcp_auth:{$ip}";
-        // Bearer token failures now count toward rate limiting
-        expect(RateLimiter::tooManyAttempts($rateLimitKey, 1))->toBeTrue();
+        expect($middleware->handle(createBearerRequest($token['token']), $this->passThrough)->getStatusCode())->toBe(200);
     });
 });
 
@@ -382,7 +352,7 @@ describe('RequireMcpPermission', function () {
         $result = $this->tokenService->createToken(
             'user-1',
             'Valid Token',
-            [TokenScope::ContentRead],
+            [TokenScope::EntriesRead],
         );
 
         $mockUser = createMockStatamicUser();

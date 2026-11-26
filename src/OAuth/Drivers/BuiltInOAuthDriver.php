@@ -14,6 +14,7 @@ use Cboxdk\StatamicMcp\OAuth\Contracts\RevokesUserGrants;
 use Cboxdk\StatamicMcp\OAuth\Exceptions\OAuthException;
 use Cboxdk\StatamicMcp\OAuth\OAuthAuthCode;
 use Cboxdk\StatamicMcp\OAuth\OAuthClient;
+use Cboxdk\StatamicMcp\Support\McpConfig;
 use Symfony\Component\Yaml\Yaml;
 
 /**
@@ -84,8 +85,8 @@ class BuiltInOAuthDriver implements OAuthDriver, RevokesUserGrants
             }
         }
 
-        /** @var int $maxClients */
-        $maxClients = config('statamic.mcp.oauth.max_clients', 50);
+        $this->removeUnusedClients();
+        $maxClients = McpConfig::int('oauth.max_clients', 50);
         $existingFiles = glob($this->clientsDir . '/*.yaml');
         $count = $existingFiles !== false ? count($existingFiles) : 0;
 
@@ -117,6 +118,7 @@ class BuiltInOAuthDriver implements OAuthDriver, RevokesUserGrants
 
     public function countClientsByIp(string $ip): int
     {
+        $this->removeUnusedClients();
         $count = 0;
         $files = glob($this->clientsDir . '/*.yaml');
 
@@ -589,7 +591,39 @@ class BuiltInOAuthDriver implements OAuthDriver, RevokesUserGrants
             }
         }
 
-        return $pruned;
+        return $pruned + $this->removeUnusedClients();
+    }
+
+    /**
+     * Removes registrations that never led to a grant: older than
+     * oauth.unused_client_ttl, with no authorization code and no refresh
+     * token. Registration is anonymous, so without this anyone could fill
+     * oauth.max_clients and keep real clients out until client_ttl passed.
+     */
+    private function removeUnusedClients(): int
+    {
+        $cutoff = Carbon::now()->subSeconds(McpConfig::int('oauth.unused_client_ttl', 86400));
+
+        $inUse = [];
+        foreach ([...(glob($this->codesDir . '/*.json') ?: []), ...(glob($this->refreshDir . '/*.json') ?: [])] as $file) {
+            $data = json_decode((string) @file_get_contents($file), true);
+            if (is_array($data) && is_string($data['client_id'] ?? null)) {
+                $inUse[$data['client_id']] = true;
+            }
+        }
+
+        $removed = 0;
+        foreach (glob($this->clientsDir . '/*.yaml') ?: [] as $file) {
+            $data = Yaml::parseFile($file);
+            if (! is_array($data) || ! is_string($data['client_id'] ?? null) || ! is_string($data['created_at'] ?? null)) {
+                continue;
+            }
+            if (! isset($inUse[$data['client_id']]) && Carbon::parse($data['created_at'])->lessThan($cutoff) && @unlink($file)) {
+                $removed++;
+            }
+        }
+
+        return $removed;
     }
 
     /**

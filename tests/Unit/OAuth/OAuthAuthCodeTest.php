@@ -8,13 +8,13 @@ it('constructs with expected properties', function (): void {
     $authCode = new OAuthAuthCode(
         clientId: 'client-abc',
         userId: 'user-123',
-        scopes: ['content:read', 'content:write'],
+        scopes: ['entries:read', 'entries:write'],
         redirectUri: 'https://example.com/callback',
     );
 
     expect($authCode->clientId)->toBe('client-abc')
         ->and($authCode->userId)->toBe('user-123')
-        ->and($authCode->scopes)->toBe(['content:read', 'content:write'])
+        ->and($authCode->scopes)->toBe(['entries:read', 'entries:write'])
         ->and($authCode->redirectUri)->toBe('https://example.com/callback');
 });
 

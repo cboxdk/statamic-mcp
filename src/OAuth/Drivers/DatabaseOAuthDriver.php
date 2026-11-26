@@ -18,6 +18,7 @@ use Cboxdk\StatamicMcp\OAuth\Models\OAuthRefreshTokenModel;
 use Cboxdk\StatamicMcp\OAuth\OAuthAuthCode;
 use Cboxdk\StatamicMcp\OAuth\OAuthClient;
 use Cboxdk\StatamicMcp\Support\CommittedDatabase;
+use Cboxdk\StatamicMcp\Support\McpConfig;
 
 /**
  * Database-backed OAuth driver using Eloquent models.
@@ -43,8 +44,8 @@ class DatabaseOAuthDriver implements OAuthDriver, RevokesUserGrants
                 }
             }
 
-            /** @var int $maxClients */
-            $maxClients = config('statamic.mcp.oauth.max_clients', 50);
+            $this->removeUnusedClients();
+            $maxClients = McpConfig::int('oauth.max_clients', 50);
             $count = OAuthClientModel::query()->useWritePdo()->count();
 
             if ($count >= $maxClients) {
@@ -70,8 +71,30 @@ class DatabaseOAuthDriver implements OAuthDriver, RevokesUserGrants
     public function countClientsByIp(string $ip): int
     {
         return CommittedDatabase::run((new OAuthClientModel)->getConnection(), function () use ($ip): int {
+            $this->removeUnusedClients();
+
             return (int) OAuthClientModel::query()->useWritePdo()->where('registered_ip', $ip)->count();
         });
+    }
+
+    /**
+     * Removes registrations that never led to a grant: older than
+     * oauth.unused_client_ttl, with no authorization code and no refresh
+     * token. Registration is anonymous, so without this anyone could fill
+     * oauth.max_clients and keep real clients out until client_ttl passed.
+     */
+    private function removeUnusedClients(): int
+    {
+        $cutoff = Carbon::now()->subSeconds(McpConfig::int('oauth.unused_client_ttl', 86400));
+
+        /** @var int $removed */
+        $removed = OAuthClientModel::query()->useWritePdo()
+            ->where('created_at', '<', $cutoff)
+            ->whereNotIn('client_id', OAuthCodeModel::query()->select('client_id'))
+            ->whereNotIn('client_id', OAuthRefreshTokenModel::query()->select('client_id'))
+            ->delete();
+
+        return $removed;
     }
 
     public function findClient(string $clientId): ?OAuthClient
@@ -335,6 +358,7 @@ class DatabaseOAuthDriver implements OAuthDriver, RevokesUserGrants
             $refreshPruned = OAuthRefreshTokenModel::query()->useWritePdo()->where('expires_at', '<', Carbon::now())
                 ->delete();
             $pruned += $refreshPruned;
+            $pruned += $this->removeUnusedClients();
 
             // Prune expired clients (if client_ttl is configured)
             /** @var int $clientTtl */

@@ -45,7 +45,7 @@ class OAuthFlowTest extends TestCase
         $this->actingAs($user, 'web')->get($authorize . http_build_query($query + ['resource' => $resource]))->assertOk();
         // Another port is still another resource.
         $this->actingAs($user, 'web')->get($authorize . http_build_query($query + ['resource' => 'http://mcp.test:9090/mcp/statamic']))
-            ->assertRedirectContains('error=invalid_request');
+            ->assertStatus(400)->assertSee('invalid_request');
     }
 
     public function test_complete_oauth_flow(): void

@@ -3,7 +3,9 @@
 declare(strict_types=1);
 
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\EntriesRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\UsersRouter;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Testing\TestResponse;
 use Statamic\Facades\Blueprint;
 use Statamic\Facades\Collection;
@@ -158,4 +160,52 @@ it('never stands in for authorization: a permission lost after approval still re
     expect($result['success'])->toBeFalse()
         ->and(implode(' ', $result['errors']))->toContain('Permission denied')
         ->and(Entry::find('ap-one'))->not->toBeNull();
+});
+
+it('asks for approval before any users action that can hand over an account, and never stores the new password', function () {
+    Role::make()->handle('ap_admin')->permissions(['access cp', 'view mcp dashboard', 'view users', 'edit users', 'create users', 'assign roles', 'change passwords'])->save();
+    $admin = tap(User::make()->id('ap-admin')->email('admin@example.test')->assignRole('ap_admin'))->save();
+    $victim = tap(User::make()->id('ap-victim')->email('victim@example.test')->password('old-password-1'))->save();
+    $this->actingAs($admin);
+    $users = fn (array $arguments): array => (new UsersRouter)->execute(['resource_type' => 'user'] + $arguments);
+
+    foreach ([
+        ['action' => 'update', 'id' => 'ap-victim', 'data' => ['password' => 'taken-over-123']],
+        ['action' => 'update', 'id' => 'ap-victim', 'data' => ['email' => 'attacker@example.test']],
+        ['action' => 'assign_role', 'id' => 'ap-victim', 'role' => 'ap_admin'],
+        ['action' => 'activate', 'id' => 'ap-victim'],
+        ['action' => 'create', 'data' => ['email' => 'backdoor@example.test', 'password' => 'backdoor-123']],
+    ] as $call) {
+        $asked = $users($call);
+        expect($asked['data']['code'] ?? null)->toBe('APPROVAL_REQUIRED', json_encode($call));
+    }
+
+    $fresh = User::find('ap-victim');
+    expect($fresh->email())->toBe('victim@example.test')
+        ->and(Hash::check('old-password-1', (string) $fresh->password()))->toBeTrue()
+        ->and(User::findByEmail('backdoor@example.test'))->toBeNull();
+
+    // The approval page shows what is asked, never the secret itself.
+    $page = $this->get(cp_route('statamic-mcp.approvals.index'))->assertOk();
+    expect($page->getContent())->not->toContain('taken-over-123')->not->toContain('backdoor-123');
+    foreach (File::allFiles($this->apDir) as $file) {
+        expect($file->getContents())->not->toContain('taken-over-123')->not->toContain('backdoor-123');
+    }
+});
+
+it('needs the current password to change your own email or password', function () {
+    Role::make()->handle('ap_self')->permissions(['access cp', 'view users', 'edit users'])->save();
+    config(['statamic.mcp.confirmation.actions.users' => []]);
+    $me = tap(User::make()->id('ap-me')->email('me@example.test')->password('my-password-1')->assignRole('ap_self'))->save();
+    $this->actingAs($me);
+    $update = fn (array $data): array => (new UsersRouter)->execute(['action' => 'update', 'resource_type' => 'user', 'id' => 'ap-me', 'data' => $data]);
+
+    expect($update(['email' => 'thief@example.test'])['success'])->toBeFalse()
+        ->and($update(['password' => 'stolen-pass-1', 'current_password' => 'wrong-guess'])['success'])->toBeFalse()
+        ->and(User::find('ap-me')->email())->toBe('me@example.test');
+
+    // A name is not a sign-in detail, and the right password is enough.
+    expect($update(['name' => 'Me'])['success'])->toBeTrue()
+        ->and($update(['password' => 'new-password-1', 'current_password' => 'my-password-1'])['success'])->toBeTrue()
+        ->and(Hash::check('new-password-1', (string) User::find('ap-me')->password()))->toBeTrue();
 });

@@ -11,6 +11,7 @@ use Statamic\Fieldtypes\Bard;
 use Statamic\Fieldtypes\Grid;
 use Statamic\Fieldtypes\Group;
 use Statamic\Fieldtypes\Replicator;
+use Statamic\Fieldtypes\Terms;
 
 /**
  * Derives an agent-friendly wire-format specification from a Statamic Field.
@@ -544,23 +545,55 @@ class FieldFormatSpec
     private function relationshipSpec(Field $field): array
     {
         $config = $field->config();
-        $maxItems = $config['max_items'] ?? null;
-        $singular = $maxItems === 1;
+        $singular = ($config['max_items'] ?? null) === 1;
+        $wrap = $singular ? 'Single-relationship field. The wire format is still an array: wrap the one value in [].' : null;
 
-        return [
+        if (in_array($field->type(), ['terms', 'taxonomy'], true)) {
+            $fieldtype = $field->fieldtype();
+            $taxonomies = $fieldtype instanceof Terms
+                ? array_values(array_filter($fieldtype->taxonomies(), 'is_string'))
+                : [];
+            $single = count($taxonomies) === 1;
+
+            return array_filter([
+                'wire_format' => 'array',
+                'shape' => 'term_references',
+                'taxonomies' => $taxonomies,
+                'item_format' => $single ? 'term_slug' : 'taxonomy::slug',
+                'rules' => array_values(array_filter([
+                    $wrap,
+                    $single
+                        ? "Each value is the slug of an existing term in {$taxonomies[0]} (\"php\"), or {$taxonomies[0]}::slug."
+                        : 'Each value is taxonomy::slug of an existing term ("tags::php").',
+                    'The term must exist. Create a new term with the terms tool first; an unknown value is refused, not created.',
+                ])),
+                'examples' => [$single ? ['php', 'laravel'] : ['tags::php', 'topics::news']],
+                'common_mistakes' => ['Sending a UUID: term ids are taxonomy::slug, not UUIDs.'],
+            ], fn (mixed $v): bool => $v !== []);
+        }
+
+        if ($field->type() === 'users') {
+            return [
+                'wire_format' => 'array',
+                'shape' => 'user_ids',
+                'item_format' => 'user_id',
+                'rules' => array_values(array_filter([$wrap, 'Each value is the id of an existing user (from the users tool).'])),
+            ];
+        }
+
+        $collections = array_values(array_filter((array) ($config['collections'] ?? []), 'is_string'));
+
+        return array_filter([
             'wire_format' => 'array',
-            'shape' => 'relationship_ids',
-            'rules' => [
-                $singular
-                    ? 'Single-relationship field. Wire format is still an array — wrap the single UUID in [].'
-                    : 'Array of UUIDs referencing the related resources.',
-            ],
-            'item_format' => 'uuid_string',
-            'common_mistakes' => [
-                'Sending a bare string — relationship fields always expect arrays.',
-                'Including a prefix like "entry::" — pass the UUID directly.',
-            ],
-        ];
+            'shape' => 'entry_ids',
+            'collections' => $collections,
+            'item_format' => 'entry_id',
+            'rules' => array_values(array_filter([
+                $wrap,
+                'Each value is the id of an existing entry' . ($collections === [] ? '.' : ' in ' . implode(', ', $collections) . '.'),
+            ])),
+            'common_mistakes' => ['Including a prefix like "entry::": pass the id directly.'],
+        ], fn (mixed $v): bool => $v !== []);
     }
 
     /**

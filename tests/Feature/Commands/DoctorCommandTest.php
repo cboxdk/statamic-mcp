@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Cboxdk\StatamicMcp\Actions\Operations\DatabaseOperationStore;
+use Cboxdk\StatamicMcp\Contracts\TokenStore;
 use Cboxdk\StatamicMcp\OAuth\Drivers\DatabaseOAuthDriver;
 use Cboxdk\StatamicMcp\Storage\Tokens\DatabaseTokenStore;
 use Illuminate\Http\Middleware\TrustProxies;
@@ -112,4 +113,32 @@ it('fails a stdout log channel when stdio is configured, through a stack', funct
     // Without a stdio profile the server never runs over stdio: only a warning.
     config(['logging.channels.console.with.stream' => 'php://stdout', 'statamic.mcp.profiles.stdio' => null]);
     expect(collect(mcpDoctorReport()['checks'])->keyBy('id')['stdio.stdout']['status'])->toBe('warn');
+});
+
+it('counts tokens that outlive the lifetime cap and tokens carrying a retired content scope', function () {
+    config(['statamic.mcp.security.max_token_lifetime_days' => 30]);
+    $store = app(TokenStore::class);
+    $store->create('u1', 'Old forever', hash('sha256', 'a'), ['entries:read'], null);
+    $store->create('u1', 'Old long', hash('sha256', 'b'), ['content:read', 'entries:read'], now()->addYear());
+    $store->create('u1', 'Fine', hash('sha256', 'c'), ['entries:read'], now()->addDays(10));
+
+    $checks = collect(mcpDoctorReport()['checks'])->keyBy('id');
+    expect($checks['tokens.lifetime_cap']['status'])->toBe('warn')
+        ->and($checks['tokens.lifetime_cap']['message'])->toStartWith('2 token(s)')
+        ->and($checks['migration.inert_scopes']['status'])->toBe('warn')
+        ->and($checks['migration.inert_scopes']['message'])->toStartWith('1 token(s)');
+
+    config(['statamic.mcp.security.max_token_lifetime_days' => null]);
+    expect(collect(mcpDoctorReport()['checks'])->keyBy('id'))->not->toHaveKey('tokens.lifetime_cap');
+});
+
+it('warns when approvals are on but Statamic elevated sessions are off', function () {
+    config(['statamic.mcp.confirmation.enabled' => true, 'statamic.users.elevated_sessions_enabled' => false]);
+    expect(collect(mcpDoctorReport()['checks'])->keyBy('id')['approvals.elevated_session']['status'])->toBe('warn');
+
+    config(['statamic.users.elevated_sessions_enabled' => true]);
+    expect(collect(mcpDoctorReport()['checks'])->keyBy('id')['approvals.elevated_session']['status'])->toBe('pass');
+
+    config(['statamic.mcp.confirmation.enabled' => false]);
+    expect(collect(mcpDoctorReport()['checks'])->keyBy('id'))->not->toHaveKey('approvals.elevated_session');
 });

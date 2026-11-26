@@ -172,8 +172,16 @@ class OAuthTokenController extends Controller
 
         // Removing a scope registration ends the old grant; never silently reinterpret it.
         // So does a v3 grant of `*` or of a scope v4 replaced: the user approves the v4 list.
+        // The content:* umbrellas never granted anything, so an old grant just loses them.
+        // A scope whose permission the user has lost since consent is not
+        // issued again: the token carries only what the user can still do.
         $v3 = TokenScope::v3Changes($scopes);
-        if (array_diff($scopes, app(ScopeAvailability::class)->names()) !== [] || isset($v3['full_access']) || isset($v3['replaced'])) {
+        $availability = app(ScopeAvailability::class);
+        $scopes = array_values(array_filter(
+            array_diff($scopes, $v3['inert'] ?? []),
+            fn (string $scope): bool => $scope === TokenScope::FullAccess->value || ! in_array($scope, $availability->names(), true) || $availability->allowsValue($user, $scope),
+        ));
+        if ($scopes === [] || array_diff($scopes, app(ScopeAvailability::class)->names()) !== [] || isset($v3['full_access']) || isset($v3['replaced'])) {
             $this->oauthDriver->revokeRefreshTokensFor($userId, $clientId);
             $this->tokenService->revokeOAuthTokens($userId, $clientId);
 

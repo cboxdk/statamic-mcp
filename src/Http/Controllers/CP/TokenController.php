@@ -6,6 +6,7 @@ namespace Cboxdk\StatamicMcp\Http\Controllers\CP;
 
 use Carbon\Carbon;
 use Cboxdk\StatamicMcp\Auth\ScopeAvailability;
+use Cboxdk\StatamicMcp\Auth\TokenExpiryRefused;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\Authorization\PersonalTokenConsent;
@@ -157,13 +158,17 @@ class TokenController extends CpController
 
         $clearExpiry = (bool) ($validated['clear_expiry'] ?? false);
 
-        $updated = $this->tokenService->updateToken(
-            $tokenId,
-            $validated['name'] ?? null,
-            $scopes,
-            $expiresAt,
-            $clearExpiry,
-        );
+        try {
+            $updated = $this->tokenService->updateToken(
+                $tokenId,
+                $validated['name'] ?? null,
+                $scopes,
+                $expiresAt,
+                $clearExpiry,
+            );
+        } catch (TokenExpiryRefused $e) {
+            return response()->json(['message' => $e->getMessage(), 'errors' => ['expires_at' => [$e->getMessage()]]], 422);
+        }
 
         if ($updated === null) {
             return response()->json([

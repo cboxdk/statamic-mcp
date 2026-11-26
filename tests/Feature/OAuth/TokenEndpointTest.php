@@ -15,7 +15,7 @@ class TokenEndpointTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        User::make()->id('user-1')->email('oauth-user@example.test')->save();
+        User::make()->id('user-1')->email('oauth-user@example.test')->makeSuper()->save();
 
         $this->driver = $this->app->make(OAuthDriver::class);
     }
@@ -30,7 +30,7 @@ class TokenEndpointTest extends TestCase
         $code = $this->driver->createAuthCode(
             clientId: $client->clientId,
             userId: 'user-1',
-            scopes: ['content:read', 'content:write'],
+            scopes: ['entries:read', 'entries:write'],
             codeChallenge: $codeChallenge,
             codeChallengeMethod: 'S256',
             redirectUri: 'https://example.com/callback',
@@ -52,7 +52,7 @@ class TokenEndpointTest extends TestCase
         $this->assertSame('Bearer', $data['token_type']);
         $this->assertArrayHasKey('expires_in', $data);
         $this->assertIsInt($data['expires_in']);
-        $this->assertSame('content:read content:write', $data['scope']);
+        $this->assertSame('entries:read entries:write', $data['scope']);
     }
 
     public function test_invalid_grant_type_returns_error(): void
@@ -112,7 +112,7 @@ class TokenEndpointTest extends TestCase
         $code = $this->driver->createAuthCode(
             clientId: $client->clientId,
             userId: 'user-1',
-            scopes: ['content:read'],
+            scopes: ['entries:read'],
             codeChallenge: $codeChallenge,
             codeChallengeMethod: 'S256',
             redirectUri: 'https://example.com/callback',

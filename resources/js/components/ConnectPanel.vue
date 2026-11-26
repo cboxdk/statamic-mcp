@@ -278,10 +278,12 @@ async function selectClient(clientId) {
     }
 
     const result = await fetchClientConfig(clientId);
-    if (result.ok) {
-        activeConfig.value = result.data;
-        configMode.value = activeConfig.value.cli ? 'cli' : 'json';
+    if (!result.ok) {
+        Statamic.$toast.error(result.message);
+        return;
     }
+    activeConfig.value = result.data;
+    configMode.value = activeConfig.value.cli ? 'cli' : 'json';
 }
 
 function copyConfig() {

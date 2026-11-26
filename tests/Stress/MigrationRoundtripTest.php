@@ -53,7 +53,7 @@ class MigrationRoundtripTest extends TestCase
                 'user-roundtrip',
                 "Token {$i}",
                 'roundtrip_hash_' . $i,
-                ['content:read', 'content:write'],
+                ['entries:read', 'entries:write'],
                 $i % 2 === 0 ? Carbon::now()->addDay() : null,
             );
             $originalTokens[$token->id] = $token;

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Concerns;
 
+use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Authorization\McpCall;
 use Cboxdk\StatamicMcp\Mcp\ExtraTools;
@@ -12,6 +13,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 use Statamic\Contracts\Auth\User;
 use Statamic\Facades\Site;
+use Statamic\Fields\Blueprint;
 
 /**
  * Router helper methods for common functionality across all routers.
@@ -191,6 +193,64 @@ trait RouterHelpers
         $defaultSite = Site::default();
 
         return is_string($site) ? $site : $defaultSite->handle();
+    }
+
+    /**
+     * Check a list action's filters before they reach the query.
+     *
+     * The Stache builds an index for every key it is queried by, records the
+     * key in the store's `_indexes` and keeps that index up to date on every
+     * later save. An unknown key is therefore not a harmless empty result but
+     * a permanent cost on the site, so only field handles of the given
+     * blueprints and the named properties are accepted, each with a scalar
+     * value. Denied fields were already removed from the filters by
+     * `filterInputFields()` and are not offered here.
+     *
+     * @param  array<mixed>  $filters
+     * @param  iterable<Blueprint>  $blueprints
+     * @param  list<string>  $properties
+     *
+     * @return array<string, mixed>|null Error response if invalid, null if valid
+     */
+    protected function validateListFilters(array $filters, iterable $blueprints, array $properties): ?array
+    {
+        if ($filters === []) {
+            return null;
+        }
+
+        $handles = $properties;
+        foreach ($blueprints as $blueprint) {
+            foreach ($blueprint->fields()->all()->keys() as $handle) {
+                $handles[] = (string) $handle;
+            }
+        }
+
+        /** @var ResourcePolicy $policy */
+        $policy = app(ResourcePolicy::class);
+        $allowed = array_values(array_diff(array_unique($handles), $policy->getDeniedFields($this->getDomain())));
+        sort($allowed);
+
+        $unknown = array_values(array_filter(
+            array_keys($filters),
+            static fn (int|string $key): bool => ! in_array($key, $allowed, true),
+        ));
+
+        if ($unknown !== []) {
+            return $this->createErrorResponse(
+                'Unknown filter key(s): ' . implode(', ', array_map(strval(...), $unknown))
+                . '. Filter by one of: ' . implode(', ', $allowed) . '.'
+            )->toArray();
+        }
+
+        foreach ($filters as $key => $value) {
+            if ($value !== null && ! is_scalar($value)) {
+                return $this->createErrorResponse(
+                    "Filter '{$key}' must be a string, number, boolean or null; it matches the stored value exactly."
+                )->toArray();
+            }
+        }
+
+        return null;
     }
 
     /**

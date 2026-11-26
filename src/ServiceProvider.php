@@ -31,6 +31,7 @@ use Cboxdk\StatamicMcp\Storage\Audit\DatabaseAuditStore;
 use Cboxdk\StatamicMcp\Storage\Audit\FileAuditStore;
 use Cboxdk\StatamicMcp\Storage\Tokens\DatabaseTokenStore;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
+use Cboxdk\StatamicMcp\Support\McpConfig;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Encryption\Encrypter;
 use Illuminate\Contracts\Foundation\Application;
@@ -90,8 +91,7 @@ class ServiceProvider extends AddonServiceProvider
 
             // Register per-token rate limiter
             RateLimiter::for('mcp', function (Request $request) {
-                /** @var int $maxAttempts */
-                $maxAttempts = config('statamic.mcp.rate_limit.max_attempts', 60);
+                $maxAttempts = McpConfig::int('rate_limit.max_attempts', 60);
 
                 // Use token ID if available, fall back to IP
                 $mcpToken = $request->attributes->get('mcp_token');

@@ -8,6 +8,7 @@ use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Support\Http\FetchRefused;
 use Cboxdk\StatamicMcp\Support\Http\OutboundFetcher;
+use Cboxdk\StatamicMcp\Support\McpConfig;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\Http\UploadedFile;
 use Illuminate\JsonSchema\JsonSchema;
@@ -558,8 +559,7 @@ class AssetsRouter extends BaseRouter
             }
 
             // Validate file size (default 10MB limit, configurable)
-            /** @var int $maxSizeBytes */
-            $maxSizeBytes = config('statamic.mcp.security.max_upload_size', 10 * 1024 * 1024);
+            $maxSizeBytes = McpConfig::int('security.max_upload_size', 10 * 1024 * 1024);
 
             // Handle content creation
             if ($content) {
@@ -893,8 +893,7 @@ class AssetsRouter extends BaseRouter
                     $decodedContent = $content;
                 }
 
-                /** @var int $maxSizeBytes */
-                $maxSizeBytes = config('statamic.mcp.security.max_upload_size', 10 * 1024 * 1024);
+                $maxSizeBytes = McpConfig::int('security.max_upload_size', 10 * 1024 * 1024);
                 if (strlen($decodedContent) > $maxSizeBytes) {
                     $maxSizeMB = round($maxSizeBytes / 1024 / 1024, 1);
 
@@ -1019,8 +1018,7 @@ class AssetsRouter extends BaseRouter
         $allowedHosts = config('statamic.mcp.security.url_import.allowed_hosts', []);
         /** @var int $timeout */
         $timeout = config('statamic.mcp.security.url_import.timeout', 15);
-        /** @var int $maxBytes */
-        $maxBytes = config('statamic.mcp.security.max_upload_size', 10 * 1024 * 1024);
+        $maxBytes = McpConfig::int('security.max_upload_size', 10 * 1024 * 1024);
 
         $fetcher = new OutboundFetcher(blockPrivate: (bool) config('statamic.mcp.security.url_import.block_private_ips', true));
 

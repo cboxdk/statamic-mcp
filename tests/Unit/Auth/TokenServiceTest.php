@@ -27,14 +27,14 @@ describe('createToken', function () {
         $result = $service->createToken(
             'user-1',
             'My Token',
-            [TokenScope::ContentRead, TokenScope::EntriesWrite],
+            [TokenScope::EntriesRead, TokenScope::EntriesWrite],
         );
 
         expect($result)->toHaveKeys(['token', 'model']);
         expect($result['model'])->toBeInstanceOf(McpTokenData::class);
         expect($result['model']->userId)->toBe('user-1');
         expect($result['model']->name)->toBe('My Token');
-        expect($result['model']->scopes)->toBe(['content:read', 'entries:write']);
+        expect($result['model']->scopes)->toBe(['entries:read', 'entries:write']);
         expect($result['model']->expiresAt)->toBeNull();
         expect($result['token'])->toBeString()->toHaveLength(64);
     });
@@ -42,7 +42,7 @@ describe('createToken', function () {
     it('stores SHA-256 hash and NOT the plaintext token', function () {
         $service = app(TokenService::class);
 
-        $result = $service->createToken('user-1', 'Token', [TokenScope::ContentRead]);
+        $result = $service->createToken('user-1', 'Token', [TokenScope::EntriesRead]);
 
         $plaintext = $result['token'];
         $storedHash = $result['model']->tokenHash;
@@ -54,7 +54,7 @@ describe('createToken', function () {
     it('returns a plaintext token that validates against the stored hash', function () {
         $service = app(TokenService::class);
 
-        $result = $service->createToken('user-1', 'Token', [TokenScope::ContentRead]);
+        $result = $service->createToken('user-1', 'Token', [TokenScope::EntriesRead]);
 
         /** @var TokenStore $store */
         $store = app(TokenStore::class);
@@ -84,7 +84,7 @@ describe('createToken', function () {
         config()->set('statamic.mcp.security.max_token_lifetime_days', null);
         $service = app(TokenService::class);
 
-        $result = $service->createToken('user-1', 'Token', [TokenScope::ContentRead], null);
+        $result = $service->createToken('user-1', 'Token', [TokenScope::EntriesRead], null);
 
         expect($result['model']->expiresAt)->toBeNull();
         expect($service->isExpired($result['model']))->toBeFalse();
@@ -95,18 +95,18 @@ describe('createToken', function () {
         $service = app(TokenService::class);
 
         // No expiry provided — should be capped at 30 days
-        $result = $service->createToken('user-1', 'Token', [TokenScope::ContentRead], null);
+        $result = $service->createToken('user-1', 'Token', [TokenScope::EntriesRead], null);
         expect($result['model']->expiresAt)->not->toBeNull();
         expect($result['model']->expiresAt->diffInDays(Carbon::now(), true))->toBeLessThanOrEqual(30);
 
         // Expiry beyond max — should be capped
         $farFuture = Carbon::now()->addDays(365);
-        $result2 = $service->createToken('user-1', 'Token2', [TokenScope::ContentRead], $farFuture);
+        $result2 = $service->createToken('user-1', 'Token2', [TokenScope::EntriesRead], $farFuture);
         expect($result2['model']->expiresAt->diffInDays(Carbon::now(), true))->toBeLessThanOrEqual(30);
 
         // Expiry within max — should be preserved
         $shortExpiry = Carbon::now()->addDays(7);
-        $result3 = $service->createToken('user-1', 'Token3', [TokenScope::ContentRead], $shortExpiry);
+        $result3 = $service->createToken('user-1', 'Token3', [TokenScope::EntriesRead], $shortExpiry);
         expect($result3['model']->expiresAt->toDateTimeString())->toBe($shortExpiry->toDateTimeString());
     });
 
@@ -114,7 +114,7 @@ describe('createToken', function () {
         $service = app(TokenService::class);
 
         $expiresAt = Carbon::now()->addDays(30);
-        $result = $service->createToken('user-1', 'Token', [TokenScope::ContentRead], $expiresAt);
+        $result = $service->createToken('user-1', 'Token', [TokenScope::EntriesRead], $expiresAt);
 
         expect($result['model']->expiresAt)->not->toBeNull();
         expect($result['model']->expiresAt->toDateTimeString())->toBe($expiresAt->toDateTimeString());
@@ -129,7 +129,7 @@ describe('validateToken', function () {
     it('returns McpTokenData for a valid token', function () {
         $service = app(TokenService::class);
 
-        $result = $service->createToken('user-1', 'Token', [TokenScope::ContentRead]);
+        $result = $service->createToken('user-1', 'Token', [TokenScope::EntriesRead]);
         $validated = $service->validateToken($result['token']);
 
         expect($validated)->toBeInstanceOf(McpTokenData::class);
@@ -150,7 +150,7 @@ describe('validateToken', function () {
         $result = $service->createToken(
             'user-1',
             'Expired Token',
-            [TokenScope::ContentRead],
+            [TokenScope::EntriesRead],
             Carbon::now()->subDay(),
         );
 
@@ -162,7 +162,7 @@ describe('validateToken', function () {
     it('updates lastUsedAt on successful validation', function () {
         $service = app(TokenService::class);
 
-        $result = $service->createToken('user-1', 'Token', [TokenScope::ContentRead]);
+        $result = $service->createToken('user-1', 'Token', [TokenScope::EntriesRead]);
 
         expect($result['model']->lastUsedAt)->toBeNull();
 
@@ -180,7 +180,7 @@ describe('validateToken', function () {
         $service = app(TokenService::class);
 
         // Create and then delete a token so it no longer exists
-        $result = $service->createToken('user-1', 'Token', [TokenScope::ContentRead]);
+        $result = $service->createToken('user-1', 'Token', [TokenScope::EntriesRead]);
         $service->revokeToken($result['model']->id);
 
         $validated = $service->validateToken($result['token']);
@@ -197,18 +197,18 @@ describe('updateToken', function () {
     it('updates name only', function () {
         $service = app(TokenService::class);
 
-        $result = $service->createToken('user-1', 'Original', [TokenScope::ContentRead]);
+        $result = $service->createToken('user-1', 'Original', [TokenScope::EntriesRead]);
         $updated = $service->updateToken($result['model']->id, 'Updated Name');
 
         expect($updated)->toBeInstanceOf(McpTokenData::class);
         expect($updated->name)->toBe('Updated Name');
-        expect($updated->scopes)->toBe(['content:read']);
+        expect($updated->scopes)->toBe(['entries:read']);
     });
 
     it('updates scopes only', function () {
         $service = app(TokenService::class);
 
-        $result = $service->createToken('user-1', 'Token', [TokenScope::ContentRead]);
+        $result = $service->createToken('user-1', 'Token', [TokenScope::EntriesRead]);
         $updated = $service->updateToken(
             $result['model']->id,
             null,
@@ -222,7 +222,7 @@ describe('updateToken', function () {
     it('updates expiry', function () {
         $service = app(TokenService::class);
 
-        $result = $service->createToken('user-1', 'Token', [TokenScope::ContentRead]);
+        $result = $service->createToken('user-1', 'Token', [TokenScope::EntriesRead]);
         $newExpiry = Carbon::now()->addYear();
         $updated = $service->updateToken($result['model']->id, null, null, $newExpiry);
 
@@ -231,12 +231,13 @@ describe('updateToken', function () {
     });
 
     it('clears expiry when clearExpiry is true', function () {
+        config()->set('statamic.mcp.security.max_token_lifetime_days', null);
         $service = app(TokenService::class);
 
         $result = $service->createToken(
             'user-1',
             'Token',
-            [TokenScope::ContentRead],
+            [TokenScope::EntriesRead],
             Carbon::now()->addMonth(),
         );
 
@@ -264,7 +265,7 @@ describe('regenerateToken', function () {
     it('returns a new plaintext token', function () {
         $service = app(TokenService::class);
 
-        $original = $service->createToken('user-1', 'Token', [TokenScope::ContentRead]);
+        $original = $service->createToken('user-1', 'Token', [TokenScope::EntriesRead]);
         $regenerated = $service->regenerateToken($original['model']->id);
 
         expect($regenerated)->not->toBeNull();
@@ -276,7 +277,7 @@ describe('regenerateToken', function () {
     it('old token no longer validates after regeneration', function () {
         $service = app(TokenService::class);
 
-        $original = $service->createToken('user-1', 'Token', [TokenScope::ContentRead]);
+        $original = $service->createToken('user-1', 'Token', [TokenScope::EntriesRead]);
         $oldPlaintext = $original['token'];
 
         $service->regenerateToken($original['model']->id);
@@ -289,7 +290,7 @@ describe('regenerateToken', function () {
     it('new token validates correctly after regeneration', function () {
         $service = app(TokenService::class);
 
-        $original = $service->createToken('user-1', 'Token', [TokenScope::ContentRead]);
+        $original = $service->createToken('user-1', 'Token', [TokenScope::EntriesRead]);
         $regenerated = $service->regenerateToken($original['model']->id);
 
         $validated = $service->validateToken($regenerated['token']);
@@ -305,14 +306,14 @@ describe('regenerateToken', function () {
         $original = $service->createToken(
             'user-1',
             'Persistent Token',
-            [TokenScope::ContentRead, TokenScope::EntriesWrite],
+            [TokenScope::EntriesRead, TokenScope::EntriesWrite],
             $expiresAt,
         );
 
         $regenerated = $service->regenerateToken($original['model']->id);
 
         expect($regenerated['model']->name)->toBe('Persistent Token');
-        expect($regenerated['model']->scopes)->toBe(['content:read', 'entries:write']);
+        expect($regenerated['model']->scopes)->toBe(['entries:read', 'entries:write']);
         expect($regenerated['model']->expiresAt->toDateTimeString())->toBe($expiresAt->toDateTimeString());
     });
 
@@ -333,7 +334,7 @@ describe('revokeToken', function () {
     it('deletes the token and returns true', function () {
         $service = app(TokenService::class);
 
-        $result = $service->createToken('user-1', 'Token', [TokenScope::ContentRead]);
+        $result = $service->createToken('user-1', 'Token', [TokenScope::EntriesRead]);
         $revoked = $service->revokeToken($result['model']->id);
 
         expect($revoked)->toBeTrue();
@@ -360,7 +361,7 @@ describe('revokeAllForUser', function () {
     it('deletes all tokens for a user and returns count', function () {
         $service = app(TokenService::class);
 
-        $service->createToken('user-1', 'Token A', [TokenScope::ContentRead]);
+        $service->createToken('user-1', 'Token A', [TokenScope::EntriesRead]);
         $service->createToken('user-1', 'Token B', [TokenScope::EntriesRead]);
         $service->createToken('user-1', 'Token C', [TokenScope::AssetsRead]);
 
@@ -376,7 +377,7 @@ describe('revokeAllForUser', function () {
     it('does not affect other users tokens', function () {
         $service = app(TokenService::class);
 
-        $service->createToken('user-1', 'Token A', [TokenScope::ContentRead]);
+        $service->createToken('user-1', 'Token A', [TokenScope::EntriesRead]);
         $service->createToken('user-1', 'Token B', [TokenScope::EntriesRead]);
         $service->createToken('user-2', 'Token C', [TokenScope::AssetsRead]);
 
@@ -398,7 +399,7 @@ describe('listTokensForUser', function () {
     it('returns all tokens for a specific user', function () {
         $service = app(TokenService::class);
 
-        $service->createToken('user-1', 'Token A', [TokenScope::ContentRead]);
+        $service->createToken('user-1', 'Token A', [TokenScope::EntriesRead]);
         $service->createToken('user-1', 'Token B', [TokenScope::EntriesRead]);
         $service->createToken('user-2', 'Token C', [TokenScope::AssetsRead]);
 
@@ -425,7 +426,7 @@ describe('listAllTokens', function () {
     it('returns all tokens across all users', function () {
         $service = app(TokenService::class);
 
-        $service->createToken('user-1', 'Token A', [TokenScope::ContentRead]);
+        $service->createToken('user-1', 'Token A', [TokenScope::EntriesRead]);
         $service->createToken('user-2', 'Token B', [TokenScope::EntriesRead]);
         $service->createToken('user-3', 'Token C', [TokenScope::AssetsRead]);
 
@@ -443,7 +444,7 @@ describe('pruneExpired', function () {
     it('deletes only expired tokens', function () {
         $service = app(TokenService::class);
 
-        $service->createToken('user-1', 'Expired 1', [TokenScope::ContentRead], Carbon::now()->subDays(5));
+        $service->createToken('user-1', 'Expired 1', [TokenScope::EntriesRead], Carbon::now()->subDays(5));
         $service->createToken('user-1', 'Expired 2', [TokenScope::EntriesRead], Carbon::now()->subHour());
         $service->createToken('user-1', 'Active', [TokenScope::AssetsRead], Carbon::now()->addDays(30));
 
@@ -459,7 +460,7 @@ describe('pruneExpired', function () {
     it('leaves active and non-expiring tokens untouched', function () {
         $service = app(TokenService::class);
 
-        $service->createToken('user-1', 'No Expiry', [TokenScope::ContentRead]);
+        $service->createToken('user-1', 'No Expiry', [TokenScope::EntriesRead]);
         $service->createToken('user-1', 'Future Expiry', [TokenScope::EntriesRead], Carbon::now()->addYear());
 
         $pruned = $service->pruneExpired();
@@ -474,7 +475,7 @@ describe('pruneExpired', function () {
     it('returns count of pruned tokens', function () {
         $service = app(TokenService::class);
 
-        $service->createToken('user-1', 'Expired A', [TokenScope::ContentRead], Carbon::now()->subDays(10));
+        $service->createToken('user-1', 'Expired A', [TokenScope::EntriesRead], Carbon::now()->subDays(10));
         $service->createToken('user-2', 'Expired B', [TokenScope::EntriesRead], Carbon::now()->subDays(3));
         $service->createToken('user-3', 'Expired C', [TokenScope::AssetsRead], Carbon::now()->subMinute());
 
@@ -515,11 +516,11 @@ describe('hasScope', function () {
         $service = app(TokenService::class);
 
         $wildcard = new McpTokenData('id', 'user', 'name', 'hash', ['*'], null, null, Carbon::now());
-        $scoped = new McpTokenData('id', 'user', 'name', 'hash', ['content:read'], null, null, Carbon::now());
+        $scoped = new McpTokenData('id', 'user', 'name', 'hash', ['entries:read'], null, null, Carbon::now());
 
         // `*` is not a wildcard: a v3 token holding it would cover every later scope.
-        expect($service->hasScope($wildcard, TokenScope::ContentRead))->toBeFalse();
-        expect($service->hasScope($scoped, TokenScope::ContentRead))->toBeTrue();
-        expect($service->hasScope($scoped, TokenScope::ContentWrite))->toBeFalse();
+        expect($service->hasScope($wildcard, TokenScope::EntriesRead))->toBeFalse();
+        expect($service->hasScope($scoped, TokenScope::EntriesRead))->toBeTrue();
+        expect($service->hasScope($scoped, TokenScope::EntriesWrite))->toBeFalse();
     });
 });

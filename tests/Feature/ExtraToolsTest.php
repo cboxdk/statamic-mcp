@@ -283,7 +283,7 @@ it('refuses a config entry that is not a router', function () {
 it('refuses every token for an extra tool whose domain has no scope', function () {
     StatamicMcpServer::registerTool(UnscopedExtraRouter::class);
 
-    $denied = callAsWebClient(UnscopedExtraRouter::class, ['system:read', 'content:read']);
+    $denied = callAsWebClient(UnscopedExtraRouter::class, ['system:read', 'entries:read']);
 
     expect($denied['success'])->toBeFalse()
         ->and(json_encode($denied['errors']))->toContain('declares no token scope');
@@ -295,7 +295,7 @@ it('refuses every token for an extra tool whose domain has no scope', function (
 it('gates an extra tool in a known domain by that domain\'s scope', function () {
     StatamicMcpServer::registerTool(SystemScopedExtraRouter::class);
 
-    expect(callAsWebClient(SystemScopedExtraRouter::class, ['content:read'])['success'])->toBeFalse()
+    expect(callAsWebClient(SystemScopedExtraRouter::class, ['entries:read'])['success'])->toBeFalse()
         ->and(callAsWebClient(SystemScopedExtraRouter::class, ['system:read'])['success'])->toBeTrue();
 });
 
@@ -329,9 +329,9 @@ it('still fails closed when an extra tool is registered under a non-canonical cl
     StatamicMcpServer::registerTool($spelling);
 
     // The unscoped tool's domain has no scope, so the fail-closed rule refuses
-    // every token. A content:read token must still be refused even though the
+    // every token. An entries:read token must still be refused even though the
     // class was registered with a leading backslash or the wrong case.
-    $denied = callAsWebClient(UnscopedExtraRouter::class, ['content:read']);
+    $denied = callAsWebClient(UnscopedExtraRouter::class, ['entries:read']);
 
     expect($denied['success'])->toBeFalse()
         ->and(json_encode($denied['errors']))->toContain('declares no token scope');

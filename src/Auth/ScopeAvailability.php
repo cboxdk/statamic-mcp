@@ -38,14 +38,14 @@ class ScopeAvailability
     }
 
     /**
-     * What a client may ask for: every scope but the v3 ones v4 replaced, which
+     * What a client may ask for: every scope but the retired v3 ones, which
      * still load on old tokens but grant nothing. `*` stays: consent expands it.
      *
      * @return list<string>
      */
     public function advertised(): array
     {
-        return array_values(array_filter($this->names(), fn (string $name): bool => TokenScope::tryFrom($name)?->replacedBy() === null));
+        return array_values(array_filter($this->names(), fn (string $name): bool => TokenScope::tryFrom($name)?->isRetired() !== true));
     }
 
     /** @return list<array{value: string, label: string, description: string, group: string}> */
@@ -140,8 +140,7 @@ class ScopeAvailability
      *
      * A stored `*` would silently grow to cover every scope added in a later
      * release, which is a grant nobody approved. Issuing full access
-     * therefore fixes it to today's list. The legacy content umbrellas are
-     * left out: no router asks for them.
+     * therefore fixes it to today's list.
      *
      * @param  array<int, string>  $values
      *
@@ -159,7 +158,7 @@ class ScopeAvailability
             }
 
             foreach ($this->forUser($user) as $scope) {
-                if (! in_array($scope, [TokenScope::FullAccess, TokenScope::ContentRead, TokenScope::ContentWrite], true)) {
+                if ($scope !== TokenScope::FullAccess) {
                     $expanded[] = $scope->value;
                 }
             }
@@ -170,8 +169,8 @@ class ScopeAvailability
 
     public function allows(?User $user, TokenScope $scope): bool
     {
-        // A scope v4 replaced grants nothing, so nobody is offered it.
-        if ($user === null || $scope->replacedBy() !== null) {
+        // A retired scope grants nothing, so nobody is offered it.
+        if ($user === null || $scope->isRetired()) {
             return false;
         }
 
@@ -240,12 +239,9 @@ class ScopeAvailability
 
             TokenScope::SystemRead => $user->hasPermission('access utilities'),
 
-            // Legacy umbrella scopes: no router asks for them, but a token
-            // may still carry them. Available when their content is.
-            TokenScope::ContentRead => $this->allows($user, TokenScope::EntriesRead) || $this->allows($user, TokenScope::TermsRead),
-            TokenScope::ContentWrite => $this->allows($user, TokenScope::EntriesWrite) || $this->allows($user, TokenScope::TermsWrite),
-
-            // Replaced in v4; refused above.
+            // Retired; refused above.
+            TokenScope::ContentRead,
+            TokenScope::ContentWrite,
             TokenScope::StructuresWrite,
             TokenScope::BlueprintsWrite,
             TokenScope::UsersWrite,
@@ -258,30 +254,15 @@ class ScopeAvailability
      * tool switched off (`tools.{domain}.enabled`), or the resource policy
      * allowing no handle at all (`tools.{domain}.resources.{mode}` set to
      * `[]`). Both refuse every call regardless of who makes it, so the
-     * scope is dead weight for everyone. The legacy content scopes cover
-     * entries and terms, and go only when both are ruled out.
+     * scope is dead weight for everyone.
      */
     private function ruledOutBySite(TokenScope $scope): bool
     {
-        $domains = match ($scope) {
-            TokenScope::FullAccess => [],
-            TokenScope::ContentRead, TokenScope::ContentWrite => ['entries', 'terms'],
-            default => [$scope->group()],
-        };
-
-        if ($domains === []) {
+        if ($scope === TokenScope::FullAccess) {
             return false;
         }
 
-        $mode = str_ends_with($scope->value, ':read') ? 'read' : 'write';
-
-        foreach ($domains as $domain) {
-            if (! $this->domainRuledOut($domain, $mode)) {
-                return false;
-            }
-        }
-
-        return true;
+        return $this->domainRuledOut($scope->group(), str_ends_with($scope->value, ':read') ? 'read' : 'write');
     }
 
     private function domainRuledOut(string $domain, string $mode): bool

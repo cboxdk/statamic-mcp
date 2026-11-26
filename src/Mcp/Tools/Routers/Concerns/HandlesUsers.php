@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns;
 
 use Cboxdk\StatamicMcp\Auth\TokenService;
+use Illuminate\Support\Facades\Hash;
 use Statamic\Facades\Role;
 use Statamic\Facades\User;
 
@@ -314,6 +315,22 @@ trait HandlesUsers
                 return $this->createErrorResponse('User not found: ' . ($id ?? $email))->toArray();
             }
 
+            /** @var \Statamic\Contracts\Auth\User|null $caller */
+            $caller = auth()->user();
+            $isSelf = $caller !== null && $caller->id() === $user->id();
+
+            // Your own email or password is what signs you in to the Control
+            // Panel. A token is not the person, so over HTTP the change needs
+            // the current password too, as Statamic's own password form does.
+            $changesLogin = (is_string($data['email'] ?? null) && $data['email'] !== $user->email())
+                || is_string($data['password'] ?? null);
+            if ($isSelf && $changesLogin && $this->isWebContext()) {
+                $current = $data['current_password'] ?? null;
+                if (! is_string($current) || ! Hash::check($current, (string) $user->password())) {
+                    return $this->createErrorResponse('Changing your own email or password needs your current password in data.current_password. Nothing was saved.')->toArray();
+                }
+            }
+
             // Update user data — only whitelisted fields allowed
             if (isset($data['name'])) {
                 $user->set('name', $data['name']);
@@ -329,9 +346,6 @@ trait HandlesUsers
                 // Statamic (UserPolicy::editPassword), not 'edit users'. Without
                 // this an 'edit users' holder could set a super admin's password
                 // and sign in as them.
-                /** @var \Statamic\Contracts\Auth\User|null $caller */
-                $caller = auth()->user();
-                $isSelf = $caller !== null && $caller->id() === $user->id();
                 if (! $isSelf && ! $this->hasPermission('change', 'passwords')) {
                     return $this->createErrorResponse("Permission denied: Changing another user's password requires the change passwords permission")->toArray();
                 }

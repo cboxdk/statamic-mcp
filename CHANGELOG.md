@@ -22,6 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed (breaking)
 
+- Retire `content:read` and `content:write`. No tool ever asked for them, so they granted nothing in v3 either; they are no longer offered, advertised or part of the presets and the default OAuth scopes. `mcp:migrate-v4 --apply` drops them from personal tokens, and an OAuth refresh drops them from the grant without asking for consent again.
+- A list `filters` key must be a field handle of the collection's or taxonomy's blueprints or a named property (`id`, `slug`, `title`, `published`, `status`, `date`, `uri`, `parent`, `origin` for entries; `id`, `slug`, `title`, `uri` for terms), with a scalar value. Anything else is refused with the valid keys. An unknown key used to answer an empty list and leave a permanent Stache index behind, which every later save kept up to date.
+- Relationship fields take references that exist. A `terms` field takes term slugs (`taxonomy::slug` when it spans several taxonomies), an `entries` field takes ids of entries in its collections, a `users` field takes user ids; anything else is refused with the existing values. A UUID in a terms field used to create a junk term, also for a token without `terms:write`.
+- Users `create`, `update`, `activate` and `assign_role` need a person's approval over HTTP by default, like `delete`. A config without a `users` key gets this too; `'users' => []` turns it off. Changing your own email or password over HTTP needs `data.current_password`. Approval records and the Approvals page show `[hidden]` for passwords and other secrets.
+- Editing a token keeps it within `security.max_token_lifetime_days`: `clear_expiry` is refused while a cap is set and a later date is brought back to the cap. An OAuth token's expiry cannot be edited.
+- Errors in OAuth authorize before the consent screen (unknown scope, missing PKCE, wrong response type) show an error page and are no longer redirected to the client's `redirect_uri`.
+- `AuditStore::query()` takes an `$actor` filter (`user:{id}` or `cli`). A custom audit store must accept it.
+
 - Split publishing and deleting out of the write scopes. `entries:write` now covers create and update; publishing (including `published: true` on create or update) needs `entries:publish`, and deleting needs `entries:delete`, `terms:delete` or `assets:delete`. Existing write tokens keep editing and answer `Token missing required scope: …` for the rest. Admin domains keep `:write` for delete.
 - Stop treating `*` as a wildcard. Full access is expanded to the scopes the user holds when a token is issued, so it never grows to cover scopes added later. A v3 token carrying `*` is refused and must be approved again; its OAuth refresh token answers `invalid_grant`. `mcp:doctor` counts the tokens affected by both changes.
 - Give the admin domains their own scope: `structures:admin`, `blueprints:admin`, `users:admin` and `system:admin` replace the `:write` scopes there. A token holding a replaced scope is refused with a message naming its replacement, and its OAuth refresh answers `invalid_grant`.
@@ -38,6 +46,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - OAuth discovery no longer advertises the v3 admin `:write` scopes, which grant nothing in v4. `*` stays advertised; consent expands it to the scopes the user holds.
 
 ### Security
+
+- Registered OAuth clients that are never authorized are removed after `oauth.unused_client_ttl` (default one day) and stop counting toward `oauth.max_clients`, so anonymous registration can no longer keep real clients out for 30 days.
+- A client metadata document's `logo_uri` is shown only over https on the `client_id`'s own host. Why a metadata document could not be fetched is logged, not shown.
+- Failed bearer attempts are limited per credential (5 a minute) and per address (30 a minute), and a valid token always gets through, so a stale client behind a shared address no longer locks out everyone there.
+- The `mcp` auth guard refuses deactivated accounts and v3 `*` tokens, as the MCP endpoint does.
+- An OAuth refresh issues only the scopes the user can still exercise.
+- `mcp:doctor` counts tokens that outlive the lifetime cap and tokens carrying a retired content scope, and warns when approvals are on but Statamic elevated sessions are off.
 
 - Keep term actions to the sites the user may access. Statamic's `TermPolicy` checks the site only on create and the Control Panel relies on its site selector, so an editor limited to one site could read and change terms in another through MCP.
 - Require durable audit admission before registered writes, independently of telemetry and the legacy logging flag. Custom audit drivers must implement `DurableAuditStore`; SQL admission refuses uncommitted caller transactions.
@@ -75,6 +90,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Require Statamic 6.35.1+ and Laravel MCP 1.1.2+.
 
 ### Fixed
+
+- A write that landed but whose response was over `security.max_response_size` was reported as a failure, so a retry wrote it twice. It now answers success with the record's identifying fields and `response_truncated: true`.
+- The MCP Admin page answered 500 when `STATAMIC_MCP_RATE_LIMIT_MAX` (or another number) came from `.env` as a string in a config published before v4.
+- `content_validate` failed on a site without taxonomies, and on an unknown or denied taxonomy or collection; it now validates nothing there.
+- The activity log's user filter never matched. It now filters on the server by user id (or CLI), so pages and totals are right, in both audit stores.
+- The admin token list offered Regenerate on other users' tokens, which the server refused. Deleting or regenerating a token, loading the activity log and loading a client configuration now show the server's error instead of reporting success or nothing. "Never expire" is no longer offered when tokens must expire.
 
 - OAuth on a non-default port. The authorize endpoint left the port out of the resource it expected and refused the one the protected-resource metadata advertised (`Invalid resource parameter`), so Claude Code and every other client failed on `php artisan serve`, Docker on 8080 and similar.
 - Error responses are no longer discarded by MCP SDK clients. The output schema typed `data` as an object, while a failure carries `data: null`; the official SDKs validate failures against the schema too and replaced every error with `-32602`. `data` is now `object`, `array` or `null`.

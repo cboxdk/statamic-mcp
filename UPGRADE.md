@@ -23,6 +23,7 @@ touched by any step below.
 | `*` (full access) | Refused by v4. Revoked; the owner creates a new token or authorizes the client again |
 | `structures:write`, `blueprints:write`, `users:write`, `system:write` | Replaced by `{domain}:admin` and grant nothing. A personal token keeps its other scopes and loses these; an OAuth grant, or a token with nothing else, is revoked |
 | `entries:write`, `terms:write`, `assets:write` | Still edit. Publishing and deleting need `entries:publish`, `entries:delete`, `terms:delete`, `assets:delete`. Kept as is; add the scopes in Tools → MCP where they belong |
+| `content:read`, `content:write` | Never granted anything and are retired. A personal token loses them (revoked if nothing else is left); an OAuth grant drops them at its next refresh |
 | Read scopes | Unchanged |
 
 No scope is ever added. The plan acts only on a token that still looks the way
@@ -38,6 +39,17 @@ journal never holds secrets or hashes. If it cannot be written, nothing changes.
 - `confirmation_token` is ignored. A gated action answers `APPROVAL_REQUIRED`
   with an `approval_id`; the person approves it in Tools → MCP → Approvals and
   the client repeats the call with that id.
+- Users `create`, `update`, `activate`, `assign_role` and `delete` need an
+  approval over HTTP by default (`confirmation.actions.users`). Changing your
+  own email or password over HTTP also needs `data.current_password`.
+- List `filters` accept only blueprint field handles and the named properties
+  (entries: `id`, `slug`, `title`, `published`, `status`, `date`, `uri`,
+  `parent`, `origin`; terms: `id`, `slug`, `title`, `uri`), with scalar values.
+  Other keys are refused with the valid ones.
+- Relationship fields must name records that exist: term slugs, entry ids, user
+  ids. Unknown terms are no longer created.
+- OAuth authorize errors before consent show an error page instead of
+  redirecting to the client.
 - Stdio needs an explicit profile, and registered actions over stdio need a
   configured v4 token (`statamic.mcp.stdio.token`).
 
@@ -46,6 +58,8 @@ journal never holds secrets or hashes. If it cannot be written, nothing changes.
 - Token stores must keep the capability snapshot fields; OAuth drivers must
   implement user-wide grant revocation; audit drivers must implement
   `DurableAuditStore`. `mcp:doctor` reports the last two.
+- `AuditStore::query()` gained an `?string $actor` filter (`user:{id}` or
+  `cli`); a custom audit store must accept and apply it.
 - A tool from another package in a domain with no scope of its own is refused
   for every token. Make it a registered action with its own scope.
 

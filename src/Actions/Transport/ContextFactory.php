@@ -7,6 +7,7 @@ namespace Cboxdk\StatamicMcp\Actions\Transport;
 use Cboxdk\StatamicMcp\Actions\ExecutionContext;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
+use Cboxdk\StatamicMcp\Support\McpConfig;
 use Cboxdk\StatamicMcp\Support\McpContext;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Str;
@@ -30,7 +31,7 @@ final class ContextFactory
             throw new AuthorizationException('A current v4 capability grant is required.');
         }
         $profile = config('statamic.mcp.profiles.' . $transport);
-        $timeout = config()->integer('statamic.mcp.security.tool_timeout_seconds', 30);
+        $timeout = McpConfig::int('security.tool_timeout_seconds', 30);
         if (! is_string($profile) || ! in_array($profile, ['read_only', 'editor', 'operator'], true)
             || $timeout < 1 || $timeout > 300) {
             throw new AuthorizationException('MCP execution is not configured.');

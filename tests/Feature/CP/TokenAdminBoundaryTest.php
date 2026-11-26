@@ -50,7 +50,7 @@ class TokenAdminBoundaryTest extends TestCase
     public function test_admin_cannot_regenerate_another_users_token(): void
     {
         $this->superUser();
-        $token = $this->tokens->createToken('super-1', 'Super read', [TokenScope::ContentRead])['model'];
+        $token = $this->tokens->createToken('super-1', 'Super read', [TokenScope::EntriesRead])['model'];
 
         $this->actingAs($this->admin())
             ->postJson(cp_route('statamic-mcp.tokens.regenerate', ['token' => $token->id]))
@@ -73,7 +73,7 @@ class TokenAdminBoundaryTest extends TestCase
     public function test_non_super_admin_cannot_modify_a_super_admins_token(): void
     {
         $this->superUser();
-        $token = $this->tokens->createToken('super-1', 'Super read', [TokenScope::ContentRead])['model'];
+        $token = $this->tokens->createToken('super-1', 'Super read', [TokenScope::EntriesRead])['model'];
 
         $this->actingAs($this->admin())
             ->putJson(cp_route('statamic-mcp.tokens.update', ['token' => $token->id]), ['scopes' => ['*']])

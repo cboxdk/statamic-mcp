@@ -17,13 +17,18 @@ interface AuditStore
     public function write(array $entry): void;
 
     /**
-     * Query audit entries with optional filtering and pagination.
+     * Query audit entries with optional filtering and pagination, newest first.
+     *
+     * `$actor` narrows to whoever made the calls: `user:{id}` for a Control
+     * Panel user (the entry's `user_id`), or `cli` for calls with no user,
+     * made from the command line.
      */
     public function query(
         ?string $tool,
         ?string $status,
         int $page,
-        int $perPage
+        int $perPage,
+        ?string $actor = null,
     ): AuditResult;
 
     /**

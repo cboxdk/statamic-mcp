@@ -125,7 +125,7 @@ return [
         'max_input_values' => 20000,
         'max_input_depth' => 64,
 
-        'max_upload_size' => env('STATAMIC_MCP_MAX_UPLOAD_SIZE', 10 * 1024 * 1024),
+        'max_upload_size' => (int) env('STATAMIC_MCP_MAX_UPLOAD_SIZE', 10 * 1024 * 1024),
 
         // statamic-assets upload can fetch the file from a URL (source_url),
         // for remote clients that cannot send megabytes of base64. The server
@@ -146,9 +146,9 @@ return [
         'expose_versions' => env('STATAMIC_MCP_EXPOSE_VERSIONS', false),
 
         // Maximum token lifetime in days (null = unlimited)
-        'max_token_lifetime_days' => env('STATAMIC_MCP_MAX_TOKEN_LIFETIME', 365),
+        'max_token_lifetime_days' => env('STATAMIC_MCP_MAX_TOKEN_LIFETIME', 365) === null ? null : (int) env('STATAMIC_MCP_MAX_TOKEN_LIFETIME', 365),
 
-        'tool_timeout_seconds' => env('STATAMIC_MCP_TOOL_TIMEOUT', 30),
+        'tool_timeout_seconds' => (int) env('STATAMIC_MCP_TOOL_TIMEOUT', 30),
 
         // Largest tool response, in bytes, before it is refused as too large.
         // The limit exists to protect the client's context window, so the right
@@ -197,20 +197,22 @@ return [
         | Domains not listed fall back to 'default'. An empty array disables
         | the gate for that domain. The '*' wildcard gates every action.
         |
-        | Defaults preserve historical behaviour: 'delete' everywhere plus
-        | create/generate/update on blueprints, and destructive revision actions on
-        | entries. Operators can widen the gate per domain — e.g. require
-        | confirmation on entries.update — without forking the package.
+        | Defaults: 'delete' everywhere, create/generate/update on blueprints,
+        | destructive revision actions on entries, and every users action that
+        | can hand an account to someone else. Operators can widen the gate per
+        | domain — e.g. require approval on entries.update — without forking
+        | the package. A config without a 'users' key still gates users
+        | create, update, activate and assign_role; set 'users' => [] to stop.
         */
         'actions' => [
             'default' => ['delete'],
             'blueprints' => ['create', 'generate', 'update', 'delete'],
             'entries' => ['delete', 'restore_revision', 'publish_working_copy'],
+            'users' => ['create', 'update', 'delete', 'activate', 'assign_role'],
             // 'entries' => ['create', 'update', 'delete', 'publish', 'unpublish', 'restore_revision', 'publish_working_copy'],
             // 'globals' => ['update'],
             // 'terms'   => ['create', 'update', 'delete'],
             // 'assets'  => ['upload', 'update', 'delete', 'move', 'copy'],
-            // 'users'   => ['create', 'update', 'delete', 'assign-role'],
         ],
     ],
 
@@ -266,7 +268,7 @@ return [
     |
     */
     'rate_limit' => [
-        'max_attempts' => env('STATAMIC_MCP_RATE_LIMIT_MAX', 60),
+        'max_attempts' => (int) env('STATAMIC_MCP_RATE_LIMIT_MAX', 60),
     ],
 
     /*
@@ -287,8 +289,11 @@ return [
         'client_ttl' => (int) env('STATAMIC_MCP_OAUTH_CLIENT_TTL', 2592000),
         'token_ttl' => (int) env('STATAMIC_MCP_OAUTH_TOKEN_TTL', 604800), // 7 days
         'refresh_token_ttl' => (int) env('STATAMIC_MCP_OAUTH_REFRESH_TOKEN_TTL', 2592000), // 30 days
-        'default_scopes' => array_filter(explode(',', env('STATAMIC_MCP_OAUTH_DEFAULT_SCOPES', 'content:read,blueprints:read,structures:read,entries:read,terms:read,globals:read,assets:read,system:read,content-facade:read'))),
+        'default_scopes' => array_filter(explode(',', env('STATAMIC_MCP_OAUTH_DEFAULT_SCOPES', 'blueprints:read,structures:read,entries:read,terms:read,globals:read,assets:read,system:read,content-facade:read'))),
         'max_clients' => (int) env('STATAMIC_MCP_OAUTH_MAX_CLIENTS', 50),
+        // A registered client that has not been authorized within this many
+        // seconds is removed and stops counting toward max_clients.
+        'unused_client_ttl' => (int) env('STATAMIC_MCP_OAUTH_UNUSED_CLIENT_TTL', 86400),
         'max_clients_per_ip' => (int) env('STATAMIC_MCP_OAUTH_MAX_CLIENTS_PER_IP', 5),
 
         // Client ID Metadata Document (CIMD) support

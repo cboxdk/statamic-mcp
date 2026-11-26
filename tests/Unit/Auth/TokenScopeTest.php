@@ -62,8 +62,8 @@ it('returns the correct label for each case', function (TokenScope $scope, strin
     expect($scope->label())->toBe($expected);
 })->with([
     'FullAccess' => [TokenScope::FullAccess, 'Full Access'],
-    'ContentRead' => [TokenScope::ContentRead, 'Read Content'],
-    'ContentWrite' => [TokenScope::ContentWrite, 'Write Content'],
+    'ContentRead' => [TokenScope::ContentRead, 'Read Content (v3, retired)'],
+    'ContentWrite' => [TokenScope::ContentWrite, 'Write Content (v3, retired)'],
     'StructuresRead' => [TokenScope::StructuresRead, 'Read Structures'],
     'StructuresWrite' => [TokenScope::StructuresWrite, 'Write Structures (v3, replaced)'],
     'StructuresAdmin' => [TokenScope::StructuresAdmin, 'Administer Structures'],

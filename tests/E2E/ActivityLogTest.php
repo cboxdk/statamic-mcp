@@ -155,4 +155,20 @@ class ActivityLogTest extends TestCase
         $this->assertArrayHasKey('duration_ms', $entry);
         $this->assertArrayHasKey('timestamp', $entry);
     }
+
+    public function test_audit_endpoint_filters_by_who_made_the_call(): void
+    {
+        /** @var AuditStore $store */
+        $store = app(AuditStore::class);
+        foreach (['alice-id', 'bob-id', 'alice-id'] as $userId) {
+            $store->write(['level' => 'info', 'message' => 'm', 'tool' => 'statamic-entries', 'status' => 'success',
+                'timestamp' => now()->toIso8601String(), 'user_id' => $userId, 'context' => 'web']);
+        }
+
+        $this->actingAsAdmin()
+            ->getJson(cp_route('statamic-mcp.audit.index', ['actor' => 'user:alice-id', 'per_page' => 10]))
+            ->assertOk()
+            ->assertJsonPath('meta.total', 2)
+            ->assertJsonCount(2, 'data');
+    }
 }

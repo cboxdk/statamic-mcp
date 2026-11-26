@@ -43,7 +43,7 @@ class AuthorizeEndpointTest extends TestCase
             'code_challenge' => 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
             'code_challenge_method' => 'S256',
             'state' => 'test-state-123',
-            'scope' => 'content:read',
+            'scope' => 'entries:read',
         ], $overrides);
     }
 
@@ -94,7 +94,7 @@ class AuthorizeEndpointTest extends TestCase
         $response->assertStatus(400);
     }
 
-    public function test_get_authorize_without_code_challenge_redirects_with_error(): void
+    public function test_get_authorize_without_code_challenge_shows_an_error_page_without_redirecting(): void
     {
         $user = User::make()->id('test-user-3')->email('test3@example.com');
         $user->makeSuper();
@@ -106,12 +106,11 @@ class AuthorizeEndpointTest extends TestCase
         $response = $this->actingAs($user, 'web')
             ->get($this->authorizeUrl(http_build_query($params)));
 
-        $response->assertRedirect();
-        $location = $response->headers->get('Location', '');
-        $this->assertStringContainsString('error=invalid_request', $location);
+        // Before consent nothing goes to redirect_uri: an error page instead.
+        $response->assertStatus(400)->assertSee('invalid_request')->assertHeaderMissing('Location');
     }
 
-    public function test_get_authorize_with_plain_code_challenge_method_redirects_with_error(): void
+    public function test_get_authorize_with_plain_code_challenge_method_shows_an_error_page_without_redirecting(): void
     {
         $user = User::make()->id('test-user-4')->email('test4@example.com');
         $user->makeSuper();
@@ -122,12 +121,11 @@ class AuthorizeEndpointTest extends TestCase
         $response = $this->actingAs($user, 'web')
             ->get($this->authorizeUrl(http_build_query($params)));
 
-        $response->assertRedirect();
-        $location = $response->headers->get('Location', '');
-        $this->assertStringContainsString('error=invalid_request', $location);
+        // Before consent nothing goes to redirect_uri: an error page instead.
+        $response->assertStatus(400)->assertSee('invalid_request')->assertHeaderMissing('Location');
     }
 
-    public function test_get_authorize_with_unsupported_response_type_redirects_with_error(): void
+    public function test_get_authorize_with_unsupported_response_type_shows_an_error_page_without_redirecting(): void
     {
         $user = User::make()->id('test-user-5')->email('test5@example.com');
         $user->makeSuper();
@@ -138,25 +136,23 @@ class AuthorizeEndpointTest extends TestCase
         $response = $this->actingAs($user, 'web')
             ->get($this->authorizeUrl(http_build_query($params)));
 
-        $response->assertRedirect();
-        $location = $response->headers->get('Location', '');
-        $this->assertStringContainsString('error=unsupported_response_type', $location);
+        // Before consent nothing goes to redirect_uri: an error page instead.
+        $response->assertStatus(400)->assertSee('unsupported_response_type')->assertHeaderMissing('Location');
     }
 
-    public function test_get_authorize_with_invalid_scope_redirects_with_error(): void
+    public function test_get_authorize_with_invalid_scope_shows_an_error_page_without_redirecting(): void
     {
         $user = User::make()->id('test-user-6')->email('test6@example.com');
         $user->makeSuper();
         $user->save();
 
-        $params = $this->validParams(['scope' => 'content:read invalid:scope']);
+        $params = $this->validParams(['scope' => 'entries:read invalid:scope']);
 
         $response = $this->actingAs($user, 'web')
             ->get($this->authorizeUrl(http_build_query($params)));
 
-        $response->assertRedirect();
-        $location = $response->headers->get('Location', '');
-        $this->assertStringContainsString('error=invalid_scope', $location);
+        // Before consent nothing goes to redirect_uri: an error page instead.
+        $response->assertStatus(400)->assertSee('invalid_scope')->assertHeaderMissing('Location');
     }
 
     public function test_post_approve_redirects_with_code_and_state(): void
@@ -172,7 +168,7 @@ class AuthorizeEndpointTest extends TestCase
                 'state' => 'test-state-456',
                 'code_challenge' => 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
                 'code_challenge_method' => 'S256',
-                'scopes' => ['content:read'],
+                'scopes' => ['entries:read'],
                 'decision' => 'approve',
             ]));
 
@@ -196,7 +192,7 @@ class AuthorizeEndpointTest extends TestCase
                 'state' => 'test-state-789',
                 'code_challenge' => 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
                 'code_challenge_method' => 'S256',
-                'scopes' => ['content:read'],
+                'scopes' => ['entries:read'],
                 'decision' => 'deny',
             ]);
 
@@ -214,7 +210,7 @@ class AuthorizeEndpointTest extends TestCase
         $this->actingAs($user, 'web');
 
         return $this->withConsentOffer($this->authorizeUrl(), array_merge($this->validParams(), [
-            'scopes' => ['content:read'], 'decision' => 'approve',
+            'scopes' => ['entries:read'], 'decision' => 'approve',
         ]));
     }
 

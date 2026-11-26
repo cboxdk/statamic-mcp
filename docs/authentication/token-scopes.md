@@ -1,6 +1,6 @@
 ---
 title: "Token Scopes"
-description: "All 29 granular permission scopes for controlling what AI assistants can access via MCP tokens"
+description: "The granular permission scopes that control what AI assistants can access through MCP tokens"
 weight: 1
 ---
 
@@ -13,8 +13,6 @@ Every API token carries a set of scopes that control which tools and actions the
 | Scope | Description |
 |-------|-------------|
 | `*` | Full access: expanded to an explicit list when the token is issued (see below) |
-| `content:read` | Read entries, terms, and globals across all content routers |
-| `content:write` | Create, update, delete content across all content routers |
 | `blueprints:read` | Read blueprint definitions and field schemas |
 | `blueprints:admin` | Create, update, delete blueprints (v3: `blueprints:write`) |
 | `entries:read` | Read entries across collections |
@@ -38,6 +36,16 @@ Every API token carries a set of scopes that control which tools and actions the
 | `content-facade:read` | Read content audit and cross-reference data |
 | `content-facade:write` | Write content facade operations |
 
+### Retired scopes
+
+These still load on old tokens but grant nothing, and nobody is offered them.
+`php artisan mcp:migrate-v4` drops or replaces them.
+
+| Scope | Why |
+|-------|-----|
+| `content:read`, `content:write` | No tool ever asked for them, so they granted nothing in v3 either. Use the `entries:*` and `terms:*` scopes. Dropped from every token; an OAuth refresh drops them too. |
+| `structures:write`, `blueprints:write`, `users:write`, `system:write` | Replaced by the `:admin` scope of the same domain. The token, or the client, has to be approved again. |
+
 ## Common Combinations
 
 ### Read-Only Exploration
@@ -45,7 +53,7 @@ Every API token carries a set of scopes that control which tools and actions the
 Safe for any environment. The AI assistant can inspect everything but change nothing:
 
 ```
-content:read, blueprints:read, entries:read, terms:read,
+blueprints:read, entries:read, terms:read,
 globals:read, structures:read, assets:read, system:read
 ```
 
@@ -54,8 +62,8 @@ globals:read, structures:read, assets:read, system:read
 For content management workflows — create and edit entries, terms, and globals:
 
 ```
-content:read, content:write, entries:read, entries:write,
-terms:read, terms:write, globals:read, globals:write
+entries:read, entries:write, terms:read, terms:write,
+globals:read, globals:write
 ```
 
 ### Publishing
@@ -63,9 +71,8 @@ terms:read, terms:write, globals:read, globals:write
 Content editing plus publishing and deleting:
 
 ```
-content:read, content:write, entries:read, entries:write,
-entries:publish, entries:delete, terms:read, terms:write,
-terms:delete, globals:read, globals:write
+entries:read, entries:write, entries:publish, entries:delete,
+terms:read, terms:write, terms:delete, globals:read, globals:write
 ```
 
 ### Full Access

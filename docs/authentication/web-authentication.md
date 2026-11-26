@@ -128,6 +128,8 @@ The endpoint applies rate limiting by default (60 requests per minute). Configur
 STATAMIC_MCP_RATE_LIMIT_MAX=120
 ```
 
+Failed authentication is limited separately: 5 failed attempts a minute per credential and 30 per address answer 429. A valid token is never held back by these limits, so one misconfigured client behind a shared address cannot lock out the others.
+
 ### Force Web Mode
 
 The following flag forces HTTP-style security checks, including the HTTP profile, in console-based HTTP runtimes. It does not provide a token-login flow for stdio:

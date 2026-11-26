@@ -148,10 +148,10 @@
 
                 <div>
                     <ui-label text="Expiration" />
-                    <ui-description :text="maxTokenLifetimeDays ? `Defaults to ${maxTokenLifetimeDays} days. Clear to create a token that never expires.` : 'Leave blank for a token that never expires.'" />
+                    <ui-description :text="maxTokenLifetimeDays ? `Tokens on this site expire within ${maxTokenLifetimeDays} days. Leave blank for the longest allowed.` : 'Leave blank for a token that never expires.'" />
                     <div class="mt-1 flex items-center gap-2">
-                        <ui-input v-model="form.expires_at" type="date" class="flex-1" />
-                        <ui-button v-if="form.expires_at" text="Never expire" size="sm" variant="ghost" @click="form.expires_at = ''" />
+                        <ui-input v-model="form.expires_at" type="date" class="flex-1" :max="defaultExpiryDate || undefined" />
+                        <ui-button v-if="form.expires_at && !maxTokenLifetimeDays" text="Never expire" size="sm" variant="ghost" @click="form.expires_at = ''" />
                     </div>
                     <p v-if="form.errors.expires_at" class="mt-1 text-sm text-red-600">{{ form.errors.expires_at }}</p>
                 </div>
@@ -221,14 +221,14 @@ const presetDefinitions = [
     {
         name: 'Read Only',
         scopes: [
-            'content:read', 'blueprints:read', 'entries:read', 'terms:read',
+            'blueprints:read', 'entries:read', 'terms:read',
             'globals:read', 'structures:read', 'assets:read', 'system:read',
         ],
     },
     {
         name: 'Content Editor',
         scopes: [
-            'content:read', 'content:write', 'entries:read', 'entries:write',
+            'entries:read', 'entries:write',
             'terms:read', 'terms:write', 'globals:read', 'globals:write',
             'blueprints:read', 'structures:read', 'assets:read', 'assets:write',
         ],
@@ -236,7 +236,7 @@ const presetDefinitions = [
     {
         name: 'Content Publisher',
         scopes: [
-            'content:read', 'content:write', 'entries:read', 'entries:write',
+            'entries:read', 'entries:write',
             'entries:publish', 'entries:delete',
             'terms:read', 'terms:write', 'terms:delete', 'globals:read', 'globals:write',
             'blueprints:read', 'structures:read', 'assets:read', 'assets:write', 'assets:delete',
@@ -352,8 +352,10 @@ async function handleUpdate() {
     const result = await updateToken(editingToken.value.id, {
         name: form.value.name,
         scopes: form.value.scopes,
-        expires_at: form.value.expires_at || null,
-        clear_expiry: !form.value.expires_at && !!editingToken.value.expires_at,
+        // Under a lifetime cap a cleared date means the longest allowed;
+        // without one it means the token never expires.
+        expires_at: form.value.expires_at || (props.maxTokenLifetimeDays && editingToken.value.expires_at ? defaultExpiryDate.value : null),
+        clear_expiry: !props.maxTokenLifetimeDays && !form.value.expires_at && !!editingToken.value.expires_at,
     });
     if (!result.ok) {
         form.value.errors = result.errors;
@@ -366,8 +368,13 @@ async function handleUpdate() {
 
 async function handleDelete() {
     if (!tokenToDelete.value) return;
-    await deleteToken(tokenToDelete.value.id);
+    const result = await deleteToken(tokenToDelete.value.id);
     tokenToDelete.value = null;
+    if (!result.ok) {
+        Statamic.$toast.error(result.message);
+        return;
+    }
+    Statamic.$toast.success('Token deleted.');
     router.reload({ only: ['tokens'] });
 }
 
@@ -378,9 +385,11 @@ function confirmDelete(token) {
 async function handleRegenerate(token) {
     if (!confirm(`Regenerate token "${token.name}"? The old token will stop working immediately.`)) return;
     const result = await regenerateToken(token.id);
-    if (result.ok) {
-        newToken.value = result.token;
+    if (!result.ok) {
+        Statamic.$toast.error(result.message);
+        return;
     }
+    newToken.value = result.token;
 }
 
 function copyToken() {

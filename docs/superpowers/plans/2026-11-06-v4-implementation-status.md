@@ -145,6 +145,24 @@ These records do not certify V02–V10. The main plan remains the release checkl
 - V10 (done as a review; see "V10 release candidate review" below). The
   minimum stays Statamic 6.35.1: the lowest dependencies pass.
 
+## Final polish, phase 1 — correctness and security (2026-11-26)
+
+Plan: the "v4 plan for den sidste polering" artifact, items 1.1–1.11, all done.
+
+- 1.1 Relationship fields: per-type format specs; unknown terms refused (never created); entry and user ids checked.
+- 1.2 A landed write over `max_response_size` answers success with slim data and `response_truncated`.
+- 1.3 Config numbers read through `Support\McpConfig` (string env values no longer 500 the admin page).
+- 1.4 List filters validated (`RouterHelpers::validateListFilters()`); the Stache index leak is gone.
+- 1.5 `content_validate` with no allowed taxonomy/collection validates nothing instead of failing.
+- 1.6 `content:*` retired (`TokenScope::isRetired()`), dropped by the migration and on refresh; doctor counts them.
+- 1.7 Token lifetime cap enforced on edit; OAuth token expiry immutable; doctor counts tokens over the cap.
+- 1.8 Users writes gated by a floor; `current_password` for own email/password; secrets hidden in previews.
+- 1.9 OAuth: unused clients expire, error page before consent, logo only same-host https, per-credential auth throttle.
+- 1.10 Guard refuses inactive users and `*`; refresh drops lost scopes; generic CIMD errors; doctor warns without elevated sessions.
+- 1.11 CP: server-side audit actor filter, Regenerate on own tokens only, capped expiry UI, error toasts.
+
+Verified: full suite 2048 passed, 33 skipped, 10132 assertions (256 s); PHPStan level 9 and Pint clean.
+
 ## V10 release candidate review (2026-11-24)
 
 Reviewed at the commit that adds this section. This review records results; it is

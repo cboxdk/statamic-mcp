@@ -15,6 +15,7 @@ use Cboxdk\StatamicMcp\Events\McpTokenSaved;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
 use Cboxdk\StatamicMcp\OAuth\OAuthMutationLock;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
+use Cboxdk\StatamicMcp\Support\McpConfig;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 
@@ -33,16 +34,9 @@ class TokenService
      */
     public function createToken(string $userId, string $name, array $scopes, ?Carbon $expiresAt = null, ?string $oauthClientId = null, ?string $oauthClientName = null, ?CapabilitySnapshot $capabilities = null, bool $newGrant = true): array
     {
-        // Enforce max token lifetime if configured
-        /** @var int|null $maxDays */
-        $maxDays = config('statamic.mcp.security.max_token_lifetime_days');
-        if ($maxDays !== null && $maxDays > 0) {
-            $maxExpiry = Carbon::now()->addDays($maxDays);
-            if ($expiresAt === null) {
-                $expiresAt = $maxExpiry;
-            } elseif ($expiresAt->greaterThan($maxExpiry)) {
-                $expiresAt = $maxExpiry;
-            }
+        $maxExpiry = self::maxExpiry();
+        if ($maxExpiry !== null && ($expiresAt === null || $expiresAt->greaterThan($maxExpiry))) {
+            $expiresAt = $maxExpiry;
         }
 
         $plainTextToken = Str::random(64);
@@ -147,13 +141,30 @@ class TokenService
                 $data['scopes'] = array_map(fn (TokenScope|string $scope): string => $scope instanceof TokenScope ? $scope->value : $scope, $scopes);
             }
 
+            $existing = $this->tokenStore->find($tokenId);
+
+            if ($expiresAt !== null || $clearExpiry) {
+                // An OAuth token lives for oauth.token_ttl and is renewed by
+                // its client; a longer one would outlive the grant's design.
+                if ($existing?->oauthClientId !== null) {
+                    throw new TokenExpiryRefused('An OAuth token expires on its own schedule and is renewed by its client. Revoke it instead.');
+                }
+
+                // The lifetime cap holds for edits as it does at creation.
+                $maxExpiry = self::maxExpiry();
+                if ($clearExpiry && $expiresAt === null && $maxExpiry !== null) {
+                    throw new TokenExpiryRefused('Tokens on this site must expire: security.max_token_lifetime_days is set. Choose a date instead.');
+                }
+                if ($expiresAt !== null && $maxExpiry !== null && $expiresAt->greaterThan($maxExpiry)) {
+                    $expiresAt = $maxExpiry;
+                }
+            }
+
             if ($expiresAt !== null) {
                 $data['expiresAt'] = Carbon::parse($expiresAt);
             } elseif ($clearExpiry) {
                 $data['expiresAt'] = null;
             }
-
-            $existing = $this->tokenStore->find($tokenId);
             $scopeValues = $scopes === null ? null : array_map(fn (TokenScope|string $scope): string => $scope instanceof TokenScope ? $scope->value : $scope, $scopes);
             if ($scopeValues !== null && in_array(TokenScope::FullAccess->value, $scopeValues, true)
                 && ! in_array(TokenScope::FullAccess->value, $existing->scopes ?? [], true)) {
@@ -363,6 +374,17 @@ class TokenService
         // cover every scope added since, which nobody approved; v4 issues
         // full access as an explicit list (ScopeAvailability::expandFullAccess).
         return in_array($scope->value, $token->scopes, true);
+    }
+
+    /**
+     * The latest expiry a token may get now, or null when the site sets no
+     * lifetime cap (security.max_token_lifetime_days).
+     */
+    public static function maxExpiry(): ?Carbon
+    {
+        $maxDays = McpConfig::optionalInt('security.max_token_lifetime_days', 365);
+
+        return $maxDays !== null && $maxDays > 0 ? Carbon::now()->addDays($maxDays) : null;
     }
 
     private static function grantId(McpTokenData $token): string

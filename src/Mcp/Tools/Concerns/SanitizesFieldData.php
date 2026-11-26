@@ -10,6 +10,10 @@ use Cboxdk\StatamicMcp\Mcp\Support\FieldtypeExtensions;
 use Cboxdk\StatamicMcp\Mcp\Support\SeoProFieldData;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
+use Statamic\Facades\Entry;
+use Statamic\Facades\Term;
+use Statamic\Facades\User;
 use Statamic\Fields\Blueprint;
 use Statamic\Fields\Field;
 use Statamic\Fieldtypes\Bard;
@@ -17,6 +21,7 @@ use Statamic\Fieldtypes\Date;
 use Statamic\Fieldtypes\Grid;
 use Statamic\Fieldtypes\Group;
 use Statamic\Fieldtypes\Replicator;
+use Statamic\Fieldtypes\Terms;
 
 trait SanitizesFieldData
 {
@@ -253,7 +258,10 @@ trait SanitizesFieldData
             'table' => $this->sanitizeTableValue($value, $allowLegacyCoercion, $path),
             'date' => $this->sanitizeDateValue($field, $value),
             'assets' => $this->normalizeAssetFieldValue($field, $value),
-            'terms', 'entries', 'users', 'checkboxes' => $this->sanitizeRelationshipValue($value),
+            'terms', 'taxonomy', 'entries', 'users' => $allowLegacyCoercion
+                ? $this->sanitizeRelationshipValue($value)
+                : $this->resolveReferences($field, $this->sanitizeRelationshipValue($value), $path),
+            'checkboxes' => $this->sanitizeRelationshipValue($value),
             // A registered sanitizer replaces the built-in string check, so a
             // site can still decide for itself what a string field accepts.
             default => FieldtypeExtensions::hasSanitizer($field) || ! in_array($field->type(), self::STRING_FIELDTYPES, true)
@@ -691,6 +699,100 @@ trait SanitizesFieldData
         }
 
         return [];
+    }
+
+    /**
+     * Check every reference a client sends against what exists.
+     *
+     * Statamic's Terms fieldtype turns a value without `taxonomy::` into a new
+     * term (createTermFromString), outside this server's scope and policy
+     * checks, so an agent that sent an id the field did not know created junk
+     * terms and was told it succeeded. Entries and users would store a dangling
+     * id the same way. A reference must name a record that exists; a term is
+     * created with the terms tool first.
+     *
+     * Stored values are not checked here: an unrelated update must not fail on
+     * a reference that was deleted since.
+     *
+     * @param  array<int, mixed>  $values
+     *
+     * @return array<int, string>
+     */
+    private function resolveReferences(Field $field, array $values, string $path): array
+    {
+        $resolved = [];
+        foreach ($values as $value) {
+            if (! is_string($value) && ! is_int($value)) {
+                throw new FieldFormatException("Field [{$path}] expects an array of ids, received an item of type " . get_debug_type($value) . '.');
+            }
+            $value = (string) $value;
+            $resolved[] = match ($field->type()) {
+                'terms', 'taxonomy' => $this->resolveTermReference($field, $value, $path),
+                'entries' => $this->resolveEntryReference($field, $value, $path),
+                default => User::find($value) !== null
+                    ? $value
+                    : throw new FieldFormatException("Field [{$path}] references user '{$value}', which does not exist. Send a user id."),
+            };
+        }
+
+        return array_values(array_unique($resolved));
+    }
+
+    private function resolveEntryReference(Field $field, string $id, string $path): string
+    {
+        $entry = Entry::find($id);
+        if ($entry === null) {
+            throw new FieldFormatException("Field [{$path}] references entry '{$id}', which does not exist. Send the id of an existing entry.");
+        }
+
+        $allowed = array_values(array_filter((array) $field->get('collections', []), 'is_string'));
+        if ($allowed !== [] && ! in_array($entry->collectionHandle(), $allowed, true)) {
+            throw new FieldFormatException("Field [{$path}] accepts entries from " . implode(', ', $allowed) . "; entry '{$id}' is in " . $entry->collectionHandle() . '.');
+        }
+
+        return $id;
+    }
+
+    /**
+     * A term reference is `taxonomy::slug`, or the slug alone when the field
+     * has one taxonomy. A title such as "Modern PHP" is matched by its slug, so
+     * the stored value is what the Control Panel would store.
+     */
+    private function resolveTermReference(Field $field, string $reference, string $path): string
+    {
+        $fieldtype = $field->fieldtype();
+        /** @var list<string> $taxonomies */
+        $taxonomies = $fieldtype instanceof Terms
+            ? array_values(array_filter($fieldtype->taxonomies(), 'is_string'))
+            : [];
+        $single = count($taxonomies) === 1 ? $taxonomies[0] : null;
+
+        if (str_contains($reference, '::')) {
+            [$taxonomy, $slug] = explode('::', $reference, 2);
+        } elseif ($single !== null) {
+            [$taxonomy, $slug] = [$single, $reference];
+        } else {
+            throw new FieldFormatException("Field [{$path}] takes terms from " . ($taxonomies === [] ? 'several taxonomies' : implode(', ', $taxonomies))
+                . ", so each value must be taxonomy::slug; received '{$reference}'.");
+        }
+
+        if ($taxonomies !== [] && ! in_array($taxonomy, $taxonomies, true)) {
+            throw new FieldFormatException("Field [{$path}] accepts terms from " . implode(', ', $taxonomies) . "; '{$reference}' is in {$taxonomy}.");
+        }
+
+        $term = Term::find("{$taxonomy}::{$slug}") ?? Term::find("{$taxonomy}::" . Str::slug($slug));
+        if ($term === null) {
+            $known = Term::query()->where('taxonomy', $taxonomy)->limit(20)->get()
+                ->map(fn ($t): string => (string) $t->slug())->all();
+
+            throw new FieldFormatException("Field [{$path}] references term '{$slug}', which does not exist in taxonomy {$taxonomy}. "
+                . 'Create it with the terms tool first, then send its slug.'
+                . ($known === [] ? '' : ' Existing slugs include: ' . implode(', ', $known) . '.'));
+        }
+
+        // Statamic stores the bare slug for a single-taxonomy field and the
+        // full id otherwise; send it the shape it would store itself.
+        return $single !== null ? (string) $term->slug() : (string) $term->id();
     }
 
     private function invalidStructuredValue(string $path, string $fieldType, mixed $value): FieldFormatException

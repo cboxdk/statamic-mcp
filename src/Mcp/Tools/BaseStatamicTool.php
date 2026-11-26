@@ -13,6 +13,7 @@ use Cboxdk\StatamicMcp\Mcp\Support\StacheRepair;
 use Cboxdk\StatamicMcp\Mcp\Support\ToolLogger;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
 use Cboxdk\StatamicMcp\Support\InputBudget;
+use Cboxdk\StatamicMcp\Support\McpConfig;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\Support\Facades\Log;
@@ -256,8 +257,7 @@ abstract class BaseStatamicTool extends Tool
 
             // Execution has finished: a slow successful write is still successful.
             // This is an observation, not a claim that PHP interrupted the handler.
-            $configuredTimeout = config('statamic.mcp.security.tool_timeout_seconds', 30);
-            $timeout = is_numeric($configuredTimeout) ? (float) $configuredTimeout : 30.0;
+            $timeout = (float) McpConfig::int('security.tool_timeout_seconds', 30);
             try {
                 if ($duration > $timeout) {
                     $standardized['meta']['duration_budget_exceeded'] = true;
@@ -369,6 +369,18 @@ abstract class BaseStatamicTool extends Tool
 
         $encoded = json_encode($wrapped);
         if ($encoded !== false && $maxBytes > 0 && strlen($encoded) > $maxBytes) {
+            // A write that landed is a success, however large its echo. Calling
+            // it an error made agents retry, and the retry wrote it twice.
+            if ($this->writeEffectsSoFar() === 'committed' && ($wrapped['success'] ?? false) === true) {
+                $wrapped['data'] = [
+                    ...$this->identifyingFields(is_array($wrapped['data'] ?? null) ? $wrapped['data'] : []),
+                    'response_truncated' => true,
+                    'note' => 'The write was saved. Its full response (' . round(strlen($encoded) / 1024) . 'KB) is over the response limit; read the record back to see it.',
+                ];
+
+                return $wrapped;
+            }
+
             return $this->createErrorResponse(
                 'Response too large (' . round(strlen($encoded) / 1024) . 'KB). Use pagination or filters to reduce the result set.',
                 ['response_size_bytes' => strlen($encoded)],
@@ -376,6 +388,36 @@ abstract class BaseStatamicTool extends Tool
         }
 
         return $wrapped;
+    }
+
+    /**
+     * What names a written record, without its content: enough to read it
+     * back or to pass its version to the next write.
+     *
+     * @param  array<mixed>  $data
+     *
+     * @return array<string, mixed>
+     */
+    private function identifyingFields(array $data, bool $recordLevel = false): array
+    {
+        $keep = ['id', 'slug', 'handle', 'title', 'version', 'url', 'uri', 'permalink', 'collection', 'taxonomy',
+            'container', 'path', 'site', 'locale', 'published', 'status', 'parent', 'created', 'updated', 'deleted'];
+        $slim = [];
+        foreach ($data as $key => $value) {
+            $key = (string) $key;
+            // One level down is the record itself ({entry: {...}}); its field
+            // values below that are content, which is what was too large.
+            if (! $recordLevel && is_array($value) && ! array_is_list($value)) {
+                $nested = $this->identifyingFields($value, true);
+                if ($nested !== []) {
+                    $slim[$key] = $nested;
+                }
+            } elseif (in_array($key, $keep, true) && (is_scalar($value) || $value === null)) {
+                $slim[$key] = $value;
+            }
+        }
+
+        return $slim;
     }
 
     /**

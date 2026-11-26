@@ -51,7 +51,7 @@ class CimdAuthorizeTest extends TestCase
             'code_challenge' => 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
             'code_challenge_method' => 'S256',
             'state' => 'test-state-cimd',
-            'scope' => 'content:read',
+            'scope' => 'entries:read',
         ], $overrides);
     }
 
@@ -140,6 +140,20 @@ class CimdAuthorizeTest extends TestCase
         $response->assertSee('https://app.example.com/logo.png');
     }
 
+    public function test_a_logo_from_another_host_or_over_http_is_not_shown(): void
+    {
+        $user = $this->authenticatedUser('cimd-3b', 'cimd3b@example.com');
+
+        foreach (['https://tracker.example.net/pixel.png', 'http://app.example.com/logo.png'] as $logo) {
+            $this->fakeCimdMetadata(['logo_uri' => $logo]);
+
+            $this->actingAs($user, 'web')
+                ->get($this->authorizeUrl(http_build_query($this->validParams())))
+                ->assertOk()
+                ->assertDontSee($logo, false);
+        }
+    }
+
     public function test_consent_screen_shows_localhost_warning_for_localhost_redirect_uris(): void
     {
         $this->fakeCimdMetadata(['redirect_uris' => ['http://localhost:3000/callback']]);
@@ -168,8 +182,8 @@ class CimdAuthorizeTest extends TestCase
                 'state' => 'cimd-state-approve',
                 'code_challenge' => 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
                 'code_challenge_method' => 'S256',
-                'scope' => 'content:read',
-                'scopes' => ['content:read'],
+                'scope' => 'entries:read',
+                'scopes' => ['entries:read'],
                 'decision' => 'approve',
             ]));
 
@@ -194,8 +208,8 @@ class CimdAuthorizeTest extends TestCase
                 'state' => 'cimd-state-deny',
                 'code_challenge' => 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
                 'code_challenge_method' => 'S256',
-                'scope' => 'content:read',
-                'scopes' => ['content:read'],
+                'scope' => 'entries:read',
+                'scopes' => ['entries:read'],
                 'decision' => 'deny',
             ]);
 
@@ -239,7 +253,9 @@ class CimdAuthorizeTest extends TestCase
         $response = $this->actingAs($user, 'web')
             ->get($this->authorizeUrl(http_build_query($this->validParams())));
 
-        $response->assertStatus(400);
+        // Why the fetch failed is not shown: it tells a prober what this
+        // server can reach.
+        $response->assertStatus(400)->assertDontSee('Connection refused');
     }
 
     // --- CIMD validation failure (mismatched client_id) returns 400 ---
@@ -337,7 +353,7 @@ class CimdAuthorizeTest extends TestCase
             'code_challenge' => 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
             'code_challenge_method' => 'S256',
             'state' => 'dcr-state',
-            'scope' => 'content:read',
+            'scope' => 'entries:read',
         ];
 
         $response = $this->actingAs($user, 'web')

@@ -34,6 +34,10 @@ The addon provides scoped API tokens for fine-grained MCP access control:
   `replacedBy()` marks them and they grant nothing; `TokenScope::v3Changes()` is the single
   description of what v4 changed for a token (used by `mcp:doctor`, the installer's upgrade
   review and the OAuth refresh refusal).
+- **Retired scopes** (`TokenScope::isRetired()`): the replaced admin `:write` cases and
+  `content:read`/`content:write`, which no tool ever asked for. They load but grant nothing,
+  `ScopeAvailability` never offers or advertises them, the migration drops them and an OAuth
+  refresh drops them silently. Never put one in a preset, default or test token again.
 - **`mcp:migrate-v4`** (`Auth\V4TokenMigration`) is the one place stored tokens are brought to
   v4 (and back with `--rollback`); the installer shows the same plan. It only narrows or
   revokes, never adds a scope, journals before changing anything and is safe to rerun.
@@ -81,6 +85,10 @@ stateless confirmation token is gone; a v3 `confirmation_token` is ignored.
 - **Approvals** (`src/Approvals/Approvals.php`) — an approval *is* an operation in the OperationStore: `awaiting_approval` = pending, `ready` = approved, `cancelled` = rejected, `executing` onwards = claimed/consumed. Claiming the approval and the write is one atomic transition, so a crash leaves it spent.
 - **BaseRouter::executeWithApproval()** — without `approval_id` it records the call (random opaque id, binding over actor, grant, action, site, profile and canonical input; preview with the record's `expected_version`) and answers `APPROVAL_REQUIRED`. With it, the call is authorized again in full *before* the claim; a different call, a changed record (`APPROVAL_STALE`), expiry or rejection runs nothing.
 - **CP** (`ApprovalController`, `McpApprovalsPage.vue`, Tools → MCP → Approvals) — only the user the call acts as sees and decides it; decisions are POST with CSRF; **approve needs Statamic's elevated session**, which is what stops a browser agent driving the same CP tab. It proves a fresh re-authentication, not that a human clicked.
+- **Users floor:** `ConfirmationActionGate::FLOOR` gates users create/update/activate/assign_role
+  even when the config has no `users` key (`'users' => []` is the explicit opt-out). Changing your
+  own email or password over HTTP also needs `data.current_password`. The stored preview goes
+  through `BaseRouter::withoutSecrets()`; the binding hash still covers the full input.
 - **Defaults:** `delete` on every domain, blueprint writes, entry `restore_revision`/`publish_working_copy`. `[]` disables a domain, `*` gates every action. Stdio is never gated (the local operator is the person).
 - Tests: `tests/Feature/Approvals/ApprovalFlowTest.php` (binding, CSRF/elevation, expiry, stale, no grant) and `ApprovalConcurrencyTest.php` (process races and crash on file, SQLite, MySQL).
 - **Channels** (`ApprovalChannels`, config `approvals.channels`, default `auto`). **Notifiers** (`Contracts\ApprovalNotifier`) only tell: they get a `PendingApproval` (description + CP link, *never the arguments*) and must not offer anything that decides. **Authorities** (`Contracts\ApprovalAuthority`, e.g. Cbox ID CIBA) answer `settle()`, and `Approvals` records the answer through `approve()`/`reject()` — never let an authority transition the operation itself, or the owner binding and single use stop holding. A throwing channel is reported and skipped. Built in: `mail` (site mailer), `relay` (Cbox Relay: mail, web push, webhook event `statamic_mcp.approval.requested`), `cbox_id` (CIBA). The Cbox clients need PHP 8.4, so they are `suggest`, referenced only from `src/Approvals/Cbox/` behind `CboxRelay::available()`/`CboxId::available()`; CI's Code Quality and `cbox-integrations` jobs install them. `approvals.promote_cbox` mentions Cbox Relay/ID in mails and on the page (Sylvester's call: built in, with a little promotion).
@@ -1056,6 +1064,11 @@ this server stores it. **Never use `new Statamic\Fields\Validator` or `$fields->
 in a write path** — a conditionally required field would block every write again.
 
 **`statamic-terms`** — list, get, create, update, delete
+
+List `filters` go through `RouterHelpers::validateListFilters()`: blueprint field handles plus
+the router's `FILTER_PROPERTIES`, scalar values only. **Never pass a client's filter key to
+`where()` unchecked** — an unknown key makes the Stache build a permanent index on that key,
+which every later save of the store keeps up to date.
 
 **`statamic-globals`** — list, get, update (global set values with multi-site support)
 

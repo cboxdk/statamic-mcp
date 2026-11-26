@@ -40,6 +40,20 @@ it('gates create/generate/update/delete on blueprints (backwards-compat regressi
     expect(ConfirmationActionGate::gates('blueprints', 'generate'))->toBeTrue();
 });
 
+it('gates the users actions that can hand over an account, even when a published config has no users key', function (): void {
+    // The baseline above has no users key, like a config published by v3.
+    foreach (['create', 'update', 'activate', 'assign_role', 'delete'] as $action) {
+        expect(ConfirmationActionGate::gates('users', $action))->toBeTrue($action);
+    }
+    foreach (['list', 'get', 'search', 'deactivate', 'remove_role'] as $action) {
+        expect(ConfirmationActionGate::gates('users', $action))->toBeFalse($action);
+    }
+
+    // Listing the domain is how an operator chooses otherwise.
+    Config::set('statamic.mcp.confirmation.actions.users', []);
+    expect(ConfirmationActionGate::gates('users', 'update'))->toBeFalse();
+});
+
 // ---------------------------------------------------------------------------
 // Explicit per-domain configuration
 // ---------------------------------------------------------------------------

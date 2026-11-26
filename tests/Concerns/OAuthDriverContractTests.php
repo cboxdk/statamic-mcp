@@ -159,6 +159,30 @@ trait OAuthDriverContractTests
         expect($driver->countClientsByIp('10.0.0.3'))->toBe(0);
     }
 
+    public function test_a_registration_never_authorized_stops_counting_after_a_day(): void
+    {
+        $driver = $this->createDriver();
+        config(['statamic.mcp.oauth.max_clients' => 2]);
+
+        $authorized = $driver->registerClient('Authorized', ['https://example.com/cb1'], '10.0.0.1');
+        $driver->createRefreshToken('user-1', $authorized->clientId, ['entries:read']);
+        $idle = $driver->registerClient('Idle', ['https://example.com/cb2'], '10.0.0.1');
+
+        // Within a day both count, so the cap is reached.
+        expect(fn () => $driver->registerClient('Third', ['https://example.com/cb3']))->toThrow(OAuthException::class);
+
+        Carbon::setTestNow(Carbon::now()->addDay()->addMinute());
+        try {
+            // The idle one is gone and no longer counts; the authorized one stays.
+            expect($driver->countClientsByIp('10.0.0.1'))->toBe(1)
+                ->and($driver->findClient($idle->clientId))->toBeNull()
+                ->and($driver->findClient($authorized->clientId))->not->toBeNull();
+            $driver->registerClient('Third', ['https://example.com/cb3']);
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
     public function test_per_ip_limit_does_not_block_different_ips(): void
     {
         $driver = $this->createDriver();
@@ -251,7 +275,7 @@ trait OAuthDriverContractTests
         $code = $driver->createAuthCode(
             clientId: $client->clientId,
             userId: 'user-123',
-            scopes: ['content:read', 'entries:read'],
+            scopes: ['terms:read', 'entries:read'],
             codeChallenge: $codeChallenge,
             codeChallengeMethod: 'S256',
             redirectUri: 'https://example.com/callback',
@@ -270,7 +294,7 @@ trait OAuthDriverContractTests
         expect($authCode)->toBeInstanceOf(OAuthAuthCode::class);
         expect($authCode->clientId)->toBe($client->clientId);
         expect($authCode->userId)->toBe('user-123');
-        expect($authCode->scopes)->toBe(['content:read', 'entries:read']);
+        expect($authCode->scopes)->toBe(['terms:read', 'entries:read']);
         expect($authCode->redirectUri)->toBe('https://example.com/callback');
     }
 
@@ -287,7 +311,7 @@ trait OAuthDriverContractTests
         $code = $driver->createAuthCode(
             clientId: $client->clientId,
             userId: 'user-123',
-            scopes: ['content:read'],
+            scopes: ['entries:read'],
             codeChallenge: $codeChallenge,
             codeChallengeMethod: 'S256',
             redirectUri: 'https://example.com/callback',
@@ -318,7 +342,7 @@ trait OAuthDriverContractTests
         $code = $driver->createAuthCode(
             clientId: $client->clientId,
             userId: 'user-123',
-            scopes: ['content:read'],
+            scopes: ['entries:read'],
             codeChallenge: $codeChallenge,
             codeChallengeMethod: 'S256',
             redirectUri: 'https://example.com/callback',
@@ -355,7 +379,7 @@ trait OAuthDriverContractTests
         $code = $driver->createAuthCode(
             clientId: $client->clientId,
             userId: 'user-123',
-            scopes: ['content:read'],
+            scopes: ['entries:read'],
             codeChallenge: $codeChallenge,
             codeChallengeMethod: 'S256',
             redirectUri: 'https://example.com/callback',
@@ -383,7 +407,7 @@ trait OAuthDriverContractTests
         $code = $driver->createAuthCode(
             clientId: $client->clientId,
             userId: 'user-123',
-            scopes: ['content:read'],
+            scopes: ['entries:read'],
             codeChallenge: $codeChallenge,
             codeChallengeMethod: 'S256',
             redirectUri: 'https://example.com/callback',
@@ -411,7 +435,7 @@ trait OAuthDriverContractTests
         $code = $driver->createAuthCode(
             clientId: $client->clientId,
             userId: 'user-123',
-            scopes: ['content:read'],
+            scopes: ['entries:read'],
             codeChallenge: $codeChallenge,
             codeChallengeMethod: 'S256',
             redirectUri: 'https://example.com/callback',
@@ -445,7 +469,7 @@ trait OAuthDriverContractTests
         $code = $driver->createAuthCode(
             clientId: $oldClient->clientId,
             userId: 'user-123',
-            scopes: ['content:read'],
+            scopes: ['entries:read'],
             codeChallenge: $codeChallenge,
             codeChallengeMethod: 'S256',
             redirectUri: 'https://example.com/callback',
@@ -485,7 +509,7 @@ trait OAuthDriverContractTests
         $token = $driver->createRefreshToken(
             userId: 'user-123',
             clientId: $client->clientId,
-            scopes: ['content:read', 'entries:read'],
+            scopes: ['terms:read', 'entries:read'],
         );
 
         expect($token)->toBeString();
@@ -496,7 +520,7 @@ trait OAuthDriverContractTests
         expect($authCode)->toBeInstanceOf(OAuthAuthCode::class);
         expect($authCode->clientId)->toBe($client->clientId);
         expect($authCode->userId)->toBe('user-123');
-        expect($authCode->scopes)->toBe(['content:read', 'entries:read']);
+        expect($authCode->scopes)->toBe(['terms:read', 'entries:read']);
         expect($authCode->redirectUri)->toBe('');
     }
 
@@ -508,7 +532,7 @@ trait OAuthDriverContractTests
         $token = $driver->createRefreshToken(
             userId: 'user-123',
             clientId: $client->clientId,
-            scopes: ['content:read'],
+            scopes: ['entries:read'],
         );
 
         // First exchange succeeds
@@ -529,7 +553,7 @@ trait OAuthDriverContractTests
         $token = $driver->createRefreshToken(
             userId: 'user-123',
             clientId: $client->clientId,
-            scopes: ['content:read'],
+            scopes: ['entries:read'],
         );
 
         $this->expectException(OAuthException::class);
@@ -548,7 +572,7 @@ trait OAuthDriverContractTests
         $token = $driver->createRefreshToken(
             userId: 'user-123',
             clientId: $client->clientId,
-            scopes: ['content:read'],
+            scopes: ['entries:read'],
         );
 
         // Advance time to ensure expiry
@@ -577,8 +601,8 @@ trait OAuthDriverContractTests
         $client = $driver->registerClient('Test App', ['https://example.com/callback']);
         $other = $driver->registerClient('Other App', ['https://example.com/cb2']);
 
-        $token = $driver->createRefreshToken('user-123', $client->clientId, ['content:read']);
-        $keep = $driver->createRefreshToken('user-999', $other->clientId, ['content:read']);
+        $token = $driver->createRefreshToken('user-123', $client->clientId, ['entries:read']);
+        $keep = $driver->createRefreshToken('user-999', $other->clientId, ['entries:read']);
 
         $revoked = $driver->revokeRefreshTokensFor('user-123', $client->clientId);
         expect($revoked)->toBeGreaterThanOrEqual(1);

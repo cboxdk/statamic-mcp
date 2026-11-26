@@ -43,8 +43,8 @@ enum TokenScope: string
     {
         return match ($this) {
             self::FullAccess => 'Full Access',
-            self::ContentRead => 'Read Content',
-            self::ContentWrite => 'Write Content',
+            self::ContentRead => 'Read Content (v3, retired)',
+            self::ContentWrite => 'Write Content (v3, retired)',
             self::StructuresRead => 'Read Structures',
             self::StructuresWrite => 'Write Structures (v3, replaced)',
             self::StructuresAdmin => 'Administer Structures',
@@ -81,8 +81,8 @@ enum TokenScope: string
     {
         return match ($this) {
             self::FullAccess => 'Every scope you can hold today. Fixed when the token is issued: scopes added later are not included.',
-            self::ContentRead => 'View entries and taxonomy terms.',
-            self::ContentWrite => 'Create, update, and delete entries and terms.',
+            self::ContentRead => 'Retired: no tool ever asked for it, so it granted nothing in v3 either. Use entries:read and terms:read.',
+            self::ContentWrite => 'Retired: no tool ever asked for it, so it granted nothing in v3 either. Use entries:write and terms:write.',
             self::StructuresRead => 'View collections, taxonomies, navigations, and sites.',
             self::StructuresWrite => 'Replaced by structures:admin in v4. Grants nothing; approve the token again.',
             self::StructuresAdmin => 'Create, update, and delete collections, taxonomies, navigations, and sites.',
@@ -160,10 +160,22 @@ enum TokenScope: string
     }
 
     /**
+     * Whether old tokens still load with this scope although it grants
+     * nothing: a v3 admin `:write` that v4 replaced, or one of the v3
+     * `content:*` umbrellas, which no tool ever asked for. Nobody is offered
+     * a retired scope and no client may ask for one.
+     */
+    public function isRetired(): bool
+    {
+        return $this->replacedBy() !== null || $this === self::ContentRead || $this === self::ContentWrite;
+    }
+
+    /**
      * What v4 changed for a token holding these scopes, keyed by change:
      * `full_access` (a v3 `*`, refused), `replaced` (v3 admin `:write`
-     * scopes, refused) and `publish_delete` (an edit scope that no longer
-     * publishes or deletes). Empty when the token is unaffected.
+     * scopes, refused), `inert` (the `content:*` umbrellas, which grant
+     * nothing and are dropped) and `publish_delete` (an edit scope that no
+     * longer publishes or deletes). Empty when the token is unaffected.
      *
      * @param  array<int, string>  $scopes
      *
@@ -178,8 +190,11 @@ enum TokenScope: string
         }
 
         foreach ($scopes as $scope) {
-            if (self::tryFrom($scope)?->replacedBy() !== null) {
+            $known = self::tryFrom($scope);
+            if ($known?->replacedBy() !== null) {
                 $changes['replaced'][] = $scope;
+            } elseif ($known?->isRetired() === true) {
+                $changes['inert'][] = $scope;
             }
         }
 

@@ -28,12 +28,14 @@ class AuditController extends CpController
 
         $tool = $request->input('tool');
         $status = $request->input('status');
+        $actor = $request->input('actor');
 
         $result = $store->query(
             is_string($tool) && $tool !== '' ? $tool : null,
             is_string($status) && $status !== '' ? $status : null,
             $page,
             $perPage,
+            is_string($actor) && ($actor === 'cli' || str_starts_with($actor, 'user:')) ? $actor : null,
         );
 
         return response()->json([

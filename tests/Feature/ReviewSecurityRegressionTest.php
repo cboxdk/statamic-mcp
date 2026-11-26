@@ -28,7 +28,8 @@ class ReviewSecurityRegressionTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        User::make()->id('review-user')->email('oauth-review@example.test')->save();
+        // A refresh issues only scopes the user can still exercise.
+        User::make()->id('review-user')->email('oauth-review@example.test')->makeSuper()->save();
     }
 
     /** @param list<string> $permissions */

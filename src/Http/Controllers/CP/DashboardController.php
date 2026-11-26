@@ -11,6 +11,7 @@ use Cboxdk\StatamicMcp\Http\Controllers\CP\Concerns\ResolvesUserId;
 use Cboxdk\StatamicMcp\Services\ClientConfigGenerator;
 use Cboxdk\StatamicMcp\Services\StatsService;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
+use Cboxdk\StatamicMcp\Support\McpConfig;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -58,7 +59,7 @@ class DashboardController extends CpController
             'clients' => $this->configGenerator->getAvailableClients(),
             'webEnabled' => (bool) config('statamic.mcp.web.enabled', false),
             'mcpEndpoint' => $this->getMcpEndpoint(),
-            'maxTokenLifetimeDays' => config('statamic.mcp.security.max_token_lifetime_days'),
+            'maxTokenLifetimeDays' => McpConfig::optionalInt('security.max_token_lifetime_days', 365),
         ]);
     }
 
@@ -109,6 +110,7 @@ class DashboardController extends CpController
             'systemStats' => $this->statsService->getSystemStats(),
             'webEnabled' => (bool) config('statamic.mcp.web.enabled', false),
             'mcpEndpoint' => $this->getMcpEndpoint(),
+            'maxTokenLifetimeDays' => McpConfig::optionalInt('security.max_token_lifetime_days', 365),
         ]);
     }
 
@@ -130,6 +132,8 @@ class DashboardController extends CpController
             'expires_at' => $token->expiresAt?->toIso8601String(),
             'created_at' => $token->createdAt->toIso8601String(),
             'is_expired' => $token->isExpired(),
+            // Only the owner may regenerate: it hands over the new secret.
+            'is_own' => $token->userId === $this->resolveUserId(),
         ];
 
         if ($includeUser) {

@@ -73,11 +73,6 @@ abstract class TestCase extends AddonTestCase
         ];
     }
 
-    /**
-     * Whether this process has already swept Testbench's blueprint directory.
-     */
-    private static bool $blueprintsSwept = false;
-
     protected function setUp(): void
     {
         // Statamic keeps pushed CP routes and install callbacks in static lists
@@ -116,17 +111,14 @@ abstract class TestCase extends AddonTestCase
      * previous run was still sitting there, which looks exactly like the fix
      * not working.
      *
-     * Swept once per process rather than per test: the point is to start from
-     * a clean slate, and doing it 1,200 times would cost more than it saves.
+     * Swept before every test, not once per process: a blueprint one test
+     * saved into a shared collection (collections/blog/legit_handle.yaml)
+     * became that collection's default blueprint in a later test, and the
+     * GraphQL row of RenderedCacheMatrixTest then failed only in a full run.
+     * With nothing left to accumulate, a sweep touches a handful of files.
      */
     private static function sweepLeakedBlueprints(): void
     {
-        if (self::$blueprintsSwept) {
-            return;
-        }
-
-        self::$blueprintsSwept = true;
-
         $base = __DIR__ . '/../vendor/orchestra/testbench-core/laravel/resources/blueprints';
 
         if (! is_dir($base)) {

@@ -72,7 +72,7 @@ class PermissionGatingTest extends TestCase
         $result = $tokenService->createToken(
             'test-user-id',
             'Expired Token',
-            [TokenScope::ContentRead],
+            [TokenScope::EntriesRead],
             \Illuminate\Support\Carbon::now()->addMinute(),
         );
 

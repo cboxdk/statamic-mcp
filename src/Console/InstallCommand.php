@@ -903,7 +903,7 @@ Requires Statamic v6+ and laravel/mcp ^0.6, ^0.7 or ^0.8.
 
 Web MCP endpoints require scoped API tokens:
 1. Visit Statamic CP → Tools → MCP
-2. Create a token with required scopes (e.g., content:read, content:write)
+2. Create a token with the scopes it needs (e.g., entries:read, entries:write)
 3. Use Bearer token authentication for web requests
 4. CLI mode (php artisan mcp:start) requires an explicit installation profile; only operator permits administration
 
@@ -988,7 +988,7 @@ Use `statamic-discovery` to find the right tool for your intent and `statamic-sc
 ### Scoped API Tokens
 Web MCP endpoints use scoped API tokens for fine-grained access control:
 - Tokens are managed via the Statamic CP dashboard (Tools → MCP)
-- Each token has specific scopes (e.g., content:read, content:write, system:read)
+- Each token has specific scopes (e.g., entries:read, entries:write, system:read)
 - Use Bearer token authentication: `Authorization: Bearer <token>`
 - CLI mode (php artisan mcp:start) requires an explicit installation profile; only operator permits administration
 

@@ -18,7 +18,9 @@ use Illuminate\Support\Str;
  * Upgrade: a v3 `*` is refused by v4, and an OAuth grant carrying `*` or a
  * replaced admin `:write` must be approved again, so those are revoked. A
  * personal token keeps its live scopes and loses the replaced ones, which
- * also stops a later downgrade from reviving them.
+ * also stops a later downgrade from reviving them. The `content:*`
+ * umbrellas never granted anything and are dropped from personal tokens;
+ * an OAuth client's next refresh drops them from its grant.
  *
  * Rollback: v3 lets `{entries,terms,assets}:write` publish and delete, so a
  * token v4 narrowed would grow under v3. Those are revoked before the
@@ -112,7 +114,7 @@ final class V4TokenMigration
         }
 
         if (isset($changes['replaced'])) {
-            $live = array_values(array_diff($before, $changes['replaced']));
+            $live = array_values(array_diff($before, $changes['replaced'], $changes['inert'] ?? []));
             $replaced = implode(', ', $changes['replaced']);
             if ($token->oauthClientId !== null) {
                 return $this->step($token, 'revoke', $before, null, "{$replaced} was replaced by an :admin scope; the client must be authorized again");
@@ -122,6 +124,22 @@ final class V4TokenMigration
             }
 
             return $this->step($token, 'narrow', $before, $live, "{$replaced} was replaced by an :admin scope and grants nothing; the other scopes keep working");
+        }
+
+        if (isset($changes['inert'])) {
+            // The content umbrellas never granted anything, so dropping them
+            // changes no access. An OAuth token is left alone: changing its
+            // scopes would end the grant, and its next refresh drops them.
+            $live = array_values(array_diff($before, $changes['inert']));
+            $inert = implode(', ', $changes['inert']);
+            if ($token->oauthClientId !== null) {
+                return $this->step($token, 'keep', $before, $before, "{$inert} grants nothing; the client's next refresh drops it");
+            }
+            if ($live === []) {
+                return $this->step($token, 'revoke', $before, null, "{$inert} grants nothing and the token holds nothing else");
+            }
+
+            return $this->step($token, 'narrow', $before, $live, "{$inert} grants nothing and is dropped; the other scopes keep working");
         }
 
         $missing = implode(', ', $changes['publish_delete'] ?? []);

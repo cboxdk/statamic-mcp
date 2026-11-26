@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Services;
 
+use Cboxdk\StatamicMcp\Support\McpConfig;
 use Statamic\Statamic;
 
 /**
@@ -93,10 +94,7 @@ class StatsService
      */
     private function getRateLimitMax(): int
     {
-        /** @var int $max */
-        $max = config('statamic.mcp.rate_limit.max_attempts', 60);
-
-        return $max;
+        return McpConfig::int('rate_limit.max_attempts', 60);
     }
 
     /**

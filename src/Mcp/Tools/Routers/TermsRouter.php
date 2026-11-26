@@ -34,6 +34,12 @@ class TermsRouter extends BaseRouter
     use ChecksResourceVersions;
     use SanitizesFieldData;
 
+    /**
+     * Term properties a list may filter by besides the blueprint's fields.
+     * Taxonomy and site are arguments of their own.
+     */
+    private const FILTER_PROPERTIES = ['id', 'slug', 'title', 'uri'];
+
     protected function getDomain(): string
     {
         return 'terms';
@@ -74,7 +80,7 @@ class TermsRouter extends BaseRouter
                 ),
 
             'filters' => JsonSchema::object()
-                ->description('Filter conditions as key-value pairs. Keys are field handles from the blueprint. Example: {"status": "published"}'),
+                ->description('Exact-match filters for list, as key-value pairs with scalar values. Keys are field handles from the taxonomy\'s blueprints, or one of id, slug, title, uri. Any other key is refused with the list of valid keys. Example: {"slug": "news"}'),
 
             'expected_version' => JsonSchema::string()
                 ->description('Optimistic concurrency for update and delete: the `version` from your last get/create/update. It covers the whole term, every site included. If the stored term changed since (through MCP, the Control Panel or anything else), the write is refused with a version conflict and nothing is saved; get the term again and redo the change. Omit to write unconditionally.'),
@@ -307,14 +313,17 @@ class TermsRouter extends BaseRouter
                 ->where('taxonomy', $taxonomy)
                 ->where('site', $site);
 
-            // Apply filters if provided (only allow string field names)
-            if (! empty($arguments['filters']) && is_array($arguments['filters'])) {
-                foreach ($arguments['filters'] as $field => $value) {
-                    if (! is_string($field) || $field === '') {
-                        continue;
-                    }
-                    $query->where($field, $value);
-                }
+            $filters = is_array($arguments['filters'] ?? null) ? $arguments['filters'] : [];
+            if ($filterError = $this->validateListFilters(
+                $filters,
+                Taxonomy::find(is_string($taxonomy) ? $taxonomy : '')?->termBlueprints() ?? [],
+                self::FILTER_PROPERTIES,
+            )) {
+                return $filterError;
+            }
+
+            foreach ($filters as $field => $value) {
+                $query->where((string) $field, $value);
             }
 
             $total = $query->count();

@@ -12,7 +12,7 @@ it('creates a token data object with all fields', function (): void {
         userId: 'user-1',
         name: 'Test Token',
         tokenHash: 'hash123',
-        scopes: ['content:read', 'content:write'],
+        scopes: ['entries:read', 'entries:write'],
         lastUsedAt: $now,
         expiresAt: $now->copy()->addDays(30),
         createdAt: $now,
@@ -23,7 +23,7 @@ it('creates a token data object with all fields', function (): void {
     expect($token->userId)->toBe('user-1');
     expect($token->name)->toBe('Test Token');
     expect($token->tokenHash)->toBe('hash123');
-    expect($token->scopes)->toBe(['content:read', 'content:write']);
+    expect($token->scopes)->toBe(['entries:read', 'entries:write']);
     expect($token->lastUsedAt)->toBeInstanceOf(Carbon::class);
     expect($token->expiresAt)->toBeInstanceOf(Carbon::class);
     expect($token->createdAt)->toBeInstanceOf(Carbon::class);

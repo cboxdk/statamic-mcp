@@ -49,6 +49,12 @@ class EntriesRouter extends BaseRouter
     /** The values of Entry::status(). */
     private const ENTRY_STATUSES = ['published', 'scheduled', 'expired', 'draft'];
 
+    /**
+     * Entry properties a list may filter by besides the blueprint's fields.
+     * Collection and site are arguments of their own.
+     */
+    private const FILTER_PROPERTIES = ['id', 'slug', 'title', 'published', 'status', 'date', 'uri', 'parent', 'origin'];
+
     use ParsesDateValues;
     use SanitizesFieldData;
 
@@ -138,7 +144,7 @@ class EntriesRouter extends BaseRouter
                 ->description('Entry slug for the create action. Defaults to a slug generated from the title. For update, pass "slug" inside data instead'),
 
             'filters' => JsonSchema::object()
-                ->description('Filter conditions as key-value pairs. Keys are field handles from the blueprint, or "status" (published, scheduled, expired, draft). Example: {"status": "scheduled"}'),
+                ->description('Exact-match filters for list, as key-value pairs with scalar values. Keys are field handles from the collection\'s blueprints, or one of id, slug, title, published, date, uri, parent, origin, or "status" (published, scheduled, expired, draft). Any other key is refused with the list of valid keys. Example: {"status": "scheduled"}'),
 
             'include_unpublished' => JsonSchema::boolean()
                 ->description('Include draft/unpublished entries in list results. Default: false, which still lists scheduled and expired entries because they are published; read each entry\'s status, or filter by it'),
@@ -403,6 +409,13 @@ class EntriesRouter extends BaseRouter
                 ->where('site', $site);
 
             $filters = is_array($arguments['filters'] ?? null) ? $arguments['filters'] : [];
+            if ($filterError = $this->validateListFilters(
+                $filters,
+                Collection::find($collection)?->entryBlueprints() ?? [],
+                self::FILTER_PROPERTIES,
+            )) {
+                return $filterError;
+            }
 
             // An entry's status is computed from published, its date and the collection's
             // date behavior, so it has to go through whereStatus(); where('status') throws.
@@ -422,14 +435,8 @@ class EntriesRouter extends BaseRouter
                 $query->where('published', true);
             }
 
-            // Apply filters if provided (only allow string field names)
-            if (! empty($filters)) {
-                foreach ($filters as $field => $value) {
-                    if (! is_string($field) || $field === '') {
-                        continue;
-                    }
-                    $query->where($field, $value);
-                }
+            foreach ($filters as $field => $value) {
+                $query->where((string) $field, $value);
             }
 
             $total = $query->count();

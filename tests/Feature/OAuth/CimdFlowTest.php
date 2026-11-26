@@ -100,7 +100,7 @@ class CimdFlowTest extends TestCase
      *
      * @param  \Statamic\Contracts\Auth\User  $user
      */
-    private function approveAndGetCode($user, string $codeChallenge, string $scope = 'content:read'): string
+    private function approveAndGetCode($user, string $codeChallenge, string $scope = 'entries:read'): string
     {
         $response = $this->actingAs($user, 'web')
             ->post($this->authorizeUrl(), $this->withConsentOffer($this->authorizeUrl(), [
@@ -155,7 +155,7 @@ class CimdFlowTest extends TestCase
         $this->assertArrayHasKey('access_token', $tokenData);
         $this->assertArrayHasKey('refresh_token', $tokenData);
         $this->assertSame('Bearer', $tokenData['token_type']);
-        $this->assertSame('content:read', $tokenData['scope']);
+        $this->assertSame('entries:read', $tokenData['scope']);
 
         // Step 3: Verify access token has correct CIMD properties
         /** @var TokenService $tokenService */
@@ -179,7 +179,7 @@ class CimdFlowTest extends TestCase
         $this->assertArrayHasKey('access_token', $refreshData);
         $this->assertArrayHasKey('refresh_token', $refreshData);
         $this->assertSame('Bearer', $refreshData['token_type']);
-        $this->assertSame('content:read', $refreshData['scope']);
+        $this->assertSame('entries:read', $refreshData['scope']);
 
         // New tokens should be different from originals
         $this->assertNotSame($tokenData['access_token'], $refreshData['access_token']);
@@ -201,7 +201,7 @@ class CimdFlowTest extends TestCase
         $user = $this->authenticatedUser('cimd-e2e-2', 'e2e2@example.com');
         $pkce = $this->generatePkce();
 
-        $code = $this->approveAndGetCode($user, $pkce['challenge'], 'content:read content:write');
+        $code = $this->approveAndGetCode($user, $pkce['challenge'], 'entries:read entries:write');
 
         // Exchange auth code
         $tokenResponse = $this->post('/mcp/oauth/token', [
@@ -225,7 +225,7 @@ class CimdFlowTest extends TestCase
         $refreshResponse->assertOk();
         $refreshData = $refreshResponse->json();
 
-        $this->assertSame('content:read content:write', $refreshData['scope']);
+        $this->assertSame('entries:read entries:write', $refreshData['scope']);
         $this->assertNotSame($tokenData['access_token'], $refreshData['access_token']);
     }
 
@@ -321,7 +321,7 @@ class CimdFlowTest extends TestCase
         $code = $driver->createAuthCode(
             clientId: $invalidClientId,
             userId: 'user-invalid-cimd',
-            scopes: ['content:read'],
+            scopes: ['entries:read'],
             codeChallenge: $pkce['challenge'],
             codeChallengeMethod: 'S256',
             redirectUri: 'https://example.com/callback',
@@ -374,8 +374,8 @@ class CimdFlowTest extends TestCase
                 'state' => 'e2e-unreachable',
                 'code_challenge' => $pkce['challenge'],
                 'code_challenge_method' => 'S256',
-                'scope' => 'content:read',
-                'scopes' => ['content:read'],
+                'scope' => 'entries:read',
+                'scopes' => ['entries:read'],
                 'decision' => 'approve',
             ]));
 
@@ -425,7 +425,7 @@ class CimdFlowTest extends TestCase
         $code = $driver->createAuthCode(
             clientId: $this->cimdClientId,
             userId: 'user-cimd-disabled',
-            scopes: ['content:read'],
+            scopes: ['entries:read'],
             codeChallenge: $pkce['challenge'],
             codeChallengeMethod: 'S256',
             redirectUri: $this->cimdRedirectUri,
@@ -491,7 +491,7 @@ class CimdFlowTest extends TestCase
         $code = $driver->createAuthCode(
             clientId: $client->clientId,
             userId: 'dcr-user',
-            scopes: ['content:read', 'content:write'],
+            scopes: ['entries:read', 'entries:write'],
             codeChallenge: $pkce['challenge'],
             codeChallengeMethod: 'S256',
             redirectUri: 'https://dcr.example.com/callback',
@@ -510,7 +510,7 @@ class CimdFlowTest extends TestCase
 
         $this->assertArrayHasKey('access_token', $data);
         $this->assertArrayHasKey('refresh_token', $data);
-        $this->assertSame('content:read content:write', $data['scope']);
+        $this->assertSame('entries:read entries:write', $data['scope']);
 
         // Verify DCR client name is used, not CIMD fallback
         /** @var TokenService $tokenService */

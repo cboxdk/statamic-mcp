@@ -62,9 +62,18 @@ class DatabaseAuditStore implements DurableAuditStore
         }
     }
 
-    public function query(?string $tool, ?string $status, int $page, int $perPage): AuditResult
+    public function query(?string $tool, ?string $status, int $page, int $perPage, ?string $actor = null): AuditResult
     {
         $query = McpAuditEntry::query()->orderByDesc('logged_at');
+
+        // Who made the call is stored in the context column (see write()).
+        if ($actor === 'cli') {
+            $query->whereNull('context->user_id')->where('context->context', 'cli');
+        } elseif ($actor !== null && str_starts_with($actor, 'user:')) {
+            $query->where('context->user_id', substr($actor, strlen('user:')));
+        } elseif ($actor !== null) {
+            $query->whereRaw('1 = 0');
+        }
 
         if ($tool !== null && $tool !== '') {
             $escapedTool = str_replace(['%', '_'], ['\\%', '\\_'], $tool);

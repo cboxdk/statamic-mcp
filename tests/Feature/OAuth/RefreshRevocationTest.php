@@ -24,10 +24,10 @@ class RefreshRevocationTest extends TestCase
         $tokens = $this->app->make(TokenService::class);
 
         $client = $driver->registerClient('Desk client', ['https://desk.example.com/callback']);
-        $refresh = $driver->createRefreshToken('user-1', $client->clientId, ['content:read']);
+        $refresh = $driver->createRefreshToken('user-1', $client->clientId, ['entries:read']);
 
         $accessToken = $tokens->createToken(
-            'user-1', 'Desk client (OAuth)', [TokenScope::ContentRead], null, $client->clientId, 'Desk client'
+            'user-1', 'Desk client (OAuth)', [TokenScope::EntriesRead], null, $client->clientId, 'Desk client'
         )['model'];
 
         // Revoking the access token must also drop the grant's refresh token.

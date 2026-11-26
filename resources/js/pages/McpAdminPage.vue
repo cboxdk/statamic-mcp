@@ -105,7 +105,7 @@
                                         <td>
                                             <div class="flex items-center justify-end gap-1">
                                                 <ui-button text="Edit" size="sm" variant="ghost" icon="pencil" @click="openEdit(token)" />
-                                                <ui-button v-if="!token.is_oauth" text="Regenerate" size="sm" variant="ghost" icon="sync" @click="regenerateToken(token)" />
+                                                <ui-button v-if="!token.is_oauth && token.is_own" text="Regenerate" size="sm" variant="ghost" icon="sync" @click="regenerateToken(token)" />
                                                 <ui-button text="Delete" size="sm" variant="ghost" icon="trash" class="text-red-600 hover:text-red-700 dark:text-red-400" @click="confirmDelete(token)" />
                                             </div>
                                         </td>
@@ -144,10 +144,10 @@
                         <select
                             v-model="auditFilter.user"
                             class="h-[38px] rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800"
-                            @change="filterAuditByUser()"
+                            @change="loadAudit()"
                         >
                             <option value="">All users</option>
-                            <option v-for="u in availableUsers" :key="u.id" :value="u.email">{{ u.name || u.email }}</option>
+                            <option v-for="u in availableUsers" :key="u.id" :value="'user:' + u.id">{{ u.name || u.email }}</option>
                             <option value="cli">CLI</option>
                         </select>
                         <div class="flex-1" />
@@ -372,9 +372,9 @@
 
                 <div>
                     <ui-label text="Expiration" />
-                    <ui-description text="Leave blank for a token that never expires." />
+                    <ui-description :text="maxTokenLifetimeDays ? `Tokens on this site expire within ${maxTokenLifetimeDays} days. Leave blank for the longest allowed.` : 'Leave blank for a token that never expires.'" />
                     <div class="mt-1 flex items-center gap-2" :class="{ 'has-error': form.errors.expires_at }">
-                        <ui-input v-model="form.expires_at" type="date" class="flex-1" />
+                        <ui-input v-model="form.expires_at" type="date" class="flex-1" :max="maxTokenLifetimeDays ? longestExpiry() : undefined" />
                         <ui-button v-if="form.expires_at" text="Clear" size="sm" variant="ghost" @click="form.expires_at = ''" />
                     </div>
                     <ui-error-message v-if="form.errors.expires_at" :text="form.errors.expires_at" class="mt-1" />
@@ -415,6 +415,7 @@ const props = defineProps({
     systemStats: { type: Object, default: () => ({}) },
     webEnabled: { type: Boolean, default: false },
     mcpEndpoint: { type: String, default: '' },
+    maxTokenLifetimeDays: { type: Number, default: null },
 });
 
 const activeTab = ref('tokens');
@@ -469,27 +470,27 @@ const filteredTokens = computed(() => {
     );
 });
 
-const filteredAuditEntries = computed(() => {
-    if (!auditFilter.value.user) return auditEntries.value;
-    const filter = auditFilter.value.user;
-    if (filter === 'cli') {
-        return auditEntries.value.filter(e => !e.user && e.context === 'cli');
-    }
-    return auditEntries.value.filter(e => e.user === filter);
-});
+function longestExpiry() {
+    const d = new Date();
+    d.setDate(d.getDate() + props.maxTokenLifetimeDays);
+    return d.toISOString().split('T')[0];
+}
+
+// Every filter runs on the server, so pages and totals stay right.
+const filteredAuditEntries = computed(() => auditEntries.value);
 
 const scopePresets = [
     {
         name: 'Read Only',
         scopes: [
-            'content:read', 'blueprints:read', 'entries:read', 'terms:read',
+            'blueprints:read', 'entries:read', 'terms:read',
             'globals:read', 'structures:read', 'assets:read', 'system:read',
         ],
     },
     {
         name: 'Content Editor',
         scopes: [
-            'content:read', 'content:write', 'entries:read', 'entries:write',
+            'entries:read', 'entries:write',
             'terms:read', 'terms:write', 'globals:read', 'globals:write',
             'blueprints:read', 'structures:read', 'assets:read', 'assets:write',
         ],
@@ -497,7 +498,7 @@ const scopePresets = [
     {
         name: 'Content Publisher',
         scopes: [
-            'content:read', 'content:write', 'entries:read', 'entries:write',
+            'entries:read', 'entries:write',
             'entries:publish', 'entries:delete',
             'terms:read', 'terms:write', 'terms:delete', 'globals:read', 'globals:write',
             'blueprints:read', 'structures:read', 'assets:read', 'assets:write', 'assets:delete',
@@ -642,7 +643,10 @@ async function updateToken() {
     form.value.errors = {};
     try {
         const body = { name: form.value.name, scopes: form.value.scopes };
+        // Under a lifetime cap a cleared date means the longest allowed;
+        // without one it means the token never expires.
         if (form.value.expires_at) body.expires_at = form.value.expires_at;
+        else if (editingToken.value.expires_at && props.maxTokenLifetimeDays) body.expires_at = longestExpiry();
         else if (editingToken.value.expires_at) body.clear_expiry = true;
 
         const response = await fetch(cp_url('mcp/tokens/' + editingToken.value.id), {
@@ -674,15 +678,20 @@ async function updateToken() {
 async function deleteToken() {
     if (!tokenToDelete.value) return;
     try {
-        await fetch(cp_url('mcp/tokens/' + tokenToDelete.value.id), {
+        const response = await fetch(cp_url('mcp/tokens/' + tokenToDelete.value.id), {
             method: 'DELETE',
             headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': Statamic.$config.get('csrfToken') },
         });
         tokenToDelete.value = null;
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            Statamic.$toast.error(data.message || 'The token could not be deleted.');
+            return;
+        }
         Statamic.$toast.success('Token deleted.');
         router.reload({ only: ['allTokens'] });
     } catch (e) {
-        Statamic.$toast.error('Failed to delete token.');
+        Statamic.$toast.error('The token could not be deleted. Check your connection and try again.');
         tokenToDelete.value = null;
     }
 }
@@ -743,20 +752,23 @@ async function loadAudit(page = 1) {
         const params = new URLSearchParams({ page: String(page), per_page: '25' });
         if (auditFilter.value.tool) params.set('tool', auditFilter.value.tool);
         if (auditFilter.value.status) params.set('status', auditFilter.value.status);
+        if (auditFilter.value.user) params.set('actor', auditFilter.value.user);
         const response = await fetch(cp_url('mcp/audit?' + params.toString()), {
             headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': Statamic.$config.get('csrfToken') },
         });
-        if (response.ok) {
-            const result = await response.json();
-            auditEntries.value = result.data || [];
-            auditMeta.value = result.meta || { current_page: 1, last_page: 1, per_page: 25, total: 0 };
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            Statamic.$toast.error(data.message || 'The activity log could not be loaded.');
+            return;
         }
-    } catch (e) { /* endpoint unavailable */ }
-    finally { auditLoading.value = false; }
-}
-
-function filterAuditByUser() {
-    // User filter is client-side via computed property — no debounce needed for select
+        const result = await response.json();
+        auditEntries.value = result.data || [];
+        auditMeta.value = result.meta || { current_page: 1, last_page: 1, per_page: 25, total: 0 };
+    } catch (e) {
+        Statamic.$toast.error('The activity log could not be loaded. Check your connection and try again.');
+    } finally {
+        auditLoading.value = false;
+    }
 }
 
 watch(activeTab, (tab) => {

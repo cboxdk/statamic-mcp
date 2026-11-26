@@ -83,7 +83,7 @@ class LoopbackRedirectPortTest extends TestCase
             'code_challenge' => $challenge,
             'code_challenge_method' => 'S256',
             'state' => 'loopback-state',
-            'scope' => 'content:read',
+            'scope' => 'entries:read',
         ];
     }
 
@@ -98,8 +98,8 @@ class LoopbackRedirectPortTest extends TestCase
             'state' => 'loopback-state',
             'code_challenge' => $challenge,
             'code_challenge_method' => 'S256',
-            'scope' => 'content:read',
-            'scopes' => ['content:read'],
+            'scope' => 'entries:read',
+            'scopes' => ['entries:read'],
             'decision' => 'approve',
         ];
     }
