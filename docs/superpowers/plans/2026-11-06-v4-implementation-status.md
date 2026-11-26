@@ -50,6 +50,14 @@ callback leaking between test applications; the base fixture now isolates both.
 Native inherited-default validation still prints an upstream Antlers
 `str_replace(null)` deprecation; it is not suppressed. Remote CI is pending.
 
+The first remote SEO job exposed a test-only migration path under Testbench's
+application `vendor`, masked locally by a symlink. The fixture now locates the
+installed package through its provider class, like the Eloquent fixture. With
+the symlink temporarily absent, the exact CI command went from **2 failed / 29
+passed** to **31 passed, 350 assertions**. Production code is unchanged by this
+follow-up; Code Quality, Forms Pro, Eloquent, Cbox channels and browser checks
+passed on the initial phase checkpoint.
+
 On the disposable 1,512-page site, seven warm updates measured a median **47.65 ms
 before / 44.52 ms after** the cache changes. This is no observed regression, not a
 statistically established speedup; the complete release budgets remain phase 5.

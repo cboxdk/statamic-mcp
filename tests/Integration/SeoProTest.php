@@ -113,8 +113,10 @@ class SeoProTest extends TestCase
         if ($driver !== 'database') {
             return;
         }
+        // Testbench's application vendor directory need not contain this package.
+        $path = dirname((new \ReflectionClass(ServiceProvider::class))->getFileName());
         foreach (['redirect', 'error'] as $type) {
-            $migration = require base_path('vendor/statamic/seo-pro/src/Commands/stubs/create_seo_pro_' . $type . 's_table.php');
+            $migration = require $path . '/Commands/stubs/create_seo_pro_' . $type . 's_table.php';
             $migration->down();
             $migration->up();
             $class = 'Statamic\\SeoPro\\Redirects\\Eloquent\\' . ucfirst($type) . 'Repository';
