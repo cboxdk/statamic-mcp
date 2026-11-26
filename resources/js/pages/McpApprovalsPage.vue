@@ -2,10 +2,10 @@
     <ui-header title="MCP Approvals" icon="earth" />
 
     <div class="mt-4 flex flex-col gap-4">
-        <p class="max-w-2xl text-sm text-gray-600 dark:text-gray-400">
+        <ui-description class="max-w-2xl">
             An AI assistant connected as you asked to do these things. Each runs once, only if you approve it, and only if
             you are still allowed to do it yourself. Approving asks you to confirm it is you.
-        </p>
+        </ui-description>
 
         <ui-card v-if="pushKey && pushState !== 'on'">
             <div class="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -20,21 +20,17 @@
             <p v-if="pushState === 'blocked'" class="px-4 pb-4 text-xs text-gray-500">Notifications are blocked for this site in your browser settings.</p>
         </ui-card>
 
-        <div v-if="error" class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-800/60 dark:bg-red-950/30 dark:text-red-200">
+        <ui-alert v-if="error" variant="error">
             {{ error }}
-        </div>
+        </ui-alert>
 
         <ui-card v-if="items.length === 0">
-            <div class="flex flex-col items-center justify-center px-6 py-12 text-center">
-                <h3 class="mb-1.5 text-base font-semibold">Nothing waiting for you</h3>
-                <p class="max-w-md text-sm text-gray-500 dark:text-gray-400">
-                    When an assistant asks to delete something, or another action that needs your approval, it shows up here.
-                </p>
-            </div>
+            <ui-heading text="Nothing waiting for you" />
+            <ui-description text="When an assistant asks to delete something, or another action that needs your approval, it shows up here." />
         </ui-card>
 
-        <div v-if="cbox.promote && (!cbox.relay || !cbox.id)" class="flex flex-col gap-1 rounded-lg border border-gray-200 px-4 py-3 text-sm text-gray-600 dark:border-gray-700 dark:text-gray-400" data-cbox-promo>
-            <span class="font-medium text-gray-800 dark:text-gray-200">Approve from anywhere</span>
+        <ui-alert v-if="cbox.promote && (!cbox.relay || !cbox.id)" data-cbox-promo>
+            <ui-heading text="Approve from anywhere" />
             <span v-if="!cbox.relay">
                 Get approval requests by mail, web push and webhooks with
                 <a href="https://cboxrelay.com" target="_blank" rel="noopener" class="underline">Cbox Relay</a>.
@@ -44,27 +40,27 @@
                 <a href="https://cboxid.com" target="_blank" rel="noopener" class="underline">Cbox ID</a>.
             </span>
             <span class="text-xs text-gray-500">Both are built into Statamic MCP: install the client and add its keys.</span>
-        </div>
+        </ui-alert>
 
         <ui-card v-for="item in items" :key="item.id" :data-approval="item.id">
-            <div class="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div class="min-w-0 flex-1">
                     <div class="flex flex-wrap items-center gap-2">
                         <span class="font-semibold">{{ item.preview.description }}</span>
                         <ui-badge :text="item.preview.tool" size="sm" />
                         <ui-badge v-if="item.preview.site" :text="'Site: ' + item.preview.site" size="sm" />
                     </div>
-                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                        Asked {{ relative(item.requested_at) }} · expires {{ relative(item.expires_at) }}
-                    </p>
+                    <ui-description class="mt-2">
+                        Asked {{ formatTime(item.requested_at) }} · expires {{ formatTime(item.expires_at) }}
+                    </ui-description>
                     <details class="mt-2 text-sm">
                         <summary class="cursor-pointer text-gray-600 dark:text-gray-300">Exact call</summary>
                         <pre class="mt-2 max-h-64 overflow-auto rounded-md bg-gray-50 p-3 font-mono text-xs dark:bg-gray-850">{{ JSON.stringify(item.preview.arguments, null, 2) }}</pre>
                     </details>
                 </div>
                 <div class="flex shrink-0 gap-2">
-                    <ui-button text="Reject" variant="ghost" :disabled="busy === item.id" @click="decide(item, 'reject')" />
-                    <ui-button text="Approve" variant="primary" :disabled="busy === item.id" @click="decide(item, 'approve')" />
+                    <ui-button text="Reject" variant="ghost" :disabled="!!busy" @click="decide(item, 'reject')" />
+                    <ui-button text="Approve" variant="primary" :disabled="!!busy" @click="decide(item, 'approve')" />
                 </div>
             </div>
         </ui-card>
@@ -129,11 +125,8 @@ const items = ref([...props.approvals]);
 const busy = ref(null);
 const error = ref(null);
 
-function relative(timestamp) {
-    const seconds = Math.round(timestamp - Date.now() / 1000);
-    const format = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
-    const minutes = Math.round(seconds / 60);
-    return Math.abs(minutes) < 1 ? format.format(seconds, 'second') : format.format(minutes, 'minute');
+function formatTime(timestamp) {
+    return new Date(timestamp * 1000).toLocaleString();
 }
 
 async function post(item, decision) {
@@ -148,12 +141,19 @@ async function post(item, decision) {
 }
 
 async function decide(item, decision) {
+    if (busy.value) return;
     busy.value = item.id;
     error.value = null;
     try {
         if (decision === 'approve' && props.elevatedSessions) {
             // Statamic's own re-authentication: password, passkey or emailed code.
-            await window.__STATAMIC__.core.requireElevatedSession();
+            try {
+                await window.__STATAMIC__.core.requireElevatedSession();
+            } catch (failure) {
+                // Cancellation rejects without a reason; transport failures carry one.
+                if (failure) error.value = 'Could not confirm your identity. Check your connection and try again.';
+                return;
+            }
         }
         const response = await post(item, decision);
         const data = await response.json().catch(() => ({}));
@@ -169,7 +169,7 @@ async function decide(item, decision) {
             ? 'Approved. The assistant can now run it once.'
             : 'Rejected. Nothing will run.');
     } catch {
-        // The person closed the confirmation dialog: nothing was decided.
+        error.value = 'Could not confirm the decision. Reload to check its status before trying again.';
     } finally {
         busy.value = null;
     }

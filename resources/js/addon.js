@@ -1,3 +1,4 @@
+import '../css/addon.css';
 import McpPage from './pages/McpPage.vue';
 import McpAdminPage from './pages/McpAdminPage.vue';
 import McpApprovalsPage from './pages/McpApprovalsPage.vue';

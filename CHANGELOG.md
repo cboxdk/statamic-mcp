@@ -58,6 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The Control Panel uses Statamic 6 UI components for token tables and forms, setup panels, activity filters, alerts and confirmations. Admin and personal tokens share one form. Failed requests remain visible, switching clients cannot show a late response from the previous client, and approval network failures are distinguished from cancelling re-authentication. The frontend builds with Statamic's official Vite and Tailwind integration.
 - The scope picker offers collection configurators the entry scopes required by tree reads and moves, and reorderers the entry write scope. These additions follow whether structures are enabled; per-record, site and resource checks remain in force.
 - Writes no longer clear the whole Stache. A write now repairs only the indexes it leaves stale outside its own store: a deleted entry's term usage, the order of a moved page's siblings, the URIs of a collection mounted on a deleted page, the entry and term indexes of a collection whose route, mount, dating or taxonomies changed, and users' role and group membership. An update on a 1,500-entry site took about 1.5 s and now takes what a Statamic save takes. A test compares every index of every store after 33 kinds of write with a rebuild from disk. The new setting `cache.stache_after_write` (`repair`, `clear` or `none`) replaces `clear_stache_after_write`; `false` there is still read as `none`. The static cache is still flushed after content writes.
 

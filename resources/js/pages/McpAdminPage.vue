@@ -1,410 +1,144 @@
 <template>
     <ui-header title="MCP Admin" icon="earth">
-        <template v-if="webEnabled">
-            <ui-badge text="Endpoint Active" color="green" />
-        </template>
-        <template v-else>
-            <ui-badge text="Endpoint Disabled" color="default" />
-        </template>
+        <ui-badge :text="webEnabled ? 'Endpoint Active' : 'Endpoint Disabled'" :color="webEnabled ? 'green' : 'default'" />
     </ui-header>
 
-    <div class="mt-4">
-        <ui-tabs v-model="activeTab" :unmount-on-hide="false">
-            <ui-tab-list>
-                <ui-tab-trigger name="tokens" text="All Tokens" />
-                <ui-tab-trigger name="activity" text="Activity" />
-                <ui-tab-trigger name="system" text="System" />
-            </ui-tab-list>
-
-            <!-- ==================== ALL TOKENS TAB ==================== -->
-            <ui-tab-content name="tokens">
-                <div class="mt-4 flex flex-col gap-4">
-                    <!-- New token alert -->
-                    <div v-if="newToken" class="overflow-hidden rounded-lg border border-green-200 bg-green-50 dark:border-green-800/60 dark:bg-green-950/30">
-                        <div class="flex items-center justify-between px-4 py-3">
-                            <div class="flex items-center gap-2.5">
-                                <svg class="size-5 text-green-600 dark:text-green-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                                <span class="text-sm font-semibold text-green-900 dark:text-green-200">Token created — copy it now, it won't be shown again.</span>
-                            </div>
-                            <ui-button text="Dismiss" variant="ghost" size="sm" @click="newToken = null" />
-                        </div>
-                        <div class="flex items-center gap-2 border-t border-green-200 bg-white px-4 py-3 dark:border-green-800/40 dark:bg-gray-800">
-                            <input :value="newToken" readonly class="flex-1 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 font-mono text-sm dark:border-gray-600 dark:bg-gray-850" @click="$event.target.select()" />
-                            <ui-button :text="tokenCopied ? 'Copied!' : 'Copy'" icon="clipboard" variant="primary" @click="copyToken" />
-                        </div>
-                    </div>
-
-                    <!-- Search filter -->
-                    <div class="flex items-center justify-between gap-4">
-                        <ui-input v-model="tokenSearch" placeholder="Filter by user name or email..." class="w-64" />
-                        <ui-button text="Create Token" variant="primary" icon="plus" size="sm" @click="openCreate" />
-                    </div>
-
-                    <!-- Empty state -->
-                    <ui-card v-if="filteredTokens.length === 0 && !newToken">
-                        <div class="flex flex-col items-center justify-center px-6 py-12 text-center">
-                            <div class="mb-4 flex size-14 items-center justify-center rounded-full bg-blue-50 dark:bg-blue-900/20">
-                                <svg class="size-7 text-blue-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                            </div>
-                            <h3 class="mb-1.5 text-base font-semibold">{{ tokenSearch ? 'No matching tokens' : 'No tokens yet' }}</h3>
-                            <p class="max-w-md text-sm text-gray-500 dark:text-gray-400">{{ tokenSearch ? 'Try a different search term.' : 'No tokens have been created in the system.' }}</p>
-                        </div>
-                    </ui-card>
-
-                    <!-- Token table -->
-                    <template v-if="filteredTokens.length > 0">
-                        <p class="text-sm text-gray-500 dark:text-gray-400">{{ filteredTokens.length }} token{{ filteredTokens.length !== 1 ? 's' : '' }}{{ tokenSearch ? ' matching' : '' }}</p>
-
-                        <ui-card>
-                            <table class="data-table">
-                                <thead>
-                                    <tr>
-                                        <th>Name</th>
-                                        <th>User</th>
-                                        <th>Scopes</th>
-                                        <th>Last Used</th>
-                                        <th>Expires</th>
-                                        <th>Created</th>
-                                        <th style="width: 120px" />
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr v-for="token in filteredTokens" :key="token.id">
-                                        <td>
-                                            <div>
-                                                <span class="font-medium">{{ token.name }}</span>
-                                                <div v-if="token.is_oauth || token.is_expired" class="mt-1 flex gap-1">
-                                                    <ui-badge v-if="token.is_oauth" :text="'OAuth' + (token.oauth_client_name ? ' · ' + token.oauth_client_name : '')" color="green" size="sm" />
-                                                    <ui-badge v-if="token.is_expired" text="Expired" color="red" size="sm" />
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td>
-                                            <div>
-                                                <div class="text-sm font-medium">{{ token.user_name }}</div>
-                                                <div v-if="token.user_email" class="text-xs text-gray-400 dark:text-gray-400">{{ token.user_email }}</div>
-                                            </div>
-                                        </td>
-                                        <td>
-                                            <div v-if="token.scopes?.length" class="flex flex-wrap gap-1">
-                                                <ui-badge v-if="token.scopes.includes('*')" text="Legacy full access: approve again" color="red" size="sm" />
-                                                <template v-else-if="matchingPreset(token.scopes)">
-                                                    <ui-badge :text="matchingPreset(token.scopes)" color="blue" size="sm" />
-                                                    <ui-badge :text="token.scopes.length + ' scopes'" color="default" size="sm" />
-                                                </template>
-                                                <template v-else>
-                                                    <ui-badge v-for="scope in token.scopes.slice(0, 3)" :key="scope" :text="scopeLabel(scope)" color="blue" size="sm" />
-                                                    <ui-badge v-if="token.scopes.length > 3" :text="'+' + (token.scopes.length - 3)" color="default" size="sm" />
-                                                </template>
-                                            </div>
-                                            <span v-else class="text-sm text-gray-400">None</span>
-                                        </td>
-                                        <td class="text-sm text-gray-500 dark:text-gray-400">{{ formatDate(token.last_used_at) }}</td>
-                                        <td class="text-sm text-gray-500 dark:text-gray-400">{{ token.expires_at ? formatDate(token.expires_at) : 'Never' }}</td>
-                                        <td class="text-sm text-gray-500 dark:text-gray-400">{{ formatDate(token.created_at) }}</td>
-                                        <td>
-                                            <div class="flex items-center justify-end gap-1">
-                                                <ui-button text="Edit" size="sm" variant="ghost" icon="pencil" @click="openEdit(token)" />
-                                                <ui-button v-if="!token.is_oauth && token.is_own" text="Regenerate" size="sm" variant="ghost" icon="sync" @click="regenerateToken(token)" />
-                                                <ui-button text="Delete" size="sm" variant="ghost" icon="trash" class="text-red-600 hover:text-red-700 dark:text-red-400" @click="confirmDelete(token)" />
-                                            </div>
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </ui-card>
-                    </template>
+    <ui-tabs v-model="activeTab" :unmount-on-hide="false" class="mt-4">
+        <ui-tab-list>
+            <ui-tab-trigger name="tokens" text="All Tokens" />
+            <ui-tab-trigger name="activity" text="Activity" />
+            <ui-tab-trigger name="system" text="System" />
+        </ui-tab-list>
+        <ui-tab-content name="tokens">
+            <TokenList admin :tokens="allTokens" :available-scopes="availableScopes" :capability-offer="capabilityOffer" :max-token-lifetime-days="maxTokenLifetimeDays" />
+        </ui-tab-content>
+        <ui-tab-content name="activity">
+            <div class="mt-4 space-y-6">
+                <div class="flex flex-wrap items-end gap-3">
+                    <ui-field label="Tool" class="w-full sm:max-w-64">
+                        <ui-combobox v-model="auditFilter.tool" :options="toolOptions" />
+                    </ui-field>
+                    <ui-field label="Status" class="w-full sm:max-w-48">
+                        <ui-select v-model="auditFilter.status" :options="statusOptions" />
+                    </ui-field>
+                    <ui-field label="User" class="w-full sm:max-w-48">
+                        <ui-combobox v-model="auditFilter.user" :options="userOptions" />
+                    </ui-field>
+                    <ui-button text="Refresh" icon="sync" :disabled="auditLoading" @click="loadAudit(auditMeta.current_page)" />
                 </div>
-            </ui-tab-content>
 
-            <!-- ==================== ACTIVITY TAB ==================== -->
-            <ui-tab-content name="activity">
-                <div class="mt-4 flex flex-col gap-4">
-                    <!-- Filter bar -->
-                    <div class="flex items-center gap-3">
-                        <select
-                            v-model="auditFilter.tool"
-                            class="h-[38px] rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800"
-                            @change="loadAudit()"
-                        >
-                            <option value="">All tools</option>
-                            <option v-for="tool in availableTools" :key="tool" :value="tool">{{ tool }}</option>
-                        </select>
-                        <select
-                            v-model="auditFilter.status"
-                            class="h-[38px] rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800"
-                            @change="loadAudit()"
-                        >
-                            <option value="">All statuses</option>
-                            <option value="success">Success</option>
-                            <option value="error">Error</option>
-                            <option value="validation_error">Validation Error</option>
-                            <option value="timeout">Timeout</option>
-                        </select>
-                        <select
-                            v-model="auditFilter.user"
-                            class="h-[38px] rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800"
-                            @change="loadAudit()"
-                        >
-                            <option value="">All users</option>
-                            <option v-for="u in availableUsers" :key="u.id" :value="'user:' + u.id">{{ u.name || u.email }}</option>
-                            <option value="cli">CLI</option>
-                        </select>
-                        <div class="flex-1" />
-                        <ui-button text="Refresh" icon="sync" size="sm" variant="ghost" @click="loadAudit" />
-                    </div>
-
-                    <!-- Empty state -->
-                    <ui-card v-if="filteredAuditEntries.length === 0 && !auditLoading">
-                        <div class="flex flex-col items-center justify-center px-6 py-12 text-center">
-                            <div class="mb-4 flex size-14 items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700">
-                                <svg class="size-7 text-gray-400 dark:text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                            </div>
-                            <h3 class="mb-1.5 text-base font-semibold">No activity yet</h3>
-                            <p class="max-w-md text-sm text-gray-500 dark:text-gray-400">Tool calls will appear here once AI assistants start using the MCP server.</p>
-                        </div>
-                    </ui-card>
-
-                    <!-- Activity table -->
-                    <template v-if="filteredAuditEntries.length > 0 || auditLoading">
-                        <ui-card>
-                            <table class="data-table">
-                                <thead>
-                                    <tr>
-                                        <th>Tool</th>
-                                        <th>Action</th>
-                                        <th>Status</th>
-                                        <th>User</th>
-                                        <th>Duration</th>
-                                        <th>Time</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr v-for="(entry, i) in filteredAuditEntries" :key="i" class="cursor-pointer" @click="openAuditDetail(entry)">
-                                        <td class="font-mono text-sm">{{ entry.tool || 'unknown' }}</td>
-                                        <td class="text-sm">{{ entry.action || '-' }}</td>
-                                        <td>
-                                            <ui-badge
-                                                :text="entry.status || 'unknown'"
-                                                :color="statusColor(entry.status)"
-                                                size="sm"
-                                            />
-                                        </td>
-                                        <td class="text-sm text-gray-500 dark:text-gray-400">{{ entry.user || entry.token_name || 'cli' }}</td>
-                                        <td class="text-sm text-gray-500 dark:text-gray-400">{{ entry.duration_ms ? Math.round(entry.duration_ms) + 'ms' : '-' }}</td>
-                                        <td class="text-sm text-gray-500 dark:text-gray-400">{{ formatDateTime(entry.timestamp) }}</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </ui-card>
-
-                        <!-- Detail slide-in -->
-                        <ui-stack v-model:open="showAuditDetail" :title="selectedAuditEntry ? (selectedAuditEntry.tool + (selectedAuditEntry.action ? '.' + selectedAuditEntry.action : '')) : 'Call Details'" size="half" @closed="selectedAuditEntry = null">
-                            <template v-if="selectedAuditEntry">
-                                <div class="grid grid-cols-2 gap-3 text-sm">
-                                    <div><span class="text-gray-500 dark:text-gray-400">Tool:</span> <span class="font-mono">{{ selectedAuditEntry.tool }}</span></div>
-                                    <div><span class="text-gray-500 dark:text-gray-400">Action:</span> {{ selectedAuditEntry.action || '-' }}</div>
-                                    <div><span class="text-gray-500 dark:text-gray-400">Status:</span> <ui-badge :text="selectedAuditEntry.status" :color="statusColor(selectedAuditEntry.status)" size="sm" /></div>
-                                    <div><span class="text-gray-500 dark:text-gray-400">Duration:</span> {{ selectedAuditEntry.duration_ms ? Math.round(selectedAuditEntry.duration_ms) + 'ms' : '-' }}</div>
-                                    <div><span class="text-gray-500 dark:text-gray-400">User:</span> {{ selectedAuditEntry.user || '-' }}</div>
-                                    <div><span class="text-gray-500 dark:text-gray-400">Token:</span> {{ selectedAuditEntry.token_name || '-' }}</div>
-                                    <div><span class="text-gray-500 dark:text-gray-400">Context:</span> {{ selectedAuditEntry.context || '-' }}</div>
-                                    <div><span class="text-gray-500 dark:text-gray-400">IP:</span> {{ selectedAuditEntry.ip || '-' }}</div>
-                                    <div class="col-span-2"><span class="text-gray-500 dark:text-gray-400">Correlation ID:</span> <span class="font-mono text-xs">{{ selectedAuditEntry.correlation_id || '-' }}</span></div>
-                                </div>
-                                <div v-if="selectedAuditEntry.mutation" class="mt-4 rounded border border-amber-200 bg-amber-50 p-3 dark:border-amber-800/40 dark:bg-amber-950/20">
-                                    <span class="text-sm font-medium text-amber-800 dark:text-amber-300">Mutation</span>
-                                    <div class="mt-1.5 grid grid-cols-2 gap-2 text-sm">
-                                        <div><span class="text-amber-600 dark:text-amber-400">Resource:</span> {{ selectedAuditEntry.mutation.type }}</div>
-                                        <div><span class="text-amber-600 dark:text-amber-400">Operation:</span> {{ selectedAuditEntry.mutation.operation }}</div>
-                                        <div v-if="selectedAuditEntry.mutation.resource_id" class="col-span-2">
-                                            <span class="text-amber-600 dark:text-amber-400">ID:</span> <span class="font-mono">{{ selectedAuditEntry.mutation.resource_id }}</span>
-                                        </div>
-                                        <div v-if="selectedAuditEntry.mutation.changed_fields" class="col-span-2">
-                                            <span class="text-amber-600 dark:text-amber-400">Changed fields:</span>
-                                            <span class="ml-1">
-                                                <ui-badge v-for="field in selectedAuditEntry.mutation.changed_fields" :key="field" :text="field" size="sm" class="mr-1" />
-                                            </span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div v-if="selectedAuditEntry.arguments" class="mt-4">
-                                    <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Arguments</span>
-                                    <pre class="mt-1 overflow-x-auto rounded bg-gray-50 p-3 text-xs dark:bg-gray-800">{{ JSON.stringify(selectedAuditEntry.arguments, null, 2) }}</pre>
-                                </div>
-                                <div v-if="selectedAuditEntry.response_summary" class="mt-4">
-                                    <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Response</span>
-                                    <p class="mt-1 text-sm">{{ selectedAuditEntry.response_summary }}</p>
-                                </div>
-                                <div v-if="selectedAuditEntry.error" class="mt-4">
-                                    <span class="text-sm font-medium text-gray-500 dark:text-gray-400">Error</span>
-                                    <pre class="mt-1 overflow-x-auto rounded bg-red-50 p-3 text-xs text-red-800 dark:bg-red-900/20 dark:text-red-300">{{ selectedAuditEntry.error.message || JSON.stringify(selectedAuditEntry.error) }}</pre>
-                                </div>
-                            </template>
-                        </ui-stack>
-
-                        <div v-if="auditMeta.last_page > 1" class="flex items-center justify-between">
-                            <span class="text-sm text-gray-500 dark:text-gray-400">Page {{ auditMeta.current_page }} of {{ auditMeta.last_page }} ({{ auditMeta.total }} entries)</span>
-                            <ui-button-group>
-                                <ui-button text="Previous" size="sm" :disabled="auditMeta.current_page <= 1" @click="loadAudit(auditMeta.current_page - 1)" />
-                                <ui-button text="Next" size="sm" :disabled="auditMeta.current_page >= auditMeta.last_page" @click="loadAudit(auditMeta.current_page + 1)" />
-                            </ui-button-group>
-                        </div>
-                    </template>
-                </div>
-            </ui-tab-content>
-
-            <!-- ==================== SYSTEM TAB ==================== -->
-            <ui-tab-content name="system">
-                <div class="mt-4 flex flex-col gap-4">
-                    <div class="gap-4" style="display: grid; grid-template-columns: repeat(4, 1fr);">
-                        <ui-card>
-                            <div class="p-4">
-                                <p class="text-[11px] font-medium uppercase tracking-wider text-gray-400 dark:text-gray-400">Web Endpoint</p>
-                                <div class="mt-2"><ui-badge :text="webEnabled ? 'Active' : 'Disabled'" :color="webEnabled ? 'green' : 'default'" /></div>
-                            </div>
-                        </ui-card>
-                        <ui-card>
-                            <div class="p-4">
-                                <p class="text-[11px] font-medium uppercase tracking-wider text-gray-400 dark:text-gray-400">MCP Tools</p>
-                                <p class="mt-1 text-2xl font-bold">{{ systemStats.tool_count ?? 0 }}</p>
-                            </div>
-                        </ui-card>
-                        <ui-card>
-                            <div class="p-4">
-                                <p class="text-[11px] font-medium uppercase tracking-wider text-gray-400 dark:text-gray-400">Statamic</p>
-                                <p class="mt-1 text-2xl font-bold">{{ systemStats.statamic_version ?? 'N/A' }}</p>
-                            </div>
-                        </ui-card>
-                        <ui-card>
-                            <div class="p-4">
-                                <p class="text-[11px] font-medium uppercase tracking-wider text-gray-400 dark:text-gray-400">Laravel</p>
-                                <p class="mt-1 text-2xl font-bold">{{ systemStats.laravel_version ?? 'N/A' }}</p>
-                            </div>
-                        </ui-card>
-                    </div>
-
-                    <ui-card v-if="webEnabled">
-                        <div class="p-4">
-                            <p class="mb-2 text-[11px] font-medium uppercase tracking-wider text-gray-400 dark:text-gray-400">Endpoint URL</p>
-                            <div class="flex items-center gap-2">
-                                <input :value="mcpEndpoint" readonly class="flex-1 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 font-mono text-sm dark:border-gray-600 dark:bg-gray-800" @click="$event.target.select()" />
-                                <ui-button :text="endpointCopied ? 'Copied!' : 'Copy'" icon="clipboard" size="sm" @click="copyEndpoint" />
-                            </div>
-                        </div>
-                    </ui-card>
-
+                <ui-alert v-if="auditError" variant="error">
+                    <ui-heading text="Activity could not be loaded" />
+                    <ui-description>{{ auditError }}</ui-description>
+                    <ui-button text="Try again" size="sm" class="mt-3" @click="loadAudit()" />
+                </ui-alert>
+                <ui-card v-else-if="auditLoading" role="status" aria-live="polite">
+                    <ui-description text="Loading activity…" />
+                    <ui-skeleton class="h-8" />
+                    <ui-skeleton class="h-8" />
+                    <ui-skeleton class="h-8" />
+                </ui-card>
+                <ui-card v-else-if="!auditEntries.length">
+                    <ui-heading :text="hasAuditFilters ? 'No matching activity' : 'No activity yet'" />
+                    <ui-description :text="hasAuditFilters ? 'Try another filter or clear the filters to see all calls.' : 'Calls from connected assistants will appear here, including refused and failed calls.'" />
+                    <ui-button v-if="hasAuditFilters" text="Clear filters" size="sm" @click="auditFilter = { tool: '', status: '', user: '' }" />
+                </ui-card>
+                <template v-else>
                     <ui-card>
-                        <div class="p-4">
-                            <p class="mb-1 text-[11px] font-medium uppercase tracking-wider text-gray-400 dark:text-gray-400">Rate Limiting</p>
-                            <p class="text-sm">{{ systemStats.rate_limit_max ?? 60 }} requests per minute</p>
+                        <div class="overflow-x-auto">
+                            <ui-table>
+                                <ui-table-columns>
+                                    <ui-table-column>Tool / action</ui-table-column>
+                                    <ui-table-column>Status</ui-table-column>
+                                    <ui-table-column>User</ui-table-column>
+                                    <ui-table-column>Duration</ui-table-column>
+                                    <ui-table-column>Time</ui-table-column>
+                                </ui-table-columns>
+                                <ui-table-rows>
+                                    <ui-table-row v-for="(entry, index) in auditEntries" :key="index">
+                                        <ui-table-cell>
+                                            <ui-button :text="entry.tool || 'Unknown tool'" variant="ghost" size="sm" @click="openAuditDetail(entry)" />
+                                            <ui-description>{{ entry.action || '—' }}</ui-description>
+                                        </ui-table-cell>
+                                        <ui-table-cell><ui-badge :text="entry.status || 'unknown'" :color="statusColor(entry.status)" size="sm" /></ui-table-cell>
+                                        <ui-table-cell>{{ entry.user || entry.token_name || 'CLI' }}</ui-table-cell>
+                                        <ui-table-cell class="whitespace-nowrap">{{ duration(entry.duration_ms) }}</ui-table-cell>
+                                        <ui-table-cell class="whitespace-nowrap">{{ formatDateTime(entry.timestamp) }}</ui-table-cell>
+                                    </ui-table-row>
+                                </ui-table-rows>
+                            </ui-table>
                         </div>
                     </ui-card>
-                </div>
-            </ui-tab-content>
-        </ui-tabs>
-    </div>
-
-    <!-- ==================== CREATE / EDIT TOKEN STACK ==================== -->
-    <ui-stack :open="showTokenForm" :title="editingToken ? 'Edit Token' : 'Create Token'" size="half" @closed="closeTokenForm">
-        <ui-stack-content>
-            <div class="flex flex-col gap-5 p-4">
-                <div>
-                    <ui-label text="Name" />
-                    <ui-description text="A label to identify this token." />
-                    <div class="mt-1" :class="{ 'has-error': form.errors.name }">
-                        <ui-input v-model="form.name" placeholder="e.g. Claude Desktop, Cursor IDE" />
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                        <ui-description :text="`Page ${auditMeta.current_page} of ${auditMeta.last_page} · ${auditMeta.total} calls`" />
+                        <ui-button-group v-if="auditMeta.last_page > 1">
+                            <ui-button text="Previous" size="sm" :disabled="auditMeta.current_page <= 1" @click="loadAudit(auditMeta.current_page - 1)" />
+                            <ui-button text="Next" size="sm" :disabled="auditMeta.current_page >= auditMeta.last_page" @click="loadAudit(auditMeta.current_page + 1)" />
+                        </ui-button-group>
                     </div>
-                    <ui-error-message v-if="form.errors.name" :text="form.errors.name" class="mt-1" />
-                </div>
-
-                <div>
-                    <ui-label text="Permissions" />
-                    <ui-description text="What this token can access. Use a preset or select individual scopes." />
-
-                    <div class="mt-2 flex flex-wrap gap-2">
-                        <button
-                            v-for="preset in scopePresets"
-                            :key="preset.name"
-                            type="button"
-                            class="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition"
-                            :class="isPresetActive(preset) ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-300' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-gray-500'"
-                            @click="applyPreset(preset)"
-                        >
-                            {{ preset.name }}
-                        </button>
-                    </div>
-
-                    <div class="mt-3 flex flex-col gap-4">
-                        <template v-for="(groupScopes, groupName) in groupedScopes" :key="groupName">
-                            <div class="rounded-lg border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-900">
-                                <div class="flex items-center justify-between px-4 py-2.5">
-                                    <span class="text-sm font-semibold text-gray-700 dark:text-gray-200">
-                                        {{ groupName === 'access' ? 'Access Level' : groupName.charAt(0).toUpperCase() + groupName.slice(1).replace('-', ' ') }}
-                                    </span>
-                                    <button
-                                        class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
-                                        @click="toggleGroup(groupName)"
-                                    >
-                                        <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                                        {{ isGroupFullyChecked(groupName) ? 'Uncheck All' : 'Check All' }}
-                                    </button>
-                                </div>
-                                <div class="rounded-b-lg border-t border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-850">
-                                    <label
-                                        v-for="scope in groupScopes"
-                                        :key="scope.value"
-                                        class="flex cursor-pointer items-start gap-3 border-b border-gray-100 px-4 py-3 transition last:border-b-0 hover:bg-gray-50 dark:border-gray-700/50 dark:hover:bg-gray-800"
-                                    >
-                                        <input v-model="form.scopes" type="checkbox" :value="scope.value" class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800" />
-                                        <div>
-                                            <div class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ scope.label }}</div>
-                                            <div v-if="scope.description" class="text-xs text-gray-500 dark:text-gray-400">{{ scope.description }}</div>
-                                        </div>
-                                    </label>
-                                </div>
-                            </div>
-                        </template>
-                    </div>
-                    <ui-error-message v-if="form.errors.scopes" :text="form.errors.scopes" class="mt-1" />
-                    <ui-error-message v-if="form.errors.capability_offer" :text="form.errors.capability_offer" class="mt-1" />
-                </div>
-
-                <div>
-                    <ui-label text="Expiration" />
-                    <ui-description :text="maxTokenLifetimeDays ? `Tokens on this site expire within ${maxTokenLifetimeDays} days. Leave blank for the longest allowed.` : 'Leave blank for a token that never expires.'" />
-                    <div class="mt-1 flex items-center gap-2" :class="{ 'has-error': form.errors.expires_at }">
-                        <ui-input v-model="form.expires_at" type="date" class="flex-1" :max="maxTokenLifetimeDays ? longestExpiry() : undefined" />
-                        <ui-button v-if="form.expires_at" text="Clear" size="sm" variant="ghost" @click="form.expires_at = ''" />
-                    </div>
-                    <ui-error-message v-if="form.errors.expires_at" :text="form.errors.expires_at" class="mt-1" />
-                </div>
+                </template>
             </div>
+        </ui-tab-content>
+        <ui-tab-content name="system">
+            <div class="mt-4 space-y-6">
+                <ui-card-panel heading="Connection">
+                    <ui-field v-if="webEnabled" label="MCP endpoint" instructions="Use this address in clients that support streamable HTTP.">
+                        <ui-input :model-value="mcpEndpoint" read-only copyable class="font-mono" />
+                    </ui-field>
+                    <ui-alert v-else variant="warning" text="The web endpoint is disabled. Local stdio connections are still available." />
+                </ui-card-panel>
+                <ui-card-panel heading="Installation">
+                    <ui-table>
+                        <ui-table-rows>
+                            <ui-table-row><ui-table-cell>Statamic</ui-table-cell><ui-table-cell>{{ systemStats.statamic_version ?? 'Unavailable' }}</ui-table-cell></ui-table-row>
+                            <ui-table-row><ui-table-cell>Laravel</ui-table-cell><ui-table-cell>{{ systemStats.laravel_version ?? 'Unavailable' }}</ui-table-cell></ui-table-row>
+                            <ui-table-row><ui-table-cell>MCP tools</ui-table-cell><ui-table-cell>{{ systemStats.tool_count ?? 'Unavailable' }}</ui-table-cell></ui-table-row>
+                            <ui-table-row><ui-table-cell>Rate limit</ui-table-cell><ui-table-cell>{{ systemStats.rate_limit_max ?? 60 }} requests per minute</ui-table-cell></ui-table-row>
+                        </ui-table-rows>
+                    </ui-table>
+                </ui-card-panel>
+            </div>
+        </ui-tab-content>
+    </ui-tabs>
+
+    <ui-stack v-model:open="showAuditDetail" title="Call details" size="half">
+        <ui-stack-content v-if="selectedAuditEntry" class="space-y-6">
+            <ui-heading :text="selectedAuditEntry.tool || 'Unknown tool'" size="lg" />
+            <ui-badge :text="selectedAuditEntry.status || 'unknown'" :color="statusColor(selectedAuditEntry.status)" />
+            <ui-card>
+                <ui-table>
+                    <ui-table-rows>
+                        <ui-table-row v-for="(value, label) in auditDetails" :key="label">
+                            <ui-table-cell>{{ label }}</ui-table-cell><ui-table-cell class="break-all">{{ value ?? '—' }}</ui-table-cell>
+                        </ui-table-row>
+                    </ui-table-rows>
+                </ui-table>
+            </ui-card>
+            <ui-alert v-if="selectedAuditEntry.mutation" variant="warning">
+                <ui-heading text="Mutation" />
+                <ui-description>{{ selectedAuditEntry.mutation.type }} · {{ selectedAuditEntry.mutation.operation }}</ui-description>
+                <ui-description v-if="selectedAuditEntry.mutation.resource_id">{{ selectedAuditEntry.mutation.resource_id }}</ui-description>
+                <div class="flex flex-wrap gap-1 mt-2">
+                    <ui-badge v-for="field in selectedAuditEntry.mutation.changed_fields" :key="field" :text="field" size="sm" />
+                </div>
+            </ui-alert>
+            <ui-field v-if="selectedAuditEntry.arguments" label="Arguments">
+                <pre class="overflow-auto text-xs">{{ JSON.stringify(selectedAuditEntry.arguments, null, 2) }}</pre>
+            </ui-field>
+            <ui-field v-if="selectedAuditEntry.response_summary" label="Response">
+                <ui-text>{{ selectedAuditEntry.response_summary }}</ui-text>
+            </ui-field>
+            <ui-alert v-if="selectedAuditEntry.error" variant="error">
+                <ui-heading text="Error" />
+                <ui-description>{{ selectedAuditEntry.error.message || JSON.stringify(selectedAuditEntry.error) }}</ui-description>
+            </ui-alert>
         </ui-stack-content>
-
-        <ui-stack-footer>
-            <ui-button-group>
-                <ui-button text="Cancel" @click="closeTokenForm" />
-                <ui-button :text="editingToken ? 'Save Changes' : 'Create Token'" variant="primary" :loading="submitting" @click="editingToken ? updateToken() : createToken()" />
-            </ui-button-group>
-        </ui-stack-footer>
     </ui-stack>
-
-    <!-- ==================== DELETE CONFIRMATION ==================== -->
-    <ui-confirmation-modal
-        :open="!!tokenToDelete"
-        title="Delete Token"
-        :body-text="`Are you sure you want to delete '${tokenToDelete?.name}'? Any clients using this token will lose access immediately.`"
-        button-text="Delete"
-        danger
-        @confirm="deleteToken"
-        @cancel="tokenToDelete = null"
-    />
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
-const { router } = __STATAMIC__.inertia;
+import { ref, computed, watch, onBeforeUnmount } from 'vue';
+import TokenList from '../components/TokenList.vue';
 
 const props = defineProps({
     allTokens: { type: Array, default: () => [] },
@@ -418,385 +152,79 @@ const props = defineProps({
     maxTokenLifetimeDays: { type: Number, default: null },
 });
 
-const activeTab = ref('tokens');
-
-// Token state
-const showTokenForm = ref(false);
-const editingToken = ref(null);
-const submitting = ref(false);
-const newToken = ref(null);
-const tokenCopied = ref(false);
-const endpointCopied = ref(false);
-const tokenToDelete = ref(null);
-const tokenSearch = ref('');
-
-const form = ref({ name: '', scopes: [], expires_at: '', errors: {} });
-
-// Activity state
+const initialTab = new URLSearchParams(window.location.search).get('tab');
+const activeTab = ref(['activity', 'system'].includes(initialTab) ? initialTab : 'tokens');
 const auditEntries = ref([]);
 const auditLoading = ref(false);
+const auditError = ref(null);
 const auditFilter = ref({ tool: '', status: '', user: '' });
-const auditMeta = ref({ current_page: 1, last_page: 1, per_page: 25, total: 0 });
+const auditMeta = ref({ current_page: 1, last_page: 1, total: 0 });
 const selectedAuditEntry = ref(null);
 const showAuditDetail = ref(false);
+let auditRequest;
+
+const toolOptions = computed(() => [{ value: '', label: 'All tools' }, ...props.availableTools.map(tool => ({ value: tool, label: tool }))]);
+const userOptions = computed(() => [{ value: '', label: 'All users' }, { value: 'cli', label: 'CLI' }, ...props.availableUsers.map(user => ({ value: 'user:' + user.id, label: user.name || user.email }))]);
+const statusOptions = [
+    { value: '', label: 'All statuses' }, { value: 'success', label: 'Success' },
+    { value: 'error', label: 'Error' }, { value: 'validation_error', label: 'Validation error' }, { value: 'timeout', label: 'Timeout' },
+];
+const hasAuditFilters = computed(() => Object.values(auditFilter.value).some(Boolean));
+const auditDetails = computed(() => {
+    const entry = selectedAuditEntry.value;
+    return entry ? { Action: entry.action, Duration: duration(entry.duration_ms), Time: formatDateTime(entry.timestamp), User: entry.user, Token: entry.token_name, Context: entry.context, IP: entry.ip, 'Correlation ID': entry.correlation_id } : {};
+});
 
 function openAuditDetail(entry) {
     selectedAuditEntry.value = entry;
     showAuditDetail.value = true;
 }
-let debounceTimer = null;
 
 function statusColor(status) {
-    const map = {
-        success: 'green',
-        error: 'red',
-        failed: 'red',
-        validation_error: 'orange',
-        timeout: 'yellow',
-        warning: 'yellow',
-        started: 'default',
-    };
-    return map[status] || 'default';
+    return { success: 'green', error: 'red', failed: 'red', validation_error: 'orange', timeout: 'yellow', warning: 'yellow' }[status] || 'default';
 }
 
-// Computed
-const filteredTokens = computed(() => {
-    if (!tokenSearch.value) return props.allTokens;
-    const q = tokenSearch.value.toLowerCase();
-    return props.allTokens.filter(t =>
-        (t.user_name && t.user_name.toLowerCase().includes(q)) ||
-        (t.user_email && t.user_email.toLowerCase().includes(q)) ||
-        (t.name && t.name.toLowerCase().includes(q))
-    );
-});
-
-function longestExpiry() {
-    const d = new Date();
-    d.setDate(d.getDate() + props.maxTokenLifetimeDays);
-    return d.toISOString().split('T')[0];
-}
-
-// Every filter runs on the server, so pages and totals stay right.
-const filteredAuditEntries = computed(() => auditEntries.value);
-
-const scopePresets = [
-    {
-        name: 'Read Only',
-        scopes: [
-            'blueprints:read', 'entries:read', 'terms:read',
-            'globals:read', 'structures:read', 'assets:read', 'system:read',
-        ],
-    },
-    {
-        name: 'Content Editor',
-        scopes: [
-            'entries:read', 'entries:write',
-            'terms:read', 'terms:write', 'globals:read', 'globals:write',
-            'blueprints:read', 'structures:read', 'assets:read', 'assets:write',
-        ],
-    },
-    {
-        name: 'Content Publisher',
-        scopes: [
-            'entries:read', 'entries:write',
-            'entries:publish', 'entries:delete',
-            'terms:read', 'terms:write', 'terms:delete', 'globals:read', 'globals:write',
-            'blueprints:read', 'structures:read', 'assets:read', 'assets:write', 'assets:delete',
-        ],
-    },
-    {
-        name: 'Full Access',
-        scopes: ['*'],
-    },
-];
-
-function isPresetActive(preset) {
-    return preset.scopes.length === form.value.scopes.length
-        && preset.scopes.every(s => form.value.scopes.includes(s));
-}
-
-function applyPreset(preset) {
-    form.value.scopes = isPresetActive(preset) ? [] : [...preset.scopes];
-}
-
-function matchingPreset(scopes) {
-    const match = scopePresets.find(p =>
-        p.scopes.length === scopes.length && p.scopes.every(s => scopes.includes(s))
-    );
-    return match ? match.name : null;
-}
-
-const groupedScopes = computed(() => {
-    const groups = {};
-    for (const scope of props.availableScopes) {
-        const group = scope.group || 'other';
-        if (!groups[group]) groups[group] = [];
-        groups[group].push(scope);
-    }
-    return groups;
-});
-
-const scopeLabelMap = computed(() => {
-    const map = {};
-    for (const s of props.availableScopes) {
-        map[s.value] = s.label;
-    }
-    return map;
-});
-
-function scopeLabel(value) {
-    return scopeLabelMap.value[value] || value;
-}
-
-onMounted(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('tab')) {
-        activeTab.value = params.get('tab');
-    }
-});
-
-function cp_url(path) {
-    return Statamic.$config.get('cpUrl') + '/' + path;
-}
-
-function copyEndpoint() {
-    navigator.clipboard.writeText(props.mcpEndpoint).then(() => {
-        endpointCopied.value = true;
-        setTimeout(() => { endpointCopied.value = false; }, 2000);
-    });
-}
-
-// Token form
-function openCreate() {
-    editingToken.value = null;
-    form.value = { name: '', scopes: [], expires_at: '', errors: {} };
-    showTokenForm.value = true;
-}
-
-function openEdit(token) {
-    editingToken.value = token;
-    form.value = {
-        name: token.name,
-        scopes: [...(token.scopes || [])],
-        expires_at: token.expires_at ? token.expires_at.split('T')[0] : '',
-        errors: {},
-    };
-    showTokenForm.value = true;
-}
-
-function closeTokenForm() {
-    showTokenForm.value = false;
-    editingToken.value = null;
-}
-
-function isGroupFullyChecked(groupName) {
-    const scopes = groupedScopes.value[groupName] || [];
-    return scopes.length > 0 && scopes.every(s => form.value.scopes.includes(s.value));
-}
-
-function toggleGroup(groupName) {
-    const scopes = groupedScopes.value[groupName] || [];
-    const values = scopes.map(s => s.value);
-    if (isGroupFullyChecked(groupName)) {
-        form.value.scopes = form.value.scopes.filter(s => !values.includes(s));
-    } else {
-        const toAdd = values.filter(v => !form.value.scopes.includes(v));
-        form.value.scopes = [...form.value.scopes, ...toAdd];
-    }
-}
-
-async function createToken() {
-    submitting.value = true;
-    form.value.errors = {};
-    try {
-        const response = await fetch(cp_url('mcp/tokens'), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': Statamic.$config.get('csrfToken') },
-            body: JSON.stringify({ name: form.value.name, scopes: form.value.scopes, expires_at: form.value.expires_at || null, capability_offer: props.capabilityOffer }),
-        });
-        const data = await response.json();
-        if (!response.ok) {
-            if (response.status === 422 && data.errors) {
-                const errors = {};
-                for (const [key, value] of Object.entries(data.errors)) errors[key] = Array.isArray(value) ? value[0] : value;
-                form.value.errors = errors;
-            }
-            Statamic.$toast.error(data.message || 'Validation failed.');
-            return;
-        }
-        newToken.value = data.token;
-        showTokenForm.value = false;
-        editingToken.value = null;
-        activeTab.value = 'tokens';
-        Statamic.$toast.success('Token created successfully.');
-        router.reload({ only: ['allTokens'] });
-    } catch (e) {
-        Statamic.$toast.error('An error occurred. Please try again.');
-    } finally {
-        submitting.value = false;
-    }
-}
-
-async function updateToken() {
-    if (!editingToken.value) return;
-    submitting.value = true;
-    form.value.errors = {};
-    try {
-        const body = { name: form.value.name, scopes: form.value.scopes };
-        // Under a lifetime cap a cleared date means the longest allowed;
-        // without one it means the token never expires.
-        if (form.value.expires_at) body.expires_at = form.value.expires_at;
-        else if (editingToken.value.expires_at && props.maxTokenLifetimeDays) body.expires_at = longestExpiry();
-        else if (editingToken.value.expires_at) body.clear_expiry = true;
-
-        const response = await fetch(cp_url('mcp/tokens/' + editingToken.value.id), {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': Statamic.$config.get('csrfToken') },
-            body: JSON.stringify(body),
-        });
-        const data = await response.json();
-        if (!response.ok) {
-            if (response.status === 422 && data.errors) {
-                const errors = {};
-                for (const [key, value] of Object.entries(data.errors)) errors[key] = Array.isArray(value) ? value[0] : value;
-                form.value.errors = errors;
-            } else if (data.message) form.value.errors = { name: data.message };
-            Statamic.$toast.error(data.message || 'Validation failed.');
-            return;
-        }
-        showTokenForm.value = false;
-        editingToken.value = null;
-        Statamic.$toast.success('Token updated successfully.');
-        router.reload({ only: ['allTokens'] });
-    } catch (e) {
-        Statamic.$toast.error('An error occurred. Please try again.');
-    } finally {
-        submitting.value = false;
-    }
-}
-
-async function deleteToken() {
-    if (!tokenToDelete.value) return;
-    try {
-        const response = await fetch(cp_url('mcp/tokens/' + tokenToDelete.value.id), {
-            method: 'DELETE',
-            headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': Statamic.$config.get('csrfToken') },
-        });
-        tokenToDelete.value = null;
-        if (!response.ok) {
-            const data = await response.json().catch(() => ({}));
-            Statamic.$toast.error(data.message || 'The token could not be deleted.');
-            return;
-        }
-        Statamic.$toast.success('Token deleted.');
-        router.reload({ only: ['allTokens'] });
-    } catch (e) {
-        Statamic.$toast.error('The token could not be deleted. Check your connection and try again.');
-        tokenToDelete.value = null;
-    }
-}
-
-function confirmDelete(token) { tokenToDelete.value = token; }
-
-async function regenerateToken(token) {
-    if (!confirm(`Regenerate token "${token.name}"? The old token will stop working immediately.`)) return;
-    try {
-        const response = await fetch(cp_url('mcp/tokens/' + token.id + '/regenerate'), {
-            method: 'POST',
-            headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': Statamic.$config.get('csrfToken') },
-        });
-        if (response.ok) {
-            const result = await response.json();
-            newToken.value = result.token;
-            Statamic.$toast.success('Token regenerated.');
-        } else {
-            const data = await response.json();
-            Statamic.$toast.error(data.message || 'Failed to regenerate token.');
-        }
-    } catch (e) {
-        Statamic.$toast.error('Failed to regenerate token.');
-    }
-}
-
-function copyToken() {
-    if (!newToken.value) return;
-    if (navigator.clipboard && window.isSecureContext) {
-        navigator.clipboard.writeText(newToken.value).then(() => {
-            tokenCopied.value = true;
-            setTimeout(() => { tokenCopied.value = false; }, 2000);
-        }).catch(() => {
-            fallbackCopy(newToken.value);
-        });
-    } else {
-        fallbackCopy(newToken.value);
-    }
-}
-
-function fallbackCopy(text) {
-    const textarea = document.createElement('textarea');
-    textarea.value = text;
-    textarea.style.position = 'fixed';
-    textarea.style.opacity = '0';
-    document.body.appendChild(textarea);
-    textarea.select();
-    document.execCommand('copy');
-    document.body.removeChild(textarea);
-    tokenCopied.value = true;
-    setTimeout(() => { tokenCopied.value = false; }, 2000);
-}
-
-// Activity
 async function loadAudit(page = 1) {
+    auditRequest?.abort();
+    const request = new AbortController();
+    auditRequest = request;
     auditLoading.value = true;
+    auditError.value = null;
     try {
         const params = new URLSearchParams({ page: String(page), per_page: '25' });
         if (auditFilter.value.tool) params.set('tool', auditFilter.value.tool);
         if (auditFilter.value.status) params.set('status', auditFilter.value.status);
         if (auditFilter.value.user) params.set('actor', auditFilter.value.user);
-        const response = await fetch(cp_url('mcp/audit?' + params.toString()), {
-            headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': Statamic.$config.get('csrfToken') },
+        const response = await fetch(Statamic.$config.get('cpUrl') + '/mcp/audit?' + params, {
+            signal: request.signal,
+            headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
         });
-        if (!response.ok) {
-            const data = await response.json().catch(() => ({}));
-            Statamic.$toast.error(data.message || 'The activity log could not be loaded.');
-            return;
-        }
         const result = await response.json();
-        auditEntries.value = result.data || [];
-        auditMeta.value = result.meta || { current_page: 1, last_page: 1, per_page: 25, total: 0 };
-    } catch (e) {
-        Statamic.$toast.error('The activity log could not be loaded. Check your connection and try again.');
+        if (!response.ok) throw new Error(result.message || 'The activity log could not be loaded.');
+        auditEntries.value = result.data;
+        auditMeta.value = result.meta;
+    } catch (error) {
+        if (!request.signal.aborted) auditError.value = error.message || 'Check your connection and try again.';
     } finally {
-        auditLoading.value = false;
+        if (!request.signal.aborted) auditLoading.value = false;
     }
 }
 
-watch(activeTab, (tab) => {
-    if (tab === 'activity' && auditEntries.value.length === 0) loadAudit();
-
+watch(auditFilter, () => loadAudit(), { deep: true });
+watch(activeTab, tab => {
+    if (tab === 'activity') loadAudit();
     const url = new URL(window.location.href);
-    if (tab === 'tokens') {
-        url.searchParams.delete('tab');
-    } else {
-        url.searchParams.set('tab', tab);
-    }
-    history.replaceState(null, '', url.toString());
-});
+    if (tab === 'tokens') url.searchParams.delete('tab');
+    else url.searchParams.set('tab', tab);
+    history.replaceState(null, '', url);
+}, { immediate: true });
+onBeforeUnmount(() => auditRequest?.abort());
 
-// Formatting
-function formatDate(dateString) {
-    if (!dateString) return 'Never';
-    return new Date(dateString).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+function duration(value) {
+    return value == null ? '—' : `${Math.round(value)} ms`;
 }
 
-function formatDateTime(dateString) {
-    if (!dateString) return '-';
-    return new Date(dateString).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+function formatDateTime(value) {
+    return value ? new Date(value).toLocaleString() : '—';
 }
 </script>
-
-<style scoped>
-.has-error :deep([data-ui-control]) {
-    border-color: #ef4444 !important;
-}
-</style>

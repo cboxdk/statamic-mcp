@@ -7,6 +7,7 @@ module.exports = {
     globalSetup: require.resolve('./global-setup'),
     use: {
         baseURL: process.env.APP_URL || 'http://localhost:8787',
+        launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined },
         ignoreHTTPSErrors: true,
         screenshot: 'only-on-failure',
         storageState: path.join(__dirname, '.auth', 'user.json'),

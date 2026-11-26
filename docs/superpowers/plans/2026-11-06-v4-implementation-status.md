@@ -99,7 +99,44 @@ The 33 local skips need optional integrations or database environments; the draf
 PR records the remote matrix results. Real-client compatibility, PostgreSQL,
 Forms Pro and release performance budgets remain phase 5 gates.
 No merge, release or deployment.
-The Statamic UI-kit work follows phase 2, before phase 3.
+
+## Native UI-kit checkpoint — 2026-11-26
+
+Item 4.9 was brought forward after phase 2. Token tables/forms, client setup,
+admin activity/system panels and approvals use Statamic's native components.
+Admin reuses TokenList; deletion and regeneration use confirmation stacks.
+Loading, empty, failed and uncertain-outcome states are explicit. Late client
+configuration responses cannot replace the newly selected client, and audit
+filter changes cancel the previous request. Untrusted error text is interpolated;
+Field validation errors are escaped because the native ErrorMessage renders HTML.
+
+Forms Pro and core Forms 2.0 were inspected for UI patterns only: native panels,
+copyable fields, numbered setup instructions and the official Vite/Tailwind build.
+No commercial source was copied and no Forms Pro dependency was added. The
+stylesheet imports Statamic's addon Tailwind entry and scans this addon's Vue files;
+relying only on the host CSS silently omitted utilities used only by the addon.
+
+Verification: **2144 PHP tests passed, 33 optional/environment skips, 11521
+assertions** (470.07 s), PHPStan 9 and Pint passed. **16 Playwright tests passed**
+on the disposable Statamic site, including real token create/edit/regenerate/delete,
+old-secret rejection, literal validation errors, owner/OAuth action restrictions,
+configuration races, audit retry/filtering, cancelled elevation, transport failures
+and stale approvals. Repeated local runs hit DCR's registration rate and per-IP
+client limits. Resetting the disposable site's cache and removing only its
+Playwright client fixtures restored the run; neither limit was weakened.
+Composer audit and 183 dependency licenses
+passed. Vite emits 42.34 KB JavaScript and 5.30 KB CSS (13.08/1.63 KB gzip).
+
+Desktop and 390px dark layouts were rendered and inspected, including pending,
+empty, loading and error states. The form's expiration field and footer remain
+reachable by scrolling. Chromium narrow layout is not a real-device test.
+A real-pointer recording covers row menus, cancelled deletion and preset selection.
+The independent review and its follow-up reported no concrete regressions.
+
+This completes the native-component migration, not all phase 4 UI work: scope
+levels (4.6), OAuth consent design (4.7), personal activity (4.8), translations
+(4.10) and the expanded client guides (4.5) remain separate plan items. Phase 3
+is next. No merge, tag or release is part of this checkpoint.
 
 ## V00 compatibility inventory
 

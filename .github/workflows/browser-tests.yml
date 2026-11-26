@@ -56,7 +56,7 @@ jobs:
       - name: Install addon from local path
         working-directory: site
         run: |
-          composer config repositories.statamic-mcp '{"type": "path", "url": "../addon", "options": {"symlink": false}}'
+          composer config repositories.statamic-mcp '{"type": "path", "url": "../addon", "options": {"symlink": true}}'
           composer require cboxdk/statamic-mcp:@dev --no-interaction
 
       - name: Create test user
@@ -74,8 +74,10 @@ jobs:
       - name: Build addon frontend
         working-directory: addon
         run: |
+          mkdir -p vendor/statamic
+          ln -s ../../../site/vendor/statamic/cms vendor/statamic/cms
           npm install
-          npx vite build
+          npm run build
 
       - name: Publish addon assets
         working-directory: site

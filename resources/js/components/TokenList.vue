@@ -1,295 +1,202 @@
 <template>
-    <div class="mt-4 flex flex-col gap-4">
-        <!-- New token alert -->
-        <div v-if="newToken" class="overflow-hidden rounded-lg border border-green-200 bg-green-50 dark:border-green-800/60 dark:bg-green-950/30">
-            <div class="flex items-center justify-between px-4 py-3">
-                <div class="flex items-center gap-2.5">
-                    <svg class="size-5 text-green-600 dark:text-green-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                    <span class="text-sm font-semibold text-green-900 dark:text-green-200">Token created — copy it now, it won't be shown again.</span>
-                </div>
-                <ui-button text="Dismiss" variant="ghost" size="sm" @click="newToken = null" />
-            </div>
-            <div class="flex items-center gap-2 border-t border-green-200 bg-white px-4 py-3 dark:border-green-800/40 dark:bg-gray-800">
-                <input :value="newToken" readonly class="flex-1 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 font-mono text-sm dark:border-gray-600 dark:bg-gray-850" @click="$event.target.select()" />
-                <ui-button :text="tokenCopied ? 'Copied!' : 'Copy'" icon="clipboard" variant="primary" @click="copyToken" />
-            </div>
+    <div class="mt-4 space-y-6">
+        <ui-alert v-if="newToken" variant="success">
+            <ui-heading text="Copy your token now" />
+            <ui-description text="This is the only time the secret is shown. Store it somewhere safe before dismissing it." />
+            <ui-field label="New token">
+                <ui-input :model-value="newToken" read-only copyable class="font-mono" />
+            </ui-field>
+            <ui-button text="Dismiss" variant="ghost" size="sm" class="mt-3" @click="newToken = null" />
+        </ui-alert>
+
+        <div class="flex flex-wrap items-end justify-between gap-3">
+            <ui-field label="Search tokens" class="w-full sm:max-w-64">
+                <ui-input v-model="search" :placeholder="admin ? 'Name, user or email' : 'Token name'" icon="magnifying-glass" clearable />
+            </ui-field>
+            <ui-button text="Create Token" variant="primary" icon="plus" @click="openCreate" />
         </div>
 
-        <!-- Empty state -->
-        <ui-card v-if="tokens.length === 0 && !newToken">
-            <div class="flex flex-col items-center justify-center px-6 py-12 text-center">
-                <div class="mb-4 flex size-14 items-center justify-center rounded-full bg-blue-50 dark:bg-blue-900/20">
-                    <svg class="size-7 text-blue-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                </div>
-                <h3 class="mb-1.5 text-base font-semibold">No tokens yet</h3>
-                <p class="mb-6 max-w-md text-sm text-gray-500 dark:text-gray-400">Create a token to authenticate AI assistants connecting to this MCP server.</p>
-                <ui-button text="Create Token" variant="primary" icon="plus" @click="openCreate" />
-            </div>
+        <ui-card v-if="!filteredTokens.length">
+            <ui-heading :text="search ? 'No matching tokens' : 'No tokens yet'" />
+            <ui-description :text="search ? 'Try another name or clear your search.' : 'Create a token for a client that uses Bearer authentication. OAuth connections appear here after you approve access.'" />
+            <ui-button v-if="search" text="Clear search" size="sm" @click="search = ''" />
         </ui-card>
 
-        <!-- Token table -->
-        <template v-if="tokens.length > 0">
-            <div class="flex items-center justify-between">
-                <p class="text-sm text-gray-500 dark:text-gray-400">{{ tokens.length }} token{{ tokens.length !== 1 ? 's' : '' }}</p>
-                <ui-button text="Create Token" variant="primary" icon="plus" size="sm" @click="openCreate" />
-            </div>
-
-            <ui-card>
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Name</th>
-                            <th>Scopes</th>
-                            <th>Last Used</th>
-                            <th>Expires</th>
-                            <th>Created</th>
-                            <th style="width: 120px" />
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr v-for="token in tokens" :key="token.id">
-                            <td>
-                                <div class="flex items-center gap-2">
-                                    <span class="font-medium">{{ token.name }}</span>
-                                    <ui-badge v-if="token.is_oauth" :text="'OAuth' + (token.oauth_client_name ? ' · ' + token.oauth_client_name : '')" color="green" size="sm" />
-                                    <ui-badge v-if="token.is_expired" text="Expired" color="red" />
-                                </div>
-                            </td>
-                            <td>
+        <ui-card v-else>
+            <div class="overflow-x-auto">
+                <ui-table>
+                    <ui-table-columns>
+                        <ui-table-column>Name</ui-table-column>
+                        <ui-table-column v-if="admin">User</ui-table-column>
+                        <ui-table-column>Permissions</ui-table-column>
+                        <ui-table-column>Last used</ui-table-column>
+                        <ui-table-column>Expires</ui-table-column>
+                        <ui-table-column><span class="sr-only">Actions</span></ui-table-column>
+                    </ui-table-columns>
+                    <ui-table-rows>
+                        <ui-table-row v-for="token in filteredTokens" :key="token.id">
+                            <ui-table-cell>
+                                <ui-button :text="token.name" variant="ghost" size="sm" @click="openEdit(token)" />
                                 <div class="flex flex-wrap gap-1">
-                                    <template v-if="token.scopes?.length">
-                                        <ui-badge v-if="token.scopes.includes('*')" text="Legacy full access: approve again" color="red" size="sm" />
-                                        <template v-else>
-                                            <ui-badge v-for="scope in token.scopes.slice(0, 3)" :key="scope" :text="scopeLabel(scope)" color="blue" size="sm" />
-                                            <ui-badge v-if="token.scopes.length > 3" :text="'+' + (token.scopes.length - 3)" color="default" size="sm" />
-                                        </template>
+                                    <ui-badge v-if="token.is_oauth" :text="token.oauth_client_name || 'OAuth'" size="sm" />
+                                    <ui-badge v-if="token.is_expired" text="Expired" color="red" size="sm" />
+                                </div>
+                            </ui-table-cell>
+                            <ui-table-cell v-if="admin">
+                                <ui-text :text="token.user_name || 'Unknown user'" />
+                                <ui-description>{{ token.user_email }}</ui-description>
+                            </ui-table-cell>
+                            <ui-table-cell>
+                                <ui-badge v-if="token.scopes?.includes('*')" text="Legacy access — approve again" color="red" size="sm" />
+                                <ui-badge v-else :text="`${token.scopes?.length || 0} ${token.scopes?.length === 1 ? 'scope' : 'scopes'}`" size="sm" />
+                            </ui-table-cell>
+                            <ui-table-cell class="whitespace-nowrap">{{ formatDate(token.last_used_at) }}</ui-table-cell>
+                            <ui-table-cell class="whitespace-nowrap">{{ formatDate(token.expires_at) }}</ui-table-cell>
+                            <ui-table-cell>
+                                <ui-dropdown align="end">
+                                    <template #trigger>
+                                        <ui-button icon="dots" variant="ghost" size="sm" :aria-label="`Actions for ${token.name}`" />
                                     </template>
-                                    <span v-else class="text-sm text-gray-400">None</span>
-                                </div>
-                            </td>
-                            <td class="text-sm text-gray-500 dark:text-gray-400">{{ formatDate(token.last_used_at) }}</td>
-                            <td class="text-sm text-gray-500 dark:text-gray-400">{{ token.expires_at ? formatDate(token.expires_at) : 'Never' }}</td>
-                            <td class="text-sm text-gray-500 dark:text-gray-400">{{ formatDate(token.created_at) }}</td>
-                            <td>
-                                <div class="flex items-center justify-end gap-1">
-                                    <ui-button text="Edit" size="sm" variant="ghost" icon="pencil" @click="openEdit(token)" />
-                                    <ui-button v-if="!token.is_oauth" text="Regenerate" size="sm" variant="ghost" icon="sync" @click="handleRegenerate(token)" />
-                                    <ui-button text="Delete" size="sm" variant="ghost" icon="trash" class="text-red-600 hover:text-red-700 dark:text-red-400" @click="confirmDelete(token)" />
-                                </div>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </ui-card>
-        </template>
+                                    <ui-dropdown-menu>
+                                        <ui-dropdown-item text="Edit" icon="pencil" @click="openEdit(token)" />
+                                        <ui-dropdown-item v-if="!token.is_oauth && (!admin || token.is_own)" text="Regenerate" icon="sync" @click="pendingAction = { token, action: 'regenerate' }" />
+                                        <ui-dropdown-item text="Delete" icon="trash" variant="destructive" @click="pendingAction = { token, action: 'delete' }" />
+                                    </ui-dropdown-menu>
+                                </ui-dropdown>
+                            </ui-table-cell>
+                        </ui-table-row>
+                    </ui-table-rows>
+                </ui-table>
+            </div>
+        </ui-card>
+        <ui-description v-if="filteredTokens.length" :text="`${filteredTokens.length} of ${tokens.length} tokens`" />
     </div>
 
-    <!-- ==================== CREATE / EDIT TOKEN STACK ==================== -->
-    <ui-stack :open="showTokenForm" :title="editingToken ? 'Edit Token' : 'Create Token'" size="half" @closed="closeTokenForm">
+    <ui-stack v-model:open="showTokenForm" :title="editingToken ? 'Edit Token' : 'Create Token'" size="half" :before-close="() => !submitting">
         <ui-stack-content>
-            <div class="flex flex-col gap-5 p-4">
-                <div>
-                    <ui-label text="Name" />
-                    <ui-description text="A label to identify this token." />
-                    <ui-input v-model="form.name" placeholder="e.g. Claude Desktop, Cursor IDE" class="mt-1" />
-                    <p v-if="form.errors.name" class="mt-1 text-sm text-red-600">{{ form.errors.name }}</p>
-                </div>
+            <form id="mcp-token-form" class="space-y-6" @submit.prevent="saveToken">
+                <ui-alert v-if="admin && !editingToken" text="New tokens belong to you. You cannot create a credential for another user." />
+                <ui-description v-if="editingToken" :text="`Created ${formatDate(editingToken.created_at)}. Changes apply immediately to connected clients.`" />
+                <ui-field label="Name" instructions="A label to identify the client using this token." :error="fieldErrors.name" required>
+                    <ui-input v-model="form.name" placeholder="e.g. Cursor IDE" focus :disabled="submitting" />
+                </ui-field>
 
-                <div>
-                    <ui-label text="Permissions" />
-                    <ui-description text="What this token can access. Use a preset or select individual scopes." />
-
-                    <div class="mt-2 flex flex-wrap gap-2">
-                        <button
-                            v-for="preset in scopePresets"
-                            :key="preset.name"
-                            type="button"
-                            class="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition"
-                            :class="isPresetActive(preset) ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-300' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-gray-500'"
-                            @click="applyPreset(preset)"
-                        >
-                            {{ preset.name }}
-                        </button>
+                <ui-field label="Permissions" instructions="Start with a preset, then choose only the access this client needs." :errors="scopeErrors">
+                    <div class="flex flex-wrap gap-2">
+                        <ui-button v-for="preset in scopePresets" :key="preset.name" :text="preset.name" size="sm" :variant="isPresetActive(preset) ? 'primary' : 'default'" :aria-pressed="isPresetActive(preset)" :disabled="submitting" @click="applyPreset(preset)" />
                     </div>
+                    <ui-card v-for="(scopes, group) in groupedScopes" :key="group" variant="flat">
+                        <ui-field :label="group.charAt(0).toUpperCase() + group.slice(1).replaceAll('-', ' ')">
+                            <template #actions>
+                                <ui-button :text="isGroupFullyChecked(group) ? 'Clear group' : 'Select group'" size="sm" variant="ghost" :disabled="submitting" @click="toggleGroup(group)" />
+                            </template>
+                            <ui-checkbox-group v-model="form.scopes" :aria-label="`${group} permissions`">
+                                <ui-checkbox v-for="scope in scopes" :key="scope.value" :value="scope.value" :label="scope.label" :description="scope.description" :disabled="submitting" />
+                            </ui-checkbox-group>
+                        </ui-field>
+                    </ui-card>
+                </ui-field>
 
-                    <div class="mt-3 flex flex-col gap-4">
-                        <template v-for="(groupScopes, groupName) in groupedScopes" :key="groupName">
-                            <div class="rounded-lg border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-900">
-                                <div class="flex items-center justify-between px-4 py-2.5">
-                                    <span class="text-sm font-semibold text-gray-700 dark:text-gray-200">
-                                        {{ groupName === 'access' ? 'Access Level' : groupName.charAt(0).toUpperCase() + groupName.slice(1).replace('-', ' ') }}
-                                    </span>
-                                    <button
-                                        class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
-                                        @click="toggleGroup(groupName)"
-                                    >
-                                        <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                                        {{ isGroupFullyChecked(groupName) ? 'Uncheck All' : 'Check All' }}
-                                    </button>
-                                </div>
-                                <div class="rounded-b-lg border-t border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-850">
-                                    <label
-                                        v-for="scope in groupScopes"
-                                        :key="scope.value"
-                                        class="flex cursor-pointer items-start gap-3 border-b border-gray-100 px-4 py-3 transition last:border-b-0 hover:bg-gray-50 dark:border-gray-700/50 dark:hover:bg-gray-800"
-                                    >
-                                        <input v-model="form.scopes" type="checkbox" :value="scope.value" class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800" />
-                                        <div>
-                                            <div class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ scope.label }}</div>
-                                            <div v-if="scope.description" class="text-xs text-gray-500 dark:text-gray-400">{{ scope.description }}</div>
-                                        </div>
-                                    </label>
-                                </div>
-                            </div>
-                        </template>
-                    </div>
-                    <p v-if="form.errors.scopes" class="mt-1 text-sm text-red-600">{{ form.errors.scopes }}</p>
-                </div>
-
-                <div>
-                    <ui-label text="Expiration" />
-                    <ui-description :text="maxTokenLifetimeDays ? `Tokens on this site expire within ${maxTokenLifetimeDays} days. Leave blank for the longest allowed.` : 'Leave blank for a token that never expires.'" />
-                    <div class="mt-1 flex items-center gap-2">
-                        <ui-input v-model="form.expires_at" type="date" class="flex-1" :max="defaultExpiryDate || undefined" />
-                        <ui-button v-if="form.expires_at && !maxTokenLifetimeDays" text="Never expire" size="sm" variant="ghost" @click="form.expires_at = ''" />
-                    </div>
-                    <p v-if="form.errors.expires_at" class="mt-1 text-sm text-red-600">{{ form.errors.expires_at }}</p>
-                </div>
-            </div>
+                <ui-field label="Expiration" :instructions="maxTokenLifetimeDays ? `Tokens expire within ${maxTokenLifetimeDays} days. Leave blank for the longest allowed.` : 'Leave blank for a token that never expires.'" :error="fieldErrors.expires_at">
+                    <ui-input v-model="form.expires_at" type="date" :max="defaultExpiryDate || undefined" :disabled="submitting" />
+                </ui-field>
+            </form>
         </ui-stack-content>
-
-        <ui-stack-footer>
-            <ui-button-group>
-                <ui-button text="Cancel" @click="closeTokenForm" />
-                <ui-button :text="editingToken ? 'Save Changes' : 'Create Token'" variant="primary" :loading="submitting" @click="editingToken ? handleUpdate() : handleCreate()" />
-            </ui-button-group>
+        <ui-stack-footer class="flex justify-end gap-2">
+            <ui-button text="Cancel" :disabled="submitting" @click="showTokenForm = false" />
+            <ui-button :text="editingToken ? 'Save Changes' : 'Create Token'" variant="primary" :loading="submitting" :disabled="submitting" type="submit" form="mcp-token-form" />
         </ui-stack-footer>
     </ui-stack>
 
-    <!-- ==================== DELETE CONFIRMATION ==================== -->
-    <ui-confirmation-modal
-        :open="!!tokenToDelete"
-        title="Delete Token"
-        :body-text="`Are you sure you want to delete '${tokenToDelete?.name}'? Any clients using this token will lose access immediately.`"
-        button-text="Delete"
-        danger
-        @confirm="handleDelete"
-        @cancel="tokenToDelete = null"
-    />
+    <ui-stack :open="!!pendingAction" :title="pendingAction?.action === 'delete' ? 'Delete Token' : 'Regenerate Token'" size="narrow" :before-close="() => !actionBusy" @closed="pendingAction = null">
+        <ui-stack-content>
+            <ui-alert variant="warning" :heading="pendingAction?.token.name" :text="pendingAction?.action === 'delete' ? 'Clients using this token will lose access immediately. This cannot be undone.' : 'The old secret will stop working immediately. You will need to update every client using this token.'" />
+            <ui-alert v-if="actionError" variant="error" class="mt-4">{{ actionError }}</ui-alert>
+        </ui-stack-content>
+        <ui-stack-footer class="flex justify-end gap-2">
+            <ui-button text="Cancel" :disabled="actionBusy" @click="pendingAction = null" />
+            <ui-button :text="pendingAction?.action === 'delete' ? 'Delete Token' : 'Regenerate Token'" variant="danger" :loading="actionBusy" :disabled="actionBusy" @click="confirmAction" />
+        </ui-stack-footer>
+    </ui-stack>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
+import { router } from '@statamic/cms/inertia';
 import { useTokenApi } from '../composables/useTokenApi.js';
-
-const { router } = __STATAMIC__.inertia;
 
 const props = defineProps({
     tokens: { type: Array, default: () => [] },
     availableScopes: { type: Array, default: () => [] },
     capabilityOffer: { type: String, default: null },
     maxTokenLifetimeDays: { type: Number, default: null },
+    admin: { type: Boolean, default: false },
 });
 
-const {
-    submitting,
-    createToken,
-    updateToken,
-    deleteToken,
-    regenerateToken,
-} = useTokenApi();
-
+const { submitting, createToken, updateToken, deleteToken, regenerateToken } = useTokenApi();
 const showTokenForm = ref(false);
 const editingToken = ref(null);
 const newToken = ref(null);
-const tokenCopied = ref(false);
-const tokenToDelete = ref(null);
-
+const search = ref('');
+const pendingAction = ref(null);
+const actionBusy = ref(false);
+const actionError = ref(null);
 const form = ref({ name: '', scopes: [], expires_at: '', errors: {} });
+
+watch(pendingAction, () => { actionError.value = null; });
+
+const filteredTokens = computed(() => {
+    const query = search.value.trim().toLowerCase();
+    return props.tokens.filter(token => [token.name, ...(props.admin ? [token.user_name, token.user_email] : [])]
+        .some(value => value?.toLowerCase().includes(query)));
+});
 
 const defaultExpiryDate = computed(() => {
     if (!props.maxTokenLifetimeDays) return '';
-    const d = new Date();
-    d.setDate(d.getDate() + props.maxTokenLifetimeDays);
-    return d.toISOString().split('T')[0];
+    const date = new Date();
+    date.setDate(date.getDate() + props.maxTokenLifetimeDays);
+    return date.toISOString().split('T')[0];
 });
 
-// Scope presets matching documented common combinations. Each is cut down
-// to the scopes this user can hold (availableScopes), and a preset with
-// nothing left is not shown: an editor is not offered "Full Access".
+// Presets are narrowed to the user's offer, never an independent grant.
 const presetDefinitions = [
-    {
-        name: 'Read Only',
-        scopes: [
-            'blueprints:read', 'entries:read', 'terms:read',
-            'globals:read', 'structures:read', 'assets:read', 'system:read',
-        ],
-    },
-    {
-        name: 'Content Editor',
-        scopes: [
-            'entries:read', 'entries:write',
-            'terms:read', 'terms:write', 'globals:read', 'globals:write',
-            'blueprints:read', 'structures:read', 'assets:read', 'assets:write',
-        ],
-    },
-    {
-        name: 'Content Publisher',
-        scopes: [
-            'entries:read', 'entries:write',
-            'entries:publish', 'entries:delete',
-            'terms:read', 'terms:write', 'terms:delete', 'globals:read', 'globals:write',
-            'blueprints:read', 'structures:read', 'assets:read', 'assets:write', 'assets:delete',
-        ],
-    },
-    {
-        name: 'Full Access',
-        scopes: ['*'],
-    },
+    { name: 'Read Only', scopes: ['blueprints:read', 'entries:read', 'terms:read', 'globals:read', 'structures:read', 'assets:read', 'system:read'] },
+    { name: 'Content Editor', scopes: ['entries:read', 'entries:write', 'terms:read', 'terms:write', 'globals:read', 'globals:write', 'blueprints:read', 'structures:read', 'assets:read', 'assets:write'] },
+    { name: 'Content Publisher', scopes: ['entries:read', 'entries:write', 'entries:publish', 'entries:delete', 'terms:read', 'terms:write', 'terms:delete', 'globals:read', 'globals:write', 'blueprints:read', 'structures:read', 'assets:read', 'assets:write', 'assets:delete'] },
+    { name: 'Full Access', scopes: ['*'] },
 ];
-
 const scopePresets = computed(() => {
-    const available = new Set(props.availableScopes.map(s => s.value));
-
-    return presetDefinitions
-        .map(preset => ({ name: preset.name, scopes: preset.scopes.filter(s => available.has(s)) }))
-        .filter(preset => preset.scopes.length > 0);
+    const available = new Set(props.availableScopes.map(scope => scope.value));
+    return presetDefinitions.map(preset => ({ ...preset, scopes: preset.scopes.filter(scope => available.has(scope)) }))
+        .filter(preset => preset.scopes.length);
 });
+const groupedScopes = computed(() => Object.groupBy(props.availableScopes, scope => scope.group || 'other'));
+// Statamic Field renders error strings as HTML. Validation can echo user input.
+const fieldErrors = computed(() => Object.fromEntries(Object.entries(form.value.errors)
+    .map(([key, value]) => [key, String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')])));
+const scopeErrors = computed(() => Object.entries(fieldErrors.value)
+    .filter(([key]) => key === 'capability_offer' || key === 'scopes' || key.startsWith('scopes.'))
+    .map(([, value]) => value));
 
 function isPresetActive(preset) {
-    return preset.scopes.length === form.value.scopes.length
-        && preset.scopes.every(s => form.value.scopes.includes(s));
+    return preset.scopes.length === form.value.scopes.length && preset.scopes.every(scope => form.value.scopes.includes(scope));
 }
 
 function applyPreset(preset) {
     form.value.scopes = isPresetActive(preset) ? [] : [...preset.scopes];
 }
 
-// Computed
-const groupedScopes = computed(() => {
-    const groups = {};
-    for (const scope of props.availableScopes) {
-        const group = scope.group || 'other';
-        if (!groups[group]) groups[group] = [];
-        groups[group].push(scope);
-    }
-    return groups;
-});
-
-// Scope label lookup
-const scopeLabelMap = computed(() => {
-    const map = {};
-    for (const s of props.availableScopes) {
-        map[s.value] = s.label;
-    }
-    return map;
-});
-
-function scopeLabel(value) {
-    return scopeLabelMap.value[value] || value;
+function isGroupFullyChecked(group) {
+    return groupedScopes.value[group].every(scope => form.value.scopes.includes(scope.value));
 }
 
-// Token form
+function toggleGroup(group) {
+    const values = groupedScopes.value[group].map(scope => scope.value);
+    form.value.scopes = isGroupFullyChecked(group)
+        ? form.value.scopes.filter(scope => !values.includes(scope))
+        : [...new Set([...form.value.scopes, ...values])];
+}
+
 function openCreate() {
     editingToken.value = null;
     form.value = { name: '', scopes: [], expires_at: defaultExpiryDate.value, errors: {} };
@@ -298,139 +205,56 @@ function openCreate() {
 
 function openEdit(token) {
     editingToken.value = token;
-    form.value = {
-        name: token.name,
-        scopes: [...(token.scopes || [])],
-        expires_at: token.expires_at ? token.expires_at.split('T')[0] : '',
-        errors: {},
-    };
+    form.value = { name: token.name, scopes: [...(token.scopes || [])], expires_at: token.expires_at?.split('T')[0] || '', errors: {} };
     showTokenForm.value = true;
 }
 
-function closeTokenForm() {
-    showTokenForm.value = false;
-    editingToken.value = null;
+function reloadTokens() {
+    router.reload({ only: [props.admin ? 'allTokens' : 'tokens'] });
 }
 
-function isGroupFullyChecked(groupName) {
-    const scopes = groupedScopes.value[groupName] || [];
-    return scopes.length > 0 && scopes.every(s => form.value.scopes.includes(s.value));
-}
-
-function toggleGroup(groupName) {
-    const scopes = groupedScopes.value[groupName] || [];
-    const values = scopes.map(s => s.value);
-    if (isGroupFullyChecked(groupName)) {
-        form.value.scopes = form.value.scopes.filter(s => !values.includes(s));
-    } else {
-        const toAdd = values.filter(v => !form.value.scopes.includes(v));
-        form.value.scopes = [...form.value.scopes, ...toAdd];
-    }
-}
-
-async function handleCreate() {
+async function saveToken() {
+    if (submitting.value) return;
     form.value.errors = {};
-    const result = await createToken({
-        capability_offer: props.capabilityOffer,
-        name: form.value.name,
-        scopes: form.value.scopes,
-        expires_at: form.value.expires_at || null,
-    });
+    const token = editingToken.value;
+    const result = token
+        ? await updateToken(token.id, {
+            name: form.value.name,
+            scopes: form.value.scopes,
+            expires_at: form.value.expires_at || (props.maxTokenLifetimeDays && token.expires_at ? defaultExpiryDate.value : null),
+            clear_expiry: !props.maxTokenLifetimeDays && !form.value.expires_at && !!token.expires_at,
+        })
+        : await createToken({ ...form.value, capability_offer: props.capabilityOffer });
     if (!result.ok) {
         form.value.errors = result.errors;
         return;
     }
-    newToken.value = result.token;
+    if (result.token) newToken.value = result.token;
     showTokenForm.value = false;
-    editingToken.value = null;
-    router.reload({ only: ['tokens'] });
+    Statamic.$toast.success(token ? 'Token updated.' : 'Token created.');
+    reloadTokens();
 }
 
-async function handleUpdate() {
-    if (!editingToken.value) return;
-    form.value.errors = {};
-    const result = await updateToken(editingToken.value.id, {
-        name: form.value.name,
-        scopes: form.value.scopes,
-        // Under a lifetime cap a cleared date means the longest allowed;
-        // without one it means the token never expires.
-        expires_at: form.value.expires_at || (props.maxTokenLifetimeDays && editingToken.value.expires_at ? defaultExpiryDate.value : null),
-        clear_expiry: !props.maxTokenLifetimeDays && !form.value.expires_at && !!editingToken.value.expires_at,
-    });
+async function confirmAction() {
+    if (actionBusy.value || !pendingAction.value) return;
+    actionBusy.value = true;
+    actionError.value = null;
+    const { token, action } = pendingAction.value;
+    const result = await (action === 'delete' ? deleteToken(token.id) : regenerateToken(token.id));
+    actionBusy.value = false;
     if (!result.ok) {
-        form.value.errors = result.errors;
+        actionError.value = result.message;
         return;
     }
-    showTokenForm.value = false;
-    editingToken.value = null;
-    router.reload({ only: ['tokens'] });
+    if (result.token) newToken.value = result.token;
+    pendingAction.value = null;
+    Statamic.$toast.success(action === 'delete' ? 'Token deleted.' : 'Token regenerated.');
+    reloadTokens();
 }
 
-async function handleDelete() {
-    if (!tokenToDelete.value) return;
-    const result = await deleteToken(tokenToDelete.value.id);
-    tokenToDelete.value = null;
-    if (!result.ok) {
-        Statamic.$toast.error(result.message);
-        return;
-    }
-    Statamic.$toast.success('Token deleted.');
-    router.reload({ only: ['tokens'] });
+function formatDate(value) {
+    return value ? new Date(value).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : 'Never';
 }
 
-function confirmDelete(token) {
-    tokenToDelete.value = token;
-}
-
-async function handleRegenerate(token) {
-    if (!confirm(`Regenerate token "${token.name}"? The old token will stop working immediately.`)) return;
-    const result = await regenerateToken(token.id);
-    if (!result.ok) {
-        Statamic.$toast.error(result.message);
-        return;
-    }
-    newToken.value = result.token;
-}
-
-function copyToken() {
-    if (!newToken.value) return;
-    if (navigator.clipboard && window.isSecureContext) {
-        navigator.clipboard.writeText(newToken.value).then(() => {
-            tokenCopied.value = true;
-            setTimeout(() => { tokenCopied.value = false; }, 2000);
-        }).catch(() => {
-            fallbackCopy(newToken.value);
-        });
-    } else {
-        fallbackCopy(newToken.value);
-    }
-}
-
-function fallbackCopy(text) {
-    const textarea = document.createElement('textarea');
-    textarea.value = text;
-    textarea.style.position = 'fixed';
-    textarea.style.opacity = '0';
-    document.body.appendChild(textarea);
-    textarea.select();
-    document.execCommand('copy');
-    document.body.removeChild(textarea);
-    tokenCopied.value = true;
-    setTimeout(() => { tokenCopied.value = false; }, 2000);
-}
-
-// Formatting
-function formatDate(dateString) {
-    if (!dateString) return 'Never';
-    return new Date(dateString).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-}
-
-/**
- * Called by parent to programmatically open the create form.
- */
-function triggerCreate() {
-    openCreate();
-}
-
-defineExpose({ triggerCreate });
+defineExpose({ triggerCreate: openCreate });
 </script>

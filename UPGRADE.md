@@ -16,6 +16,13 @@ touched by any step below.
 5. `php artisan mcp:migrate-v4` shows token and client-permission changes as a dry run. Run it again
    with `--apply` to carry it out. `--json` prints the plan for scripts.
 
+## Control Panel assets
+
+The dashboard now uses Statamic 6's native UI kit. Publish the updated JavaScript
+and CSS with `php artisan vendor:publish --tag=statamic-mcp --force` if your deployment
+does not publish addon assets automatically, then reload the Control Panel.
+Forms Pro is not required. Token ownership, scopes and approval permissions are unchanged.
+
 ## What the token plan does
 
 | v3 token | v4 |

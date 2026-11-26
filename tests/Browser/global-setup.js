@@ -8,7 +8,7 @@ module.exports = async function globalSetup(config) {
     const email = process.env.TEST_EMAIL || 'test@example.com';
     const password = process.env.TEST_PASSWORD || 'password';
 
-    const browser = await chromium.launch();
+    const browser = await chromium.launch(config.projects[0]?.use?.launchOptions);
     const page = await browser.newPage({ baseURL, ignoreHTTPSErrors: true });
 
     await page.goto('/cp/auth/login');
@@ -17,6 +17,14 @@ module.exports = async function globalSetup(config) {
     await page.getByRole('button', { name: /continue|sign in|log in/i }).click();
     await page.waitForURL((url) => !url.pathname.includes('/auth/'), { timeout: 30000 });
     await page.waitForLoadState('networkidle');
+
+    // Statamic permits local development in trial mode. Dismiss its normal
+    // notice once, before storing the session used by the UI tests.
+    const licenseNotice = page.getByRole('dialog', { name: 'Licensing Alert' });
+    if (await licenseNotice.isVisible()) {
+        await licenseNotice.getByRole('button', { name: 'Snooze' }).click();
+        await licenseNotice.waitFor({ state: 'hidden' });
+    }
 
     await page.context().storageState({ path: authFile });
     await browser.close();

@@ -1,41 +1,16 @@
 import { defineConfig } from 'vite';
 import laravel from 'laravel-vite-plugin';
-import vue from '@vitejs/plugin-vue';
-
-/**
- * Statamic v6 externals plugin.
- * Rewrites `import { ... } from 'vue'` to use `window.Vue` at runtime,
- * matching Statamic's own vite-plugin/externals behavior.
- */
-function statamicExternals() {
-    return {
-        name: 'statamic-externals',
-        config() {
-            return {
-                build: {
-                    rollupOptions: {
-                        external: ['vue'],
-                        output: {
-                            format: 'iife',
-                            inlineDynamicImports: true,
-                            globals: {
-                                vue: 'Vue',
-                            },
-                        },
-                    },
-                },
-            };
-        },
-    };
-}
+import statamic from '@statamic/cms/vite-plugin';
+import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
     plugins: [
+        statamic(),
+        tailwindcss(),
         laravel({
             input: ['resources/js/addon.js'],
             publicDirectory: 'resources/dist',
+            hotFile: 'resources/dist/hot',
         }),
-        vue(),
-        statamicExternals(),
     ],
 });
