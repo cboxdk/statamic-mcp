@@ -22,6 +22,7 @@ use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
 use Cboxdk\StatamicMcp\Mcp\Support\ResultSchema;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\BuildsPaginatedResponse;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\EnforcesResourcePolicy;
+use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\LimitsReadResponses;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\RouterHelpers;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
@@ -36,6 +37,7 @@ abstract class BaseRouter extends BaseStatamicTool
 {
     use BuildsPaginatedResponse;
     use EnforcesResourcePolicy;
+    use LimitsReadResponses;
     use RouterHelpers;
 
     /**
@@ -262,6 +264,14 @@ abstract class BaseRouter extends BaseStatamicTool
         foreach ($this->facetActions() as $action) {
             $schema = ResultSchema::action($this->getDomain(), $action->name);
             $variants[json_encode($schema, JSON_THROW_ON_ERROR)] = $schema;
+            if ($action->name === 'get' && ! $action->writes()) {
+                $variants['projection'] = ResultSchema::object([
+                    'projection' => ['const' => true],
+                    'fields' => ['type' => 'array', 'items' => ResultSchema::object([
+                        'path' => ['type' => 'string'], 'value' => new \stdClass,
+                    ], ['path', 'value'])],
+                ], ['projection', 'fields']);
+            }
         }
         if ($this->facet !== 'read') {
             $variants['truncated'] = ResultSchema::object([
@@ -410,6 +420,8 @@ abstract class BaseRouter extends BaseStatamicTool
         }
 
         return $properties + [
+            'fields' => JsonSchema::array()->items(JsonSchema::string())->min(1)->max(50)
+                ->description('For get: dot paths into the result, e.g. ["entry.version", "entry.data.page_builder.0"]. Returns explicit path/value pairs, not a complete record. Omit to read the full record.'),
             'approval_id' => JsonSchema::string()
                 ->description('For actions that need a person\'s approval: the approval_id from the APPROVAL_REQUIRED answer. After the person approved it in the Control Panel, repeat the same call with approval_id added. The approval covers exactly that call, once.'),
             'idempotency_key' => JsonSchema::string()

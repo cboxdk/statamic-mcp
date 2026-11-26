@@ -95,6 +95,15 @@ therefore depends on the client, which is why it is configurable. Setting it to
 `0` disables the guard entirely — reasonable for a client with a large context,
 but a tool call can then return an arbitrarily large payload.
 
+Lists shorten at whole-record boundaries and return `truncated` and `next_cursor`.
+An individually oversized record returns `TOO_LARGE`; use `get` with `fields`
+to read selected paths. Successful writes, including replays, return bounded
+receipts instead of turning the saved change into an error. Keep the ceiling
+large enough for an envelope, a cursor and at least one record; it is not an
+HTTP body limit. The blueprint read tool's Claude result-size hint follows this
+setting up to that client's 500,000-character cap; disabling the server limit
+does not disable the client's cap.
+
 ### `reject_unknown_fields`
 
 Inside a replicator set, grid row, bard set or group, a key that is not a field

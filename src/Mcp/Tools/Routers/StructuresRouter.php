@@ -58,7 +58,7 @@ class StructuresRouter extends BaseRouter
 
         return [
             RouterAction::read('list', 'List collections, taxonomies, navigations, sites or global sets', optional: ['include_details', 'limit', 'cursor']),
-            RouterAction::read('get', 'Get one structure\'s configuration; for a collection, include_tree and site read its page tree', needs: ['handle'], optional: ['include_tree', 'include_counts', 'site']),
+            RouterAction::read('get', 'Get one structure\'s configuration; for a collection, include_tree and site read its page tree', needs: ['handle'], optional: ['include_tree', 'include_counts', 'site', 'fields']),
             RouterAction::admin('create', 'Create a collection, taxonomy, navigation or global set; data holds its settings', $writable, needs: ['handle'], optional: ['data']),
             RouterAction::admin('update', 'Update a structure\'s settings. A navigation\'s data may carry its trees; collection trees are changed with move', $writable, needs: ['handle', 'data']),
             RouterAction::admin('move', 'Move one collection page and its descendants using data {entry, parent}; parent is an entry id or null for the top level', ['collection'], needs: ['handle', 'data'], optional: ['site']),

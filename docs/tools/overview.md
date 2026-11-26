@@ -65,7 +65,23 @@ Approval ids, current versions and other recovery information stay in `data`. Un
 
 Lists return `data.items`, `data.next_cursor` and `data.total`. Send `next_cursor` as `cursor` on the next call, keeping the query arguments unchanged. Stop when it is `null`. You may change `limit` between pages. Invalid, modified or different-query cursors return `VALIDATION` rather than silently restarting.
 
+If the page exceeds `security.max_response_size`, it ends at a whole-record boundary and sets `truncated: true`. Its cursor resumes at the first record not returned. A single oversized record returns `TOO_LARGE` with recovery guidance; it is never silently skipped.
+
 Entries, terms, users and assets are ordered by id; configuration catalogs by handle; blueprints by namespace and handle; revisions newest first. Totals count only accessible records. Cursors are positions, not snapshots: concurrent writes can shift records between pages. Every call checks current permissions again.
+
+### Reading part of a large record
+
+Every domain's `get` accepts `fields`: 1–50 dot paths relative to the result's `data` object, including its record key. For example, `fields: ["entry.version", "entry.data.page_builder.0"]` reads the version and the first section without returning the whole page builder. Array indices are zero-based; wildcards are not supported. Missing or denied paths return `VALIDATION`, not a fabricated null.
+
+The response is explicitly a projection, not a complete record:
+
+```json
+{"projection": true, "fields": [{"path": "entry.data.title", "value": "About us"}]}
+```
+
+This avoids turning a selected array item into a replacement array when writing it back. Authorization and denied-field filtering run before projection. If a selected field is still too large, select its children. Omit `fields` for the normal full record. Blueprint `field` still scopes a field's format spec by blueprint handles; `fields` selects paths in the resulting response. On blueprint writes, `fields` remains an array of field definitions.
+
+The blueprint read tool advertises `anthropic/maxResultSizeChars`, capped at 500,000 characters, for clients that honor it. This is a client hint for the tool, not a way to bypass the server's byte limit.
 
 ### Saved records and output schemas
 

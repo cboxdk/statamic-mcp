@@ -689,7 +689,7 @@ class TermsRouter extends BaseRouter
     {
         return [
             RouterAction::read('list', 'List a taxonomy\'s terms', needs: ['taxonomy'], optional: ['site', 'filters', 'limit', 'cursor']),
-            RouterAction::read('get', 'Get one term with its data and version', needs: ['taxonomy', 'id|slug'], optional: ['site', 'include_counts']),
+            RouterAction::read('get', 'Get one term with its data and version', needs: ['taxonomy', 'id|slug'], optional: ['site', 'include_counts', 'fields']),
             RouterAction::edit('create', 'Create a term', needs: ['taxonomy', 'data'], optional: ['site', 'slug']),
             RouterAction::edit('update', 'Update a term', needs: ['taxonomy', 'id|slug', 'data'], optional: ['site', 'expected_version']),
             RouterAction::delete('delete', 'Delete a term', needs: ['taxonomy', 'id|slug'], optional: ['site', 'expected_version']),

@@ -52,7 +52,7 @@ class AssetsRouter extends BaseRouter
     {
         return [
             RouterAction::read('list', 'List containers, or the assets in one container', optional: ['container', 'folder', 'recursive', 'include_details', 'include_counts', 'limit', 'cursor']),
-            RouterAction::read('get', 'Get a container, or an asset by its path', needs: ['container'], optional: ['path', 'include_counts']),
+            RouterAction::read('get', 'Get a container, or an asset by its path', needs: ['container'], optional: ['path', 'include_counts', 'fields']),
             RouterAction::edit('create', 'Create a container (its settings in data), or an asset from inline content (filename, content, encoding)', needs: ['container'], optional: ['data', 'filename', 'content', 'encoding']),
             RouterAction::edit('update', 'Update a container\'s settings, or an asset\'s metadata by its path', needs: ['container', 'data'], optional: ['path']),
             RouterAction::delete('delete', 'Delete a container, or an asset by its path', needs: ['container'], optional: ['path']),

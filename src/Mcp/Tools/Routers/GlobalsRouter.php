@@ -402,7 +402,7 @@ class GlobalsRouter extends BaseRouter
     {
         return [
             RouterAction::read('list', 'List global sets with their values', optional: ['site', 'limit', 'cursor']),
-            RouterAction::read('get', 'Get one global set\'s values and version', needs: ['handle'], optional: ['site']),
+            RouterAction::read('get', 'Get one global set\'s values and version', needs: ['handle'], optional: ['site', 'fields']),
             RouterAction::edit('update', 'Update a global set\'s values in one site', needs: ['handle', 'data'], optional: ['site', 'expected_version']),
         ];
     }

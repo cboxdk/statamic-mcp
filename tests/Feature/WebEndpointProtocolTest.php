@@ -10,6 +10,7 @@ use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\ServiceProvider;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Illuminate\Testing\TestResponse;
+use Statamic\Facades\Blueprint;
 use Statamic\Facades\Collection;
 use Statamic\Facades\Entry;
 use Statamic\Facades\Role;
@@ -86,6 +87,29 @@ class WebEndpointProtocolTest extends TestCase
                 }
             }
         }
+    }
+
+    public function test_get_projection_and_blueprint_result_hint_are_available_over_http(): void
+    {
+        Blueprint::make('projection')->setNamespace('globals')->setContents([
+            'fields' => [['handle' => 'title', 'field' => ['type' => 'text']]],
+        ])->save();
+        $tools = collect($this->rpc('tools/list')->assertOk()->json('result.tools'))->keyBy('name');
+        $this->assertSame(100000, $tools['statamic-blueprints-read']['_meta']['anthropic/maxResultSizeChars']);
+        $this->assertSame('string', $tools['statamic-blueprints-read']['inputSchema']['properties']['fields']['items']['type']);
+        $this->assertSame('object', $tools['statamic-blueprints-admin']['inputSchema']['properties']['fields']['items']['type']);
+
+        $call = ['name' => 'statamic-blueprints-read', 'arguments' => [
+            'action' => 'get', 'namespace' => 'globals', 'handle' => 'projection', 'fields' => ['blueprint.handle'],
+        ]];
+        $this->rpc('tools/call', $call)->assertOk()
+            ->assertJsonPath('result.structuredContent.success', true)
+            ->assertJsonPath('result.structuredContent.data', [
+                'projection' => true, 'fields' => [['path' => 'blueprint.handle', 'value' => 'projection']],
+            ]);
+        config(['statamic.mcp.tools.blueprints.resources.read' => []]);
+        $this->rpc('tools/call', $call)->assertOk()->assertJsonPath('result.isError', true)
+            ->assertJsonPath('result.structuredContent.error.code', 'FORBIDDEN');
     }
 
     public function test_cursor_pages_are_ordered_query_bound_and_authorized_on_every_request(): void

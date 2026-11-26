@@ -21,6 +21,7 @@ final class ResultSchema
                 'items' => ['type' => 'array', 'items' => self::record()],
                 'next_cursor' => ['type' => ['string', 'null']],
                 'total' => ['type' => 'integer', 'minimum' => 0],
+                'truncated' => $boolean,
             ], ['items', 'next_cursor']);
         }
 

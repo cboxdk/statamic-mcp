@@ -46,8 +46,18 @@ test: `CollectionTreeRegressionTest` already checks both behaviors against real
 files through `execute()`, preserving the published file, draft and tree.
 
 Full phase 2.6 regression: **2112 passed, 33 skipped, 11160 assertions** (378.60 s).
-PHPStan 9, Pint, Composer audit and the license check passed. Remote CI is pending.
-No merge, release or deployment. Phase 2.7–2.11 and the phase-boundary independent review remain.
+PHPStan 9, Pint, Composer audit and the license check passed. Pushed as `94c2d40`;
+all 19 remote CI checks passed.
+
+Phase 2.7 implements explicit path/value projections on get, size-bounded list
+pages with continuation cursors, and the blueprint read tool's result-size hint.
+A 1,001-record pagination probe and a 150 KB page-builder read passed. Saved writes
+and their replays remain successful when their receipts need shortening. Review
+found cursor bindings diverging after denied filters were removed, and late timing
+metadata overflowing a full page; both were reproduced and fixed.
+Final regression: **2119 passed, 33 skipped, 11274 assertions** (412.47 s).
+PHPStan 9 and Pint passed. Phase 2.7 remote CI is pending.
+No merge, release or deployment. Phase 2.8–2.11 and the phase-boundary independent review remain.
 The Statamic UI-kit work follows phase 2, before phase 3.
 
 ## V00 compatibility inventory

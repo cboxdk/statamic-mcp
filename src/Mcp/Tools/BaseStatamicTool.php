@@ -315,6 +315,10 @@ abstract class BaseStatamicTool extends Tool
                 $standardized['meta']['cache'] = $cacheResults;
             }
 
+            $standardized['meta'] = [...$standardized['meta'], ...$this->writeMetadata(($standardized['success'] ?? false) === true)];
+            $standardized = $this->limitResponse($standardized, $arguments);
+            $standardized['meta'] = is_array($standardized['meta'] ?? null) ? $standardized['meta'] : [];
+
             $duration = (hrtime(true) - $startTime) / 1_000_000_000;
 
             // Execution has finished: a slow successful write is still successful.
@@ -410,8 +414,6 @@ abstract class BaseStatamicTool extends Tool
      * it's assumed to be already wrapped (e.g., from createSuccessResponse()->toArray()).
      * Otherwise, the raw array is wrapped automatically in a SuccessResponse envelope.
      *
-     * Also validates response size to prevent LLM token overflow.
-     *
      * @param  array<string, mixed>  $result
      *
      * @return array<string, mixed>
@@ -425,22 +427,44 @@ abstract class BaseStatamicTool extends Tool
             $wrapped = $this->createSuccessResponse($result)->toArray();
         }
 
+        return $wrapped;
+    }
+
+    /**
+     * @param  array<string, mixed>  $wrapped
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string, mixed>
+     */
+    private function limitResponse(array $wrapped, array $arguments): array
+    {
         // Guard against oversized responses that would overflow LLM token budgets.
         // Configurable because the ceiling that matters is the client's context
         // window, which differs per client and grows over time.
         $configuredMax = config('statamic.mcp.security.max_response_size', 100000);
         $maxBytes = is_numeric($configuredMax) ? (int) $configuredMax : 100000;
+        // Timing and audit happen after sizing so the audit records the result
+        // actually sent. Reserve their two possible metadata additions:
+        // duration_budget_exceeded:true and audit_status:"unavailable" (61 bytes).
+        $maxBytes = $maxBytes > 0 ? max(1, $maxBytes - 64) : $maxBytes;
+        $wrapped = $this->prepareReadResponse($wrapped, $arguments, $maxBytes);
 
         $encoded = json_encode($wrapped);
         if ($encoded !== false && $maxBytes > 0 && strlen($encoded) > $maxBytes) {
             // A write that landed is a success, however large its echo. Calling
-            // it an error made agents retry, and the retry wrote it twice.
-            if ($this->writeEffectsSoFar() === 'committed' && ($wrapped['success'] ?? false) === true) {
+            // it an error made agents retry, and the retry wrote it twice. A
+            // replay carries the stored success without new write effects.
+            $replayed = is_array($wrapped['data'] ?? null)
+                && (($wrapped['data']['idempotent_replay'] ?? false) === true || ($wrapped['data']['approval_replay'] ?? false) === true);
+            if (($this->writeEffectsSoFar() === 'committed' || $replayed) && ($wrapped['success'] ?? false) === true) {
                 $wrapped['data'] = [
                     ...$this->identifyingFields(is_array($wrapped['data'] ?? null) ? $wrapped['data'] : []),
                     'response_truncated' => true,
                     'note' => 'The write was saved. Its full response (' . round(strlen($encoded) / 1024) . 'KB) is over the response limit; read the record back to see it.',
                 ];
+                if (strlen((string) json_encode($wrapped)) > $maxBytes) {
+                    $wrapped['data'] = ['response_truncated' => true, 'note' => 'The write was saved. Read it back with get and fields.'];
+                }
 
                 return $wrapped;
             }
@@ -449,10 +473,27 @@ abstract class BaseStatamicTool extends Tool
                 'Response too large (' . round(strlen($encoded) / 1024) . 'KB). Use pagination or filters to reduce the result set.',
                 ['response_size_bytes' => strlen($encoded)],
                 code: ErrorCode::TooLarge,
+                hint: $this->responseSizeHint(),
             )->toArray();
         }
 
         return $wrapped;
+    }
+
+    /**
+     * @param  array<string, mixed>  $response
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string, mixed>
+     */
+    protected function prepareReadResponse(array $response, array $arguments, int $maxBytes): array
+    {
+        return $response;
+    }
+
+    protected function responseSizeHint(): string
+    {
+        return 'Narrow the request with the filters and size controls this tool advertises.';
     }
 
     /**
@@ -466,7 +507,7 @@ abstract class BaseStatamicTool extends Tool
     private function identifyingFields(array $data, bool $recordLevel = false): array
     {
         $keep = ['id', 'slug', 'handle', 'title', 'version', 'url', 'uri', 'permalink', 'collection', 'taxonomy',
-            'container', 'path', 'site', 'locale', 'published', 'status', 'parent', 'created', 'updated', 'deleted'];
+            'container', 'path', 'site', 'locale', 'published', 'status', 'parent', 'created', 'updated', 'deleted', 'idempotent_replay', 'approval_replay'];
         $slim = [];
         foreach ($data as $key => $value) {
             $key = (string) $key;
@@ -477,7 +518,8 @@ abstract class BaseStatamicTool extends Tool
                 if ($nested !== []) {
                     $slim[$key] = $nested;
                 }
-            } elseif (in_array($key, $keep, true) && (is_scalar($value) || $value === null)) {
+            } elseif (in_array($key, $keep, true) && (is_scalar($value) || $value === null)
+                && strlen((string) json_encode($value)) <= 256) {
                 $slim[$key] = $value;
             }
         }

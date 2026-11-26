@@ -10,6 +10,7 @@ use Cboxdk\StatamicMcp\Mcp\Support\FieldFormatSpec;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ChecksResourceVersions;
 use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
+use Cboxdk\StatamicMcp\Support\McpConfig;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\Support\Collection as SupportCollection;
@@ -40,13 +41,24 @@ class BlueprintsRouter extends BaseRouter
         return 'blueprints';
     }
 
+    public function toArray(): array
+    {
+        $tool = parent::toArray();
+        if ($this->presentedFacet() === 'read') {
+            $limit = McpConfig::int('security.max_response_size', 100000);
+            $tool['_meta']['anthropic/maxResultSizeChars'] = $limit > 0 ? min($limit, 500000) : 500000;
+        }
+
+        return $tool;
+    }
+
     protected function actions(): array
     {
         $where = ['namespace', 'collection', 'taxonomy'];
 
         return [
             RouterAction::read('list', 'List blueprints', optional: ['namespace', 'include_fields', 'include_details', 'limit', 'cursor']),
-            RouterAction::read('get', 'Get a blueprint\'s fields with each field\'s _format_spec, the wire format a write expects. In the collections and taxonomies namespaces, name the collection or taxonomy; field is a dot path to one field or set', needs: ['handle'], optional: [...$where, 'field', 'include_config', 'include_format_spec', 'max_format_depth']),
+            RouterAction::read('get', 'Get a blueprint\'s fields with each field\'s _format_spec, the wire format a write expects. In the collections and taxonomies namespaces, name the collection or taxonomy; field is a dot path to one field or set', needs: ['handle'], optional: [...$where, 'field', 'fields', 'include_config', 'include_format_spec', 'max_format_depth']),
             RouterAction::admin('create', 'Create a blueprint; each field has a handle and a field object carrying type', needs: ['handle'], optional: [...$where, 'fields', 'title']),
             RouterAction::admin('update', 'Update a blueprint\'s fields, merged by handle unless replace_fields is true', needs: ['handle'], optional: [...$where, 'fields', 'replace_fields', 'title']),
             RouterAction::admin('delete', 'Delete a blueprint', needs: ['handle'], optional: $where),
@@ -76,7 +88,7 @@ class BlueprintsRouter extends BaseRouter
                 ->description('Taxonomy handle. Required when namespace is "taxonomies". Example: "tags"'),
             'title' => JsonSchema::string()
                 ->description('Human-readable blueprint title. Auto-generated from handle if not provided'),
-            'fields' => JsonSchema::array()
+            'fields' => $this->presentedFacet() === 'read' ? parent::defineSchema($schema)['fields'] : JsonSchema::array()
                 ->items(JsonSchema::object())
                 ->description(
                     'Array of field definition objects. Each MUST have "handle" (string) and "field" (object with at minimum a "type" key). '

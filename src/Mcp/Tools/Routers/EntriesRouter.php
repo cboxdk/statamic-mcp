@@ -1337,7 +1337,7 @@ class EntriesRouter extends BaseRouter
     {
         return [
             RouterAction::read('list', 'List a collection\'s entries', needs: ['collection'], optional: ['site', 'filters', 'include_unpublished', 'limit', 'cursor']),
-            RouterAction::read('get', 'Get one entry with its data and version', needs: ['collection', 'id'], optional: ['site', 'revision_state']),
+            RouterAction::read('get', 'Get one entry with its data and version', needs: ['collection', 'id'], optional: ['site', 'revision_state', 'fields']),
             RouterAction::edit('create', 'Create an entry; data holds field values in the shapes the collection\'s blueprint gives them', needs: ['collection', 'data'], optional: ['site', 'slug', 'revision_message']),
             RouterAction::edit('update', 'Update an entry; a published entry with revisions enabled gets a working copy', needs: ['collection', 'id', 'data'], optional: ['site', 'expected_version', 'merge_sets', 'revision_message']),
             RouterAction::edit('localize', 'Create an entry\'s localization in another site; untranslated fields keep falling back to the origin', needs: ['collection', 'id', 'site'], optional: ['data', 'revision_message']),

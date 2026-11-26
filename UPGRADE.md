@@ -96,6 +96,12 @@ journal never holds secrets or hashes. If it cannot be written, nothing changes.
   Configuration catalogs and `list_revisions` are paginated too.
   `content_validate` retains `findings` and `summary`; its `next_cursor` and
   `total` refer to the records scanned, not the number of findings.
+- Size-limited list pages set `truncated: true` and resume with `next_cursor` at
+  the first record not returned. A single oversized record is not skipped.
+  For large records, `get` accepts `fields` as dot paths into the result, such as
+  `entry.data.page_builder.0`. This returns `{projection: true, fields: [{path, value}]}`,
+  not a partial record to send back as a replacement. Blueprint writes still take
+  field definitions in `fields`; blueprint reads take result paths.
 - Record writes return the full permitted record and its `version`; deletes return
   its last snapshot. A collection `move` includes the saved tree, without exposing
   configuration to users who may only reorder. `version` fingerprints the record;

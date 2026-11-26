@@ -37,7 +37,7 @@ class UsersRouter extends BaseRouter
 
         return [
             RouterAction::read('list', 'List users, roles or groups', optional: ['include_details', 'include_permissions', 'limit', 'cursor']),
-            RouterAction::read('get', 'Get a user by id or email, or a role or group by handle', optional: ['id', 'email', 'handle', 'include_details', 'include_permissions']),
+            RouterAction::read('get', 'Get a user by id or email, or a role or group by handle', optional: ['id', 'email', 'handle', 'include_details', 'include_permissions', 'fields']),
             RouterAction::admin('create', 'Create a user (email, name and password in data), or a role or group (handle; title, permissions or roles in data)', needs: ['data'], optional: ['handle']),
             RouterAction::admin('update', 'Update a user (id or email), or a role or group (handle). Changing your own email or password over HTTP also needs data.current_password', needs: ['data'], optional: ['id', 'email', 'handle']),
             RouterAction::admin('delete', 'Delete a user (id or email), or a role or group (handle)', optional: ['id', 'email', 'handle']),
