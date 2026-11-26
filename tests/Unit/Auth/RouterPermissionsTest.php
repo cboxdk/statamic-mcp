@@ -6,6 +6,7 @@ use Carbon\Carbon;
 use Cboxdk\StatamicMcp\Auth\McpToken;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\BlueprintsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\ContentFacadeRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\EntriesRouter;
@@ -193,9 +194,9 @@ describe('Token Scope Mapping', function () {
                 return 'nonexistent';
             }
 
-            protected function getActions(): array
+            protected function actions(): array
             {
-                return ['list' => 'List'];
+                return [RouterAction::read('list', 'List')];
             }
 
             protected function getTypes(): array

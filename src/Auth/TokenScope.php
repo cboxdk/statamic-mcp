@@ -209,23 +209,6 @@ enum TokenScope: string
     }
 
     /**
-     * The scope an action needs on top of its domain's write scope, if any.
-     *
-     * Publishing and deleting are separate grants: a v3 `entries:write`
-     * token keeps editing in v4, but cannot publish or delete until those
-     * scopes are approved for it. Admin domains (structures, blueprints,
-     * users, system) have no finer grant; their admin scope covers delete.
-     */
-    public static function extraFor(string $domain, string $action): ?self
-    {
-        return match ($action) {
-            'publish', 'unpublish', 'publish_working_copy' => self::tryFrom("{$domain}:publish"),
-            'delete' => self::tryFrom("{$domain}:delete"),
-            default => null,
-        };
-    }
-
-    /**
      * Get all available scopes.
      *
      * @return array<int, self>

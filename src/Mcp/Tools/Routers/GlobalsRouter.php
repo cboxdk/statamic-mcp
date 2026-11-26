@@ -9,6 +9,7 @@ use Cboxdk\StatamicMcp\Mcp\Support\ConditionalFieldsValidator;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ChecksResourceVersions;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\SanitizesFieldData;
+use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\Support\Facades\Gate;
@@ -42,7 +43,7 @@ class GlobalsRouter extends BaseRouter
                     . 'get (handle), '
                     . 'update (handle, data)'
                 )
-                ->enum(['list', 'get', 'update'])
+                ->enum($this->actionNames())
                 ->required(),
 
             'global_set' => JsonSchema::string()
@@ -438,12 +439,12 @@ class GlobalsRouter extends BaseRouter
         }
     }
 
-    public function getActions(): array
+    protected function actions(): array
     {
         return [
-            'list' => 'List global sets with values and pagination',
-            'get' => 'Get specific global set with values',
-            'update' => 'Update global set values',
+            RouterAction::read('list', 'List global sets with values and pagination'),
+            RouterAction::read('get', 'Get specific global set with values'),
+            RouterAction::edit('update', 'Update global set values'),
         ];
     }
 

@@ -297,7 +297,7 @@ class BlueprintsRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Unknown action: invalid_action', $result['errors'][0]);
+        $this->assertStringContainsString("Unknown action 'invalid_action'. Use one of: list, get", $result['errors'][0]);
     }
 
     public function test_missing_handle_for_get(): void

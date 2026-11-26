@@ -387,7 +387,7 @@ class AssetsRouterTest extends TestCase
 
         // Rename action doesn't exist in the router
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Unknown asset action: rename', $result['errors'][0]);
+        $this->assertStringContainsString("Unknown action 'rename'. Use one of: list, get, create, update, delete, move, copy, upload.", $result['errors'][0]);
     }
 
     public function test_delete_asset(): void
@@ -416,7 +416,7 @@ class AssetsRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Unknown container action: invalid', $result['errors'][0]);
+        $this->assertStringContainsString("Unknown action 'invalid'. Use one of: list, get", $result['errors'][0]);
     }
 
     public function test_invalid_type(): void
@@ -521,6 +521,6 @@ class AssetsRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Unknown asset action: rename', $result['errors'][0]);
+        $this->assertStringContainsString("Unknown action 'rename'. Use one of: list, get, create, update, delete, move, copy, upload.", $result['errors'][0]);
     }
 }

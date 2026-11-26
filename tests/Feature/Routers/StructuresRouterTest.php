@@ -135,7 +135,7 @@ class StructuresRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Unknown collection action: invalid', $result['errors'][0]);
+        $this->assertStringContainsString("Unknown action 'invalid'. Use one of: list, get", $result['errors'][0]);
     }
 
     public function test_invalid_type(): void

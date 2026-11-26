@@ -6,6 +6,7 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\Support\FieldFormatSpec;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\Support\Collection as SupportCollection;
@@ -34,18 +35,18 @@ class BlueprintsRouter extends BaseRouter
         return 'blueprints';
     }
 
-    public function getActions(): array
+    protected function actions(): array
     {
         return [
-            'list' => 'List blueprints in specific namespaces with optional details',
-            'get' => 'Get specific blueprint with full field definitions',
-            'create' => 'Create new blueprint from field definitions',
-            'update' => 'Update existing blueprint fields and configuration',
-            'delete' => 'Delete blueprints with safety checks',
-            'scan' => 'Scan and analyze blueprint usage patterns',
-            'generate' => 'Generate blueprints from user-provided field definitions',
-            'types' => 'Generate TypeScript/PHP type definitions from blueprints',
-            'validate' => 'Validate blueprint structure and field definitions',
+            RouterAction::read('list', 'List blueprints in specific namespaces with optional details'),
+            RouterAction::read('get', 'Get specific blueprint with full field definitions'),
+            RouterAction::admin('create', 'Create new blueprint from field definitions'),
+            RouterAction::admin('update', 'Update existing blueprint fields and configuration'),
+            RouterAction::admin('delete', 'Delete blueprints with safety checks'),
+            RouterAction::read('scan', 'Scan and analyze blueprint usage patterns'),
+            RouterAction::admin('generate', 'Generate blueprints from user-provided field definitions'),
+            RouterAction::read('types', 'Generate TypeScript/PHP type definitions from blueprints'),
+            RouterAction::read('validate', 'Validate blueprint structure and field definitions'),
         ];
     }
 
@@ -76,7 +77,7 @@ class BlueprintsRouter extends BaseRouter
                     . 'types (namespace, output_format), '
                     . 'validate (handle, namespace)'
                 )
-                ->enum(['list', 'get', 'create', 'update', 'delete', 'scan', 'generate', 'types', 'validate'])
+                ->enum($this->actionNames())
                 ->required(),
             'handle' => JsonSchema::string()
                 ->description('Blueprint identifier in snake_case. Example: "blog_post", "product"'),

@@ -6,6 +6,7 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesCollections;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesGlobalSets;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesNavigations;
@@ -48,15 +49,15 @@ class StructuresRouter extends BaseRouter
         return 'structures';
     }
 
-    public function getActions(): array
+    protected function actions(): array
     {
         return [
-            'list' => 'List structures by type with configuration details',
-            'get' => 'Get specific structure configuration and details',
-            'create' => 'Create new structures with configuration',
-            'update' => 'Update structure configuration and settings',
-            'delete' => 'Delete structures with safety checks',
-            'configure' => 'Configure structure-specific settings and options',
+            RouterAction::read('list', 'List structures by type with configuration details'),
+            RouterAction::read('get', 'Get specific structure configuration and details'),
+            RouterAction::admin('create', 'Create new structures with configuration', ['collection', 'taxonomy', 'navigation', 'globalset']),
+            RouterAction::admin('update', 'Update structure configuration and settings', ['collection', 'taxonomy', 'navigation', 'globalset']),
+            RouterAction::admin('delete', 'Delete structures with safety checks', ['collection', 'taxonomy', 'navigation', 'globalset']),
+            RouterAction::admin('configure', 'Configure structure-specific settings and options', ['collection', 'taxonomy', 'navigation', 'globalset']),
         ];
     }
 
@@ -84,7 +85,7 @@ class StructuresRouter extends BaseRouter
                     . 'delete (resource_type, handle), '
                     . 'configure (resource_type, handle, config)'
                 )
-                ->enum(['list', 'get', 'create', 'update', 'delete', 'configure'])
+                ->enum($this->actionNames())
                 ->required(),
             'resource_type' => JsonSchema::string()
                 ->description('Type of structure to manage. Determines available actions and data format.')

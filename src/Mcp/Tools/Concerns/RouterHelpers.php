@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Concerns;
 
+use Cboxdk\StatamicMcp\Actions\ActionEffect;
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Authorization\McpCall;
 use Cboxdk\StatamicMcp\Mcp\ExtraTools;
+use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
 use Cboxdk\StatamicMcp\Support\McpContext;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
@@ -95,8 +97,13 @@ trait RouterHelpers
         $scope = $this->getRequiredTokenScope($action);
         $scopes = $scope === null ? [] : [$scope];
 
-        // Publishing and deleting need their own scope on top of write.
-        $extra = TokenScope::extraFor($this->getDomain(), $action);
+        // Publishing and deleting need their own scope on top of write, in
+        // the domains that have one.
+        $extra = match ($this->declaredAction($action)?->effect) {
+            ActionEffect::Publish => TokenScope::tryFrom($this->getDomain() . ':publish'),
+            ActionEffect::Delete => TokenScope::tryFrom($this->getDomain() . ':delete'),
+            default => null,
+        };
         if ($scope !== null && $extra !== null) {
             $scopes[] = $extra;
         }
@@ -119,7 +126,7 @@ trait RouterHelpers
     protected function getRequiredTokenScope(string $action): ?TokenScope
     {
         $domain = $this->getDomain();
-        // One classification for scope and resource policy: EnforcesResourcePolicy::isWriteAction().
+        // One classification for scope and resource policy: the action's declared effect.
         $isWrite = $this->isWriteAction($action);
 
         return $isWrite ? TokenScope::writeFor($domain) : TokenScope::tryFrom("{$domain}:read");
@@ -274,4 +281,6 @@ trait RouterHelpers
     abstract protected function getDomain(): string;
 
     abstract protected function isWriteAction(string $action): bool;
+
+    abstract public function declaredAction(string $action): ?RouterAction;
 }

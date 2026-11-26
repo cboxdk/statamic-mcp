@@ -95,7 +95,7 @@ class SystemRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Unknown system action: invalid_action', $result['errors'][0]);
+        $this->assertStringContainsString("Unknown action 'invalid_action'. Use one of: info, health", $result['errors'][0]);
     }
 
     public function test_invalid_type(): void

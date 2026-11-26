@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed (breaking)
 
+- Tools from other packages declare their actions in `actions()` as `RouterAction::read()`, `edit()`, `publish()`, `delete()` or `admin()` instead of `getActions()`. The declared effect decides scopes, write mode and approvals; an action's name no longer does, so a `purge` or `send` action is no longer checked as a read. An undeclared action, or a `resource_type` the action does not apply to, is refused with the valid choices.
+- `statamic-structures` no longer offers create, update, delete or configure for sites, which only ever answered "not supported"; `configure sites` alone no longer offers `structures:admin`.
 - Retire `content:read` and `content:write`. No tool ever asked for them, so they granted nothing in v3 either; they are no longer offered, advertised or part of the presets and the default OAuth scopes. `mcp:migrate-v4 --apply` drops them from personal tokens, and an OAuth refresh drops them from the grant without asking for consent again.
 - A list `filters` key must be a field handle of the collection's or taxonomy's blueprints or a named property (`id`, `slug`, `title`, `published`, `status`, `date`, `uri`, `parent`, `origin` for entries; `id`, `slug`, `title`, `uri` for terms), with a scalar value. Anything else is refused with the valid keys. An unknown key used to answer an empty list and leave a permanent Stache index behind, which every later save kept up to date.
 - Relationship fields take references that exist. A `terms` field takes term slugs (`taxonomy::slug` when it spans several taxonomies), an `entries` field takes ids of entries in its collections, a `users` field takes user ids; anything else is refused with the existing values. A UUID in a terms field used to create a junk term, also for a token without `terms:write`.
@@ -91,6 +93,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Users who may edit roles or user groups are offered `users:read`, which the role and group reads need.
 - A write that landed but whose response was over `security.max_response_size` was reported as a failure, so a retry wrote it twice. It now answers success with the record's identifying fields and `response_truncated: true`.
 - The MCP Admin page answered 500 when `STATAMIC_MCP_RATE_LIMIT_MAX` (or another number) came from `.env` as a string in a config published before v4.
 - `content_validate` failed on a site without taxonomies, and on an unknown or denied taxonomy or collection; it now validates nothing there.

@@ -23,6 +23,7 @@ declare(strict_types=1);
 namespace Vendor\Package\Mcp;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 
@@ -35,10 +36,9 @@ class SiteHealthRouter extends BaseRouter
         return 'system';
     }
 
-    /** @return array<string, string> */
-    protected function getActions(): array
+    protected function actions(): array
     {
-        return ['get' => 'Get the health report'];
+        return [RouterAction::read('get', 'Get the health report')];
     }
 
     /** @return array<string, string> */
@@ -117,8 +117,11 @@ than failing discovery.
 Exactly like a built-in router, in the same order:
 
 1. **Enabled** — `statamic.mcp.tools.{domain}.enabled`.
-2. **Token scope** — `{domain}:read` or `{domain}:write`, by action. A domain this
-   package has no scope for (`site-health`, say) requires a full-access `*` token.
+2. **Token scope** — by the action's declared effect: `{domain}:read` for a read, the
+   domain's write scope (`{domain}:admin` where there is one, else `{domain}:write`) for
+   anything else, plus `{domain}:publish` or `{domain}:delete` for a publish or delete
+   effect in a domain that has them. A domain this package has no scope for
+   (`site-health`, say) is refused for every token.
 3. **Resource policy** — by domain, as configured.
 4. **Statamic permission** — whatever `getRequiredPermissions()` returns. If it returns
    nothing, only a super admin may call the tool. Name the permission your tool
@@ -130,6 +133,8 @@ The two fail-closed rules matter because a third-party router that forgets to de
 a scope or a permission would otherwise be open to every token and every Control Panel
 user.
 
-A write action is any action whose name is one of the write verbs the package knows
-(`create`, `update`, `delete`, `publish`, `upload`, …); everything else is checked as a
-read.
+Each action is declared in `actions()` with its effect: `RouterAction::read()`,
+`edit()`, `publish()`, `delete()` or `admin()`. The effect, not the action's name, decides
+whether the call writes, which scopes it needs and what the approval shows. An action that
+is not declared is refused before anything else runs, and so is a `resource_type` the
+action's declaration does not list.

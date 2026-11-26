@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesGroups;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesRoles;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesUsers;
@@ -28,19 +29,19 @@ class UsersRouter extends BaseRouter
         return 'users';
     }
 
-    public function getActions(): array
+    protected function actions(): array
     {
         return [
-            'list' => 'List users, roles, or groups with filtering',
-            'get' => 'Get specific user, role, or group details',
-            'create' => 'Create new user, role, or group',
-            'update' => 'Update existing user, role, or group',
-            'delete' => 'Delete user, role, or group',
-            'activate' => 'Activate user account',
-            'deactivate' => 'Deactivate user account',
-            'search' => 'Search and filter users by name, email, role, group, or status',
-            'assign_role' => 'Assign role to user',
-            'remove_role' => 'Remove role from user',
+            RouterAction::read('list', 'List users, roles, or groups with filtering'),
+            RouterAction::read('get', 'Get specific user, role, or group details'),
+            RouterAction::admin('create', 'Create new user, role, or group'),
+            RouterAction::admin('update', 'Update existing user, role, or group'),
+            RouterAction::admin('delete', 'Delete user, role, or group'),
+            RouterAction::admin('activate', 'Activate user account', ['user']),
+            RouterAction::admin('deactivate', 'Deactivate user account', ['user']),
+            RouterAction::read('search', 'Search and filter users by name, email, role, group, or status', ['user']),
+            RouterAction::admin('assign_role', 'Assign role to user', ['user']),
+            RouterAction::admin('remove_role', 'Remove role from user', ['user']),
         ];
     }
 
@@ -70,7 +71,7 @@ class UsersRouter extends BaseRouter
                     . 'assign_role (resource_type=user, id or email, role), '
                     . 'remove_role (resource_type=user, id or email, role)'
                 )
-                ->enum(['list', 'get', 'create', 'update', 'delete', 'activate', 'deactivate', 'search', 'assign_role', 'remove_role'])
+                ->enum($this->actionNames())
                 ->required(),
             'resource_type' => JsonSchema::string()
                 ->description('Type of user resource. "user" for accounts, "role" for permission roles, "group" for user groups')

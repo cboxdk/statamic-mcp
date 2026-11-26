@@ -469,7 +469,7 @@ class TermsRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('not supported', $result['errors'][0]);
+        $this->assertStringContainsString("Unknown action 'nonexistent_action'. Use one of: list, get, create, update, delete.", $result['errors'][0]);
     }
 
     // ─── Site validation ───────────────────────────────────────────────

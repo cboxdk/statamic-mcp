@@ -26,7 +26,7 @@ The addon provides scoped API tokens for fine-grained MCP access control:
 - **Guard**: Custom `McpTokenGuard` registered as the `mcp` auth guard
 - **Scopes**: 29 scopes via `TokenScope` enum (e.g., `entries:read`, `entries:write`, `entries:publish`, `*`)
 - **Publish and delete are their own grants** in the entries, terms and assets domains
-  (`TokenScope::extraFor()`): `checkWebPermissions()` requires them on top of `{domain}:write`,
+  (an action declared `RouterAction::publish()`/`delete()`): the call needs them on top of `{domain}:write`,
   and `EntriesRouter::authorizeResolvedEntry()` requires `entries:publish` for a `published`
   flag on create/update too.
 - **Admin domains use `{domain}:admin`** (structures, blueprints, users, system), resolved by
@@ -58,7 +58,10 @@ The addon provides scoped API tokens for fine-grained MCP access control:
 `src/Auth/ScopeAvailability.php` decides which scopes a user is *offered* (dashboard picker,
 token create/edit, OAuth consent). It mirrors every router's `getRequiredPermissions()` by
 hand — **a router that changes its permissions must change the matching line there too**, or
-editors get offered dead scopes or lose live ones. It never grants access; the per-call
+editors get offered dead scopes or lose live ones. `ScopeAvailabilityTest` ("offers exactly the
+scopes the routers let a permission set use") checks the mirror against the routers themselves
+in both directions; it found `configure sites` offering `structures:admin` and role/group
+editors missing `users:read`. It never grants access; the per-call
 check in `checkWebPermissions()` still runs. `getRequiredPermissions()` may return a nested
 list, meaning "any one of these" (used by the blueprint read actions).
 
@@ -155,12 +158,18 @@ A 3.3.0 security audit hardened the tool layer. Keep these when touching routers
   `configure asset containers` satisfies every asset action, as in
   `AssetPolicy::before()`, and `copy` needs `upload` like `DuplicateAsset`.
   An unscoped `list` has no handle to check, so it filters per item.
+- **Every action is declared once, in the router's `actions()`** as a `RouterAction`
+  (`read`, `edit`, `publish`, `delete`, `admin`, optionally limited to resource types). The
+  effect decides write mode, token scopes, idempotency, unknown-argument refusal and the
+  operation record; the schema's action enum is derived from it. An undeclared action or a
+  `resource_type` the declaration does not list is refused before authorization. A declared
+  action must reach a real handler (`ActionCoverageInventoryTest`), so no placeholder action
+  can sit in a schema.
 - **Every built-in action is in the coverage inventory**
   (`tests/Feature/Authorization/ActionCoverageInventoryTest.php`): mode, token
   scopes and a Statamic permission per action and resource type. Its read
   actions are listed by hand, so a new action is treated as a write until it is
-  listed there. Whether an action writes is decided once, by
-  `EnforcesResourcePolicy::isWriteAction()`; the token scope follows it.
+  listed there, a second opinion on each declaration.
 - **The built-in writes are tested on `statamic/eloquent-driver`**
   (`tests/Integration/EloquentDriverTest.php`, its own CI job; skips locally without
   the driver). Every repository MCP touches runs on the driver there (entries, trees,
@@ -1040,9 +1049,8 @@ silent junk writes `reject_unknown_fields` prevents. `parent` is deliberately ex
 
 `localize` creates an entry's localization in another site via Statamic's
 `makeLocalization()`, so the origin is set and untranslated fields keep falling back. It
-is a **write** action — it appears in the write lists in both `EnforcesResourcePolicy`
-and `RouterHelpers`, which is what makes it require `entries:write` and a write-mode
-resource policy check. Any new write action must be added to both.
+is a **write** action — declared `RouterAction::edit()`, which is what makes it require
+`entries:write` and a write-mode resource policy check.
 
 Date fields are converted once, in `SanitizesFieldData::sanitizeDateValue()`, at every
 level of a record. Statamic validates a date in the Control Panel's wire format (ISO 8601

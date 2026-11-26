@@ -222,7 +222,8 @@ class ScopeAvailability
             TokenScope::StructuresRead => $this->holdsAny($user, ['configure collections', 'configure taxonomies', 'configure navs', 'configure sites', 'configure globals'])
                 || $this->holdsForAny($user, $this->collectionHandles(), fn (string $h): array => ["view {$h} entries"])
                 || $this->holdsForAny($user, $this->navHandles(), fn (string $h): array => ["view {$h} nav"]),
-            TokenScope::StructuresAdmin => $this->holdsAny($user, ['configure collections', 'configure taxonomies', 'configure navs', 'configure sites', 'configure globals'])
+            // Sites are read-only over MCP, so configure sites gives no admin scope.
+            TokenScope::StructuresAdmin => $this->holdsAny($user, ['configure collections', 'configure taxonomies', 'configure navs', 'configure globals'])
                 || $this->holdsForAny($user, $this->collectionHandles(), fn (string $h): array => ["reorder {$h} entries"])
                 || $this->holdsForAny($user, $this->navHandles(), fn (string $h): array => ["edit {$h} nav"]),
 
@@ -232,7 +233,8 @@ class ScopeAvailability
                 || $this->holdsAny($user, ['configure fields', 'configure collections', 'configure taxonomies']),
             TokenScope::BlueprintsAdmin => $user->hasPermission('configure fields'),
 
-            TokenScope::UsersRead => $user->hasPermission('view users'),
+            // Roles and groups are read with the permission that edits them.
+            TokenScope::UsersRead => $this->holdsAny($user, ['view users', 'edit roles', 'edit user groups']),
             TokenScope::UsersAdmin => $this->holdsAny($user, [
                 'create users', 'edit users', 'delete users', 'assign roles', 'edit roles', 'edit user groups',
             ]),

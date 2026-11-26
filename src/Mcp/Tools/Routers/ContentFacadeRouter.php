@@ -7,6 +7,7 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ValidatesContentRecords;
+use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
 use Cboxdk\StatamicMcp\Mcp\Validation\Finding;
 use Cboxdk\StatamicMcp\Mcp\Validation\FindingType;
 use Cboxdk\StatamicMcp\Mcp\Validation\RecordRef;
@@ -44,12 +45,12 @@ class ContentFacadeRouter extends BaseRouter
         return 'content-facade';
     }
 
-    public function getActions(): array
+    protected function actions(): array
     {
         return [
-            'content_audit' => 'Scan all content for issues across collections, taxonomies, and globals',
-            'content_validate' => 'Validate stored content against its blueprints and report schema drift',
-            'cross_reference' => 'Analyze relationships and dependencies between content types',
+            RouterAction::read('content_audit', 'Scan all content for issues across collections, taxonomies, and globals'),
+            RouterAction::read('content_validate', 'Validate stored content against its blueprints and report schema drift'),
+            RouterAction::read('cross_reference', 'Analyze relationships and dependencies between content types'),
         ];
     }
 

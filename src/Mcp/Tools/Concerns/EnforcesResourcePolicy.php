@@ -163,18 +163,4 @@ trait EnforcesResourcePolicy
 
         return null;
     }
-
-    /**
-     * Check if an action is a write action.
-     */
-    protected function isWriteAction(string $action): bool
-    {
-        return in_array($action, [
-            'create', 'generate', 'update', 'delete', 'publish', 'unpublish', 'localize',
-            'activate', 'deactivate', 'assign_role', 'remove_role',
-            'move', 'copy', 'upload', 'configure',
-            'cache_clear', 'cache_warm', 'config_set',
-            'restore_revision', 'publish_working_copy',
-        ], true);
-    }
 }

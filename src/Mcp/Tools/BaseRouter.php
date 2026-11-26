@@ -39,11 +39,70 @@ abstract class BaseRouter extends BaseStatamicTool
     abstract protected function getDomain(): string;
 
     /**
-     * Get available actions for this router.
+     * Every action this router offers, with its effect. The one place an
+     * action is classified: scopes, resource policy mode, idempotency,
+     * approvals and the schema's action list all read it.
      *
-     * @return array<string, string> Action name => description mapping
+     * @return list<RouterAction>
      */
-    abstract protected function getActions(): array;
+    abstract protected function actions(): array;
+
+    /** @var array<string, RouterAction>|null */
+    private ?array $declaredActions = null;
+
+    /** The declaration of an action, or null when the router has no such action. */
+    public function declaredAction(string $action): ?RouterAction
+    {
+        if ($this->declaredActions === null) {
+            $this->declaredActions = [];
+            foreach ($this->actions() as $declared) {
+                if (isset($this->declaredActions[$declared->name])) {
+                    throw new \LogicException(static::class . " declares the action '{$declared->name}' twice.");
+                }
+                $this->declaredActions[$declared->name] = $declared;
+            }
+        }
+
+        return $this->declaredActions[$action] ?? null;
+    }
+
+    /** @return list<RouterAction> */
+    public function declaredActions(): array
+    {
+        $this->declaredAction('');
+
+        return array_values($this->declaredActions ?? []);
+    }
+
+    /** @return list<string> */
+    protected function actionNames(): array
+    {
+        return array_map(fn (RouterAction $action): string => $action->name, $this->declaredActions());
+    }
+
+    /**
+     * Action name => description, as discovery and the schema tool show them.
+     *
+     * @return array<string, string>
+     */
+    public function getActions(): array
+    {
+        $actions = [];
+        foreach ($this->declaredActions() as $action) {
+            $actions[$action->name] = $action->description;
+        }
+
+        return $actions;
+    }
+
+    /**
+     * Whether the action writes. An undeclared action counts as a write, so
+     * anything that slipped past the declaration check fails closed.
+     */
+    protected function isWriteAction(string $action): bool
+    {
+        return $this->declaredAction($action)?->writes() ?? true;
+    }
 
     /**
      * Get available types/resources for this router.
@@ -153,6 +212,20 @@ abstract class BaseRouter extends BaseStatamicTool
         }
 
         $action = is_string($arguments['action'] ?? null) ? $arguments['action'] : '';
+
+        $declared = $this->declaredAction($action);
+        if ($declared === null) {
+            return $this->createErrorResponse(
+                ($action === '' ? 'action is required.' : "Unknown action '{$action}'.")
+                . ' Use one of: ' . implode(', ', $this->actionNames()) . '.'
+            )->toArray();
+        }
+        $type = is_string($arguments['resource_type'] ?? null) ? $arguments['resource_type'] : null;
+        if (! $declared->appliesTo($type)) {
+            return $this->createErrorResponse(
+                "The {$action} action does not apply to resource_type '{$type}'. It applies to: " . implode(', ', $declared->types) . '.'
+            )->toArray();
+        }
 
         // A write must not drop what it was asked to do: a top-level
         // `published` on create was ignored, and the entry saved as a draft.
@@ -407,12 +480,7 @@ abstract class BaseRouter extends BaseStatamicTool
 
     private function actionEffect(string $action): ActionEffect
     {
-        return match (true) {
-            in_array($this->getDomain(), ['structures', 'blueprints', 'users', 'system'], true) => ActionEffect::Admin,
-            $action === 'delete' => ActionEffect::Delete,
-            in_array($action, ['publish', 'unpublish', 'publish_working_copy'], true) => ActionEffect::Publish,
-            default => ActionEffect::Edit,
-        };
+        return $this->declaredAction($action)->effect ?? ActionEffect::Edit;
     }
 
     /**

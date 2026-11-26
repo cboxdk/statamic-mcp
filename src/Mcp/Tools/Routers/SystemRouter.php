@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\Support\Collection;
@@ -33,16 +34,16 @@ class SystemRouter extends BaseRouter
         return 'system';
     }
 
-    public function getActions(): array
+    protected function actions(): array
     {
         return [
-            'info' => 'Get comprehensive system information and status',
-            'health' => 'Perform system health checks and diagnostics',
-            'cache_status' => 'Check cache status and statistics',
-            'cache_clear' => 'Clear system caches for optimization',
-            'cache_warm' => 'Warm system caches for performance',
-            'config_get' => 'Get system configuration values',
-            'config_set' => 'Set system configuration values',
+            RouterAction::read('info', 'Get comprehensive system information and status'),
+            RouterAction::read('health', 'Perform system health checks and diagnostics'),
+            RouterAction::read('cache_status', 'Check cache status and statistics'),
+            RouterAction::admin('cache_clear', 'Clear system caches for optimization'),
+            RouterAction::admin('cache_warm', 'Warm system caches for performance'),
+            RouterAction::read('config_get', 'Get system configuration values'),
+            RouterAction::admin('config_set', 'Set system configuration values'),
         ];
     }
 
@@ -70,7 +71,7 @@ class SystemRouter extends BaseRouter
                     . 'config_get (config_key), '
                     . 'config_set (config_key, config_value)'
                 )
-                ->enum(['info', 'health', 'cache_status', 'cache_clear', 'cache_warm', 'config_get', 'config_set'])
+                ->enum($this->actionNames())
                 ->required(),
             'resource_type' => JsonSchema::string()
                 ->description('System component type. Optional — most actions do not require this.')

@@ -17,6 +17,7 @@ use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ChecksResourceVersions;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\HandlesRevisions;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ParsesDateValues;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\SanitizesFieldData;
+use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Cboxdk\StatamicMcp\Support\McpContext;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
@@ -117,7 +118,7 @@ class EntriesRouter extends BaseRouter
                     . 'restore_revision (collection, id, revision_id), '
                     . 'publish_working_copy (collection, id; optional: revision_message)'
                 )
-                ->enum(['list', 'get', 'create', 'update', 'delete', 'localize', 'publish', 'unpublish', 'list_revisions', 'get_revision', 'restore_revision', 'publish_working_copy'])
+                ->enum($this->actionNames())
                 ->required(),
 
             'collection' => JsonSchema::string()
@@ -1514,24 +1515,21 @@ class EntriesRouter extends BaseRouter
         }
     }
 
-    /**
-     * @return array<string, string>
-     */
-    public function getActions(): array
+    protected function actions(): array
     {
         return [
-            'list' => 'List entries with filtering and pagination',
-            'get' => 'Get specific entry with full data (supports version param for revision-aware reads)',
-            'create' => 'Create new entry (uses store() with initial revision when revisions enabled)',
-            'update' => 'Update existing entry (creates working copy when revisions enabled and entry is published)',
-            'localize' => 'Create a localization of an entry in another site; untranslated fields fall back to the origin',
-            'delete' => 'Delete entry',
-            'publish' => 'Publish entry (promotes working copy when revisions enabled)',
-            'unpublish' => 'Unpublish entry (creates revision snapshot when revisions enabled)',
-            'list_revisions' => 'List revision history for an entry (requires revisions enabled)',
-            'get_revision' => 'Get a specific revision by timestamp ID with full data snapshot',
-            'restore_revision' => 'Restore entry from a specific revision (creates working copy for published, updates directly for unpublished)',
-            'publish_working_copy' => 'Publish the current working copy (requires existing working copy)',
+            RouterAction::read('list', 'List entries with filtering and pagination'),
+            RouterAction::read('get', 'Get specific entry with full data (supports version param for revision-aware reads)'),
+            RouterAction::edit('create', 'Create new entry (uses store() with initial revision when revisions enabled)'),
+            RouterAction::edit('update', 'Update existing entry (creates working copy when revisions enabled and entry is published)'),
+            RouterAction::edit('localize', 'Create a localization of an entry in another site; untranslated fields fall back to the origin'),
+            RouterAction::delete('delete', 'Delete entry'),
+            RouterAction::publish('publish', 'Publish entry (promotes working copy when revisions enabled)'),
+            RouterAction::publish('unpublish', 'Unpublish entry (creates revision snapshot when revisions enabled)'),
+            RouterAction::read('list_revisions', 'List revision history for an entry (requires revisions enabled)'),
+            RouterAction::read('get_revision', 'Get a specific revision by timestamp ID with full data snapshot'),
+            RouterAction::edit('restore_revision', 'Restore entry from a specific revision (creates working copy for published, updates directly for unpublished)'),
+            RouterAction::publish('publish_working_copy', 'Publish the current working copy (requires existing working copy)'),
         ];
     }
 

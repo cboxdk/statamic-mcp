@@ -6,6 +6,7 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
 use Cboxdk\StatamicMcp\Support\Http\FetchRefused;
 use Cboxdk\StatamicMcp\Support\Http\OutboundFetcher;
 use Cboxdk\StatamicMcp\Support\McpConfig;
@@ -36,17 +37,17 @@ class AssetsRouter extends BaseRouter
         return 'assets';
     }
 
-    public function getActions(): array
+    protected function actions(): array
     {
         return [
-            'list' => 'List assets or containers with filtering options',
-            'get' => 'Get specific asset or container details',
-            'create' => 'Create new asset containers or create assets from inline content (base64 or raw text)',
-            'update' => 'Update asset metadata or container configuration',
-            'delete' => 'Delete assets or containers',
-            'move' => 'Move assets to different locations',
-            'copy' => 'Copy assets to different locations',
-            'upload' => 'Upload a file to a container: from a URL the server fetches (source_url), from base64 content, or from a local file_path (CLI clients)',
+            RouterAction::read('list', 'List assets or containers with filtering options'),
+            RouterAction::read('get', 'Get specific asset or container details'),
+            RouterAction::edit('create', 'Create new asset containers or create assets from inline content (base64 or raw text)'),
+            RouterAction::edit('update', 'Update asset metadata or container configuration'),
+            RouterAction::delete('delete', 'Delete assets or containers'),
+            RouterAction::edit('move', 'Move assets to different locations', ['asset']),
+            RouterAction::edit('copy', 'Copy assets to different locations', ['asset']),
+            RouterAction::edit('upload', 'Upload a file to a container: from a URL the server fetches (source_url), from base64 content, or from a local file_path (CLI clients)', ['asset']),
         ];
     }
 
@@ -73,7 +74,7 @@ class AssetsRouter extends BaseRouter
                     . 'copy (resource_type=asset, container, path, destination), '
                     . 'upload (resource_type=asset, container, optional folder; source_url to fetch from the web, OR content+encoding+filename, OR file_path for local CLI clients)'
                 )
-                ->enum(['list', 'get', 'create', 'update', 'delete', 'move', 'copy', 'upload'])
+                ->enum($this->actionNames())
                 ->required(),
             'resource_type' => JsonSchema::string()
                 ->description('Type of asset resource. "container" for storage containers, "asset" for individual files within containers.')

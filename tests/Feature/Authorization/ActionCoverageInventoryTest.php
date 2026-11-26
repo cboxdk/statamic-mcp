@@ -7,6 +7,7 @@ namespace Cboxdk\StatamicMcp\Tests\Feature\Authorization;
 use Cboxdk\StatamicMcp\Mcp\Resources\Concerns\AuthorizesResourceAccess;
 use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\UsersRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\System\DiscoveryTool;
 use Cboxdk\StatamicMcp\Mcp\Tools\System\SchemaTool;
 use Cboxdk\StatamicMcp\Tests\TestCase;
@@ -91,6 +92,49 @@ class ActionCoverageInventoryTest extends TestCase
         foreach (self::READS as $domain => $reads) {
             $this->assertSame([], array_diff($reads, $seen[$domain] ?? []), "{$domain}: inventory names actions the tool does not have");
         }
+    }
+
+    /**
+     * A declared action is a promise: the schema offers it. Every declared
+     * action must reach a real handler for every resource_type it applies
+     * to, never a "not supported" or "unknown action" answer.
+     */
+    public function test_every_declared_action_reaches_a_handler(): void
+    {
+        foreach ($this->routers() as $router) {
+            $types = array_keys($this->invoke($router, 'getTypes')) ?: [null];
+
+            foreach ($router->declaredActions() as $declared) {
+                foreach ($types as $type) {
+                    if (! $declared->appliesTo($type)) {
+                        continue;
+                    }
+                    $label = trim(get_class($router) . " {$declared->name} {$type}");
+                    try {
+                        $result = $this->invoke($router, 'executeAction', array_filter([
+                            'action' => $declared->name, 'resource_type' => $type, 'handle' => 'mcp_probe_missing',
+                        ], fn ($value) => $value !== null));
+                    } catch (\Throwable) {
+                        continue; // Reached a handler that refused the probe's arguments.
+                    }
+                    $error = implode(' ', array_map('strval', (array) ($result['errors'] ?? [])));
+                    $this->assertDoesNotMatchRegularExpression('/^Unknown [a-z ]*(action|type)\b|not supported via MCP/i', $error, $label);
+                }
+            }
+        }
+    }
+
+    public function test_an_undeclared_action_or_type_is_refused_before_anything_runs(): void
+    {
+        $router = new UsersRouter;
+
+        $unknown = $this->invoke($router, 'executeInternal', ['action' => 'impersonate', 'resource_type' => 'user']);
+        $this->assertFalse($unknown['success']);
+        $this->assertStringContainsString("Unknown action 'impersonate'. Use one of: list, get", implode(' ', $unknown['errors']));
+
+        $wrongType = $this->invoke($router, 'executeInternal', ['action' => 'activate', 'resource_type' => 'role', 'handle' => 'editor']);
+        $this->assertFalse($wrongType['success']);
+        $this->assertStringContainsString("does not apply to resource_type 'role'. It applies to: user", implode(' ', $wrongType['errors']));
     }
 
     public function test_every_tool_outside_the_routers_is_read_only(): void

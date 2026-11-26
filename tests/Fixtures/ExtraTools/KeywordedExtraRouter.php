@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Tests\Fixtures\ExtraTools;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 
@@ -28,12 +29,9 @@ class KeywordedExtraRouter extends BaseRouter
         return 'fixture-seo';
     }
 
-    /**
-     * @return array<string, string>
-     */
-    protected function getActions(): array
+    protected function actions(): array
     {
-        return ['get' => 'Get a page\'s SEO values'];
+        return [RouterAction::read('get', 'Get a page\'s SEO values')];
     }
 
     /**

@@ -9,6 +9,7 @@ use Cboxdk\StatamicMcp\Mcp\Support\SeoProFieldData;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ChecksResourceVersions;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\SanitizesFieldData;
+use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\Support\Facades\Validator;
@@ -57,7 +58,7 @@ class TermsRouter extends BaseRouter
                     . 'update (taxonomy, id or slug, data), '
                     . 'delete (taxonomy, id or slug)'
                 )
-                ->enum(['list', 'get', 'create', 'update', 'delete'])
+                ->enum($this->actionNames())
                 ->required(),
 
             'taxonomy' => JsonSchema::string()
@@ -749,14 +750,14 @@ class TermsRouter extends BaseRouter
         }
     }
 
-    public function getActions(): array
+    protected function actions(): array
     {
         return [
-            'list' => 'List terms with filtering and pagination',
-            'get' => 'Get specific term with full data',
-            'create' => 'Create new term',
-            'update' => 'Update existing term',
-            'delete' => 'Delete term',
+            RouterAction::read('list', 'List terms with filtering and pagination'),
+            RouterAction::read('get', 'Get specific term with full data'),
+            RouterAction::edit('create', 'Create new term'),
+            RouterAction::edit('update', 'Update existing term'),
+            RouterAction::delete('delete', 'Delete term'),
         ];
     }
 

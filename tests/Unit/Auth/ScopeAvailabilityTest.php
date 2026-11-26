@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 use Cboxdk\StatamicMcp\Auth\ScopeAvailability;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
+use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
+use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Illuminate\Support\Facades\Config;
 use Statamic\Contracts\Auth\User as UserContract;
 use Statamic\Facades\AssetContainer;
@@ -241,4 +243,82 @@ it('offers structure writes to collection reorderers without navigation permissi
     expect($this->availability->allows($editor, TokenScope::StructuresAdmin))->toBeTrue();
     Config::set('statamic.mcp.tools.structures.resources.write', []);
     expect($this->availability->allows($editor, TokenScope::StructuresAdmin))->toBeFalse();
+});
+
+/*
+ * ScopeAvailability mirrors every router's getRequiredPermissions() by hand.
+ * This keeps the mirror honest with the routers themselves as the oracle:
+ * for every declared action, resource type and fixture handle, a user holding
+ * exactly the permissions the router asks for must be offered every scope the
+ * call needs, and a user is offered nothing that no such call lets them use.
+ * A router whose permissions change without the mirror fails here.
+ */
+it('offers exactly the scopes the routers let a permission set use', function () {
+    $routers = array_map(fn (string $class) => new $class, array_values(array_filter(
+        (new ReflectionClass(StatamicMcpServer::class))->getDefaultProperties()['tools'],
+        fn ($tool) => is_string($tool) && is_subclass_of($tool, BaseRouter::class),
+    )));
+    $describe = fn (object $router, string $action, array $arguments) => (new ReflectionMethod($router, 'describeCall'))->invoke($router, $action, $arguments);
+
+    // permission set (sorted, joined) => scopes the calls it satisfies need
+    $reach = [];
+    foreach ($routers as $router) {
+        $types = array_keys((new ReflectionMethod($router, 'getTypes'))->invoke($router)) ?: [null];
+        foreach ($router->declaredActions() as $declared) {
+            foreach ($types as $type) {
+                if (! $declared->appliesTo($type)) {
+                    continue;
+                }
+                foreach (['blog', 'tags', 'footer', 'images', 'main', ''] as $handle) {
+                    foreach ([[], ['entry' => 'some-entry', 'parent' => null]] as $data) {
+                        $call = $describe($router, $declared->name, array_filter([
+                            'action' => $declared->name, 'resource_type' => $type, 'handle' => $handle,
+                            'collection' => 'blog', 'taxonomy' => 'tags', 'container' => 'images', 'data' => $data,
+                        ], fn ($value) => $value !== null && $value !== '' && $value !== []));
+                        if ($call->permissions === []) {
+                            continue; // Filtered per item, or open by site config: proves nothing about a permission.
+                        }
+                        // Every way to satisfy the requirement: one permission from each any-of entry.
+                        $sets = [[]];
+                        foreach ($call->permissions as $required) {
+                            $next = [];
+                            foreach ($sets as $set) {
+                                foreach ((array) $required as $alternative) {
+                                    $next[] = [...$set, $alternative];
+                                }
+                            }
+                            $sets = $next;
+                        }
+                        foreach ($sets as $set) {
+                            // 'super' is no permission; one naming a record that does not exist proves nothing.
+                            $existing = ['entries' => 'blog', 'terms' => 'tags', 'globals' => 'footer', 'assets' => 'images', 'nav' => 'main'];
+                            if (in_array('super', $set, true) || array_filter($set, fn (string $p) => preg_match('/^[a-z]+ (\\S+) (entries|terms|globals|assets|nav)$/', $p, $m) === 1 && $existing[$m[2]] !== $m[1]) !== []) {
+                                continue;
+                            }
+                            $set = array_values(array_unique($set));
+                            sort($set);
+                            $key = implode('|', $set);
+                            $reach[$key] = array_values(array_unique([...($reach[$key] ?? []), ...array_map(fn ($s) => $s->value, $call->scopes)]));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    expect($reach)->not->toBeEmpty();
+    foreach ($reach as $key => $needed) {
+        $permissions = explode('|', $key);
+        // What any call this exact set satisfies needs, including calls of smaller sets.
+        $usable = [];
+        foreach ($reach as $other => $scopes) {
+            if (array_diff(explode('|', $other), $permissions) === []) {
+                $usable = [...$usable, ...$scopes];
+            }
+        }
+        $offered = scopeValues($this->availability->forUser(userHolding($permissions)));
+
+        expect(array_values(array_diff($needed, $offered)))->toBe([], "Holding [{$key}] passes a router call needing these scopes, but they are not offered");
+        expect(array_values(array_diff($offered, $usable)))->toBe([], "Holding [{$key}] is offered scopes no router call lets it use");
+    }
 });

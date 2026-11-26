@@ -80,7 +80,7 @@ class UsersRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Unknown user action: invalid', $result['errors'][0]);
+        $this->assertStringContainsString("Unknown action 'invalid'. Use one of: list, get", $result['errors'][0]);
     }
 
     public function test_missing_id_for_user_get(): void

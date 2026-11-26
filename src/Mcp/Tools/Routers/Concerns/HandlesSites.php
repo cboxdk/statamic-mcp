@@ -25,7 +25,6 @@ trait HandlesSites
         return match ($action) {
             'list' => $this->listSites($arguments),
             'get' => $this->getSite($arguments),
-            'create', 'update', 'delete', 'configure' => $this->createErrorResponse('Site mutations require configuration file changes — not supported via MCP')->toArray(),
             default => $this->createErrorResponse("Unknown site action: {$action}")->toArray(),
         };
     }
