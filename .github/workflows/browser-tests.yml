@@ -76,7 +76,7 @@ jobs:
         run: |
           mkdir -p vendor/statamic
           ln -s ../../../site/vendor/statamic/cms vendor/statamic/cms
-          npm install
+          npm install --install-links
           npm run build
 
       - name: Publish addon assets
