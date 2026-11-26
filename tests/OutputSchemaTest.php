@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\AssetsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\BlueprintsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\EntriesRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\FormsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\GlobalsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\StructuresRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\SystemRouter;
@@ -29,6 +30,7 @@ it('returns output schema with standard envelope from all tools', function (stri
     EntriesRouter::class,
     TermsRouter::class,
     GlobalsRouter::class,
+    FormsRouter::class,
     BlueprintsRouter::class,
     StructuresRouter::class,
     AssetsRouter::class,

@@ -145,6 +145,10 @@ class ScopeAvailability
             TokenScope::GlobalsWrite => $user->hasPermission('configure globals')
                 || $this->holdsForAny($user, $this->globalHandles(), fn (string $h): array => ["edit {$h} globals"]),
 
+            // FormPolicy grants every form action through one permission.
+            TokenScope::FormsRead,
+            TokenScope::FormsWrite => $user->hasPermission('configure forms'),
+
             TokenScope::AssetsRead => $user->hasPermission('configure asset containers')
                 || $this->holdsForAny($user, $this->containerHandles(), fn (string $h): array => ["view {$h} assets"]),
             TokenScope::AssetsWrite => $user->hasPermission('configure asset containers')

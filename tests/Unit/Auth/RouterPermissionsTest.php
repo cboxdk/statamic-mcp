@@ -9,12 +9,14 @@ use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\BlueprintsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\ContentFacadeRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\EntriesRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\FormsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\GlobalsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\TermsRouter;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\File;
 use Statamic\Facades\Collection;
 
 uses(RefreshDatabase::class);
@@ -257,6 +259,11 @@ describe('Token Scope Mapping', function () {
         $routersAndScopes = [
             [new GlobalsRouter, 'list', TokenScope::GlobalsRead],
             [new GlobalsRouter, 'update', TokenScope::GlobalsWrite],
+            [new FormsRouter, 'list', TokenScope::FormsRead],
+            [new FormsRouter, 'get', TokenScope::FormsRead],
+            [new FormsRouter, 'create', TokenScope::FormsWrite],
+            [new FormsRouter, 'update', TokenScope::FormsWrite],
+            [new FormsRouter, 'delete', TokenScope::FormsWrite],
             [new TermsRouter, 'get', TokenScope::TermsRead],
             [new TermsRouter, 'create', TokenScope::TermsWrite],
         ];
@@ -589,6 +596,45 @@ describe('TermsRouter Permission Definitions', function () {
 
         $perms = $method->invoke($router, 'unknown_action', ['taxonomy' => 'tags']);
         expect($perms)->toBe([]);
+    });
+});
+
+describe('FormsRouter Permission Definitions', function () {
+    it('requires configure forms for every action, as FormPolicy does', function () {
+        $router = new FormsRouter;
+        $method = new ReflectionMethod($router, 'getRequiredPermissions');
+
+        foreach (['list', 'get', 'create', 'update', 'delete'] as $action) {
+            expect($method->invoke($router, $action, ['handle' => 'contact']))->toBe(['configure forms'], $action);
+        }
+    });
+
+    it('refuses an editor without configure forms, and a token without forms:write', function () {
+        $formsPath = sys_get_temp_dir() . '/statamic-mcp-forms-' . bin2hex(random_bytes(6));
+        config(['statamic.forms.forms' => $formsPath, 'statamic.editions.pro' => true]);
+
+        try {
+            actAsUser(createMockUser(permissions: ['view contact form submissions']));
+            setMcpTokenOnRequest(createToken([TokenScope::FormsRead->value, TokenScope::FormsWrite->value]));
+
+            $result = (new FormsRouter)->execute(['action' => 'create', 'data' => ['title' => 'Contact']]);
+            expect($result['success'])->toBeFalse()
+                ->and($result['errors'][0])->toContain('Permission denied');
+
+            actAsUser(createMockUser(permissions: ['configure forms']));
+            setMcpTokenOnRequest(createToken([TokenScope::FormsRead->value]));
+
+            $result = (new FormsRouter)->execute(['action' => 'create', 'data' => ['title' => 'Contact']]);
+            expect($result['success'])->toBeFalse()
+                ->and($result['errors'][0])->toContain('forms:write');
+
+            setMcpTokenOnRequest(createToken([TokenScope::FormsRead->value, TokenScope::FormsWrite->value]));
+
+            $result = (new FormsRouter)->execute(['action' => 'create', 'data' => ['title' => 'Contact']]);
+            expect($result['success'])->toBeTrue(json_encode($result['errors'] ?? []));
+        } finally {
+            File::deleteDirectory($formsPath);
+        }
     });
 });
 

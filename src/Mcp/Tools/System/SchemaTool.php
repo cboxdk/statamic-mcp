@@ -95,6 +95,12 @@ class SchemaTool extends BaseStatamicTool
                 'key_params' => ['handle', 'site', 'data'],
                 'write' => true,
             ],
+            'statamic-forms' => [
+                'domain' => 'structure',
+                'actions' => ['list', 'get', 'create', 'update', 'delete'],
+                'key_params' => ['handle', 'data (title, honeypot, store, email, addon settings)'],
+                'write' => true,
+            ],
             'statamic-blueprints' => [
                 'domain' => 'structure',
                 'actions' => ['list', 'get', 'create', 'update', 'delete', 'scan', 'generate', 'types', 'validate'],

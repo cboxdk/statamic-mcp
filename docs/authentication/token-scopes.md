@@ -1,6 +1,6 @@
 ---
 title: "Token Scopes"
-description: "All 21 granular permission scopes for controlling what AI assistants can access via MCP tokens"
+description: "All 23 granular permission scopes for controlling what AI assistants can access via MCP tokens"
 weight: 1
 ---
 
@@ -23,6 +23,8 @@ Every API token carries a set of scopes that control which tools and actions the
 | `terms:write` | Create, update, delete terms |
 | `globals:read` | Read global sets and their values |
 | `globals:write` | Update global values, manage global sets |
+| `forms:read` | Read forms and their settings |
+| `forms:write` | Create, configure, delete forms |
 | `structures:read` | Read collections, taxonomies, navigations, sites |
 | `structures:write` | Create, update, delete structural configuration |
 | `assets:read` | Read asset containers and files |
@@ -102,6 +104,7 @@ Each tool maps to a scope domain:
 | `statamic-entries` | `entries` |
 | `statamic-terms` | `terms` |
 | `statamic-globals` | `globals` |
+| `statamic-forms` | `forms` |
 | `statamic-structures` | `structures` |
 | `statamic-assets` | `assets` |
 | `statamic-users` | `users` |

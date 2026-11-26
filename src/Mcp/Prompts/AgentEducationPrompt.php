@@ -75,6 +75,7 @@ You are working with a sophisticated MCP (Model Context Protocol) server for Sta
 - `statamic-entries` - Entry management (list, create, update, delete, publish)
 - `statamic-terms` - Taxonomy term management
 - `statamic-globals` - Global set management
+- `statamic-forms` - Form settings (title, honeypot, storage, email notifications)
 - `statamic-blueprints` - Blueprint and schema management
 - `statamic-structures` - Collections, taxonomies, navigations, sites
 - `statamic-assets` - Asset containers and file operations

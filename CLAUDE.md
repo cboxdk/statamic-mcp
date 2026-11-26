@@ -24,7 +24,7 @@ The addon provides scoped API tokens for fine-grained MCP access control:
 - **Token Management**: Via Statamic CP dashboard (Tools → MCP → Tokens)
 - **Token Storage**: Eloquent model (`McpToken`) with SHA-256 hashed tokens
 - **Guard**: Custom `McpTokenGuard` registered as the `mcp` auth guard
-- **Scopes**: 21 granular scopes via `TokenScope` enum (e.g., `content:read`, `content:write`, `*`)
+- **Scopes**: 23 granular scopes via `TokenScope` enum (e.g., `content:read`, `content:write`, `*`)
 
 ### Key Auth Classes
 - `src/Auth/TokenScope.php` — Backed string enum with scope helpers
@@ -778,6 +778,7 @@ class StatamicExportStrategy extends BaseStatamicTool
 - `statamic-entries` - Entry CRUD with filtering and publishing workflows
 - `statamic-terms` - Taxonomy term management router
 - `statamic-globals` - Global set structure and values router
+- `statamic-forms` - Form settings router (title, honeypot, storage, email notifications)
 - `statamic-structures` - Structural elements router (collections, taxonomies, navigations)
 - `statamic-assets` - Asset management router
 - `statamic-users` - User management router
@@ -978,6 +979,24 @@ in a write path** — a conditionally required field would block every write aga
 **`statamic-terms`** — list, get, create, update, delete
 
 **`statamic-globals`** — list, get, update (global set values with multi-site support)
+
+**`statamic-forms`** — list, get, create, update, delete
+
+Form *settings* only — the ones the CP's Configure Form screen edits (`title`, `honeypot`,
+`store`, `email`, plus addon fields from `Form::appendConfigFields()`, validated against
+their own field configs). A form's fields are its blueprint and stay with
+`statamic-blueprints` (namespace `forms`), behind that domain's scope and confirmation
+gate — do not accept `fields` here, or `forms:write` becomes a way round them.
+Submissions are deliberately not exposed: they are personal data and need their own
+permission model. Every action requires `configure forms`, as `FormPolicy::before()` does.
+
+`Form::find()` builds a file path from the handle, so every handle passes Statamic's
+`Handle` rule before any lookup. `resolveResourceHandle()` returns the handle `create`
+derives from the title when none is sent, so the policy sees the form actually written.
+Settings travel in `data` (input and `form.data` output) so `denied_fields` cover them.
+Forms are plain files outside the Stache, and Statamic's invalidator already handles
+`FormSaved`/`FormDeleted`, so writes queue no cache clear. Tests must point
+`statamic.forms.forms` at a temp dir, or forms leak into Testbench's skeleton app.
 
 **`statamic-structures`** — list/get/create for collections, taxonomies, navigations, and sites (via `resource_type` param)
 

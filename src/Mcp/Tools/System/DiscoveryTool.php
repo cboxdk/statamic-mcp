@@ -22,6 +22,7 @@ use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 use Statamic\Contracts\Auth\User;
 use Statamic\Facades\AssetContainer;
 use Statamic\Facades\Collection;
+use Statamic\Facades\Form;
 use Statamic\Facades\GlobalSet;
 use Statamic\Facades\Site;
 use Statamic\Facades\Taxonomy;
@@ -100,6 +101,9 @@ class DiscoveryTool extends BaseStatamicTool
             'statamic-entries' => ['entry', 'entries', 'content', 'article', 'page', 'post', 'publish', 'unpublish', 'draft'],
             'statamic-terms' => ['term', 'terms', 'taxonomy', 'tag', 'category', 'categorize'],
             'statamic-globals' => ['global', 'globals', 'site settings', 'footer', 'header', 'seo'],
+            // Not a bare 'form': intents are matched by substring, and it would hit
+            // 'format', 'platform' and 'information'.
+            'statamic-forms' => ['forms', 'a form', 'the form', 'contact form', 'form setting', 'form notification', 'honeypot'],
             'statamic-blueprints' => ['blueprint', 'field', 'schema', 'fieldset', 'fieldtype', 'scan'],
             'statamic-structures' => ['collection', 'navigation', 'nav', 'structure', 'taxonomy setup', 'site config'],
             'statamic-assets' => ['asset', 'file', 'image', 'media', 'upload', 'container', 'storage'],
@@ -112,6 +116,7 @@ class DiscoveryTool extends BaseStatamicTool
             'statamic-entries' => 'CRUD operations on entries (list, get, create, update, delete, publish, unpublish)',
             'statamic-terms' => 'CRUD operations on taxonomy terms',
             'statamic-globals' => 'Read and update global sets and their values',
+            'statamic-forms' => 'Create, configure and delete forms (title, honeypot, storage, email notifications); form fields are its blueprint',
             'statamic-blueprints' => 'Manage blueprints: list, get, create, update, delete, scan, generate, types, validate',
             'statamic-structures' => 'Manage collections, taxonomies, navigations, sites, and global sets',
             'statamic-assets' => 'Manage asset containers and files (list, get, upload, move, copy, delete)',
@@ -340,6 +345,16 @@ class DiscoveryTool extends BaseStatamicTool
                 $state['global_sets'] = $allowed('globals', $rows);
             }
 
+            if ($may('configure forms')) {
+                $rows = [];
+                foreach (Form::all() as $f) {
+                    if ($f instanceof \Statamic\Contracts\Forms\Form) {
+                        $rows[] = ['handle' => (string) $f->handle(), 'title' => $f->title()];
+                    }
+                }
+                $state['forms'] = $allowed('forms', $rows);
+            }
+
             if ($may('configure sites')) {
                 $sites = Site::all();
                 $siteList = [];
@@ -367,6 +382,7 @@ class DiscoveryTool extends BaseStatamicTool
             'entries' => 'Cboxdk\\StatamicMcp\\Mcp\\Tools\\Routers\\EntriesRouter',
             'terms' => 'Cboxdk\\StatamicMcp\\Mcp\\Tools\\Routers\\TermsRouter',
             'globals' => 'Cboxdk\\StatamicMcp\\Mcp\\Tools\\Routers\\GlobalsRouter',
+            'forms' => 'Cboxdk\\StatamicMcp\\Mcp\\Tools\\Routers\\FormsRouter',
             'blueprints' => 'Cboxdk\\StatamicMcp\\Mcp\\Tools\\Routers\\BlueprintsRouter',
             'structures' => 'Cboxdk\\StatamicMcp\\Mcp\\Tools\\Routers\\StructuresRouter',
             'assets' => 'Cboxdk\\StatamicMcp\\Mcp\\Tools\\Routers\\AssetsRouter',

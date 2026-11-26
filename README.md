@@ -74,6 +74,11 @@ Taxonomy term operations with slug conflict prevention, dependency validation, a
 ### Global Management — `statamic-globals`
 Global set structure and values management with multi-site support, change tracking, and field-level filtering.
 
+### Form Management — `statamic-forms`
+Actions: `list`, `get`, `create`, `update`, `delete`
+
+Create forms and change their settings: title, honeypot, submission storage, email notifications, and any settings addons register. Form fields are edited through `statamic-blueprints` (namespace `forms`).
+
 ### Structure Management — `statamic-structures`
 Collection, taxonomy, navigation, and site configuration management.
 

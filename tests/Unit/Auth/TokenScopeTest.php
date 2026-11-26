@@ -5,11 +5,11 @@ declare(strict_types=1);
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 
 // ---------------------------------------------------------------------------
-// 1. All 21 cases exist with correct string values
+// 1. All 23 cases exist with correct string values
 // ---------------------------------------------------------------------------
 
-it('has exactly 21 cases', function (): void {
-    expect(TokenScope::cases())->toHaveCount(21);
+it('has exactly 23 cases', function (): void {
+    expect(TokenScope::cases())->toHaveCount(23);
 });
 
 it('maps every case to its correct string value', function (TokenScope $scope, string $expected): void {
@@ -34,6 +34,8 @@ it('maps every case to its correct string value', function (TokenScope $scope, s
     'TermsWrite' => [TokenScope::TermsWrite, 'terms:write'],
     'GlobalsRead' => [TokenScope::GlobalsRead, 'globals:read'],
     'GlobalsWrite' => [TokenScope::GlobalsWrite, 'globals:write'],
+    'FormsRead' => [TokenScope::FormsRead, 'forms:read'],
+    'FormsWrite' => [TokenScope::FormsWrite, 'forms:write'],
     'ContentFacadeRead' => [TokenScope::ContentFacadeRead, 'content-facade:read'],
     'ContentFacadeWrite' => [TokenScope::ContentFacadeWrite, 'content-facade:write'],
 ]);
@@ -72,6 +74,8 @@ it('returns the correct label for each case', function (TokenScope $scope, strin
     'TermsWrite' => [TokenScope::TermsWrite, 'Write Terms'],
     'GlobalsRead' => [TokenScope::GlobalsRead, 'Read Globals'],
     'GlobalsWrite' => [TokenScope::GlobalsWrite, 'Write Globals'],
+    'FormsRead' => [TokenScope::FormsRead, 'Read Forms'],
+    'FormsWrite' => [TokenScope::FormsWrite, 'Write Forms'],
     'ContentFacadeRead' => [TokenScope::ContentFacadeRead, 'Read Content Facade'],
     'ContentFacadeWrite' => [TokenScope::ContentFacadeWrite, 'Write Content Facade'],
 ]);
@@ -102,20 +106,22 @@ it('returns the correct group for each case', function (TokenScope $scope, strin
     'TermsWrite' => [TokenScope::TermsWrite, 'terms'],
     'GlobalsRead' => [TokenScope::GlobalsRead, 'globals'],
     'GlobalsWrite' => [TokenScope::GlobalsWrite, 'globals'],
+    'FormsRead' => [TokenScope::FormsRead, 'forms'],
+    'FormsWrite' => [TokenScope::FormsWrite, 'forms'],
     'ContentFacadeRead' => [TokenScope::ContentFacadeRead, 'content-facade'],
     'ContentFacadeWrite' => [TokenScope::ContentFacadeWrite, 'content-facade'],
 ]);
 
 // ---------------------------------------------------------------------------
-// 4. all() returns all 21 cases
+// 4. all() returns all 23 cases
 // ---------------------------------------------------------------------------
 
-it('returns all 21 cases from all()', function (): void {
+it('returns all 23 cases from all()', function (): void {
     $all = TokenScope::all();
 
     expect($all)
         ->toBeArray()
-        ->toHaveCount(21)
+        ->toHaveCount(23)
         ->each->toBeInstanceOf(TokenScope::class);
 });
 
@@ -149,6 +155,8 @@ it('resolves valid scope strings via tryFrom', function (string $value): void {
     'terms:write',
     'globals:read',
     'globals:write',
+    'forms:read',
+    'forms:write',
     'content-facade:read',
     'content-facade:write',
 ]);
@@ -171,7 +179,7 @@ it('returns null from tryFrom for invalid scope strings', function (string $valu
 // ---------------------------------------------------------------------------
 
 it('has exactly a read and write scope for each domain', function (): void {
-    $domains = ['content', 'structures', 'assets', 'users', 'system', 'blueprints', 'entries', 'terms', 'globals', 'content-facade'];
+    $domains = ['content', 'structures', 'assets', 'users', 'system', 'blueprints', 'entries', 'terms', 'globals', 'forms', 'content-facade'];
 
     foreach ($domains as $domain) {
         $readScope = TokenScope::tryFrom("{$domain}:read");
@@ -184,7 +192,7 @@ it('has exactly a read and write scope for each domain', function (): void {
     }
 });
 
-it('groups domain scopes into 10 domains plus access', function (): void {
+it('groups domain scopes into 11 domains plus access', function (): void {
     $groups = array_unique(array_map(
         fn (TokenScope $scope): string => $scope->group(),
         TokenScope::cases(),
@@ -199,6 +207,7 @@ it('groups domain scopes into 10 domains plus access', function (): void {
         'content',
         'content-facade',
         'entries',
+        'forms',
         'globals',
         'structures',
         'system',

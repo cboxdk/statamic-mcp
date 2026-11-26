@@ -133,8 +133,8 @@ trait EnforcesResourcePolicy
             $result['data'] = $policy->filterFields($domain, $resultData);
         }
 
-        // Filter nested 'data' within domain-specific wrapper keys (e.g. entry.data, term.data)
-        foreach (['entry', 'term', 'global', 'asset', 'user'] as $wrapper) {
+        // Filter nested 'data' within domain-specific wrapper keys (e.g. entry.data, term.data, form.data)
+        foreach (['entry', 'term', 'global', 'asset', 'user', 'form'] as $wrapper) {
             if (! isset($result[$wrapper]) || ! is_array($result[$wrapper])) {
                 continue;
             }
