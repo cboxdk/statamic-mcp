@@ -20,7 +20,7 @@ use Statamic\Facades\Taxonomy;
 use Statamic\Facades\User;
 use Symfony\Component\Yaml\Yaml;
 
-class StructuresConfigurePolicyTest extends TestCase
+class StructuresUpdatePolicyTest extends TestCase
 {
     protected function setUp(): void
     {
@@ -66,7 +66,7 @@ class StructuresConfigurePolicyTest extends TestCase
     }
 
     #[DataProvider('structuresAndTransports')]
-    public function test_configure_preserves_denied_title_on_disk(string $type, string $facade, string $transport): void
+    public function test_update_preserves_denied_title_on_disk(string $type, string $facade, string $transport): void
     {
         $structure = $facade::make('demo')->title('Original');
         $structure->save();
@@ -74,23 +74,22 @@ class StructuresConfigurePolicyTest extends TestCase
         Stache::refresh();
 
         $arguments = [
-            'action' => 'configure', 'resource_type' => $type, 'handle' => 'demo',
+            'action' => 'update', 'resource_type' => $type, 'handle' => 'demo',
             'data' => ['title' => 'Changed'],
         ];
 
         $result = $transport === 'cli'
             ? (new StructuresRouter)->execute($arguments)
-            : $this->configureOverHttp($arguments, $this->token($transport))->assertOk()->json('result.structuredContent');
+            : $this->updateOverHttp($arguments, $this->token($transport))->assertOk()->json('result.structuredContent');
 
         $this->assertTrue($result['success'], json_encode($result) ?: '');
-        $this->assertTrue($result['data']['configured']);
         $this->assertSame('Original', Yaml::parseFile($path)['title']);
         Stache::refresh();
         $this->assertSame('Original', $facade::find('demo')->title());
     }
 
     #[DataProvider('structures')]
-    public function test_configure_still_changes_title_without_a_denied_field_policy(string $type, string $facade): void
+    public function test_update_changes_title_without_a_denied_field_policy(string $type, string $facade): void
     {
         config(['statamic.mcp.tools.structures.denied_fields' => []]);
         $structure = $facade::make('demo')->title('Original');
@@ -98,12 +97,11 @@ class StructuresConfigurePolicyTest extends TestCase
         Stache::refresh();
 
         $result = (new StructuresRouter)->execute([
-            'action' => 'configure', 'resource_type' => $type, 'handle' => 'demo',
+            'action' => 'update', 'resource_type' => $type, 'handle' => 'demo',
             'data' => ['title' => 'Changed'],
         ]);
 
         $this->assertTrue($result['success'], json_encode($result) ?: '');
-        $this->assertTrue($result['data']['configured']);
         $this->assertSame('Changed', Yaml::parseFile($structure->path())['title']);
     }
 
@@ -113,8 +111,8 @@ class StructuresConfigurePolicyTest extends TestCase
         $collection->save();
         Stache::refresh();
 
-        $response = $this->configureOverHttp([
-            'action' => 'configure', 'resource_type' => 'collection', 'handle' => 'demo',
+        $response = $this->updateOverHttp([
+            'action' => 'update', 'resource_type' => 'collection', 'handle' => 'demo',
             'data' => ['title' => 'Changed', 'template' => 'updated'],
         ], $this->token('pat'));
 
@@ -124,34 +122,34 @@ class StructuresConfigurePolicyTest extends TestCase
         $this->assertSame('updated', $saved['template']);
     }
 
-    public function test_global_set_configure_returns_the_saved_configuration(): void
+    public function test_global_set_update_returns_the_saved_title(): void
     {
         config(['statamic.mcp.tools.structures.denied_fields' => []]);
         $globalSet = GlobalSet::make('demo')->title('Original');
         $globalSet->save();
         Stache::refresh();
 
-        $response = $this->configureOverHttp([
-            'action' => 'configure', 'resource_type' => 'globalset', 'handle' => 'demo',
+        $response = $this->updateOverHttp([
+            'action' => 'update', 'resource_type' => 'globalset', 'handle' => 'demo',
             'data' => ['title' => 'Changed'],
         ], $this->token('pat'));
 
         $response->assertOk()
             ->assertJsonPath('result.structuredContent.success', true)
-            ->assertJsonPath('result.structuredContent.data.configured', true)
+            ->assertJsonPath('result.structuredContent.data.globalset.updated', true)
             ->assertJsonPath('result.structuredContent.data.globalset.handle', 'demo')
-            ->assertJsonPath('result.structuredContent.data.globalset.config', Yaml::parseFile($globalSet->path()));
+            ->assertJsonPath('result.structuredContent.data.globalset.title', Yaml::parseFile($globalSet->path())['title']);
         $this->assertSame('Changed', Yaml::parseFile($globalSet->path())['title']);
     }
 
-    public function test_config_uses_the_same_recursive_field_policy_as_data(): void
+    public function test_update_uses_the_recursive_field_policy(): void
     {
         config(['statamic.mcp.tools.structures.denied_fields' => ['secret']]);
         Nav::make('demo')->title('Demo')->save();
         Stache::refresh();
 
         $result = (new StructuresRouter)->execute([
-            'action' => 'configure', 'resource_type' => 'navigation', 'handle' => 'demo',
+            'action' => 'update', 'resource_type' => 'navigation', 'handle' => 'demo',
             'data' => ['tree' => [[
                 'url' => '/public',
                 'data' => ['secret' => 'Denied', 'visible' => 'Kept'],
@@ -163,14 +161,14 @@ class StructuresConfigurePolicyTest extends TestCase
         $this->assertSame(['visible' => 'Kept'], Yaml::parseFile($tree->path())['tree'][0]['data']);
     }
 
-    public function test_navigation_configure_data_remains_filtered(): void
+    public function test_navigation_update_data_remains_filtered(): void
     {
         $navigation = Nav::make('demo')->title('Original');
         $navigation->save();
         Stache::refresh();
 
         $result = (new StructuresRouter)->execute([
-            'action' => 'configure', 'resource_type' => 'navigation', 'handle' => 'demo',
+            'action' => 'update', 'resource_type' => 'navigation', 'handle' => 'demo',
             'data' => ['title' => 'Changed', 'max_depth' => 2],
         ]);
 
@@ -188,21 +186,21 @@ class StructuresConfigurePolicyTest extends TestCase
         return [
             'unauthenticated' => [null, true, ['demo'], null],
             'read-only token' => [TokenScope::StructuresRead, true, ['demo'], 'Token missing required scope: structures:admin'],
-            'missing permission' => [TokenScope::StructuresAdmin, false, ['demo'], 'Permission denied: Cannot configure structures'],
+            'missing permission' => [TokenScope::StructuresAdmin, false, ['demo'], 'Permission denied: Cannot update structures'],
             'resource policy' => [TokenScope::StructuresAdmin, true, ['other'], "Write access to 'demo' is not permitted by resource policy"],
         ];
     }
 
     #[DataProvider('deniedAccess')]
-    public function test_configure_still_requires_normal_access_checks(?TokenScope $scope, bool $permitted, array $resources, ?string $error): void
+    public function test_update_requires_normal_access_checks(?TokenScope $scope, bool $permitted, array $resources, ?string $error): void
     {
         $collection = Collection::make('demo')->title('Original')->template('original');
         $collection->save();
         Stache::refresh();
         config(['statamic.mcp.tools.structures.resources.write' => $resources]);
 
-        $response = $this->configureOverHttp([
-            'action' => 'configure', 'resource_type' => 'collection', 'handle' => 'demo',
+        $response = $this->updateOverHttp([
+            'action' => 'update', 'resource_type' => 'collection', 'handle' => 'demo',
             'data' => ['title' => 'Changed', 'template' => 'updated'],
         ], $scope === null ? null : $this->token('pat', $scope, $permitted));
 
@@ -219,16 +217,16 @@ class StructuresConfigurePolicyTest extends TestCase
         $this->assertSame('original', $saved['template']);
     }
 
-    public function test_configure_takes_its_settings_in_data_and_refuses_the_v3_config_argument(): void
+    public function test_update_takes_its_settings_in_data_and_refuses_the_v3_config_argument(): void
     {
         $schema = (new StructuresRouter)->facet('write')->toArray()['inputSchema'];
         $this->assertArrayNotHasKey('config', $schema['properties']);
-        $this->assertStringContainsString("configure: Change a structure's settings. Needs handle, data.", $schema['properties']['action']['description']);
+        $this->assertNotContains('configure', $schema['properties']['action']['enum']);
 
         Nav::make('demo')->title('Original')->save();
         Stache::refresh();
         $result = (new StructuresRouter)->execute([
-            'action' => 'configure', 'resource_type' => 'navigation', 'handle' => 'demo',
+            'action' => 'update', 'resource_type' => 'navigation', 'handle' => 'demo',
             'config' => ['title' => 'Changed'],
         ]);
 
@@ -276,7 +274,7 @@ class StructuresConfigurePolicyTest extends TestCase
     /**
      * @param  array<string, mixed>  $arguments
      */
-    private function configureOverHttp(array $arguments, ?string $token): TestResponse
+    private function updateOverHttp(array $arguments, ?string $token): TestResponse
     {
         return $this->postJson('/mcp/statamic', [
             'jsonrpc' => '2.0',

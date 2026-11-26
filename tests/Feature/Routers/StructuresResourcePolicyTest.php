@@ -71,7 +71,7 @@ class StructuresResourcePolicyTest extends TestCase
             'action' => $action,
             'resource_type' => $type,
             'handle' => $handle,
-            ...(in_array($action, ['update', 'configure'], true) ? ['data' => ['handle' => $dataHandle, 'title' => 'Hijacked']] : []),
+            ...($action === 'update' ? ['data' => ['handle' => $dataHandle, 'title' => 'Hijacked']] : []),
         ]);
     }
 
@@ -80,7 +80,7 @@ class StructuresResourcePolicyTest extends TestCase
         Collection::make('protected')->title('Original')->save();
         Stache::refresh();
 
-        foreach (['get', 'update', 'delete', 'configure'] as $action) {
+        foreach (['get', 'update', 'delete'] as $action) {
             foreach (['allowed', '', ['allowed']] as $dataHandle) {
                 $result = $this->structureCall($action, 'collection', 'protected', $dataHandle);
 
@@ -101,7 +101,7 @@ class StructuresResourcePolicyTest extends TestCase
 
         foreach (['taxonomy', 'navigation', 'globalset', 'site'] as $type) {
             $handle = $type === 'site' ? 'default' : 'protected';
-            $actions = $type === 'site' ? ['get'] : ['get', 'update', 'delete', 'configure'];
+            $actions = $type === 'site' ? ['get'] : ['get', 'update', 'delete'];
 
             foreach ($actions as $action) {
                 foreach (['allowed', '', ['allowed']] as $dataHandle) {

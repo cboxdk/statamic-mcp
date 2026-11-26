@@ -57,9 +57,9 @@ class StructuresRouter extends BaseRouter
             RouterAction::read('list', 'List collections, taxonomies, navigations, sites or global sets; collections and taxonomies page with limit and offset', optional: ['include_details', 'limit', 'offset']),
             RouterAction::read('get', 'Get one structure\'s configuration; for a collection, include_tree and site read its page tree', needs: ['handle'], optional: ['include_tree', 'include_counts', 'site']),
             RouterAction::admin('create', 'Create a collection, taxonomy, navigation or global set; data holds its settings', $writable, needs: ['handle'], optional: ['data']),
-            RouterAction::admin('update', 'Update a structure\'s settings. A navigation\'s data may carry its trees; a collection\'s data {entry, parent} moves one page in the site\'s tree', $writable, needs: ['handle', 'data'], optional: ['site']),
+            RouterAction::admin('update', 'Update a structure\'s settings. A navigation\'s data may carry its trees; collection trees are changed with move', $writable, needs: ['handle', 'data']),
+            RouterAction::admin('move', 'Move one collection page and its descendants using data {entry, parent}; parent is an entry id or null for the top level', ['collection'], needs: ['handle', 'data'], optional: ['site']),
             RouterAction::admin('delete', 'Delete a structure; its content must be deleted first', $writable, needs: ['handle']),
-            RouterAction::admin('configure', 'Change a structure\'s settings', $writable, needs: ['handle', 'data']),
         ];
     }
 
@@ -78,12 +78,12 @@ class StructuresRouter extends BaseRouter
     {
         return array_merge(parent::defineSchema($schema), [
             'handle' => JsonSchema::string()
-                ->description('Structure identifier in snake_case. Required for get, create, update, delete, configure. Example: "blog" for collection, "tags" for taxonomy'),
+                ->description('Structure identifier in snake_case. Required for get, create, update, move, delete. Example: "blog" for collection, "tags" for taxonomy'),
             'data' => JsonSchema::object()
                 ->description('Structure data for create/update. Fields depend on resource_type. Action get on the read tool shows the current configuration. '
                     . 'Navigation: title, max_depth, collections, and the menu itself as trees — the same [{site, items}] list "get" returns, so edit it and send it back — '
                     . 'or tree (a list of items) with an optional site. Each item is {id?, entry? | url? | title?, data?, children?}; an item without an id gets one. '
-                    . 'A tree replaces the whole menu for its site. Unknown keys are refused. Collection: update with data {entry: id, parent: id|null} moves one branch; requires reorder permission and both entries:write and structures:admin. Collection tree replacement is not supported.'),
+                    . 'A tree replaces the whole menu for its site. Unknown keys are refused. Collection: move with data {entry: id, parent: id|null} moves one branch; requires reorder permission and both entries:write and structures:admin. Collection update changes settings only; tree replacement is not supported.'),
             'site' => JsonSchema::string()->description('Collection site for tree reads and moves; defaults to the default site.'),
             'include_tree' => JsonSchema::boolean()->description('On collection get, include the selected site tree. Requires entries:read and structures:read.'),
             'include_counts' => JsonSchema::boolean()
@@ -143,8 +143,7 @@ class StructuresRouter extends BaseRouter
             if ($action === 'list') {
                 return []; // Each collection is filtered by policy and view permission.
             }
-            $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
-            if ($action === 'update' && $handle !== '' && (array_key_exists('entry', $data) || array_key_exists('parent', $data))) {
+            if ($action === 'move' && $handle !== '') {
                 return [['configure collections', "reorder {$handle} entries"]];
             }
             if ($action === 'get' && $handle !== '') {
@@ -164,7 +163,7 @@ class StructuresRouter extends BaseRouter
             return match ($action) {
                 'list' => ['configure navs'],
                 'get' => $handle !== '' ? ["view {$handle} nav"] : ['configure navs'],
-                'update', 'configure' => $handle !== '' ? ["edit {$handle} nav"] : ['configure navs'],
+                'update' => $handle !== '' ? ["edit {$handle} nav"] : ['configure navs'],
                 'create', 'delete' => ['configure navs'],
                 default => ['super'],
             };

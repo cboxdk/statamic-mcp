@@ -43,7 +43,6 @@ class SystemRouter extends BaseRouter
             RouterAction::admin('cache_clear', 'Clear a cache; cache_type defaults to all', optional: ['cache_type']),
             RouterAction::admin('cache_warm', 'Warm a cache; cache_type defaults to stache', optional: ['cache_type']),
             RouterAction::read('config_get', 'Read an MCP configuration value', needs: ['config_key']),
-            RouterAction::admin('config_set', 'Change MCP tool configuration for this process; local stdio only', needs: ['config_key', 'config_value']),
         ];
     }
 
@@ -60,8 +59,6 @@ class SystemRouter extends BaseRouter
                 ->enum(['all', 'stache', 'static', 'views', 'app', 'config', 'route']),
             'config_key' => JsonSchema::string()
                 ->description('Laravel/Statamic configuration key in dot notation. Example: "statamic.mcp.web.enabled", "app.name"'),
-            'config_value' => JsonSchema::string()
-                ->description('Value to set for the configuration key. Type must match expected config type'),
             'include_details' => JsonSchema::boolean()
                 ->description('Include detailed metrics and diagnostic information'),
             'include_performance' => JsonSchema::boolean()
@@ -87,7 +84,6 @@ class SystemRouter extends BaseRouter
             'cache_clear' => $this->clearCache($arguments),
             'cache_warm' => $this->warmCache($arguments),
             'config_get' => $this->getConfig($arguments),
-            'config_set' => $this->setConfig($arguments),
             default => $this->createErrorResponse("Unknown system action: {$action}")->toArray(),
         };
     }
@@ -389,75 +385,6 @@ class SystemRouter extends BaseRouter
         }
     }
 
-    /**
-     * @param  array<string, mixed>  $arguments
-     *
-     * @return array<string, mixed>
-     */
-    private function setConfig(array $arguments): array
-    {
-        if (! $this->hasPermission('manage', 'system')) {
-            return $this->createErrorResponse('Permission denied: Cannot set config')->toArray();
-        }
-
-        try {
-            $configKey = is_string($arguments['config_key'] ?? null) ? $arguments['config_key'] : null;
-            $configValue = $arguments['config_value'] ?? null;
-
-            if (! $configKey) {
-                return $this->createErrorResponse('Config key is required')->toArray();
-            }
-
-            // Security: config_set is only available in CLI context to prevent
-            // remote configuration tampering via web MCP endpoints
-            if ($this->isWebContext()) {
-                return $this->createErrorResponse('config_set is only available in CLI context for security reasons')->toArray();
-            }
-
-            // Security: Only allow setting runtime config for non-security keys
-            // Deliberately excludes security.force_web_mode and security.audit_logging
-            // to prevent MCP tools from weakening their own security controls
-            $allowedKeys = [
-                'statamic.mcp.tools',
-            ];
-
-            $allowed = collect($allowedKeys)->some(function ($allowedKey) use ($configKey) {
-                // Exact match or match with dot separator to prevent partial key injection
-                return $configKey === $allowedKey || str_starts_with($configKey, $allowedKey . '.');
-            });
-
-            if (! $allowed) {
-                return $this->createErrorResponse("Setting config key '{$configKey}' is restricted")->toArray();
-            }
-
-            // Parse value as JSON if it looks like JSON
-            if (is_string($configValue) && (str_starts_with($configValue, '{') || str_starts_with($configValue, '['))) {
-                $configValue = json_decode($configValue, true);
-                if (json_last_error() !== JSON_ERROR_NONE) {
-                    return $this->createErrorResponse('Invalid JSON value provided')->toArray();
-                }
-            }
-
-            // Validate config value size to prevent memory abuse
-            $serialized = json_encode($configValue);
-            if ($serialized !== false && strlen($serialized) > 10000) {
-                return $this->createErrorResponse('Config value too large (maximum 10KB allowed)')->toArray();
-            }
-
-            Config::set($configKey, $configValue);
-
-            return [
-                'config' => [
-                    'key' => $configKey,
-                    'value' => $configValue,
-                    'updated' => true,
-                ],
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to set config: {$e->getMessage()}")->toArray();
-        }
-    }
-
     // Helper Methods
 
     /**
@@ -602,7 +529,7 @@ class SystemRouter extends BaseRouter
         // permission checks entirely in checkWebPermissions) can execute them.
         return match ($action) {
             'info', 'health', 'cache_status', 'config_get' => ['access utilities'],
-            'cache_clear', 'cache_warm', 'config_set' => ['super'],
+            'cache_clear', 'cache_warm' => ['super'],
             default => ['super'],
         };
     }

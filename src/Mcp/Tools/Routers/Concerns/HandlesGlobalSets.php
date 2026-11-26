@@ -29,7 +29,6 @@ trait HandlesGlobalSets
             'create' => $this->createGlobalSet($arguments),
             'update' => $this->updateGlobalSet($arguments),
             'delete' => $this->deleteGlobalSet($arguments),
-            'configure' => $this->configureGlobalSet($arguments),
             default => $this->createErrorResponse("Unknown globalset action: {$action}")->toArray(),
         };
     }
@@ -167,10 +166,6 @@ trait HandlesGlobalSets
      */
     private function updateGlobalSet(array $arguments): array
     {
-        if (! $this->hasPermission('edit', 'globals')) {
-            return $this->createErrorResponse('Permission denied: Cannot update global sets')->toArray();
-        }
-
         try {
             $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
             $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
@@ -233,46 +228,6 @@ trait HandlesGlobalSets
             ];
         } catch (\Exception $e) {
             return $this->createErrorResponse("Failed to delete global set: {$e->getMessage()}")->toArray();
-        }
-    }
-
-    /**
-     * @param  array<string, mixed>  $arguments
-     *
-     * @return array<string, mixed>
-     */
-    private function configureGlobalSet(array $arguments): array
-    {
-        try {
-            $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
-            $config = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
-
-            $globalSet = GlobalSet::find($handle);
-            if (! $globalSet) {
-                return $this->createErrorResponse("Global set not found: {$handle}")->toArray();
-            }
-
-            // Handle specific configuration options
-            if (isset($config['title'])) {
-                $globalSet->title($config['title']);
-            }
-
-            // Save the global set
-            $this->persistStatamic(fn () => $globalSet->save());
-
-            // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
-
-            return [
-                'globalset' => [
-                    'handle' => $globalSet->handle(),
-                    'title' => $globalSet->title(),
-                    'config' => $globalSet->fileData(),
-                ],
-                'configured' => true,
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to configure global set: {$e->getMessage()}")->toArray();
         }
     }
 }

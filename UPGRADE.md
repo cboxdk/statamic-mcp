@@ -79,13 +79,21 @@ journal never holds secrets or hashes. If it cannot be written, nothing changes.
   | blueprints | `collection_handle`, `taxonomy_handle` | `collection`, `taxonomy` |
   | assets | `handle` (containers) | `container` |
   | assets | `filters.folder` | `folder` |
-  | structures | `config` (configure) | `data` |
+  | structures | `config` on `configure` | `data` on `update` |
   | assets, structures, users | `data.handle` on create | `handle` (`container` for assets); `data.handle` may only repeat it |
   | system | `resource_type` | – (system has no resource types) |
 
   `filters` is gone from users, structures and content-facade, where nothing
   read it. Structures `list` (collections, taxonomies) and asset `list` now
   show `limit` and `offset`, which they always applied.
+- Structures `configure` is removed. Use `update` with `data` for settings,
+  including collection `structure` and `orderable`. To move a collection page,
+  use `statamic-structures-admin` with `action: "move"`, `handle`, `site` and
+  `data: {entry: "CHILD_ID", parent: "PARENT_ID"}` (`null` moves to the top level).
+  Collection `update` no longer accepts `entry`, `parent`, `tree` or `trees`.
+  Moves still need both `entries:write` and `structures:admin`, and reorder rights.
+- System `config_set` is removed. Change the site's configuration files instead;
+  MCP no longer changes its own tool configuration at runtime.
 - `tools/list` shows only what the token can use, and `search_tools`/`execute_tools`
   are gone unless `catalog.searchable` is turned on.
 - Stdio needs an explicit profile, and registered actions over stdio need a

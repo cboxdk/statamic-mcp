@@ -116,15 +116,7 @@ class NavigationTreeWriteTest extends TestCase
         $this->assertNotSame($tree[0]['id'], $tree[0]['children'][0]['id']);
     }
 
-    public function test_configure_reads_data(): void
-    {
-        $result = $this->write('configure', ['tree' => [['title' => 'Via configure', 'url' => '/c']]]);
-
-        $this->assertTrue($result['success'], json_encode($result['errors'] ?? []));
-        $this->assertSame('/c', $this->storedTree()[0]['url']);
-    }
-
-    public function test_configure_takes_a_tree_in_data(): void
+    public function test_removed_configure_action_cannot_write_a_tree(): void
     {
         $result = $this->router->execute([
             'action' => 'configure',
@@ -133,8 +125,9 @@ class NavigationTreeWriteTest extends TestCase
             'data' => ['tree' => [['title' => 'Configured', 'url' => '/configured']]],
         ]);
 
-        $this->assertTrue($result['success'], json_encode($result['errors'] ?? []));
-        $this->assertSame('/configured', $this->storedTree()[0]['url']);
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString("Unknown action 'configure'", $result['errors'][0]);
+        $this->assertSame([['id' => 'nav', 'entry' => 'home-entry']], $this->storedTree());
     }
 
     public function test_create_can_carry_a_tree(): void

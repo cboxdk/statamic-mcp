@@ -25,7 +25,7 @@ class ArgumentNamesTest extends TestCase
         'collection', 'taxonomy', 'container', 'namespace', 'handle', 'id', 'email', 'slug', 'path', 'site', 'field',
         // What a write carries
         'data', 'fields', 'title', 'replace_fields', 'merge_sets', 'expected_version', 'revision_message', 'revision_id', 'reason', 'role',
-        'destination', 'filename', 'folder', 'content', 'encoding', 'source_url', 'file_path', 'config_key', 'config_value', 'cache_type',
+        'destination', 'filename', 'folder', 'content', 'encoding', 'source_url', 'file_path', 'config_key', 'cache_type',
         // Reading and paging
         'limit', 'offset', 'filters', 'query', 'status', 'super', 'group', 'recursive', 'revision_state', 'include_unpublished',
         'include_counts', 'include_details', 'include_fields', 'include_config', 'include_format_spec', 'include_permissions',

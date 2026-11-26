@@ -80,7 +80,7 @@ class CollectionParentMoveTest extends TestCase
         $this->assertSame('default', $result['data']['collection']['site']);
         $this->assertNotEmpty($result['data']['collection']['tree']);
         $result = $structures->execute([
-            'action' => 'update', 'resource_type' => 'collection', 'handle' => $handle,
+            'action' => 'move', 'resource_type' => 'collection', 'handle' => $handle,
             'site' => 'default', 'data' => ['entry' => $child, 'parent' => null],
         ]);
         $this->assertTrue($result['success'], json_encode($result) ?: '');

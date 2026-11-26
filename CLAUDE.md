@@ -1107,11 +1107,14 @@ which every later save of the store keeps up to date.
 
 **`statamic-structures`** — list/get/create for collections, taxonomies, navigations, and sites (via `resource_type` param)
 
-Navigation `create`, `update` and `configure` share `HandlesNavigations::applyNavigationData()`.
+Navigation `create` and `update` share `HandlesNavigations::applyNavigationData()`.
 It takes trees in the shape `get` returns (`trees: [{site, items}]`), validates the whole
 payload, then writes — and **refuses unknown keys**. Both actions used to drop what they did
 not understand and report success, which is how a tree write saved nothing for months (#65).
-`configure` still reads the undeclared `config` argument for old callers; new code uses `data`.
+`configure` is removed in v4; settings go in `update.data`. Collection `move` alone takes
+`data.entry` and `data.parent`; collection `update` only changes settings. Navigation and
+global-set updates rely on the router's real Statamic permissions, not invented inner checks
+such as `edit navigation` or `edit globals`.
 
 **`statamic-assets`** — list/get/create/update/delete/upload/move/copy for containers and assets (via `resource_type` param)
 

@@ -50,7 +50,6 @@ trait HandlesNavigations
             'create' => $this->createNavigation($arguments),
             'update' => $this->updateNavigation($arguments),
             'delete' => $this->deleteNavigation($arguments),
-            'configure' => $this->configureNavigation($arguments),
             default => $this->createErrorResponse("Unknown navigation action: {$action}")->toArray(),
         };
     }
@@ -177,10 +176,6 @@ trait HandlesNavigations
      */
     private function updateNavigation(array $arguments): array
     {
-        if (! $this->hasPermission('edit', 'navigation')) {
-            return $this->createErrorResponse('Permission denied: Cannot update navigation')->toArray();
-        }
-
         try {
             $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
             $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
@@ -238,40 +233,6 @@ trait HandlesNavigations
             ];
         } catch (\Exception $e) {
             return $this->createErrorResponse("Failed to delete navigation: {$e->getMessage()}")->toArray();
-        }
-    }
-
-    /**
-     * The same write as update. `configure` historically read a `config`
-     * argument the tool schema never declared, so a schema-following client
-     * could not reach it at all; `data` is read now, `config` still honoured.
-     *
-     * @param  array<string, mixed>  $arguments
-     *
-     * @return array<string, mixed>
-     */
-    private function configureNavigation(array $arguments): array
-    {
-        try {
-            $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
-            $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
-
-            $navigation = Nav::find($handle);
-            if (! $navigation) {
-                return $this->createErrorResponse("Navigation not found: {$handle}")->toArray();
-            }
-
-            $error = $this->applyNavigationData($navigation, $data);
-            if ($error !== null) {
-                return $this->createErrorResponse($error)->toArray();
-            }
-
-            return [
-                'navigation' => $this->navigationSummary($navigation),
-                'configured' => true,
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to configure navigation: {$e->getMessage()}")->toArray();
         }
     }
 

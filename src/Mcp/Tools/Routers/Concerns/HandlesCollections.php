@@ -31,8 +31,8 @@ trait HandlesCollections
             'get' => $this->getCollection($arguments),
             'create' => $this->createCollection($arguments),
             'update' => $this->updateCollection($arguments),
+            'move' => $this->moveCollectionEntry($arguments),
             'delete' => $this->deleteCollection($arguments),
-            'configure' => $this->configureCollection($arguments),
             default => $this->createErrorResponse("Unknown collection action: {$action}")->toArray(),
         };
     }
@@ -270,11 +270,8 @@ trait HandlesCollections
     private function updateCollection(array $arguments): array
     {
         $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
-        if (array_key_exists('entry', $data) || array_key_exists('parent', $data)) {
-            return $this->moveCollectionEntry($arguments);
-        }
-        if (array_intersect(array_keys($data), ['tree', 'trees']) !== []) {
-            return $this->createErrorResponse('Unsupported collection fields. Move a page using data.entry and data.parent; replacing a collection tree is not supported.')->toArray();
+        if (array_intersect(array_keys($data), ['entry', 'parent', 'tree', 'trees']) !== []) {
+            return $this->createErrorResponse('Collection update changes settings only. Use action move with data.entry and data.parent to move a page; replacing a collection tree is not supported.')->toArray();
         }
         if (! $this->hasPermission('edit', 'collections')) {
             return $this->createErrorResponse('Permission denied: Cannot update collections')->toArray();
@@ -370,53 +367,6 @@ trait HandlesCollections
     }
 
     /**
-     * @param  array<string, mixed>  $arguments
-     *
-     * @return array<string, mixed>
-     */
-    private function configureCollection(array $arguments): array
-    {
-        if (is_array($arguments['data'] ?? null) && array_intersect(array_keys($arguments['data']), ['tree', 'trees', 'parent', 'entry'])) {
-            return $this->createErrorResponse('Use collection update with data.entry and data.parent to move a page.')->toArray();
-        }
-        try {
-            $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
-            $config = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
-
-            $collection = Collection::find($handle);
-            if (! $collection) {
-                return $this->createErrorResponse("Collection not found: {$handle}")->toArray();
-            }
-
-            if (($refused = $this->applyCollectionSettings($collection, $config, 'configure')) !== null) {
-                return $this->createErrorResponse($refused)->toArray();
-            }
-
-            // Save the collection
-            $this->persistStatamic(fn () => $collection->save());
-
-            // CollectionSaved does not reach Statamic's static-cache
-            // invalidator, so a template or layout change would otherwise leave
-            // cached entry pages serving the old output.
-            $this->invalidateStaticCache($collection);
-
-            // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
-
-            return [
-                'collection' => [
-                    'handle' => $collection->handle(),
-                    'title' => $collection->title(),
-                    'config' => $collection->toArray(),
-                ],
-                'configured' => true,
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to configure collection: {$e->getMessage()}")->toArray();
-        }
-    }
-
-    /**
      * Apply collection settings through Statamic's setters, or say why not.
      *
      * Unknown keys are refused rather than skipped: `route` used to reach the
@@ -442,12 +392,9 @@ trait HandlesCollections
             'future_date_behavior' => fn ($v) => $collection->futureDateBehavior($v),
             'taxonomies' => fn ($v) => $collection->taxonomies(is_array($v) ? $v : [$v]),
             'mount' => fn ($v) => $collection->mount($v),
+            'structure' => fn ($v) => $collection->structureContents(is_array($v) ? $v : null),
+            'orderable' => fn ($v) => $collection->structureContents($v ? ['max_depth' => 1] : null),
         ];
-        // The tree's shape: only when the collection is made or explicitly reconfigured.
-        if ($action !== 'update') {
-            $setters['structure'] = fn ($v) => $collection->structureContents(is_array($v) ? $v : null);
-            $setters['orderable'] = fn ($v) => $v ? $collection->structureContents(['max_depth' => 1]) : null;
-        }
 
         $unknown = array_diff(array_map('strval', array_keys($settings)), array_keys($setters));
         if ($unknown !== []) {

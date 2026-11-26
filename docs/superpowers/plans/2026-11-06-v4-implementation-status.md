@@ -9,6 +9,22 @@ Branch: `sd/release/v4`. Worktree: `security-review-hardening/statamic-mcp`.
 Status: implementation in progress, not release-ready. No public release or tag.
 Draft PR: https://github.com/cboxdk/statamic-mcp/pull/88.
 
+## Polish plan checkpoint — 2026-11-26
+
+The approved five-phase polish plan supersedes the historical V00–V10 progress
+notes below. Phase 1 and 2.1–2.3 are pushed; phase 2.3 is `5b404c6`, with all
+19 CI checks green. Phase 2.4 removes `configure` and `config_set`, moves collection
+tree edits to `move`, and preserves configuration updates (including enabling and
+disabling collection ordering). Navigation/global-set updates use the router's
+Statamic permissions without invented inner permission checks.
+
+Phase 2.4 verification: full suite **2063 passed, 33 skipped, 10494 assertions**;
+the subsequent ordering regression failed before the fix, then the focused tree
+and write-contract suite passed **34 tests, 134 assertions**. Pint and PHPStan 9
+passed. The skips require optional integrations or database environments. No
+merge, release or deployment. Phase 2.5–2.11 and the phase-boundary independent
+review remain. The Statamic UI-kit work follows phase 2, before phase 3.
+
 ## V00 compatibility inventory
 
 | Change | Compatibility | Target |

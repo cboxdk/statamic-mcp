@@ -28,7 +28,6 @@ trait HandlesTaxonomies
             'create' => $this->createTaxonomy($arguments),
             'update' => $this->updateTaxonomy($arguments),
             'delete' => $this->deleteTaxonomy($arguments),
-            'configure' => $this->configureTaxonomy($arguments),
             default => $this->createErrorResponse("Unknown taxonomy action: {$action}")->toArray(),
         };
     }
@@ -261,58 +260,6 @@ trait HandlesTaxonomies
             ];
         } catch (\Exception $e) {
             return $this->createErrorResponse("Failed to delete taxonomy: {$e->getMessage()}")->toArray();
-        }
-    }
-
-    /**
-     * @param  array<string, mixed>  $arguments
-     *
-     * @return array<string, mixed>
-     */
-    private function configureTaxonomy(array $arguments): array
-    {
-        try {
-            $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
-            $config = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
-
-            $taxonomy = Taxonomy::find($handle);
-            if (! $taxonomy) {
-                return $this->createErrorResponse("Taxonomy not found: {$handle}")->toArray();
-            }
-
-            // Handle specific configuration options
-            if (isset($config['title'])) {
-                $taxonomy->title($config['title']);
-            }
-
-            if (isset($config['preview_targets'])) {
-                $taxonomy->previewTargets($config['preview_targets']);
-            }
-
-            if (isset($config['default_status'])) {
-                $taxonomy->defaultStatus($config['default_status']);
-            }
-
-            // Note: Taxonomy→Collection association is stored on the collection
-            // side ($collection->taxonomies()), not on the taxonomy. Use the
-            // statamic-structures collection update to associate taxonomies.
-
-            // Save the taxonomy
-            $this->persistStatamic(fn () => $taxonomy->save());
-
-            // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
-
-            return [
-                'taxonomy' => [
-                    'handle' => $taxonomy->handle(),
-                    'title' => $taxonomy->title(),
-                    'config' => $taxonomy->toArray(),
-                ],
-                'configured' => true,
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to configure taxonomy: {$e->getMessage()}")->toArray();
         }
     }
 }

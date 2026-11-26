@@ -161,7 +161,7 @@ class CollectionViewerPermissionTest extends TestCase
     {
         $this->actAs(["view {$this->handle} entries"], ['structures:read', 'structures:admin']);
 
-        foreach (['create', 'update', 'configure', 'delete'] as $action) {
+        foreach (['create', 'update', 'delete'] as $action) {
             $result = $this->getCollection(['action' => $action, ...($action === 'delete' ? [] : ['data' => ['title' => 'Changed']])]);
 
             $this->assertFalse($result['success'], $action . ' must require configure collections');

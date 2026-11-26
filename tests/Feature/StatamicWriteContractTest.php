@@ -164,7 +164,7 @@ class StatamicWriteContractTest extends TestCase
         $editor->method('move')->willThrowException(new \RuntimeException('The tree save did not apply the requested parent.'));
         app()->instance(CollectionTreeEditor::class, $editor);
 
-        $result = (new StructuresRouter)->execute(['action' => 'update', 'resource_type' => 'collection', 'handle' => $handle,
+        $result = (new StructuresRouter)->execute(['action' => 'move', 'resource_type' => 'collection', 'handle' => $handle,
             'site' => 'default', 'data' => ['entry' => $entry->id(), 'parent' => null]]);
 
         $this->assertFalse($result['success'], json_encode($result));

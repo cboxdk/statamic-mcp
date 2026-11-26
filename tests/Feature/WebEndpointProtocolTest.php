@@ -57,6 +57,24 @@ class WebEndpointProtocolTest extends TestCase
         $this->assertStringContainsString('Statamic', $result['instructions']);
     }
 
+    public function test_removed_actions_are_not_advertised_or_executable(): void
+    {
+        $tools = collect($this->rpc('tools/list')->json('result.tools'))->keyBy('name');
+        $this->assertSame(['create', 'update', 'move', 'delete'], $tools['statamic-structures-admin']['inputSchema']['properties']['action']['enum']);
+        $this->assertSame(['cache_clear', 'cache_warm'], $tools['statamic-system-admin']['inputSchema']['properties']['action']['enum']);
+        $this->assertArrayNotHasKey('config_value', $tools['statamic-system-admin']['inputSchema']['properties']);
+
+        foreach ([
+            ['statamic-system-admin', ['action' => 'config_set', 'config_key' => 'statamic.mcp.tools.entries.enabled', 'config_value' => 'false']],
+            ['statamic-structures-admin', ['action' => 'configure', 'resource_type' => 'collection', 'handle' => 'pages', 'data' => ['title' => 'Changed']]],
+            ['statamic-structures-admin', ['action' => 'move', 'resource_type' => 'site', 'handle' => 'default', 'data' => ['entry' => 'id', 'parent' => null]]],
+        ] as [$tool, $arguments]) {
+            $this->rpc('tools/call', ['name' => $tool, 'arguments' => $arguments])
+                ->assertOk()->assertJsonPath('result.isError', true);
+        }
+        $this->assertTrue(config('statamic.mcp.tools.entries.enabled'));
+    }
+
     public function test_the_catalog_lists_each_area_as_a_read_and_a_write_tool(): void
     {
         $tools = collect($this->rpc('tools/list')->json('result.tools'))->keyBy('name');

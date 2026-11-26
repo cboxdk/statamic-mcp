@@ -215,13 +215,15 @@ Manage collections, taxonomies, navigations, and site configuration. Requires a 
 |--------|------|-------------|----------------|
 | `list` | collection | List collections | — |
 | `get` | collection | Get collection | `handle` |
-| `create` | collection | Create collection | `handle`, `title`, `config` |
+| `create` | collection | Create collection | `handle`, `data` |
+| `update` | collection | Change settings, including structure depth and ordering | `handle`, `data` |
+| `move` | collection | Move an entry and its descendants | `handle`, `site`, `data.entry`, `data.parent` |
 | `list` | taxonomy | List taxonomies | — |
 | `get` | taxonomy | Get taxonomy | `handle` |
 | `list` | navigation | List navigations | — |
 | `get` | navigation | Get a navigation and its trees | `handle` |
 | `create` | navigation | Create a navigation, optionally with a tree | `handle`, `data` |
-| `update` / `configure` | navigation | Change settings and replace trees | `handle`, `data` |
+| `update` | navigation | Change settings and replace trees | `handle`, `data` |
 | `list` | site | List sites | — |
 | `get` | site | Get site | `handle` |
 
@@ -339,7 +341,6 @@ System information, health checks, cache management, and configuration access.
 | `cache_clear` | Clear system caches | `cache_type` (all, stache, static, views, app, config, route) |
 | `cache_warm` | Warm system caches | `cache_type` |
 | `config_get` | Read config value | `config_key` |
-| `config_set` | Set config value | `config_key`, `config_value` |
 
 ### `statamic-content-facade`
 

@@ -61,10 +61,10 @@ The server registers a set of domain routers — each handling a specific Statam
 | `statamic-entries` | list, get, create, update, localize, delete, publish, unpublish, list_revisions, get_revision, restore_revision, publish_working_copy | Entry operations with filtering, localization, and revisions |
 | `statamic-terms` | list, get, create, update, delete | Taxonomy term operations with slug conflict prevention |
 | `statamic-globals` | list, get, update | Global set structure and values with multi-site support |
-| `statamic-structures` | list, get, create, update, delete, configure | Collections, taxonomies, navigations, sites |
+| `statamic-structures` | list, get, create, update, move, delete | Collections, taxonomies, navigations, sites |
 | `statamic-assets` | list, get, create, update, delete, upload, move, copy | Asset container and file operations |
 | `statamic-users` | list, get, create, update, delete, assign-role | User CRUD with role and group management |
-| `statamic-system` | info, health, cache_status, cache_clear, cache_warm, config_get, config_set | System info, health checks, cache management |
+| `statamic-system` | info, health, cache_status, cache_clear, cache_warm, config_get | System info, health checks, cache management |
 | `statamic-content-facade` | content_audit, content_validate, cross_reference | High-level workflow orchestration |
 | `statamic-system-discover` | — | Intent-based tool discovery for AI agents |
 | `statamic-system-schema` | — | Tool schema inspection |
