@@ -257,6 +257,26 @@ class FormsRouterTest extends TestCase
         $this->assertSame('honeypot', $this->find('contact')?->honeypot());
     }
 
+    public function test_honeypot_check_sees_fields_after_the_form_was_saved(): void
+    {
+        $form = $this->makeForm('contact');
+        Blueprint::make('contact')->setNamespace('forms')->setContents([
+            'fields' => [['handle' => 'email', 'field' => ['type' => 'text']]],
+        ])->save();
+
+        // Statamic 6.44+ moves the fields into the form file here and deletes
+        // the blueprint; older versions keep it. The check must hold for both.
+        $form->save();
+
+        $result = $this->forms(['action' => 'update', 'handle' => 'contact', 'data' => ['honeypot' => 'email']]);
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('discarded as spam', $this->errorOf($result));
+
+        $get = $this->forms(['action' => 'get', 'handle' => 'contact']);
+        $this->assertSame(['email'], $get['data']['form']['blueprint']['fields']);
+    }
+
     public function test_get_reports_settings_blueprint_and_mailers(): void
     {
         $form = $this->makeForm('contact');

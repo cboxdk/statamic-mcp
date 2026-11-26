@@ -419,7 +419,7 @@ class FormsRouter extends BaseRouter
 
             if ($honeypot !== null && (! is_string($honeypot) || trim($honeypot) === '')) {
                 $errors[] = 'honeypot must be a non-empty string, or null to reset it to "honeypot"';
-            } elseif (is_string($honeypot) && in_array($honeypot, $this->blueprintFieldHandles($handle), true)) {
+            } elseif (is_string($honeypot) && in_array($honeypot, $this->blueprintFieldHandles($form), true)) {
                 // Statamic discards any submission that fills the honeypot,
                 // so naming a real field would silently drop every one.
                 $errors[] = "honeypot '{$honeypot}' is a field in the form's blueprint; every submission filling that field would be discarded as spam";
@@ -708,7 +708,7 @@ class FormsRouter extends BaseRouter
                 'namespace' => 'forms',
                 'handle' => $handle,
                 'exists' => $blueprintExists,
-                'fields' => $this->blueprintFieldHandles($handle),
+                'fields' => $this->blueprintFieldHandles($form),
             ],
         ];
     }
@@ -724,11 +724,16 @@ class FormsRouter extends BaseRouter
     }
 
     /**
+     * The form's field handles, asked of the form itself. Since Statamic 6.44
+     * a form keeps its fields in its own file and deletes forms/{handle}.yaml
+     * on save, so reading that blueprint found nothing after the first save.
+     * Form::blueprint() resolves the fields wherever this version keeps them.
+     *
      * @return array<int, string>
      */
-    private function blueprintFieldHandles(string $formHandle): array
+    private function blueprintFieldHandles(Form $form): array
     {
-        $blueprint = Blueprint::find('forms.' . $formHandle);
+        $blueprint = $form->blueprint();
 
         if (! $blueprint instanceof BlueprintObject) {
             return [];
