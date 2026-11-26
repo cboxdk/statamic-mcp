@@ -5,11 +5,11 @@ declare(strict_types=1);
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 
 // ---------------------------------------------------------------------------
-// 1. All 29 cases exist with correct string values
+// 1. All 33 cases exist with correct string values
 // ---------------------------------------------------------------------------
 
-it('has exactly 29 cases', function (): void {
-    expect(TokenScope::cases())->toHaveCount(29);
+it('has exactly 33 cases', function (): void {
+    expect(TokenScope::cases())->toHaveCount(33);
 });
 
 it('maps every case to its correct string value', function (TokenScope $scope, string $expected): void {
@@ -42,6 +42,10 @@ it('maps every case to its correct string value', function (TokenScope $scope, s
     'TermsDelete' => [TokenScope::TermsDelete, 'terms:delete'],
     'GlobalsRead' => [TokenScope::GlobalsRead, 'globals:read'],
     'GlobalsWrite' => [TokenScope::GlobalsWrite, 'globals:write'],
+    'FormsRead' => [TokenScope::FormsRead, 'forms:read'],
+    'FormsWrite' => [TokenScope::FormsWrite, 'forms:write'],
+    'SubmissionsRead' => [TokenScope::SubmissionsRead, 'submissions:read'],
+    'SubmissionsDelete' => [TokenScope::SubmissionsDelete, 'submissions:delete'],
     'ContentFacadeRead' => [TokenScope::ContentFacadeRead, 'content-facade:read'],
     'ContentFacadeWrite' => [TokenScope::ContentFacadeWrite, 'content-facade:write'],
 ]);
@@ -123,15 +127,15 @@ it('returns the correct group for each case', function (TokenScope $scope, strin
 ]);
 
 // ---------------------------------------------------------------------------
-// 4. all() returns all 29 cases
+// 4. all() returns all 33 cases
 // ---------------------------------------------------------------------------
 
-it('returns all 29 cases from all()', function (): void {
+it('returns all 33 cases from all()', function (): void {
     $all = TokenScope::all();
 
     expect($all)
         ->toBeArray()
-        ->toHaveCount(29)
+        ->toHaveCount(33)
         ->each->toBeInstanceOf(TokenScope::class);
 });
 
@@ -204,7 +208,7 @@ it('has exactly a read and write scope for each domain', function (): void {
     }
 });
 
-it('groups domain scopes into 10 domains plus access', function (): void {
+it('groups domain scopes into 11 domains plus access', function (): void {
     $groups = array_unique(array_map(
         fn (TokenScope $scope): string => $scope->group(),
         TokenScope::cases(),
@@ -219,6 +223,7 @@ it('groups domain scopes into 10 domains plus access', function (): void {
         'content',
         'content-facade',
         'entries',
+        'forms',
         'globals',
         'structures',
         'system',

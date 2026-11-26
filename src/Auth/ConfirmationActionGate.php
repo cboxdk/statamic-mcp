@@ -25,6 +25,7 @@ class ConfirmationActionGate
      */
     private const FLOOR = [
         'users' => ['create', 'update', 'activate', 'assign_role'],
+        'forms' => ['delete_submission'],
     ];
 
     public static function gates(string $domain, string $action): bool

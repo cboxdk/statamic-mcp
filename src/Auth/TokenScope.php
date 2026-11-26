@@ -33,6 +33,10 @@ enum TokenScope: string
     case TermsDelete = 'terms:delete';
     case GlobalsRead = 'globals:read';
     case GlobalsWrite = 'globals:write';
+    case FormsRead = 'forms:read';
+    case FormsWrite = 'forms:write';
+    case SubmissionsRead = 'submissions:read';
+    case SubmissionsDelete = 'submissions:delete';
     case ContentFacadeRead = 'content-facade:read';
     case ContentFacadeWrite = 'content-facade:write';
 
@@ -69,6 +73,10 @@ enum TokenScope: string
             self::TermsDelete => 'Delete Terms',
             self::GlobalsRead => 'Read Globals',
             self::GlobalsWrite => 'Write Globals',
+            self::FormsRead => 'Read Forms',
+            self::FormsWrite => 'Edit Forms',
+            self::SubmissionsRead => 'Read Submissions',
+            self::SubmissionsDelete => 'Delete Submissions',
             self::ContentFacadeRead => 'Read Content Facade',
             self::ContentFacadeWrite => 'Write Content Facade',
         };
@@ -107,6 +115,10 @@ enum TokenScope: string
             self::TermsDelete => 'Delete taxonomy terms. Also needs Edit Terms.',
             self::GlobalsRead => 'View global sets and their values.',
             self::GlobalsWrite => 'Update global set values.',
+            self::FormsRead => 'View form definitions. Does not grant access to submissions or connector secrets.',
+            self::FormsWrite => 'Create and edit forms and their connections. Marking spam also needs Read Submissions.',
+            self::SubmissionsRead => 'Read, export and summarize form submissions in permitted sites.',
+            self::SubmissionsDelete => 'Permanently delete form submissions. Requires approval by default.',
             self::ContentFacadeRead => 'Run content audits and cross-reference analysis.',
             self::ContentFacadeWrite => 'Execute content workflow operations.',
         };
@@ -128,6 +140,7 @@ enum TokenScope: string
             self::EntriesRead, self::EntriesWrite, self::EntriesPublish, self::EntriesDelete => 'entries',
             self::TermsRead, self::TermsWrite, self::TermsDelete => 'terms',
             self::GlobalsRead, self::GlobalsWrite => 'globals',
+            self::FormsRead, self::FormsWrite, self::SubmissionsRead, self::SubmissionsDelete => 'forms',
             self::ContentFacadeRead, self::ContentFacadeWrite => 'content-facade',
         };
     }

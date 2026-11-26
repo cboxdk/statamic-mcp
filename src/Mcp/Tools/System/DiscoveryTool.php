@@ -44,6 +44,7 @@ class DiscoveryTool extends BaseStatamicTool
         'entries' => ['entry', 'entries', 'content', 'article', 'page', 'post', 'publish', 'draft'],
         'terms' => ['term', 'terms', 'taxonomy', 'tag', 'category'],
         'globals' => ['global', 'globals', 'site settings', 'footer', 'header', 'seo'],
+        'forms' => ['form', 'submission', 'survey', 'spam', 'connector'],
         'blueprints' => ['blueprint', 'field', 'schema', 'fieldset', 'fieldtype', 'scan'],
         'structures' => ['collection', 'navigation', 'nav', 'structure', 'taxonomy setup', 'site config'],
         'assets' => ['asset', 'file', 'image', 'media', 'upload', 'container', 'storage'],

@@ -3,11 +3,13 @@
 declare(strict_types=1);
 
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\EntriesRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\FormsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\GlobalsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\TermsRouter;
 use Statamic\Facades\Blueprint;
 use Statamic\Facades\Collection;
 use Statamic\Facades\Entry;
+use Statamic\Facades\Form;
 use Statamic\Facades\GlobalSet;
 use Statamic\Facades\Role;
 use Statamic\Facades\Site;
@@ -164,3 +166,23 @@ it('does not let a list filter probe a denied field', function () {
     expect($result['success'])->toBeTrue(json_encode($result))
         ->and(array_column($result['data']['items'], 'id'))->toContain('mx-entry');
 });
+
+it('binds submission reads and writes to the site and hides denied fields on both transports', function (bool $web) {
+    mxWeb($web);
+    config(['statamic.mcp.tools.forms.denied_fields' => ['secret_note']]);
+    $role = Role::find('mx_editor');
+    $role->permissions([...$role->permissions()->all(), 'view contact form submissions', 'manage contact form spam']);
+    $role->save();
+    $form = Form::make('contact')->title('Contact');
+    $form->save();
+    foreach (['en' => '1700000001.100', 'de' => '1700000002.100'] as $site => $id) {
+        $form->makeSubmission()->id($id)->site($site)->data(['title' => $site, 'secret_note' => 'stored'])->save();
+    }
+    $router = new FormsRouter;
+    $read = $router->execute(['action' => 'get_submission', 'form' => 'contact', 'site' => 'en', 'id' => '1700000001.100']);
+    expect($read['success'])->toBeTrue(json_encode($read))
+        ->and(json_encode($read['data']))->not->toContain('secret_note')->not->toContain('stored');
+    $other = $router->execute(['action' => 'mark_spam', 'form' => 'contact', 'site' => 'de', 'id' => '1700000002.100']);
+    expect($other['success'])->toBe(! $web, json_encode($other))
+        ->and($form->submission('1700000002.100')->status())->toBe($web ? 'finalized' : 'spam');
+})->with(['http' => true, 'stdio' => false]);

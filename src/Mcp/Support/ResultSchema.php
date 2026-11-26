@@ -16,7 +16,7 @@ final class ResultSchema
         $boolean = ['type' => 'boolean'];
         $map = self::map();
 
-        if (in_array($action, ['list', 'scan', 'search', 'types', 'list_revisions'], true)) {
+        if (in_array($action, ['list', 'scan', 'search', 'types', 'list_revisions', 'list_submissions', 'export'], true)) {
             return self::object([
                 'items' => ['type' => 'array', 'items' => self::record()],
                 'next_cursor' => ['type' => ['string', 'null']],
@@ -31,6 +31,11 @@ final class ResultSchema
                 : self::wrapped('entry'),
             'terms' => self::wrapped('term'),
             'globals' => self::wrapped('global'),
+            'forms' => match ($action) {
+                'summary' => self::object(['summary' => self::map()], ['summary']),
+                'get_submission', 'delete_submission', 'mark_spam' => self::object(['submission' => self::record()], ['submission']),
+                default => self::wrapped('form'),
+            },
             'blueprints' => $action === 'validate'
                 ? self::object(['blueprint' => $string, 'validation' => self::object([
                     'valid' => $boolean, 'errors' => ['type' => 'array'], 'warnings' => ['type' => 'array'],

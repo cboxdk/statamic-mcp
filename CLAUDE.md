@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Statamic addon that functions as an MCP (Model Context Protocol) server, built on top of Laravel's MCP server. The addon extends Statamic CMS v6.35.1+ and requires `laravel/mcp` ^1.1.2 as a runtime dependency. It includes scoped API token authentication, a Vue 3 CP dashboard, and web MCP endpoints.
+This is a Statamic addon that functions as an MCP (Model Context Protocol) server, built on top of Laravel's MCP server. The addon extends Statamic CMS v6.44+ and requires `laravel/mcp` ^1.3 as a runtime dependency. It includes scoped API token authentication, a Vue 3 CP dashboard, and web MCP endpoints.
 
 ## Key Dependencies
 
 - **PHP**: ^8.3
-- **Statamic CMS**: ^6.35.1 (v6 only — v5 support was removed in v2.0)
+- **Statamic CMS**: ^6.44 (Forms 2 storage; v6 only)
 - **Laravel**: ^12.0 || ^13.0 (via Statamic v6)
-- **Laravel MCP**: ^1.1.2 (required - must be in `require` section, not `require-dev`)
+- **Laravel MCP**: ^1.3 (required - must be in `require` section, not `require-dev`)
 - **Orchestra Testbench**: ^10.0 || ^11.0 (dev dependency for testing)
 - **Pest**: ^4.1 (stable release with PHP 8.3 requirement)
 - **Symfony YAML**: ^7.0 || ^8.0 (for YAML processing)

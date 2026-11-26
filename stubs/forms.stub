@@ -1,0 +1,65 @@
+<?php
+
+// Missing upstream PHPDoc for the Forms 2 objects and their fluent accessors.
+namespace Statamic\Forms\Fields {
+    class FormField {}
+    class FormFields {
+        /** @return \Illuminate\Support\Collection<int, array{sections?: list<array<string, mixed>>}> */
+        public function pages(): \Illuminate\Support\Collection {}
+        /** @return \Illuminate\Support\Collection<int, array{fields?: list<array<string, mixed>>}> */
+        public function sections(): \Illuminate\Support\Collection {}
+        /** @return \Illuminate\Support\Collection<string, FormField> */
+        public function fields(): \Illuminate\Support\Collection {}
+    }
+}
+
+namespace Statamic\Fields {
+    class Fields {
+        /** @return array<array{handle: string, field: array<string, mixed>}> */
+        public function items() {}
+    }
+}
+
+namespace Statamic\Forms {
+    class Form {
+        /**
+         * @param string|null $handle
+         * @return ($handle is null ? string : $this)
+         */
+        public function handle($handle = null) {}
+        /**
+         * @param mixed $connections
+         * @return ($connections is null ? \Illuminate\Support\Collection<string, list<array<string, mixed>>> : $this)
+         */
+        public function connections($connections = null) {}
+    }
+    class Submission {
+        /**
+         * @param string|null $id
+         * @return ($id is null ? string : $this)
+         */
+        public function id($id = null) {}
+    }
+}
+
+namespace Statamic\Facades {
+    /**
+     * @method static \Illuminate\Support\Collection<int, \Statamic\Forms\Form> all()
+     * @method static \Statamic\Forms\Form|null find(string $handle)
+     * @method static \Statamic\Forms\Form make(string $handle = null)
+     */
+    class Form {}
+}
+
+namespace Statamic\Contracts\Forms {
+    /**
+     * @method $this whereStatus(string $status)
+     * @method $this where(mixed $column, mixed $operator = null, mixed $value = null)
+     * @method $this orderBy(string $column, string $direction = 'asc')
+     * @method $this offset(int $offset)
+     * @method $this limit(int $limit)
+     * @method int count()
+     * @method \Illuminate\Support\Collection<int, \Statamic\Forms\Submission> get()
+     */
+    interface SubmissionQueryBuilder {}
+}

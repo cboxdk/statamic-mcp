@@ -9,7 +9,7 @@ use Cboxdk\StatamicMcp\Support\McpContext;
 /** Installation limits only: never a replacement for scopes or Statamic policies. */
 final class InstallationProfile
 {
-    private const READ_DOMAINS = ['entries', 'terms', 'globals', 'assets', 'blueprints', 'structures'];
+    private const READ_DOMAINS = ['entries', 'terms', 'globals', 'assets', 'blueprints', 'structures', 'forms'];
 
     public function name(): string
     {

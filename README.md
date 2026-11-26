@@ -6,8 +6,8 @@ A comprehensive MCP (Model Context Protocol) server for Statamic CMS v6 that pro
 
 - PHP 8.3+
 - Laravel 12+
-- Statamic 6.35.1+
-- Laravel MCP ^1.1.2
+- Statamic 6.44+
+- Laravel MCP ^1.3
 
 ## Installation
 

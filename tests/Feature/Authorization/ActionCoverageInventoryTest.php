@@ -27,6 +27,7 @@ class ActionCoverageInventoryTest extends TestCase
         'blueprints' => ['list', 'get', 'scan', 'types', 'validate'],
         'content-facade' => ['content_audit', 'content_validate', 'cross_reference'],
         'entries' => ['list', 'get', 'list_revisions', 'get_revision'],
+        'forms' => ['list', 'get', 'list_submissions', 'get_submission', 'export', 'summary'],
         'globals' => ['list', 'get'],
         'structures' => ['list', 'get'],
         'system' => ['info', 'health', 'cache_status', 'config_get'],
@@ -48,7 +49,7 @@ class ActionCoverageInventoryTest extends TestCase
      * Unscoped listings with no handle to check: they filter per item instead
      * (see the listing handlers), so they carry no permission of their own.
      */
-    private const FILTERED_PER_ITEM = ['assets list container', 'structures list collection'];
+    private const FILTERED_PER_ITEM = ['assets list container', 'structures list collection', 'forms list'];
 
     public function test_every_built_in_action_is_classified_scoped_and_permissioned(): void
     {
@@ -68,12 +69,15 @@ class ActionCoverageInventoryTest extends TestCase
                     $label = trim("{$domain} {$action} {$type}");
                     $call = $this->invoke($router, 'describeCall', $action, [
                         'action' => $action, 'resource_type' => $type, 'type' => $type, 'handle' => 'h',
-                        'collection' => 'c', 'taxonomy' => 't', 'container' => 'k', 'namespace' => 'collections',
+                        'collection' => 'c', 'taxonomy' => 't', 'container' => 'k', 'namespace' => 'collections', 'form' => 'f',
                     ]);
                     $scopes = array_map(fn ($scope) => $scope->value, $call->scopes);
 
                     $this->assertSame($write ? 'write' : 'read', $call->mode, "{$label}: resource policy mode");
                     $expected = match (true) {
+                        $domain === 'forms' && $action === 'delete_submission' => ['submissions:delete'],
+                        $domain === 'forms' && $action === 'mark_spam' => ['forms:write', 'submissions:read'],
+                        $domain === 'forms' && in_array($action, ['list_submissions', 'get_submission', 'export', 'summary'], true) => ['submissions:read'],
                         ! $write => ["{$domain}:read"],
                         $domain === 'structures' && $action === 'move' => ['structures:admin', 'entries:write'],
                         in_array($domain, self::ADMIN_DOMAINS, true) => ["{$domain}:admin"],
@@ -163,7 +167,7 @@ class ActionCoverageInventoryTest extends TestCase
     private function routers(): array
     {
         $routers = array_values(array_filter($this->serverList('tools'), fn (string $tool): bool => is_subclass_of($tool, BaseRouter::class)));
-        $this->assertCount(9, $routers, 'A built-in router was added or removed: give it an inventory row.');
+        $this->assertCount(10, $routers, 'A built-in router was added or removed: give it an inventory row.');
 
         return array_map(fn (string $class): BaseRouter => new $class, $routers);
     }

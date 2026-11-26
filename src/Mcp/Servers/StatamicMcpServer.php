@@ -18,6 +18,7 @@ use Cboxdk\StatamicMcp\Mcp\Tools\Routers\AssetsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\BlueprintsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\ContentFacadeRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\EntriesRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\FormsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\GlobalsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\StructuresRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\SystemRouter;
@@ -98,6 +99,7 @@ class StatamicMcpServer extends Server
     public const SEARCHABLE_TOOLS = [
         TermsRouter::class,
         GlobalsRouter::class,
+        FormsRouter::class,
         ContentFacadeRouter::class,
         StructuresRouter::class,
         AssetsRouter::class,

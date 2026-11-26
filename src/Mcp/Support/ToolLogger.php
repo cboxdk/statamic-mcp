@@ -37,6 +37,8 @@ class ToolLogger
         'ssn',
         'credit_card',
         'card_number',
+        // Connector providers may use arbitrary names for credentials.
+        'connections',
     ];
 
     /**

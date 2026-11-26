@@ -22,7 +22,7 @@ class ArgumentNamesTest extends TestCase
         // Every tool
         'action', 'resource_type', 'approval_id', 'idempotency_key',
         // What a call addresses
-        'collection', 'taxonomy', 'container', 'namespace', 'handle', 'id', 'email', 'slug', 'path', 'site', 'field',
+        'collection', 'taxonomy', 'container', 'form', 'namespace', 'handle', 'id', 'email', 'slug', 'path', 'site', 'field',
         // What a write carries
         'data', 'fields', 'title', 'replace_fields', 'merge_sets', 'expected_version', 'revision_message', 'revision_id', 'reason', 'role',
         'destination', 'filename', 'folder', 'content', 'encoding', 'source_url', 'file_path', 'config_key', 'cache_type',

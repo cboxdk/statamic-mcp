@@ -9,6 +9,24 @@ Branch: `sd/release/v4`. Worktree: `security-review-hardening/statamic-mcp`.
 Status: implementation in progress, not release-ready. No public release or tag.
 Draft PR: https://github.com/cboxdk/statamic-mcp/pull/88.
 
+## Phase 3.2 — Forms 2
+
+Native form definitions and site-bound submissions now have separate scopes.
+Definitions support fields, fieldsets, connector configuration, honeypot and storage;
+submission actions support paging, filters, export, summary, spam and deletion.
+Connector configuration stays write-only, including previews, errors and audit.
+Statamic 6.44 and Laravel MCP 1.3 are the new minimums; CI pins the new minimum too.
+
+Independent review caught create permissions, replay redaction, incomplete submission
+versions, random legacy connector ids and nested protected fields. Follow-up review
+caught native nested handles and flattened imports. Regression coverage now includes
+each; the final review found no remaining blockers. The Eloquent test reads actual
+stored form fields and settings, and verifies submission reads and deletion.
+
+Local gate: **2197 passed, 24 environment-dependent skips, 12079 assertions**
+(547.05 seconds). PHPStan 9, Pint, Composer audit and 184 dependency licenses passed.
+This completes local 3.2 verification, not the whole phase or its remote CI gate.
+
 ## Phase 3.1 — integration foundation
 
 `StatamicMcp::integration()` registers package-owned router actions, scopes,
@@ -25,8 +43,8 @@ Final local gate: **2161 passed, 33 environment-dependent skips, 11653 assertion
 all 183 locked dependency licenses passed. Real cache/search/filesystem assertions
 cover deferred effects after both a successful write and a throw-after-save.
 
-This is only 3.1. Forms 2, Forms Pro, SEO Pro, system search and the cache modes
-in 3.2–3.6 remain outstanding. No phase-3 merge, tag or release.
+Forms Pro, SEO Pro, system search and the cache modes in 3.3–3.6 remain
+outstanding. No phase-3 merge, tag or release.
 
 ## Polish plan checkpoint — 2026-11-26
 

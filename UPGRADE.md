@@ -4,6 +4,23 @@ v4 never widens what an existing token or OAuth grant may do. A credential
 whose meaning changed is narrowed or must be approved again. Content is not
 touched by any step below.
 
+v4 requires Statamic **6.44+** and Laravel MCP **1.3+**.
+
+## Forms 2
+
+Use `statamic-forms-read` / `statamic-forms-write`, with the `form` argument.
+Form fields are stored in `data.fields.sections` (or `data.fields.pages` for
+multi-page forms). The `forms` namespace is no longer accepted by the blueprint
+tools or resources; Statamic deletes legacy form blueprints on saving the form.
+Follow Statamic's Forms 2 upgrade procedure before changing existing forms.
+
+Grant `forms:read` / `forms:write` for definitions, and separately
+`submissions:read` for submission data or `submissions:delete` for deletion.
+Existing tokens do not gain these scopes. Deletion requires approval by default;
+spam marking requires both `forms:write` and `submissions:read`. Connector
+configuration is write-only, including in approval previews and audit logs.
+See [Forms](docs/tools/forms.md) for actions and input shapes.
+
 ## Steps
 
 1. Back up `storage/statamic-mcp/` (or the MCP tables) and your config.

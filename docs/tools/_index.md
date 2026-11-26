@@ -6,8 +6,9 @@ weight: 30
 
 # Tools
 
-The Statamic MCP Server provides 11 tools organized by domain. Each tool is a router that handles multiple actions via an `action` parameter.
+The Statamic MCP Server groups actions by domain, with separate read and write/admin tools. Each tool takes an `action` parameter.
 
 ## Guides
 
 - **[Tool Overview](overview.md)** — All tools, their actions, and how routing works
+- **[Forms](forms.md)** — Forms 2 definitions, connectors and stored submissions

@@ -1016,7 +1016,7 @@ abstract class BaseRouter extends BaseStatamicTool
     private static function withoutSecrets(array $arguments): array
     {
         foreach ($arguments as $key => $value) {
-            if (is_string($key) && preg_match('/password|secret|token|api_?key/i', $key) === 1 && $value !== null) {
+            if (is_string($key) && preg_match('/password|secret|token|api_?key|^connections$/i', $key) === 1 && $value !== null) {
                 $arguments[$key] = '[hidden]';
             } elseif (is_array($value)) {
                 $arguments[$key] = self::withoutSecrets($value);

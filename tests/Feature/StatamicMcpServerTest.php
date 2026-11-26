@@ -77,7 +77,7 @@ class StatamicMcpServerTest extends TestCase
         $tools = $this->getServerTools($server);
 
         expect($tools)->toBeArray();
-        expect(count($tools))->toBe(10);
+        expect(count($tools))->toBe(11);
 
         foreach ($tools as $toolClass) {
             // Test that the tool class exists and can be instantiated
@@ -163,7 +163,7 @@ class StatamicMcpServerTest extends TestCase
         $server = $this->getServer();
         $tools = $this->getServerTools($server);
         // Updated for hyphen-based naming: statamic-domain or statamic-domain-action
-        $expectedCategories = ['entries', 'terms', 'globals', 'content-facade', 'structures', 'assets', 'users', 'system', 'discover', 'blueprints'];
+        $expectedCategories = ['entries', 'terms', 'globals', 'content-facade', 'structures', 'assets', 'users', 'system', 'discover', 'blueprints', 'forms'];
         $foundCategories = [];
 
         foreach ($tools as $toolClass) {

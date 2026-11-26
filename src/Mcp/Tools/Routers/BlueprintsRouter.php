@@ -81,7 +81,7 @@ class BlueprintsRouter extends BaseRouter
                 ->description('Blueprint identifier in snake_case. Example: "blog_post", "product"'),
             'namespace' => JsonSchema::string()
                 ->description('Blueprint namespace determining storage location. Use "collections" for collection blueprints, "taxonomies" for taxonomy blueprints.')
-                ->enum(['collections', 'taxonomies', 'globals', 'forms', 'assets', 'users']),
+                ->enum(['collections', 'taxonomies', 'globals', 'assets', 'users']),
             'collection' => JsonSchema::string()
                 ->description('Collection handle. Required when namespace is "collections". Example: "blog"'),
             'taxonomy' => JsonSchema::string()
@@ -583,6 +583,9 @@ class BlueprintsRouter extends BaseRouter
      */
     private function findBlueprint(string $handle, ?string $namespace = null, ?string $collectionHandle = null, ?string $taxonomyHandle = null): ?BlueprintContract
     {
+        if ($namespace === 'forms' || str_starts_with($namespace ?? '', 'forms.')) {
+            return null;
+        }
         if ($namespace) {
             // For collections, use the collection argument to build correct namespace
             if ($namespace === 'collections' && $collectionHandle) {
@@ -620,7 +623,7 @@ class BlueprintsRouter extends BaseRouter
         }
 
         // Search all standard namespaces (single pass, no redundant lookups)
-        $standardNamespaces = ['collections', 'taxonomies', 'globals', 'forms', 'assets', 'users'];
+        $standardNamespaces = ['collections', 'taxonomies', 'globals', 'assets', 'users'];
 
         foreach ($standardNamespaces as $searchNamespace) {
             try {
@@ -1053,7 +1056,6 @@ class BlueprintsRouter extends BaseRouter
         $blueprints = collect(Blueprint::in('collections')->all())
             ->concat(Blueprint::in('taxonomies')->all())
             ->concat(Blueprint::in('globals')->all())
-            ->concat(Blueprint::in('forms')->all())
             ->concat(Blueprint::in('assets')->all())
             ->concat(Blueprint::in('users')->all());
 
@@ -1256,7 +1258,7 @@ class BlueprintsRouter extends BaseRouter
      */
     private function validateBlueprintLocation(?string $handle, string $namespace, ?string $collectionHandle = null, ?string $taxonomyHandle = null): ?array
     {
-        $validNamespaces = ['collections', 'taxonomies', 'globals', 'forms', 'assets', 'users'];
+        $validNamespaces = ['collections', 'taxonomies', 'globals', 'assets', 'users'];
         if (! in_array($namespace, $validNamespaces, true)) {
             return $this->createErrorResponse("Invalid namespace: {$namespace}. Valid: " . implode(', ', $validNamespaces))->toArray();
         }

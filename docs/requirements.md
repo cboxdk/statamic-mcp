@@ -13,8 +13,8 @@ resolver allows it, it is listed; if it does not, it is not.
 | Package | Constraint |
 |---------|------------|
 | `php` | `^8.3` |
-| `statamic/cms` | `^6.35.1` |
-| `laravel/mcp` | `^1.1.2` |
+| `statamic/cms` | `^6.44` |
+| `laravel/mcp` | `^1.3` |
 | `symfony/yaml` | `^7.0 || ^8.0` |
 | `opis/json-schema` | `^2.6.1` |
 
@@ -28,7 +28,7 @@ matrix runs `orchestra/testbench` `^10.0` and `^11.0`). A green run of that matr
 
 The package requires `^8.3`. CI runs the suite on PHP 8.3, 8.4, and 8.5
 against both Laravel majors. An additional SQLite job pins Statamic to the declared
-minimum, 6.35.1. These jobs also run on the v4 release branch; local verification
+minimum, 6.44. These jobs also run on the v4 release branch; local verification
 on one PHP/Statamic version does not substitute for that matrix.
 
 ## Database

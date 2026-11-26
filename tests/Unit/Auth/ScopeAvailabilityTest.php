@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Config;
 use Statamic\Contracts\Auth\User as UserContract;
 use Statamic\Facades\AssetContainer;
 use Statamic\Facades\Collection;
+use Statamic\Facades\Form;
 use Statamic\Facades\GlobalSet;
 use Statamic\Facades\Nav;
 use Statamic\Facades\Role;
@@ -25,6 +26,7 @@ beforeEach(function () {
     GlobalSet::make()->handle('footer')->title('Footer')->save();
     AssetContainer::make('images')->disk('assets')->save();
     Nav::make()->handle('main')->title('Main')->save();
+    Form::make('contact')->title('Contact')->save();
 
     $this->availability = new ScopeAvailability;
 });
@@ -311,7 +313,7 @@ it('offers exactly the scopes the routers let a permission set use', function ()
                     foreach ($variants as $extra) {
                         $call = $describe($router, $declared->name, array_filter([
                             'action' => $declared->name, 'resource_type' => $type, 'handle' => $handle,
-                            'collection' => 'blog', 'taxonomy' => 'tags', 'container' => 'images', ...$extra,
+                            'collection' => 'blog', 'taxonomy' => 'tags', 'container' => 'images', 'form' => 'contact', ...$extra,
                         ], fn ($value) => $value !== null && $value !== '' && $value !== []));
                         if ($call->permissions === []) {
                             continue; // Filtered per item, or open by site config: proves nothing about a permission.

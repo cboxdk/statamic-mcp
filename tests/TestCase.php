@@ -36,6 +36,8 @@ abstract class TestCase extends AddonTestCase
         $this->permissionFixtureDirectories[] = $directory;
         $app['config']->set('statamic.users.repositories.file.paths.roles', $directory . '/roles.yaml');
         $app['config']->set('statamic.users.repositories.file.paths.groups', $directory . '/groups.yaml');
+        // Forms 2 definitions also bypass the Stache fixture trait.
+        $app['config']->set('statamic.forms.forms', $directory . '/forms');
     }
 
     protected function tearDown(): void

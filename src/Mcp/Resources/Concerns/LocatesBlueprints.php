@@ -19,7 +19,7 @@ use Statamic\Fields\Blueprint as BlueprintInstance;
 trait LocatesBlueprints
 {
     /** Namespaces that hold blueprints directly. */
-    private const BASE_NAMESPACES = ['collections', 'taxonomies', 'globals', 'forms', 'assets', 'users'];
+    private const BASE_NAMESPACES = ['collections', 'taxonomies', 'globals', 'assets', 'users'];
 
     /**
      * @return list<BlueprintInstance>
@@ -42,6 +42,9 @@ trait LocatesBlueprints
      */
     protected function findBlueprint(string $namespace, string $handle): ?BlueprintInstance
     {
+        if ($namespace === 'forms' || str_starts_with($namespace, 'forms.')) {
+            return null;
+        }
         foreach ($this->blueprintsIn($namespace) as $blueprint) {
             if ($blueprint->handle() === $handle) {
                 return $blueprint;

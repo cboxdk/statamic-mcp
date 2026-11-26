@@ -7,6 +7,7 @@ namespace Cboxdk\StatamicMcp\Tests\Integration;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\AssetsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\BlueprintsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\EntriesRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\FormsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\GlobalsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\StructuresRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\SystemRouter;
@@ -303,15 +304,28 @@ class EloquentDriverTest extends TestCase
         $this->assertSame(1, DB::table('revisions')->where('action', 'working')->count());
     }
 
-    public function test_forms_on_the_database_are_read_like_files(): void
+    public function test_forms_two_and_submissions_round_trip_through_the_database(): void
     {
-        Form::make('contact')->title('Contact')->save();
+        $router = new FormsRouter;
+        $fields = ['sections' => [['fields' => [['handle' => 'email', 'field' => ['type' => 'email', 'display' => 'Email']]]]]];
+        $created = $router->execute(['action' => 'create', 'form' => 'contact', 'data' => ['title' => 'Contact', 'fields' => $fields]]);
+        $this->assertTrue($created['success'], json_encode($created) ?: '');
         $this->assertSame(1, DB::table('forms')->where('handle', 'contact')->count());
-
-        $blueprint = (new BlueprintsRouter)->execute(['action' => 'create', 'namespace' => 'forms', 'handle' => 'contact',
-            'fields' => [['handle' => 'email', 'field' => ['type' => 'text']]]]);
-        $this->assertTrue($blueprint['success'], json_encode($blueprint) ?: '');
-        $this->assertStringContainsString('email', (string) DB::table('blueprints')->where('namespace', 'forms')->where('handle', 'contact')->value('data'));
+        $settings = json_decode(DB::table('forms')->where('handle', 'contact')->value('settings'), true);
+        $this->assertSame($fields, $settings['fields']);
+        $updated = $router->execute(['action' => 'update', 'form' => 'contact', 'expected_version' => $created['data']['form']['version'], 'data' => ['store' => false]]);
+        $this->assertTrue($updated['success'], json_encode($updated) ?: '');
+        $this->assertFalse(json_decode(DB::table('forms')->where('handle', 'contact')->value('settings'), true)['store']);
+        $submission = Form::find('contact')->makeSubmission()->data(['email' => 'test@example.test']);
+        $submission->save();
+        $this->assertSame(1, DB::table('form_submissions')->count());
+        $read = $router->execute(['action' => 'get_submission', 'form' => 'contact', 'id' => (string) $submission->id()]);
+        $this->assertTrue($read['success'], json_encode($read) ?: '');
+        $this->assertSame('test@example.test', $read['data']['submission']['data']['email']);
+        $deleted = $router->execute(['action' => 'delete_submission', 'form' => 'contact', 'id' => (string) $submission->id()]);
+        $this->assertTrue($deleted['success'], json_encode($deleted) ?: '');
+        $this->assertSame(0, DB::table('form_submissions')->count());
+        $this->assertSame(0, DB::table('blueprints')->where('namespace', 'forms')->count());
 
         $info = (new SystemRouter)->execute(['action' => 'info', 'include_details' => true]);
         $this->assertTrue($info['success'], json_encode($info) ?: '');

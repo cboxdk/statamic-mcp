@@ -11,6 +11,7 @@ use Statamic\Contracts\Globals\GlobalSet as GlobalSetContract;
 use Statamic\Contracts\Structures\Nav as NavContract;
 use Statamic\Facades\AssetContainer;
 use Statamic\Facades\Collection;
+use Statamic\Facades\Form;
 use Statamic\Facades\GlobalSet;
 use Statamic\Facades\Nav;
 use Statamic\Facades\Taxonomy;
@@ -256,6 +257,16 @@ class ScopeAvailability
 
             TokenScope::SystemRead => $user->hasPermission('access utilities'),
 
+            TokenScope::FormsRead => $this->holdsAny($user, ['configure forms', 'edit forms', 'configure form fields', 'view form submissions'])
+                || $this->holdsForAny($user, Form::all()->map->handle()->all(), fn (string $h): array => ["edit {$h} form", "view {$h} form submissions"]),
+            TokenScope::FormsWrite => $this->holdsAny($user, ['configure forms', 'create forms', 'edit forms', 'configure form fields'])
+                || $this->holdsForAny($user, Form::all()->map->handle()->all(), fn (string $h): array => ["edit {$h} form"])
+                || $this->canManageFormSpam($user),
+            TokenScope::SubmissionsRead => $user->hasPermission('configure forms') || $user->hasPermission('view form submissions')
+                || $this->holdsForAny($user, Form::all()->map->handle()->all(), fn (string $h): array => ["view {$h} form submissions"]),
+            TokenScope::SubmissionsDelete => $user->hasPermission('configure forms') || $user->hasPermission('delete form submissions')
+                || $this->holdsForAny($user, Form::all()->map->handle()->all(), fn (string $h): array => ["delete {$h} form submissions"]),
+
             // Retired; refused above.
             TokenScope::ContentRead,
             TokenScope::ContentWrite,
@@ -289,6 +300,20 @@ class ScopeAvailability
         }
 
         return config("statamic.mcp.tools.{$domain}.resources.{$mode}") === [];
+    }
+
+    private function canManageFormSpam(User $user): bool
+    {
+        if ($user->hasPermission('manage form spam') && $user->hasPermission('view form submissions')) {
+            return true;
+        }
+        foreach (Form::all() as $form) {
+            if ($user->can('manageSpam', $form) && $user->can('viewSubmissions', $form)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

@@ -208,6 +208,7 @@ return [
             'default' => ['delete'],
             'blueprints' => ['create', 'generate', 'update', 'delete'],
             'entries' => ['delete', 'restore_revision', 'publish_working_copy'],
+            'forms' => ['delete_submission'],
             'users' => ['create', 'update', 'delete', 'activate', 'assign_role'],
             // 'entries' => ['create', 'update', 'delete', 'publish', 'unpublish', 'restore_revision', 'publish_working_copy'],
             // 'globals' => ['update'],
@@ -423,6 +424,12 @@ return [
     |
     */
     'tools' => [
+        'forms' => [
+            'enabled' => env('STATAMIC_MCP_TOOL_FORMS_ENABLED', true),
+            'resources' => ['read' => ['*'], 'write' => ['*']],
+            // Applies to definitions, submission reads and exports.
+            'denied_fields' => [],
+        ],
         'blueprints' => [
             'enabled' => env('STATAMIC_MCP_TOOL_BLUEPRINTS_ENABLED', true),
             'resources' => [
