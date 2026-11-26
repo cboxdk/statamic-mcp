@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Updates no longer fail on a stored single-item `form`, `collections` or other relationship field** (#102, thanks @timluigjes). Every relationship fieldtype validates as a list, but with `max_items: 1` Statamic stores a bare handle, which the Control Panel wraps before it submits. The server only wrapped `entries`, `terms` and `users`, so an entry, term or global holding e.g. `form: contact` (at the top level or inside a replicator, bard, grid or group set) could not be updated at all: "The Form field must be an array". Every relationship fieldtype is now wrapped the same way, and stored values keep their shape. A sanitizer registered with `FieldtypeExtensions` for such a fieldtype still takes precedence.
+
 ## [3.6.3] - 2026-11-23
 
 ### Security
