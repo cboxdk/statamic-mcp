@@ -220,6 +220,37 @@ class EloquentDriverTest extends TestCase
         $this->assertStringContainsString('textarea', (string) DB::table('blueprints')->where('handle', 'page')->value('data'));
     }
 
+    public function test_fieldsets_and_import_layouts_persist_without_flattening_on_eloquent(): void
+    {
+        $router = new BlueprintsRouter;
+        $created = $router->execute(['action' => 'create_fieldset', 'handle' => 'shared', 'fields' => [
+            ['handle' => 'summary', 'field' => ['type' => 'text']],
+        ]]);
+        $this->assertTrue($created['success'], json_encode($created));
+        $this->assertSame('summary', json_decode((string) DB::table('fieldsets')->where('handle', 'shared')->value('data'), true)['fields'][0]['handle']);
+        $import = ['import' => 'shared', 'prefix' => 'hero_'];
+        $where = ['namespace' => 'collections', 'collection' => 'pages', 'handle' => 'page'];
+        $updated = $router->execute(['action' => 'update', ...$where, 'tab' => 'sidebar', 'fields' => [$import]]);
+        $this->assertTrue($updated['success'], json_encode($updated));
+        $stored = json_decode((string) DB::table('blueprints')->where('handle', 'page')->value('data'), true);
+        $this->assertSame([$import], $stored['tabs']['sidebar']['sections'][0]['fields']);
+        $fieldset = $router->execute(['action' => 'update_fieldset', 'handle' => 'shared', 'fields' => [
+            ['handle' => 'summary', 'field' => ['type' => 'textarea']],
+        ], 'expected_version' => $created['data']['fieldset']['version']]);
+        $this->assertTrue($fieldset['success'], json_encode($fieldset));
+        $this->assertSame('textarea', json_decode((string) DB::table('fieldsets')->where('handle', 'shared')->value('data'), true)['fields'][0]['field']['type']);
+        $read = $router->execute(['action' => 'get', ...$where]);
+        $this->assertSame('textarea', $read['data']['blueprint']['fields']['hero_summary']['type']);
+        $refused = $router->execute(['action' => 'delete_fieldset', 'handle' => 'shared']);
+        $this->assertFalse($refused['success']);
+        $this->assertSame(1, DB::table('fieldsets')->where('handle', 'shared')->count());
+        $removed = $router->execute(['action' => 'update', ...$where, 'remove_fields' => ['import:shared|hero_']]);
+        $this->assertTrue($removed['success'], json_encode($removed));
+        $deleted = $router->execute(['action' => 'delete_fieldset', 'handle' => 'shared']);
+        $this->assertTrue($deleted['success'], json_encode($deleted));
+        $this->assertSame(0, DB::table('fieldsets')->where('handle', 'shared')->count());
+    }
+
     public function test_a_mount_change_and_a_renamed_mount_page_move_the_stored_uris(): void
     {
         $about = $this->createPage('about');

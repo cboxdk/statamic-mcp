@@ -80,6 +80,13 @@ class McpResourcesTest extends TestCase
             ->assertDontSee('/article');
     }
 
+    public function test_blueprint_resources_strip_denied_fields_and_configuration_keys(): void
+    {
+        config(['statamic.mcp.tools.blueprints.denied_fields' => ['body', 'validate']]);
+        $this->mcpResource(BlueprintResource::class, ['namespace' => 'collections.' . self::COLLECTION, 'handle' => 'article'])
+            ->assertOk()->assertSee('"handle":"title"')->assertDontSee(['"handle":"body"', '"validate"']);
+    }
+
     public function test_resource_policy_blocks_reading_a_hidden_blueprint(): void
     {
         config(['statamic.mcp.tools.blueprints.resources.read' => ['something-else']]);

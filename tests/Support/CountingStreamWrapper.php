@@ -29,6 +29,12 @@ class CountingStreamWrapper
     /** @var array<string, int> Writes seen per real path. */
     public static array $writes = [];
 
+    /** @var array<string, int> Bytes read per real path. */
+    public static array $reads = [];
+
+    /** @var \Closure(string, string): void|null */
+    public static ?\Closure $afterRename = null;
+
     /** @var resource|null */
     public $context;
 
@@ -56,6 +62,8 @@ class CountingStreamWrapper
     public static function reset(): void
     {
         self::$writes = [];
+        self::$reads = [];
+        self::$afterRename = null;
     }
 
     /**
@@ -126,7 +134,10 @@ class CountingStreamWrapper
 
     public function stream_read(int $count): string
     {
-        return $this->handle !== null ? (string) fread($this->handle, $count) : '';
+        $data = $this->handle !== null ? (string) fread($this->handle, $count) : '';
+        self::$reads[$this->path] = (self::$reads[$this->path] ?? 0) + strlen($data);
+
+        return $data;
     }
 
     public function stream_eof(): bool
@@ -212,7 +223,12 @@ class CountingStreamWrapper
         $realFrom = self::real($from);
         $realTo = self::real($to);
 
-        return self::unwrapped(fn () => @rename($realFrom, $realTo));
+        $renamed = self::unwrapped(fn () => @rename($realFrom, $realTo));
+        if ($renamed && self::$afterRename !== null) {
+            (self::$afterRename)($realFrom, $realTo);
+        }
+
+        return $renamed;
     }
 
     public function mkdir(string $path, int $mode, int $options): bool

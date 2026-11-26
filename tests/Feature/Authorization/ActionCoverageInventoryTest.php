@@ -24,7 +24,7 @@ class ActionCoverageInventoryTest extends TestCase
 {
     private const READS = [
         'assets' => ['list', 'get'],
-        'blueprints' => ['list', 'get', 'scan', 'types', 'validate'],
+        'blueprints' => ['list', 'get', 'scan', 'types', 'validate', 'list_fieldsets', 'get_fieldset', 'fieldtypes'],
         'content-facade' => ['content_audit', 'content_validate', 'cross_reference'],
         'entries' => ['list', 'get', 'list_revisions', 'get_revision'],
         'forms' => ['list', 'get', 'list_submissions', 'get_submission', 'export', 'summary'],

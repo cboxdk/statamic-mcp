@@ -44,7 +44,7 @@ final class PersonalTokenConsent
             return null;
         }
         $error = fn (): ValidationException => ValidationException::withMessages([
-            'capability_offer' => 'The permission list has expired or changed. Reload the page before creating this token.',
+            'capability_offer' => __('statamic-mcp::messages.capability_offer_expired'),
         ]);
         if (! is_string($offer) || strlen($offer) > 262144) {
             throw $error();

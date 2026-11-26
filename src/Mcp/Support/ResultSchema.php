@@ -16,7 +16,7 @@ final class ResultSchema
         $boolean = ['type' => 'boolean'];
         $map = self::map();
 
-        if (in_array($action, ['list', 'scan', 'search', 'types', 'list_revisions', 'list_submissions', 'export'], true)) {
+        if (in_array($action, ['list', 'scan', 'search', 'types', 'list_revisions', 'list_submissions', 'export', 'list_fieldsets', 'fieldtypes'], true)) {
             return self::object([
                 'items' => ['type' => 'array', 'items' => self::record()],
                 'next_cursor' => ['type' => ['string', 'null']],
@@ -40,7 +40,7 @@ final class ResultSchema
                 ? self::object(['blueprint' => $string, 'validation' => self::object([
                     'valid' => $boolean, 'errors' => ['type' => 'array'], 'warnings' => ['type' => 'array'],
                 ], ['valid', 'errors', 'warnings'])], ['blueprint', 'validation'])
-                : self::wrapped('blueprint'),
+                : self::wrapped(str_ends_with($action, '_fieldset') ? 'fieldset' : 'blueprint'),
             'assets' => $action === 'copy'
                 ? self::object(['original' => self::record(), 'copy' => self::record('asset', true)], ['original', 'copy'])
                 : ['anyOf' => [self::wrapped('asset'), self::wrapped('container')]],
@@ -114,7 +114,13 @@ final class ResultSchema
             'data' => self::map(),
         ];
         $properties += match ($kind) {
-            'entry' => ['collection' => $string, 'site' => $string, 'published' => $boolean, 'status' => $string, 'url' => $nullable, 'parent' => $nullable, 'date' => $nullable],
+            'entry' => [
+                'collection' => $string, 'site' => $string, 'published' => $boolean, 'status' => $string,
+                'url' => $nullable, 'parent' => $nullable, 'date' => $nullable, 'blueprint' => $nullable,
+                'origin' => ['anyOf' => [self::object(['id' => $string, 'site' => $string], ['id', 'site']), ['type' => 'null']]],
+                'localizations' => ['type' => 'array', 'items' => self::object(['id' => $string, 'site' => $string], ['id', 'site'])],
+                'merged_data' => self::map(),
+            ],
             'term' => ['taxonomy' => $string, 'site' => $string, 'url' => $nullable],
             'global' => ['site' => $string, 'localized' => $boolean, 'sites' => $strings],
             'user' => ['email' => $string, 'name' => $nullable, 'super' => $boolean, 'roles' => $strings, 'groups' => $strings],
@@ -144,7 +150,7 @@ final class ResultSchema
             'collection', 'taxonomy', 'navigation', 'globalset', 'site' => 'structures',
             'asset', 'container' => 'assets',
             'role', 'group' => 'users',
-            'blueprint' => 'blueprints',
+            'blueprint', 'fieldset' => 'blueprints',
             default => null,
         };
         if ($policyDomain !== null) {

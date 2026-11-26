@@ -206,7 +206,7 @@ return [
         */
         'actions' => [
             'default' => ['delete'],
-            'blueprints' => ['create', 'generate', 'update', 'delete'],
+            'blueprints' => ['create', 'generate', 'update', 'delete', 'create_fieldset', 'update_fieldset', 'delete_fieldset'],
             'entries' => ['delete', 'restore_revision', 'publish_working_copy'],
             'forms' => ['delete_submission'],
             'users' => ['create', 'update', 'delete', 'activate', 'assign_role'],

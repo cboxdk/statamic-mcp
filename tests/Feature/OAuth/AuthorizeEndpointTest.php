@@ -99,7 +99,8 @@ class AuthorizeEndpointTest extends TestCase
         $response = $this->actingAs($user, 'web')
             ->get($this->authorizeUrl(http_build_query($this->validParams())));
 
-        $response->assertOk()->assertSee('<input type="hidden" name="resource" value="http://localhost/mcp/statamic">', escape: false);
+        $response->assertOk();
+        $this->assertSame('http://localhost/mcp/statamic', $response->viewData('page')['props']['oauthParams']['resource']);
     }
 
     public function test_get_authorize_with_invalid_client_id_returns_error(): void

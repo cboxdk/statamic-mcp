@@ -155,10 +155,10 @@ class ScopesFollowPermissionsTest extends TestCase
             ->get($this->authorizeUrl() . '?' . http_build_query($this->oauthParams('entries:read users:admin *')))
             ->assertOk();
 
-        $response->assertSee('Read Entries');
-        $response->assertSee('Read Structures');
-        $response->assertDontSee('Write Users');
-        $response->assertDontSee('Full Access');
+        // The page also carries the complete translation catalog; the offer,
+        // not the presence of a translated label, determines selectable scopes.
+        $scopes = $response->viewData('page')['props']['scopes'];
+        $this->assertEqualsCanonicalizing(['entries:read', 'entries:write', 'structures:read'], array_column($scopes, 'value'));
     }
 
     public function test_a_client_asking_only_for_scopes_the_editor_lacks_is_refused(): void
@@ -236,14 +236,11 @@ class ScopesFollowPermissionsTest extends TestCase
             ->get($this->authorizeUrl() . '?' . http_build_query($this->oauthParams('*')))
             ->assertOk();
 
-        // `*` is spelled out as the editor's own scopes, all pre-checked.
-        $response->assertSee('Read Entries');
-        $response->assertSee('Read Structures');
-        $response->assertSee('Edit Entries');
-        $response->assertDontSee('Full Access');
-        $response->assertDontSee('name="scopes[]" value="*"', false);
-        $response->assertDontSee('Publish Entries');
-        $response->assertDontSee('Write Users');
+        // `*` expands to the editor's reach; this editor has neither delete
+        // nor admin scopes, which must never start selected.
+        $props = $response->viewData('page')['props'];
+        $this->assertEqualsCanonicalizing(['entries:read', 'entries:write', 'structures:read'], array_column($props['scopes'], 'value'));
+        $this->assertEqualsCanonicalizing(['entries:read', 'entries:write', 'structures:read'], $props['defaultScopes']);
     }
 
     public function test_approving_a_wildcard_grants_the_editors_reach_not_more(): void

@@ -27,6 +27,12 @@ class InstallCommand extends Command
 
     public function handle(): int
     {
+        if (app()->configurationIsCached()) {
+            $this->error('Run php artisan config:clear before installing, then rebuild the configuration cache after mcp:doctor passes.');
+
+            return self::FAILURE;
+        }
+
         $upgrading = $this->detectExistingInstallation();
 
         $profile = $this->option('profile') ?? config('statamic.mcp.profiles.stdio');
@@ -68,9 +74,14 @@ class InstallCommand extends Command
         $this->createMcpGuidelines();
 
         $this->info('🩺 Checking the configuration (mcp:doctor)...');
-        $this->call('mcp:doctor');
+        $doctor = $this->call('mcp:doctor');
         $this->newLine();
 
+        if ($doctor !== self::SUCCESS) {
+            $this->error('Configuration was written, but MCP is not ready. Fix the reported settings and run php artisan mcp:doctor again.');
+
+            return $doctor;
+        }
         $this->showCompletionMessage();
 
         return self::SUCCESS;
@@ -172,6 +183,8 @@ class InstallCommand extends Command
             File::append($envPath, (str_ends_with($env, "\n") || $env === '' ? '' : "\n") . $line . "\n");
         }
 
+        // Doctor runs in this process; .env changes do not reload Laravel config.
+        config(['statamic.mcp.profiles.stdio' => $this->stdioProfile]);
         $this->info("✅ Saved {$line} to .env");
         $this->newLine();
     }
@@ -526,16 +539,8 @@ class InstallCommand extends Command
 
     protected function configureClaudeCode(string $projectPath): bool
     {
-        // First, detect if Claude CLI is available (like Laravel Boost does)
-        $claudeCliAvailable = $this->detectClaudeCli();
-
-        if ($claudeCliAvailable) {
-            // Use the modern Claude MCP approach with .mcp.json
-            return $this->configureClaudeCodeModern($projectPath);
-        }
-
-        // Fallback to desktop config for older installations
-        return $this->configureClaudeCodeLegacy($projectPath);
+        // Claude Code reads project-local .mcp.json even when the CLI is not on PATH.
+        return $this->configureClaudeCodeModern($projectPath);
     }
 
     protected function detectClaudeCli(): bool
@@ -622,91 +627,8 @@ class InstallCommand extends Command
 
     protected function configureClaudeCodeModern(string $projectPath): bool
     {
-        // Get the Laravel project root
-        $laravelRoot = $this->getLaravelRoot();
-        $mcpConfigPath = $laravelRoot . '/.mcp.json';
-
-        $config = [];
-        if (File::exists($mcpConfigPath)) {
-            $config = json_decode(File::get($mcpConfigPath), true) ?? [];
-
-            if (isset($config['mcpServers']['statamic']) && ! $this->option('force')) {
-                if (! $this->confirm('Claude Code MCP configuration exists. Update it?')) {
-                    return false;
-                }
-            }
-        }
-
-        $config['mcpServers']['statamic'] = [
-            'command' => 'php',
-            'args' => [
-                'artisan',
-                'mcp:start',
-                'statamic',
-            ],
-            'env' => [
-                'STATAMIC_MCP_STDIO_PROFILE' => $this->stdioProfile,
-            ],
-        ];
-
-        File::put($mcpConfigPath, json_encode($config, JSON_PRETTY_PRINT));
-
-        // Also try to register via claude mcp add command
-        $this->tryRegisterMcpCommand($laravelRoot);
-
-        return true;
-    }
-
-    protected function configureClaudeCodeLegacy(string $projectPath): bool
-    {
-        // Fallback to desktop config for older Claude installations
-        $homeDir = $this->getHomeDirectory();
-        $locations = [
-            $homeDir . '/Library/Application Support/Claude/claude_desktop_config.json', // macOS
-            $homeDir . '/.config/claude/claude_desktop_config.json', // Linux
-            (isset($_SERVER['APPDATA']) ? $_SERVER['APPDATA'] . '/Claude/claude_desktop_config.json' : null), // Windows
-        ];
-
-        $configPath = null;
-        foreach ($locations as $location) {
-            if ($location && File::exists(dirname($location))) {
-                $configPath = $location;
-                break;
-            }
-        }
-
-        if (! $configPath) {
-            $this->warn('Claude Code configuration directory not found.');
-
-            return false;
-        }
-
-        if (File::exists($configPath) && ! $this->option('force')) {
-            if (! $this->confirm("Claude Code config exists at {$configPath}. Update it?")) {
-                return false;
-            }
-        }
-
-        $config = [];
-        if (File::exists($configPath)) {
-            $config = json_decode(File::get($configPath), true) ?? [];
-        }
-
-        $config['mcpServers']['statamic'] = [
-            'command' => 'php',
-            'args' => [
-                $projectPath . '/artisan',
-                'mcp:start',
-                'statamic',
-            ],
-            'env' => [
-                'STATAMIC_MCP_STDIO_PROFILE' => $this->stdioProfile,
-            ],
-        ];
-
-        File::put($configPath, json_encode($config, JSON_PRETTY_PRINT));
-
-        return true;
+        // One registration, not a second `claude mcp add` after writing the file.
+        return $this->writeClientConfig($projectPath . '/.mcp.json', $projectPath);
     }
 
     protected function configureCursor(string $projectPath): bool
@@ -719,7 +641,22 @@ class InstallCommand extends Command
             }
         }
 
-        $content = $this->getCursorRulesContent($projectPath);
+        $content = File::exists($cursorrules) ? File::get($cursorrules) : '';
+        $start = '<!-- statamic-mcp:start -->';
+        $end = '<!-- statamic-mcp:end -->';
+        if (substr_count($content, $start) !== substr_count($content, $end) || substr_count($content, $start) > 1
+            || (str_contains($content, $end) && strpos($content, $end) < strpos($content, $start))) {
+            $this->warn('Malformed Statamic MCP block in .cursorrules. Repair its start/end markers before retrying.');
+
+            return false;
+        }
+        if (! $this->writeClientConfig($projectPath . '/.cursor/mcp.json', $projectPath)) {
+            return false;
+        }
+        $block = $start . "\n" . $this->getCursorRulesContent($projectPath) . "\n" . $end;
+        $content = str_contains($content, $start)
+            ? substr_replace($content, $block, strpos($content, $start), strpos($content, $end) + strlen($end) - strpos($content, $start))
+            : $content . ($content === '' ? '' : "\n\n") . $block . "\n";
         File::put($cursorrules, $content);
 
         return true;
@@ -727,40 +664,33 @@ class InstallCommand extends Command
 
     protected function configureCline(string $projectPath): bool
     {
-        // Check if VS Code settings exist
-        $vscodeDir = base_path('.vscode');
-        $settingsPath = $vscodeDir . '/settings.json';
+        $this->line('Open Cline → MCP Servers → Configure MCP Servers and add the stdio configuration from Tools → MCP → Connect. No VS Code settings were changed.');
 
-        if (! File::exists($vscodeDir)) {
-            File::makeDirectory($vscodeDir);
-        }
+        return false;
+    }
 
-        $settings = [];
-        if (File::exists($settingsPath)) {
-            $settings = json_decode(File::get($settingsPath), true) ?? [];
-
-            if (isset($settings['cline.mcpServers']) && ! $this->option('force')) {
-                if (! $this->confirm('Cline MCP configuration exists in VS Code settings. Update it?')) {
-                    return false;
-                }
+    private function writeClientConfig(string $path, string $projectPath): bool
+    {
+        try {
+            $config = File::exists($path) ? json_decode(File::get($path), flags: JSON_THROW_ON_ERROR) : new \stdClass;
+            if (! $config instanceof \stdClass || (property_exists($config, 'mcpServers') && ! $config->mcpServers instanceof \stdClass)) {
+                throw new \UnexpectedValueException;
             }
+        } catch (\JsonException|\UnexpectedValueException) {
+            $this->warn("Invalid JSON object in {$path}. It was not changed.");
+
+            return false;
         }
-
-        $settings['cline.mcpServers']['statamic'] = [
-            'command' => 'php',
-            'args' => [
-                $projectPath . '/artisan',
-                'mcp:start',
-                'statamic',
-            ],
-            'env' => [
-                'STATAMIC_MCP_STDIO_PROFILE' => $this->stdioProfile,
-                'PATH' => '/usr/local/bin:/usr/bin:/bin',
-            ],
-            'cwd' => $projectPath,
-        ];
-
-        File::put($settingsPath, json_encode($settings, JSON_PRETTY_PRINT));
+        if (isset($config->mcpServers->statamic) && ! $this->option('force')
+            && ! $this->confirm("Statamic MCP configuration exists in {$path}. Update it?")) {
+            return false;
+        }
+        $config->mcpServers ??= new \stdClass;
+        $config->mcpServers->statamic = ['command' => 'php',
+            'args' => [$projectPath . '/artisan', 'mcp:start', 'statamic'],
+            'env' => ['STATAMIC_MCP_STDIO_PROFILE' => $this->stdioProfile]];
+        File::ensureDirectoryExists(dirname($path));
+        File::put($path, json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
 
         return true;
     }
@@ -856,77 +786,14 @@ Read the collection blueprint with `statamic-blueprints-read` before composing f
 
 Writes require the person's requested change and the appropriate scopes. `entries:write` does not grant publish or delete. `*` is expanded at consent, not stored as a wildcard. On `APPROVAL_REQUIRED`, present the Control Panel approval link and wait; do not attempt to approve it yourself. On `OUTCOME_UNKNOWN`, reconcile the record rather than retrying a write with a new idempotency key.
 
-The workflow prompts `write_entry`, `translate_entry`, `edit_page_builder` and `model_content` prepare authorized context without writing. A fieldset design from `model_content` is a proposal, not a supported fieldset write.
+The workflow prompts `write_entry`, `translate_entry`, `edit_page_builder` and `model_content` prepare authorized context without writing. Blueprints and fieldsets share `statamic-blueprints-read` and `statamic-blueprints-admin`; inspect their current schema before applying a proposed model.
 
 HTTP uses scoped Bearer tokens or OAuth. Local `php artisan mcp:start statamic` needs an explicitly configured stdio profile. Client auto-approval rules do not replace server-side authorization. See UPGRADE.md before changing those rules.
 MARKDOWN;
     }
 
-    protected function tryRegisterMcpCommand(string $laravelRoot): void
-    {
-        // Try to register with Claude MCP command if available
-        try {
-            // Use the same detection logic as detectClaudeCli()
-            if (! $this->detectClaudeCli()) {
-                $this->line('  ℹ️  Claude CLI not detected, skipping automatic registration');
-
-                return; // Claude CLI not available
-            }
-
-            $this->line('  🔄 Attempting to register with Claude CLI...');
-
-            // Try to add MCP server via command line (run from Laravel root)
-            $mcpCommand = [
-                'claude', 'mcp', 'add',
-                '--scope', 'project', 'statamic',
-                '--env', 'STATAMIC_MCP_STDIO_PROFILE=' . $this->stdioProfile,
-                '--', 'php', 'artisan', 'mcp:start', 'statamic',
-            ];
-
-            $result = Process::timeout(30)->path($laravelRoot)->run($mcpCommand);
-
-            if ($result->successful()) {
-                $this->info('✅ MCP server registered with Claude CLI');
-            } else {
-                $this->warn('⚠️  Claude CLI registration failed, but .mcp.json was created');
-                if ($this->getOutput()->isVerbose()) {
-                    $this->line('  Error: ' . $result->errorOutput());
-                    $this->line('  Output: ' . $result->output());
-                }
-                $this->line('  💡 You can manually register with: claude mcp add --scope project statamic --env STATAMIC_MCP_STDIO_PROFILE=' . $this->stdioProfile . ' -- php artisan mcp:start statamic');
-            }
-        } catch (\Exception $e) {
-            $this->warn('⚠️  Error during Claude CLI registration: ' . $e->getMessage());
-            $this->line('  💡 You can manually register with: claude mcp add --scope project statamic --env STATAMIC_MCP_STDIO_PROFILE=' . $this->stdioProfile . ' -- php artisan mcp:start statamic');
-        }
-    }
-
     protected function getHomeDirectory(): string
     {
         return $_SERVER['HOME'] ?? $_SERVER['USERPROFILE'] ?? '';
-    }
-
-    protected function getLaravelRoot(): string
-    {
-        // Start from base_path() and walk up to find the Laravel root
-        $current = base_path();
-
-        // If we're in an addon directory, we need to find the actual Laravel project root
-        while ($current && $current !== '/') {
-            // Check if this directory contains artisan and composer.json (Laravel project root)
-            if (File::exists($current . '/artisan') && File::exists($current . '/composer.json')) {
-                return $current;
-            }
-
-            // Go up one directory
-            $parent = dirname($current);
-            if ($parent === $current) {
-                break; // Reached the root directory
-            }
-            $current = $parent;
-        }
-
-        // Fallback to base_path if we can't find Laravel root
-        return base_path();
     }
 }

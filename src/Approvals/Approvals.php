@@ -93,6 +93,27 @@ final class Approvals
         return $pending;
     }
 
+    /** Stored pending approvals, without polling external authorities. */
+    public function pendingCountFor(string $actorId): int
+    {
+        $count = 0;
+        // A navigation badge must not poll external authorities or settle approvals.
+        foreach ($this->store->awaitingApproval(1000) as $operation) {
+            if ($operation->expiresAt <= now()->getTimestamp()) {
+                continue;
+            }
+            try {
+                if (hash_equals($this->coordinator->intent($operation)->actorId, $actorId)) {
+                    $count++;
+                }
+            } catch (\Throwable) {
+                continue;
+            }
+        }
+
+        return $count;
+    }
+
     /** The pending request this actor may decide on, or null. */
     public function pendingRequest(string $id, string $actorId): ?OperationIntent
     {
@@ -139,12 +160,17 @@ final class Approvals
         if (! hash_equals($operation->bindingDigest, $intent->bindingDigest)) {
             return ['status' => 'mismatch'];
         }
+        if (in_array($operation->state, [OperationState::AwaitingApproval, OperationState::Ready], true)
+            && $operation->expiresAt <= now()->getTimestamp()) {
+            if ($this->store->transition($operation, $operation->transition(OperationState::Expired))) {
+                $this->emit(Events\ApprovalExpired::class, $id, $intent->actionId);
+            }
+
+            return ['status' => 'expired'];
+        }
 
         switch ($operation->state) {
             case OperationState::AwaitingApproval:
-                if ($operation->expiresAt <= now()->getTimestamp()) {
-                    return ['status' => 'expired'];
-                }
                 $settled = $this->settle($operation, $intent->actorId);
                 if ($settled === null) {
                     return ['status' => 'pending'];
@@ -158,9 +184,6 @@ final class Approvals
             case OperationState::Cancelled:
                 return ['status' => 'rejected'];
             case OperationState::Ready:
-                if ($operation->expiresAt <= now()->getTimestamp()) {
-                    return ['status' => 'expired'];
-                }
                 $expected = $this->preview($operation)['expected_version'] ?? null;
                 if (is_string($expected) && $currentVersion !== $expected) {
                     // Approved for a record that has changed since: ask again.
@@ -247,12 +270,12 @@ final class Approvals
     {
         $intent = $this->pendingRequest($id, $actorId);
         if ($intent === null) {
-            throw new ApprovalRefused('This approval is not waiting for you. It may have expired, been decided already, or belong to someone else.');
+            throw new ApprovalRefused(__('statamic-mcp::messages.approvals.not_waiting'));
         }
         $operation = $this->store->find($id);
         if ($operation === null || $operation->state !== OperationState::AwaitingApproval
             || ! $this->store->transition($operation, $operation->transition($next))) {
-            throw new ApprovalRefused('This approval changed while you decided. Reload and try again.');
+            throw new ApprovalRefused(__('statamic-mcp::messages.approvals.changed'));
         }
         $this->emit($next === OperationState::Ready ? Events\ApprovalApproved::class : Events\ApprovalRejected::class,
             $id, $intent->actionId, $via, $next === OperationState::Ready ? null : 'person');

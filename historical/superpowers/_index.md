@@ -9,4 +9,4 @@ weight: 90
 Archived planning and specification documents kept for the reasoning behind
 significant features. They record what was decided and why at the time of
 writing, so they are **not** maintained as current documentation — read the
-topic sections for how the package behaves today.
+[public documentation](../../docs/index.md) for how the package behaves today.

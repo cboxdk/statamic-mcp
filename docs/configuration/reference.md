@@ -209,9 +209,9 @@ scopes are for super admins only. A scope is also withheld from everyone when th
 has closed its domain — the tool switched off, or its resource allowlist set to `[]`.
 
 - Creating a token with an unavailable scope is refused with a 422 naming it.
-- Editing a token is capped by the token's **owner**, not by whoever edits it, and only
-  scopes being added are checked — a token minted before this setting existed keeps the
-  scopes it has and can still be renamed.
+- Editing a token is capped by its **owner** and, when someone else edits it, by
+  the editor too. Only scopes being added are checked — an older token can still
+  be renamed without gaining access.
 - An OAuth client asking for more than the user can hold is not an error: it is offered
   what the user can hold, and a request for `*` is narrowed to exactly that. Only a
   client asking for nothing the user has is refused with `invalid_scope`.
@@ -221,13 +221,15 @@ way.
 
 ## Resources
 
-The read-only surface: `statamic://blueprints` and friends.
+The read-only surface includes blueprint schemas, collection/site/fieldtype
+catalogs, and entry, collection, taxonomy and form records. See
+[resources and completions](../tools/overview.md#resources) for URI templates.
 
-These have their own switch because they used to share the tools' one. A site that keeps
-its content model in Git turns the blueprints *tool* off precisely because it can create
-and delete blueprints — and that also removed the only read-only way for an agent to
-learn a blueprint's fields, while the server's own instructions tell it to read the
-blueprint before every write.
+`resources.enabled` controls resources independently. Blueprint resources can
+remain readable when `tools.blueprints.enabled` is false, for sites that keep
+their content model in Git. Other resources read through their domain router
+and retain its tool toggle, profile, scopes, site and record permissions, field
+filtering and response-size limit.
 
 ```php
 'resources' => [
@@ -239,7 +241,7 @@ blueprint before every write.
 `require_statamic_permission` keeps the Statamic permission check (`configure fields`,
 `configure collections` or `configure taxonomies`) on top of the token scope and the
 resource-policy allowlist. It covers the read actions of the `statamic-blueprints` tool
-too (`list`, `get`, `scan`, `types`, `validate`), so the tool and the resources never
+too (including fieldset and fieldtype reads), so the tool and the resources never
 disagree about who may read a schema. Set it to `false` if your editors hold none of
 those and you would rather let the token scope you minted decide who may read schema.
 Writing a blueprint always requires `configure fields`.
@@ -248,29 +250,24 @@ Writing a blueprint always requires `configure fields`.
 
 Controls how the tool list is presented to a client when it connects.
 
-By default the catalog is **partial**. Only the tools a session usually opens with are
-listed — `statamic-entries`, `statamic-blueprints` and `statamic-system-discover`. The
-rest are reached through `search_tools` and `execute_tools`.
-
-The reason is token cost: the full catalog is roughly 31 KB of JSON schema that every
-client loads on every connection, before it has asked anything. Withholding the less-used
-tools cuts that to about 12.6 KB — a ~60% saving in the client's context window.
-
-Nothing is taken away. The hidden tools are fully available and fully gated — token
-scopes, resource policy, Statamic permissions and the confirmation gate all apply
-exactly as they do on a direct call. Only their schemas wait until a client asks.
+By default the catalog lists all permitted read and write/admin facets directly,
+plus `statamic-discover`. Token scopes and the installation profile filter what
+the caller sees; actual calls still check resource and native permissions.
 
 ```php
 'catalog' => [
-    'searchable' => env('STATAMIC_MCP_SEARCHABLE_CATALOG', true),
+    'searchable' => env('STATAMIC_MCP_SEARCHABLE_CATALOG', false),
 ],
 ```
 
-Set it to `false` if your MCP client handles `search_tools` poorly and you would rather
-it saw every tool listed directly:
+Set it to `true` for a client without its own tool search. The entries and
+blueprints facets and `statamic-discover` remain in the initial catalog; other
+tools use `search_tools` / `execute_tools`. All authorization still applies.
+The wrapper does not expose each invoked tool's read/write annotations, so
+client auto-approval rules are less precise than with direct facets.
 
 ```env
-STATAMIC_MCP_SEARCHABLE_CATALOG=false
+STATAMIC_MCP_SEARCHABLE_CATALOG=true
 ```
 
 ## Extra Tools
@@ -280,8 +277,8 @@ Tools from other packages, served next to the built-in ones. See
 
 ```php
 'extra_tools' => [
-    \Vendor\Package\Mcp\SiteHealthRouter::class,                              // via search_tools
-    ['class' => \Vendor\Package\Mcp\OtherRouter::class, 'searchable' => false], // listed at connect time
+    \Vendor\Package\Mcp\SiteHealthRouter::class,                              // searchable when catalog.searchable is on
+    ['class' => \Vendor\Package\Mcp\OtherRouter::class, 'searchable' => false], // always listed directly when permitted
 ],
 ```
 
@@ -325,7 +322,7 @@ Configure the OAuth 2.1 authorization server for browser-based MCP client regist
 | `oauth.token_ttl` | `STATAMIC_MCP_OAUTH_TOKEN_TTL` | `604800` | Access token TTL in seconds (7 days) |
 | `oauth.lock_store` | `STATAMIC_MCP_OAUTH_LOCK_STORE` | application default | Shared, lock-capable cache store for issuance and revocation |
 | `oauth.refresh_token_ttl` | `STATAMIC_MCP_OAUTH_REFRESH_TOKEN_TTL` | `2592000` | Maximum grant lifetime in seconds, including rotated successors (30 days) |
-| `oauth.default_scopes` | `STATAMIC_MCP_OAUTH_DEFAULT_SCOPES` | every `:read` scope | Comma-separated scopes offered when a client requests none |
+| `oauth.default_scopes` | `STATAMIC_MCP_OAUTH_DEFAULT_SCOPES` | reads listed in the example below | Comma-separated scopes offered when a client requests none; not all read scopes |
 | `oauth.max_clients` | `STATAMIC_MCP_OAUTH_MAX_CLIENTS` | `50` | Maximum number of registered OAuth clients |
 | `oauth.unused_client_ttl` | `STATAMIC_MCP_OAUTH_UNUSED_CLIENT_TTL` | `86400` | Seconds after which a registered client that was never authorized is removed and stops counting toward `max_clients` |
 | `oauth.max_clients_per_ip` | `STATAMIC_MCP_OAUTH_MAX_CLIENTS_PER_IP` | `5` | Maximum client registrations per IP address |
@@ -361,9 +358,43 @@ Configure which storage backends to use for tokens and audit logs. Swap to datab
 ],
 ```
 
-`FileTokenStore` keeps one YAML file per token in `storage.tokens_path`. Every authenticated request records `last_used_at`, so these files are written constantly. Writes replace a file whole (a temporary file renamed over it), so a concurrent request never reads a partial one, and every change to a token waits on one store-wide lock (`.mutation.lock` in the same directory), so recording a use can never undo a revoke, a regenerate or a scope change. Leave `.mutation.lock` in place; it is created again if it is removed while nothing holds it.
+`FileTokenStore` keeps one YAML file per token in `storage.tokens_path`.
+`last_used_at` writes are coalesced to at most once a minute per token, so the
+displayed timestamp is approximate. Invalid credentials do not repeatedly parse
+an unchanged token catalog, and an index hit is checked against the current
+token hash. Writes replace a file whole (a temporary file renamed over it), so a
+concurrent request never reads a partial one. Every mutation waits on the
+store-wide `.store.lock`, so recording a use cannot undo a revoke, regenerate
+or scope change. Leave that lock file in place.
+
+Restore token backups during maintenance: stop MCP traffic and workers, restore
+the YAML files, remove the derived `.index` and `.index.catalog` files from the
+token directory, then resume. Do not replace the live lock file. The catalog
+fingerprint uses file metadata, not a content hash: an in-place rewrite of the
+same length within the same filesystem timestamp second can be invisible.
+Use the token API for live changes; external writes do not acquire its lock.
 
 Both guarantees rely on `rename()` and `flock()` behaving as they do on a local disk. On NFS and other network filesystems they are not reliable. Use `DatabaseTokenStore` there, and whenever more than one server shares the token directory.
+
+## Activity and audit reads
+
+**Tools → MCP → Activity** shows only the signed-in user's calls. Its actor
+cannot be changed by a query parameter, even by an administrator. The separate
+admin activity log requires `view mcp audit log` and can filter by actor, tool
+and status. Filters apply before pagination and totals in both audit stores.
+
+File audit queries read complete records newest first from one fixed-size file
+snapshot without holding the writer lock, retaining only the requested page.
+Exact totals still scan that snapshot; this is not a constant-time indexed query.
+Reads cover the active log, capped at its last 50 MiB, not rotated archives.
+An incomplete tail is omitted until complete. Purge replaces the file atomically
+so an in-progress reader can finish its existing snapshot.
+
+`security.audit_logging` controls tool-call logging. Durable admission for
+registered writes is independent of that switch and lifecycle observers.
+Arguments are sanitized, but audit history is not an anonymous metrics feed:
+protect the store and configure retention for your site's requirements. See
+[lifecycle events](../extending/lifecycle-events.md) for metadata-only observation.
 
 ## Storage Paths
 
@@ -394,6 +425,7 @@ Quick reference for all `.env` variables:
 ```env
 # Web endpoint
 STATAMIC_MCP_WEB_ENABLED=true
+STATAMIC_MCP_HTTP_PROFILE=read_only
 STATAMIC_MCP_WEB_PATH="/mcp/statamic"
 STATAMIC_MCP_WEB_REQUIRE_HTTPS=true
 
@@ -434,10 +466,12 @@ STATAMIC_MCP_APPROVAL_CBOX_ID_RESOURCE=
 STATAMIC_MCP_RATE_LIMIT_MAX=60
 
 # Tool catalog
-STATAMIC_MCP_SEARCHABLE_CATALOG=true
+STATAMIC_MCP_SEARCHABLE_CATALOG=false
 
 # Cache
 STATAMIC_MCP_STACHE_AFTER_WRITE=repair
+# Optional: full, statamic or refresh; unset keeps the legacy switch below
+# STATAMIC_MCP_STATIC_AFTER_WRITE=full
 STATAMIC_MCP_CLEAR_STATIC_AFTER_WRITE=true
 
 # Resources

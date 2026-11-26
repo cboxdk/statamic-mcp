@@ -128,6 +128,58 @@ it('lets the local operator reach every site over stdio', function (string $doma
     expect(mxCall($domain, 'get', 'de')['success'])->toBeTrue();
 })->with(['entries', 'terms', 'globals']);
 
+it('keeps localized overrides separate and hides unreadable origins and localizations', function () {
+    config(['statamic.mcp.tools.entries.denied_fields' => ['secret_note']]);
+    $origin = Entry::find('mx-entry');
+    $origin->set('inherited', 'From English')->save();
+    $origin->in('de')->set('local_only', 'Deutsch')->save();
+
+    mxWeb(false);
+    $local = mxCall('entries', 'get', 'de')['data']['entry'];
+    expect($local['origin'])->toBe(['id' => 'mx-entry', 'site' => 'en'])
+        ->and($local['localizations'])->toBe([['id' => 'mx-entry', 'site' => 'en']])
+        ->and($local['data'])->not->toHaveKey('inherited')
+        ->and($local['merged_data'])->toMatchArray(['title' => 'Deutsch', 'inherited' => 'From English', 'local_only' => 'Deutsch'])
+        ->and(json_encode($local))->not->toContain('secret_note');
+
+    mxWeb(true);
+    expect(mxCall('entries', 'get', 'en')['data']['entry']['localizations'])->toBe([]);
+    $role = Role::find('mx_editor');
+    $role->permissions(['access cp', 'access de site', 'view mx_pages entries'])->save();
+    $local = (new EntriesRouter)->execute(['action' => 'get', 'collection' => 'mx_pages', 'site' => 'de', 'slug' => 'one']);
+    expect($local['success'])->toBeTrue(json_encode($local));
+    expect($local['data']['entry']['origin'])->toBeNull()
+        ->and($local['data']['entry']['localizations'])->toBe([])
+        ->and($local['data']['entry']['merged_data'])->not->toHaveKey('inherited');
+});
+
+it('does not replay localization metadata after losing access to the related site', function () {
+    mxWeb(true);
+    $role = Role::find('mx_editor');
+    $permissions = [...$role->permissions()->all(), 'access de site'];
+    $role->permissions($permissions)->save();
+    $arguments = ['action' => 'update', 'collection' => 'mx_pages', 'id' => 'mx-entry-de', 'site' => 'de',
+        'data' => ['title' => 'Updated'], 'idempotency_key' => 'localization-replay'];
+    $saved = (new EntriesRouter)->execute($arguments);
+    expect($saved['success'])->toBeTrue(json_encode($saved));
+    expect($saved['data']['entry']['origin'])->toBe(['id' => 'mx-entry', 'site' => 'en'])
+        ->and($saved['data']['entry'])->not->toHaveKey('merged_data');
+
+    $role->permissions(array_values(array_diff($permissions, ['access en site'])))->save();
+    $replayed = (new EntriesRouter)->execute($arguments);
+    expect($replayed['success'])->toBeTrue(json_encode($replayed));
+    expect($replayed['data']['entry']['origin'])->toBeNull()
+        ->and($replayed['data']['entry']['localizations'])->toBe([]);
+});
+
+it('warns about unknown top-level fields for each content domain without storing them', function (string $domain) {
+    mxWeb(false);
+    $result = mxCall($domain, 'update', 'en', ['title' => 'Updated', 'unknown_field' => 'private value']);
+    expect($result['success'])->toBeTrue(json_encode($result));
+    expect(implode(' ', $result['warnings'] ?? []))->toContain('unknown_field')->not->toContain('private value');
+    expect(json_encode($result['data']))->not->toContain('private value');
+})->with(['entries', 'terms', 'globals']);
+
 it('hides a denied field from output and refuses to write it, on every transport', function (string $domain, bool $web) {
     mxWeb($web);
     config(["statamic.mcp.tools.{$domain}.denied_fields" => ['secret_note']]);

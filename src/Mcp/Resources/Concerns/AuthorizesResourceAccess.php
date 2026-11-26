@@ -8,6 +8,7 @@ use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Authorization\InstallationProfile;
 use Cboxdk\StatamicMcp\Authorization\McpAuthorizer;
 use Cboxdk\StatamicMcp\Authorization\McpCall;
+use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Support\McpContext;
 use Laravel\Mcp\Response;
 
@@ -27,6 +28,21 @@ trait AuthorizesResourceAccess
      * The config/scope domain this resource reads from (e.g. 'blueprints').
      */
     abstract protected function domain(): string;
+
+    /**
+     * Content resources use the router itself for exact-record/site permission,
+     * field filtering, fresh request state and the response-size ceiling.
+     *
+     * @param  array<string, mixed>  $arguments
+     */
+    protected function readThroughRouter(BaseRouter $router, array $arguments): Response
+    {
+        if (! config('statamic.mcp.resources.enabled', true)) {
+            return $this->refusal('MCP resources are disabled', 'PERMISSION_DENIED');
+        }
+
+        return Response::json($router->facet('read')->execute($arguments));
+    }
 
     /**
      * Determine whether the current caller may read this resource.

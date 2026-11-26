@@ -36,7 +36,17 @@ final class ScopeChallenge
         if (($envelope['method'] ?? '') === 'resources/read') {
             $uri = $params['uri'] ?? null;
 
-            return is_string($uri) && ($uri === 'statamic://blueprints' || str_starts_with($uri, 'statamic://blueprints/')) ? ['blueprints:read'] : [];
+            if (! is_string($uri) || ! str_starts_with($uri, 'statamic://')) {
+                return [];
+            }
+
+            return match (explode('/', substr($uri, strlen('statamic://')))[0]) {
+                'blueprints', 'fieldtypes' => ['blueprints:read'],
+                'collections', 'taxonomies', 'sites' => ['structures:read'],
+                'entries' => ['entries:read'],
+                'forms' => ['forms:read'],
+                default => [],
+            };
         }
         if (($envelope['method'] ?? '') === 'prompts/get' && in_array($params['name'] ?? null, ContentWorkflowPrompt::NAMES, true)) {
             return (is_array($params['arguments'] ?? null) && isset($params['arguments']['id'])) || in_array($params['name'], ['translate_entry', 'edit_page_builder'], true)

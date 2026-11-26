@@ -11,9 +11,9 @@ final class InstallationProfile
 {
     private const READ_DOMAINS = ['entries', 'terms', 'globals', 'assets', 'blueprints', 'structures', 'forms'];
 
-    public function name(): string
+    public function name(?string $transport = null): string
     {
-        $transport = McpContext::isCli() ? 'stdio' : 'http';
+        $transport ??= McpContext::isCli() ? 'stdio' : 'http';
         $profile = config("statamic.mcp.profiles.{$transport}");
 
         return is_string($profile) && in_array($profile, ['read_only', 'editor', 'operator'], true) ? $profile : 'disabled';
@@ -40,9 +40,9 @@ final class InstallationProfile
      * @param  array<string, mixed>  $arguments
      * @param  bool  $writes  whether the action changes anything, from its declaration; unknown counts as a write
      */
-    public function denial(?string $domain, string $action, array $arguments = [], bool $writes = true): ?string
+    public function denial(?string $domain, string $action, array $arguments = [], bool $writes = true, ?string $transport = null): ?string
     {
-        $profile = $this->name();
+        $profile = $this->name($transport);
         if ($profile === 'disabled') {
             return 'MCP transport requires an explicitly configured installation profile.';
         }

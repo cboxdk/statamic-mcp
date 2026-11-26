@@ -39,6 +39,7 @@ abstract class TestCase extends AddonTestCase
         $app['config']->set('statamic.users.repositories.file.paths.groups', $directory . '/groups.yaml');
         // Forms 2 definitions also bypass the Stache fixture trait.
         $app['config']->set('statamic.forms.forms', $directory . '/forms');
+        $app['config']->set('statamic.system.fieldsets_path', $directory . '/fieldsets');
         // Approval/idempotency records must not fill the shared store across tests.
         $app['config']->set('statamic.mcp.storage.operations_path', $directory . '/operations');
     }

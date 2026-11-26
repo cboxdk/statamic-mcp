@@ -379,13 +379,17 @@ class ToolLogger
             } elseif (is_string($value) && self::containsSensitiveValue($value)) {
                 $sanitized[$key] = '[REDACTED]';
             } elseif (is_string($value) && strlen($value) > 1000) {
-                $sanitized[$key] = substr($value, 0, 1000) . '... [TRUNCATED]';
+                $sanitized[$key] = mb_strcut($value, 0, 1000, 'UTF-8') . '... [TRUNCATED]';
             } else {
                 $sanitized[$key] = $value;
             }
         }
 
-        return $sanitized;
+        // Per-value truncation alone still permits thousands of short values.
+        // Keep the audit record, but omit an oversized argument block entirely.
+        return strlen(json_encode($sanitized, JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE)) > 16384
+            ? ['_truncated' => true, '_reason' => 'Audit arguments exceed 16384 bytes.']
+            : $sanitized;
     }
 
     /**

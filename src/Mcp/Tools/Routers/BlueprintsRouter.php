@@ -6,14 +6,18 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
+use Cboxdk\StatamicMcp\Mcp\Support\BlueprintLayout;
 use Cboxdk\StatamicMcp\Mcp\Support\FieldFormatSpec;
+use Cboxdk\StatamicMcp\Mcp\Support\FieldReferences;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ChecksResourceVersions;
+use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\HandlesFieldsets;
 use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
 use Cboxdk\StatamicMcp\Support\McpConfig;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\Support\Collection as SupportCollection;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
@@ -24,6 +28,7 @@ use Statamic\Facades\Collection;
 use Statamic\Facades\Taxonomy;
 use Statamic\Fields\Blueprint as BlueprintContract;
 use Statamic\Fields\Field;
+use Statamic\Fields\Fields;
 use Statamic\Fields\FieldtypeRepository;
 use Statamic\Fieldtypes\Grid;
 use Statamic\Fieldtypes\Group;
@@ -35,10 +40,52 @@ use Statamic\Fieldtypes\Replicator;
 class BlueprintsRouter extends BaseRouter
 {
     use ChecksResourceVersions;
+    use HandlesFieldsets;
 
     protected function getDomain(): string
     {
         return 'blueprints';
+    }
+
+    protected function filterInputFields(array $arguments): array
+    {
+        Validator::make($arguments, [
+            'tab' => ['sometimes', 'string', 'regex:/^[A-Za-z0-9_-]+$/D'],
+            'remove_fields' => ['sometimes', 'array'],
+            'remove_fields.*' => ['string'],
+            'replace_fields' => ['sometimes', 'boolean'],
+        ])->validate();
+        if (is_array($arguments['fields'] ?? null) && $this->isWriteAction(is_string($arguments['action'] ?? null) ? $arguments['action'] : '')) {
+            FieldReferences::validate($arguments['fields']);
+            $arguments['fields'] = $this->visibleDefinitions(['fields' => $arguments['fields']])['fields'];
+        }
+
+        return parent::filterInputFields($arguments);
+    }
+
+    protected function currentResourceVersion(array $arguments): ?string
+    {
+        $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
+        $action = is_string($arguments['action'] ?? null) ? $arguments['action'] : '';
+        if (str_ends_with($action, '_fieldset')) {
+            if (! FieldReferences::validHandle($handle)) {
+                return null;
+            }
+            $record = FieldReferences::find($handle);
+        } else {
+            if ($this->validateBlueprintLocation($handle,
+                is_string($arguments['namespace'] ?? null) ? $arguments['namespace'] : 'globals',
+                is_string($arguments['collection'] ?? null) ? $arguments['collection'] : null,
+                is_string($arguments['taxonomy'] ?? null) ? $arguments['taxonomy'] : null) !== null) {
+                return null;
+            }
+            $record = $this->findBlueprint($handle,
+                is_string($arguments['namespace'] ?? null) ? $arguments['namespace'] : null,
+                is_string($arguments['collection'] ?? null) ? $arguments['collection'] : null,
+                is_string($arguments['taxonomy'] ?? null) ? $arguments['taxonomy'] : null);
+        }
+
+        return self::resourceVersion($record?->contents() ?? ['absent' => true]);
     }
 
     public function toArray(): array
@@ -59,13 +106,19 @@ class BlueprintsRouter extends BaseRouter
         return [
             RouterAction::read('list', 'List blueprints', optional: ['namespace', 'include_fields', 'include_details', 'limit', 'cursor']),
             RouterAction::read('get', 'Get a blueprint\'s fields with each field\'s _format_spec, the wire format a write expects. In the collections and taxonomies namespaces, name the collection or taxonomy; field is a dot path to one field or set', needs: ['handle'], optional: [...$where, 'field', 'fields', 'include_config', 'include_format_spec', 'max_format_depth']),
-            RouterAction::admin('create', 'Create a blueprint; each field has a handle and a field object carrying type', needs: ['handle'], optional: [...$where, 'fields', 'title']),
-            RouterAction::admin('update', 'Update a blueprint\'s fields, merged by handle unless replace_fields is true', needs: ['handle'], optional: [...$where, 'fields', 'replace_fields', 'title']),
+            RouterAction::admin('create', 'Create a blueprint from inline fields, field references or fieldset imports', needs: ['handle'], optional: [...$where, 'fields', 'title', 'tab']),
+            RouterAction::admin('update', 'Update fields in place, retaining imports and sections; new fields go in tab. remove_fields removes explicit handles or import keys', needs: ['handle'], optional: [...$where, 'fields', 'replace_fields', 'remove_fields', 'tab', 'title']),
             RouterAction::admin('delete', 'Delete a blueprint', needs: ['handle'], optional: $where),
             RouterAction::read('scan', 'Report how blueprints and fieldtypes are used', optional: ['namespace', 'include_fields', 'include_details', 'limit', 'cursor']),
             RouterAction::admin('generate', 'Create a blueprint from field definitions you supply', needs: ['handle', 'fields'], optional: ['namespace', 'title']),
             RouterAction::read('types', 'Generate TypeScript, PHP or JSON Schema types from blueprints; output_format defaults to typescript', optional: ['namespace', 'output_format', 'limit', 'cursor']),
             RouterAction::read('validate', 'Validate a blueprint\'s structure and field definitions', needs: ['handle'], optional: $where),
+            RouterAction::read('list_fieldsets', 'List reusable fieldsets', optional: ['limit', 'cursor']),
+            RouterAction::read('get_fieldset', 'Read a fieldset with its stored definitions and resolved field formats', needs: ['handle']),
+            RouterAction::admin('create_fieldset', 'Create a reusable fieldset from native field definitions', needs: ['handle', 'fields'], optional: ['title']),
+            RouterAction::admin('update_fieldset', 'Merge fieldset definitions in place, preserving sections and imports', needs: ['handle'], optional: ['fields', 'title', 'remove_fields', 'replace_fields', 'expected_version']),
+            RouterAction::admin('delete_fieldset', 'Delete an unused fieldset; imports and field references prevent deletion', needs: ['handle'], optional: ['expected_version']),
+            RouterAction::read('fieldtypes', 'List installed fieldtypes with their native config field schemas. Use handle to inspect one type', optional: ['handle', 'limit', 'cursor']),
         ];
     }
 
@@ -88,16 +141,22 @@ class BlueprintsRouter extends BaseRouter
                 ->description('Taxonomy handle. Required when namespace is "taxonomies". Example: "tags"'),
             'title' => JsonSchema::string()
                 ->description('Human-readable blueprint title. Auto-generated from handle if not provided'),
+            'expected_version' => JsonSchema::string()
+                ->description('For update_fieldset and delete_fieldset: the version returned by get_fieldset. Refuses the write if the fieldset changed.'),
             'fields' => $this->presentedFacet() === 'read' ? parent::defineSchema($schema)['fields'] : JsonSchema::array()
                 ->items(JsonSchema::object())
                 ->description(
-                    'Array of field definition objects. Each MUST have "handle" (string) and "field" (object with at minimum a "type" key). '
-                    . 'For update action: fields are MERGED with existing fields by default (existing fields are preserved, matching handles are updated). '
-                    . 'Set replace_fields=true to replace ALL fields instead. '
-                    . 'Example: [{"handle": "title", "field": {"type": "text", "display": "Title"}}]'
+                    'Native definitions: {"handle":"title","field":{"type":"text"}}, '
+                    . '{"handle":"summary","field":"shared.summary","config":{"display":"Summary"}}, '
+                    . 'or {"import":"shared","prefix":"hero_","config":{"summary":{"display":"Hero summary"}}}. '
+                    . 'Updates merge by handle or import+prefix. Imports stay linked to their fieldset.'
                 ),
+            'tab' => JsonSchema::string()
+                ->description('Destination tab for new fields; existing fields stay in their sections. Omit for the first tab. A missing tab is created.'),
+            'remove_fields' => JsonSchema::array()->items(JsonSchema::string())
+                ->description('For update: handles to remove. Remove a whole import with import:{fieldset}|{prefix}, e.g. import:shared|hero_. Imported fields cannot be removed individually.'),
             'replace_fields' => JsonSchema::boolean()
-                ->description('Only for update action: when true, replaces ALL blueprint fields with the provided fields instead of merging. Default: false (merge mode — existing fields are preserved)'),
+                ->description('For update: replace all fields in tab, or all tabs when tab is omitted. Keeps tab and section metadata. Default false.'),
             'include_details' => JsonSchema::boolean()
                 ->description('Include field type and configuration details in response. Default: false for list, true for get'),
             'include_fields' => JsonSchema::boolean()
@@ -139,6 +198,14 @@ class BlueprintsRouter extends BaseRouter
     protected function executeAction(array $arguments): array
     {
         $action = is_string($arguments['action'] ?? null) ? $arguments['action'] : '';
+        if (in_array($action, ['update_fieldset', 'delete_fieldset'], true) && array_key_exists('expected_version', $arguments)) {
+            $expected = $arguments['expected_version'];
+            unset($arguments['expected_version']);
+
+            return $this->writeIfVersionMatches($expected, 'fieldset', is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '',
+                fn (): string => $this->currentResourceVersion($arguments) ?? '',
+                fn (): array => $this->fieldsetAction($arguments));
+        }
 
         return match ($action) {
             'list' => $this->listBlueprints($arguments),
@@ -150,6 +217,9 @@ class BlueprintsRouter extends BaseRouter
             'generate' => $this->generateBlueprint($arguments),
             'types' => $this->analyzeTypes($arguments),
             'validate' => $this->validateBlueprint($arguments),
+            'list_fieldsets' => $this->listFieldsets($arguments),
+            'get_fieldset', 'create_fieldset', 'update_fieldset', 'delete_fieldset' => $this->fieldsetAction($arguments),
+            'fieldtypes' => $this->listFieldtypes($arguments),
             default => $this->createErrorResponse("Unknown action: {$action}")->toArray(),
         };
     }
@@ -353,9 +423,12 @@ class BlueprintsRouter extends BaseRouter
     /**
      * @return array<string, mixed>
      */
-    private function describeField(mixed $field, bool $includeConfig, ?FieldFormatSpec $formatSpec): array
+    private function describeField(Field $field, bool $includeConfig, ?FieldFormatSpec $formatSpec): array
     {
-        /** @var Field $field */
+        $field = clone $field;
+        /** @var array<string, mixed> $config */
+        $config = $this->visibleDefinitions($field->config());
+        $field->setConfig($config);
         $data = [
             'handle' => $field->handle(),
             'type' => $field->type(),
@@ -391,6 +464,7 @@ class BlueprintsRouter extends BaseRouter
         if ($blueprint === null) {
             return $this->missingResource('Blueprint', $handle, candidates: $this->candidateBlueprintHandles($namespace, $collectionHandle, $taxonomyHandle), arguments: $arguments)->toArray();
         }
+        FieldReferences::validateContents($blueprint->contents());
         $version = self::resourceVersion($blueprint->contents());
         // Resolve through the section so Entry/TermBlueprintFound listeners can add runtime fields.
         $resolvedNamespace = $blueprint->namespace();
@@ -423,6 +497,8 @@ class BlueprintsRouter extends BaseRouter
     /** @return array<string, mixed> */
     private function blueprintRecord(BlueprintContract $blueprint, bool $includeConfig = true, ?FieldFormatSpec $formatSpec = null): array
     {
+        FieldReferences::validateContents($blueprint->contents());
+        $sources = BlueprintLayout::sources($blueprint);
         $data = [
             'handle' => $blueprint->handle(),
             'title' => $blueprint->title(),
@@ -430,30 +506,43 @@ class BlueprintsRouter extends BaseRouter
             'hidden' => $blueprint->hidden(),
             'order' => $blueprint->order(),
             'version' => self::resourceVersion($blueprint->contents()),
-            'fields' => $blueprint->fields()->all()->map(function (mixed $field) use ($includeConfig, $formatSpec): array {
+            'fields' => $blueprint->fields()->all()->map(function (mixed $field) use ($includeConfig, $formatSpec, $sources): array {
                 /** @var Field $field */
-                $fieldData = [
-                    'handle' => $field->handle(),
-                    'type' => $field->type(),
-                    'display' => $field->display(),
+                return [
+                    ...$this->describeField($field, $includeConfig, $formatSpec),
+                    'source' => $sources[$field->handle()] ?? null,
                 ];
-
-                if ($includeConfig) {
-                    $fieldData['config'] = $field->config();
-                }
-
-                if ($formatSpec !== null) {
-                    $spec = $formatSpec->for($field);
-                    if ($spec !== null) {
-                        $fieldData['_format_spec'] = $spec;
-                    }
-                }
-
-                return $fieldData;
             })->toArray(),
         ];
+        if ($includeConfig) {
+            $data['tabs'] = $this->visibleDefinitions($blueprint->contents())['tabs'];
+        }
 
         return $data;
+    }
+
+    /**
+     * Raw definitions use handle values rather than keyed maps. An import containing
+     * a denied field is omitted as a whole; the permitted expanded fields remain above.
+     *
+     * @param  array<array-key, mixed>  $definitions
+     *
+     * @return array<array-key, mixed>
+     */
+    private function visibleDefinitions(array $definitions): array
+    {
+        $denied = app(ResourcePolicy::class)->getDeniedFields('blueprints');
+
+        return FieldReferences::mapContents($definitions, function (array $definition) use ($denied): ?array {
+            if (in_array($definition['handle'] ?? null, $denied, true)) {
+                return null;
+            }
+            if (isset($definition['import']) && BlueprintLayout::containsDeniedFields($definition, $denied)) {
+                return null;
+            }
+
+            return $definition;
+        });
     }
 
     /**
@@ -534,14 +623,14 @@ class BlueprintsRouter extends BaseRouter
             $contents = ['title' => $title];
 
             // Validate and add fields if provided
-            if (! empty($fields)) {
+            if (! empty($fields) || isset($arguments['tab'])) {
                 $validationResult = $this->validateFields($fields);
                 if (isset($validationResult['success']) && $validationResult['success'] === false) {
                     return $validationResult;
                 }
-                /** @var array<int, array{handle: string, field: array<string, mixed>}> $validatedFields */
+                /** @var list<array<string, mixed>> $validatedFields */
                 $validatedFields = $validationResult['validated'];
-                $contents['fields'] = $validatedFields;
+                $contents = BlueprintLayout::update($contents, $validatedFields, is_string($arguments['tab'] ?? null) ? $arguments['tab'] : null);
             }
 
             // Create the blueprint
@@ -676,10 +765,11 @@ class BlueprintsRouter extends BaseRouter
             return ['validated' => []];
         }
 
+        FieldReferences::validate($fields);
         $fieldtypeRepo = app(FieldtypeRepository::class);
         /** @var array<string, bool> $seenHandles */
         $seenHandles = [];
-        /** @var array<int, array{handle: string, field: array<string, mixed>}> $validated */
+        /** @var list<array<string, mixed>> $validated */
         $validated = [];
 
         foreach ($fields as $index => $field) {
@@ -688,6 +778,32 @@ class BlueprintsRouter extends BaseRouter
                     "Field at index {$index} must be an object. "
                     . 'Expected format: {"handle": "title", "field": {"type": "text", "display": "Title"}}'
                 )->toArray();
+            }
+
+            // Inline configs and import/reference overrides have the same safety rules.
+            foreach (['field', 'config'] as $configKey) {
+                if (is_array($field[$configKey] ?? null)) {
+                    array_walk_recursive($field[$configKey], static function (mixed &$value): void {
+                        if (is_string($value) && (str_contains($value, '{{') || str_contains($value, '{!!'))) {
+                            $value = strip_tags((string) preg_replace('/\{\{.*?\}\}|\{!!.*?!!\}/s', '', $value));
+                        }
+                    });
+                }
+            }
+
+            if (isset($field['import']) || is_string($field['field'] ?? null)) {
+                /** @var array<string, mixed> $field */
+                if (isset($field['import'], $field['handle']) || isset($field['import'], $field['field'])) {
+                    return $this->createErrorResponse('An import must not also define handle or field.')->toArray();
+                }
+                if (! isset($field['import']) && (! is_string($field['handle'] ?? null) || $field['handle'] === '')) {
+                    return $this->createErrorResponse('A field reference requires a handle.')->toArray();
+                }
+                // Let native resolution validate referenced fields and overrides without flattening them.
+                (new Fields([$field]))->all();
+                $validated[] = $field;
+
+                continue;
             }
 
             if (! isset($field['handle']) || ! is_string($field['handle'])) {
@@ -787,17 +903,16 @@ class BlueprintsRouter extends BaseRouter
                 }
             }
 
-            // Strip template expressions from string config values (security)
-            foreach ($fieldConfig as $key => $value) {
-                if (is_string($value) && (str_contains($value, '{{') || str_contains($value, '{!!'))) {
-                    $fieldConfig[$key] = strip_tags((string) preg_replace('/\{\{.*?\}\}|\{!!.*?!!\}/s', '', $value));
-                }
-            }
-
             $validated[] = [
                 'handle' => $handle,
                 'field' => $fieldConfig,
             ];
+        }
+
+        (new BlueprintContract)->setContents(['fields' => $validated])->validateUniqueHandles();
+        foreach ((new Fields($validated))->all() as $resolved) {
+            /** @var Field $resolved */
+            $resolved->fieldtype();
         }
 
         return ['validated' => $validated];
@@ -833,19 +948,14 @@ class BlueprintsRouter extends BaseRouter
             if (isset($validationResult['success']) && $validationResult['success'] === false) {
                 return $validationResult;
             }
-            /** @var array<int, array{handle: string, field: array<string, mixed>}> $validatedFields */
+            /** @var list<array<string, mixed>> $validatedFields */
             $validatedFields = $validationResult['validated'];
-
-            $replaceFields = isset($arguments['replace_fields']) && $arguments['replace_fields'] === true;
-
-            if ($replaceFields) {
-                // Remove tabs structure and set flat fields — Statamic will re-normalize
-                unset($contents['tabs']);
-                $contents['fields'] = $validatedFields;
-            } else {
-                $contents = $this->mergeFieldsIntoContents($contents, $validatedFields);
-            }
         }
+        /** @var list<string> $remove */
+        $remove = is_array($arguments['remove_fields'] ?? null) ? $arguments['remove_fields'] : [];
+        $contents = BlueprintLayout::update($contents, $validatedFields ?? [],
+            is_string($arguments['tab'] ?? null) ? $arguments['tab'] : null, $remove, ($arguments['replace_fields'] ?? false) === true);
+        FieldReferences::validateContents($contents);
         $blueprint->setContents($contents);
         $this->persistStatamic(fn () => $blueprint->save(), ['stache']);
 
@@ -1051,7 +1161,7 @@ class BlueprintsRouter extends BaseRouter
      *
      * @return SupportCollection<int|string, BlueprintContract>
      */
-    private function collectAllBlueprints(?string $namespace = null): SupportCollection
+    private function collectAllBlueprints(?string $namespace = null, bool $filterPolicy = true): SupportCollection
     {
         $blueprints = collect(Blueprint::in('collections')->all())
             ->concat(Blueprint::in('taxonomies')->all())
@@ -1088,7 +1198,7 @@ class BlueprintsRouter extends BaseRouter
 
         return $blueprints->filter(fn (mixed $blueprint): bool => $blueprint instanceof BlueprintContract
             && $blueprint->handle() !== null
-            && $policy->canAccess('blueprints', $blueprint->handle(), 'read'));
+            && (! $filterPolicy || $policy->canAccess('blueprints', $blueprint->handle(), 'read')));
     }
 
     /**
@@ -1117,105 +1227,6 @@ class BlueprintsRouter extends BaseRouter
         }
 
         return $handles;
-    }
-
-    /**
-     * Merge new fields into existing blueprint contents, preserving tab/section structure.
-     *
-     * Updated fields are replaced in-place within their original tab/section.
-     * New fields are appended to the first section of the first tab.
-     *
-     * @param  array<string, mixed>  $contents
-     * @param  array<int, array{handle: string, field: array<string, mixed>}>  $newFields
-     *
-     * @return array<string, mixed>
-     */
-    private function mergeFieldsIntoContents(array $contents, array $newFields): array
-    {
-        // Index new fields by handle for quick lookup
-        /** @var array<string, array{handle: string, field: array<string, mixed>}> $newByHandle */
-        $newByHandle = [];
-        foreach ($newFields as $field) {
-            $newByHandle[$field['handle']] = $field;
-        }
-
-        // If contents has tabs structure, merge into it preserving organization
-        if (isset($contents['tabs']) && is_array($contents['tabs'])) {
-            /** @var array<string, array<string, mixed>> $tabs */
-            $tabs = $contents['tabs'];
-            $handlesUpdated = [];
-
-            // Walk through tabs → sections → fields and update matching handles in-place
-            foreach ($tabs as $tabName => $tab) {
-                if (! isset($tab['sections']) || ! is_array($tab['sections'])) {
-                    continue;
-                }
-                /** @var array<int, array<string, mixed>> $sections */
-                $sections = $tab['sections'];
-                foreach ($sections as $sectionIndex => $section) {
-                    if (! isset($section['fields']) || ! is_array($section['fields'])) {
-                        continue;
-                    }
-                    /** @var array<int, mixed> $sectionFields */
-                    $sectionFields = $section['fields'];
-                    foreach ($sectionFields as $fieldIndex => $existingField) {
-                        if (! is_array($existingField)) {
-                            continue;
-                        }
-                        $handle = $existingField['handle'] ?? null;
-                        if (is_string($handle) && isset($newByHandle[$handle])) {
-                            $sectionFields[$fieldIndex] = $newByHandle[$handle];
-                            $handlesUpdated[] = $handle;
-                        }
-                    }
-                    $sections[$sectionIndex]['fields'] = $sectionFields;
-                }
-                $tabs[$tabName]['sections'] = $sections;
-            }
-
-            // Append truly new fields (not updates) to the first section of the first tab
-            $remainingNew = array_diff_key($newByHandle, array_flip($handlesUpdated));
-            if ($remainingNew !== []) {
-                $firstTab = array_key_first($tabs);
-                if ($firstTab !== null) {
-                    $firstSections = $tabs[$firstTab]['sections'] ?? null;
-                    if (is_array($firstSections) && isset($firstSections[0]) && is_array($firstSections[0])) {
-                        $appendFields = is_array($firstSections[0]['fields'] ?? null) ? $firstSections[0]['fields'] : [];
-                        foreach ($remainingNew as $field) {
-                            $appendFields[] = $field;
-                        }
-                        $firstSections[0]['fields'] = $appendFields;
-                        $tabs[$firstTab]['sections'] = $firstSections;
-                    }
-                }
-            }
-
-            $contents['tabs'] = $tabs;
-
-            return $contents;
-        }
-
-        // Fallback: contents uses flat fields array (pre-normalization or simple blueprint)
-        /** @var array<string, array{handle: string, field: array<string, mixed>}> $existingByHandle */
-        $existingByHandle = [];
-        $existingFields = isset($contents['fields']) && is_array($contents['fields']) ? $contents['fields'] : [];
-        foreach ($existingFields as $existingField) {
-            if (! is_array($existingField)) {
-                continue;
-            }
-            $fieldHandle = $existingField['handle'] ?? null;
-            if (is_string($fieldHandle)) {
-                $existingByHandle[$fieldHandle] = $existingField;
-            }
-        }
-
-        foreach ($newByHandle as $handle => $field) {
-            $existingByHandle[$handle] = $field;
-        }
-
-        $contents['fields'] = array_values($existingByHandle);
-
-        return $contents;
     }
 
     /**

@@ -6,6 +6,7 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Concerns;
 
 use Carbon\Exceptions\InvalidFormatException;
 use Cboxdk\StatamicMcp\Mcp\Exceptions\FieldFormatException;
+use Cboxdk\StatamicMcp\Mcp\Support\BardNodes;
 use Cboxdk\StatamicMcp\Mcp\Support\FieldtypeExtensions;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -164,6 +165,14 @@ trait SanitizesFieldData
             $this->assertKnownHandles($fields, $data, $path, $structuralKeys);
         }
 
+        if (! $allowLegacyCoercion && $structuralKeys === null) {
+            $unknown = array_diff(array_keys($data), $fields->keys()->all());
+            if ($unknown !== []) {
+                $this->callWarnings[] = 'Fields outside the blueprint: ' . implode(', ', array_slice($unknown, 0, self::MAX_LISTED_HANDLES))
+                    . '. Only supported metadata is retained; check the returned record for saved values.';
+            }
+        }
+
         foreach ($fields as $handle => $field) {
             if (! array_key_exists($handle, $data)) {
                 continue;
@@ -249,18 +258,24 @@ trait SanitizesFieldData
             return null;
         }
 
+        if (! $allowLegacyCoercion && in_array($field->type(), ['collections', 'navs', 'sites', 'form', 'user_roles', 'user_groups'], true)
+            && (! is_string($value) && (! is_array($value) || array_filter($value, fn (mixed $handle): bool => ! is_string($handle)) !== []))) {
+            throw new FieldFormatException("Field [{$path}] expects a handle or a list of handles.");
+        }
+
         return match ($field->type()) {
             'bard' => $this->sanitizeBardValue($field, $value, $allowLegacyCoercion, $path),
             'group' => $this->sanitizeGroupValue($field, $value, $allowLegacyCoercion, $path),
             'grid' => $this->sanitizeGridValue($field, $value, $allowLegacyCoercion, $path),
             'replicator' => $this->sanitizeReplicatorValue($field, $value, $allowLegacyCoercion, $path),
             'table' => $this->sanitizeTableValue($value, $allowLegacyCoercion, $path),
+            'array' => $this->sanitizeKeyValueArray($value, $allowLegacyCoercion, $path),
             'date' => $this->sanitizeDateValue($field, $value),
             'assets' => $this->normalizeAssetFieldValue($field, $value),
             'terms', 'taxonomy', 'entries', 'users' => $allowLegacyCoercion
                 ? $this->sanitizeRelationshipValue($value)
                 : $this->resolveReferences($field, $this->sanitizeRelationshipValue($value), $path),
-            'checkboxes' => $this->sanitizeRelationshipValue($value),
+            'checkboxes', 'collections', 'navs', 'sites', 'form', 'user_roles', 'user_groups' => $this->sanitizeRelationshipValue($value),
             default => in_array($field->type(), self::STRING_FIELDTYPES, true)
                 ? $this->sanitizeStringValue($field, $value, $allowLegacyCoercion, $path)
                 : $value,
@@ -380,15 +395,12 @@ trait SanitizesFieldData
      */
     private function sanitizeBardValue(Field $field, mixed $value, bool $allowLegacyCoercion, string $path): array
     {
+        $inline = (bool) $field->get('inline', false);
         if (is_string($value)) {
-            return [
-                [
-                    'type' => 'paragraph',
-                    'content' => [
-                        ['type' => 'text', 'text' => $value],
-                    ],
-                ],
-            ];
+            $value = [['type' => 'text', 'text' => $value]];
+            if (! $inline) {
+                $value = [['type' => 'paragraph', 'content' => $value]];
+            }
         }
 
         $nodes = $this->sanitizeArrayValue('bard', $value, $allowLegacyCoercion, $path);
@@ -396,6 +408,10 @@ trait SanitizesFieldData
 
         if (! $fieldtype instanceof Bard) {
             return [];
+        }
+
+        if (! $allowLegacyCoercion) {
+            (new BardNodes($fieldtype))->validate($nodes, $path, $inline);
         }
 
         /** @var array<int, array<string, mixed>> $sanitized */
@@ -452,7 +468,39 @@ trait SanitizesFieldData
             $sanitized[] = $node;
         }
 
-        return $sanitized;
+        // Statamic's process() unwraps one paragraph in inline mode. Our public
+        // wire format is the stored inline nodes, so add the CP wrapper once.
+        return $inline && $sanitized !== []
+            ? [['type' => 'paragraph', 'content' => $sanitized]]
+            : $sanitized;
+    }
+
+    /** @return array<array-key, mixed> */
+    private function sanitizeKeyValueArray(mixed $value, bool $legacy, string $path): array
+    {
+        $data = $this->sanitizeArrayValue('array', $value, $legacy, $path);
+        if (! array_is_list($data) || $data === [] || ! is_array($data[0]) || ! array_key_exists('key', $data[0])) {
+            return $data;
+        }
+        // Expanded storage is a list of {key, value}, not a numerically keyed
+        // input map. Passing it straight to process() silently replaces the keys.
+        $values = [];
+        foreach ($data as $item) {
+            if (! is_array($item) || ! array_key_exists('key', $item) || ! array_key_exists('value', $item)
+                || (! is_string($item['key']) && ! is_int($item['key']))) {
+                throw new FieldFormatException("Field [{$path}] expects a key/value object or expanded {key, value} rows.");
+            }
+            if (array_key_exists($item['key'], $values)) {
+                throw new FieldFormatException("Field [{$path}] contains duplicate array keys.");
+            }
+            // Native preProcess() drops hidden flags in keyed mode. Preserve
+            // them here, including numeric keys that form another PHP list.
+            $values[$item['key']] = ($item['hidden'] ?? false) === true
+                ? ['value' => $item['value'], 'hidden' => true]
+                : $item['value'];
+        }
+
+        return $values;
     }
 
     /**

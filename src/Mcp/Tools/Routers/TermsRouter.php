@@ -80,6 +80,9 @@ class TermsRouter extends BaseRouter
             'include_counts' => JsonSchema::boolean()
                 ->description('Include how many entries use the term. Default: false'),
 
+            'sort' => JsonSchema::string()
+                ->description('Readable blueprint field or record property, optionally :asc or :desc (default id:asc). Example title:desc. Ties use id:asc.'),
+
             'limit' => JsonSchema::integer()
                 ->description('Maximum results to return (default: 50, max: 1000)'),
 
@@ -312,8 +315,13 @@ class TermsRouter extends BaseRouter
         foreach ($filters as $field => $value) {
             $query->where((string) $field, $value);
         }
+        [$sort, $direction] = $this->listSort($arguments['sort'] ?? null, Taxonomy::find(is_string($taxonomy) ? $taxonomy : '')?->termBlueprints() ?? [], self::FILTER_PROPERTIES);
         $total = $query->count();
-        $terms = $query->orderBy('id')->offset($offset)->limit($limit)->get();
+        $query->orderBy($sort, $direction);
+        if ($sort !== 'id') {
+            $query->orderBy('id');
+        }
+        $terms = $query->offset($offset)->limit($limit)->get();
         $data = $terms->map(function ($term) {
             return [
                 'id' => $term->id(),
@@ -688,7 +696,7 @@ class TermsRouter extends BaseRouter
     protected function actions(): array
     {
         return [
-            RouterAction::read('list', 'List a taxonomy\'s terms', needs: ['taxonomy'], optional: ['site', 'filters', 'limit', 'cursor']),
+            RouterAction::read('list', 'List a taxonomy\'s terms', needs: ['taxonomy'], optional: ['site', 'filters', 'sort', 'limit', 'cursor']),
             RouterAction::read('get', 'Get one term with its data and version', needs: ['taxonomy', 'id|slug'], optional: ['site', 'include_counts', 'fields']),
             RouterAction::edit('create', 'Create a term', needs: ['taxonomy', 'data'], optional: ['site', 'slug']),
             RouterAction::edit('update', 'Update a term', needs: ['taxonomy', 'id|slug', 'data'], optional: ['site', 'expected_version']),

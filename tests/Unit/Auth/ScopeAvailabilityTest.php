@@ -80,6 +80,21 @@ it('gives nobody anything', function () {
     expect($this->availability->forUser(null))->toBe([]);
 });
 
+it('explains the HTTP profile independently of the local transport', function () {
+    config(['statamic.mcp.profiles.stdio' => 'operator', 'statamic.mcp.profiles.http' => 'read_only']);
+    $restrictions = $this->availability->httpProfileRestrictions();
+    expect($restrictions)->toHaveKeys(['entries:write', 'entries:publish', 'entries:delete', 'users:read', 'system:admin'])
+        ->not->toHaveKeys(['entries:read', 'blueprints:read', 'forms:read']);
+
+    config(['statamic.mcp.profiles.http' => 'editor']);
+    // Updating published=false is still allowed and needs the publish scope.
+    expect($this->availability->httpProfileRestrictions())->not->toHaveKeys(['entries:write', 'entries:publish'])
+        ->toHaveKeys(['entries:delete', 'blueprints:admin']);
+
+    config(['statamic.mcp.profiles.http' => 'operator']);
+    expect($this->availability->httpProfileRestrictions())->toBe([]);
+});
+
 it('gives a user without permissions no scope at all', function () {
     expect($this->availability->forUser(userHolding([])))->toBe([]);
 });

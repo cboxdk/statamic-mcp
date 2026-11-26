@@ -23,6 +23,12 @@ readonly class ExecutionEvent implements LifecycleEvent
         public string $occurredAt,
         public int $schemaVersion = 1,
         public ?string $executionId = null,
+        public ?string $reason = null,
+        public ?string $errorCode = null,
+        public ?string $correlationId = null,
+        public ?int $responseBytes = null,
+        public float $cacheMilliseconds = 0,
+        public ?string $traceparent = null,
     ) {
         if (! in_array($outcome, ['started', 'completed', 'denied', 'failed', 'replayed'], true)
             || (static::OUTCOME !== null && static::OUTCOME !== $outcome)
@@ -50,6 +56,8 @@ readonly class ExecutionEvent implements LifecycleEvent
             'event' => $this->eventName(), 'operation_id' => $this->operationId, 'execution_id' => $this->executionId,
             'action_id' => $this->actionId, 'action_version' => $this->actionVersion,
             'transport' => $this->transport, 'outcome' => $this->outcome, 'effects' => $this->effects,
-            'duration_ms' => $this->durationMilliseconds, 'occurred_at' => $this->occurredAt];
+            'duration_ms' => $this->durationMilliseconds, 'occurred_at' => $this->occurredAt,
+            'reason' => $this->reason, 'error_code' => $this->errorCode, 'correlation_id' => $this->correlationId,
+            'response_bytes' => $this->responseBytes, 'cache_ms' => $this->cacheMilliseconds, 'traceparent' => $this->traceparent];
     }
 }

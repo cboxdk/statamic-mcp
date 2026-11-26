@@ -62,6 +62,28 @@ class TermsRouterTest extends TestCase
 
     // ─── List action ───────────────────────────────────────────────────
 
+    public function test_sort_is_stable_across_pages_and_refuses_hidden_or_unknown_fields(): void
+    {
+        foreach (['c' => 'Alpha', 'b' => 'Zulu', 'a' => 'Zulu'] as $slug => $title) {
+            Term::make()->taxonomy($this->taxonomyHandle)->slug($slug)->data(['title' => $title])->save();
+        }
+        $call = ['action' => 'list', 'taxonomy' => $this->taxonomyHandle, 'sort' => 'title:desc', 'limit' => 1];
+        $slugs = [];
+        do {
+            $result = $this->router->execute($call);
+            $this->assertTrue($result['success'], json_encode($result));
+            $slugs[] = $result['data']['items'][0]['slug'];
+            $call['cursor'] = $result['data']['next_cursor'];
+        } while ($call['cursor'] !== null);
+        $this->assertSame(['a', 'b', 'c'], $slugs);
+
+        config(['statamic.mcp.tools.terms.denied_fields' => ['title']]);
+        foreach (['title:asc', 'unknown:desc', 'id:sideways'] as $sort) {
+            $result = $this->router->execute(['action' => 'list', 'taxonomy' => $this->taxonomyHandle, 'sort' => $sort]);
+            $this->assertFalse($result['success'], $sort);
+        }
+    }
+
     public function test_list_terms_empty(): void
     {
         $result = $this->router->execute([

@@ -14,7 +14,7 @@ weight: 2
 
 **Tech Stack:** PHP 8.3, Laravel 12, Statamic v6, Pest 4, PHPStan Level 8
 
-**Spec:** `docs/superpowers/specs/2026-04-17-confirmation-tokens-and-resource-policy-design.md`
+**Spec:** [Historical confirmation-token design](../specs/2026-04-17-confirmation-tokens-and-resource-policy-design.md)
 
 ---
 

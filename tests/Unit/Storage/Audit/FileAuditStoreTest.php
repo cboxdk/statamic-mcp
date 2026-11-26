@@ -7,6 +7,7 @@ namespace Cboxdk\StatamicMcp\Tests\Unit\Storage\Audit;
 use Cboxdk\StatamicMcp\Contracts\AuditStore;
 use Cboxdk\StatamicMcp\Storage\Audit\FileAuditStore;
 use Cboxdk\StatamicMcp\Tests\Concerns\AuditStoreContractTests;
+use Cboxdk\StatamicMcp\Tests\Support\CountingStreamWrapper;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Process\Process;
 
@@ -88,6 +89,31 @@ class FileAuditStoreTest extends TestCase
         $this->assertSame(1, $result->total);
         $this->assertSame('Complete', $result->entries[0]['message']);
         $this->assertStringStartsWith('{"partial":' . "\n", file_get_contents($this->tempPath));
+    }
+
+    public function test_queries_never_take_the_writer_lock_and_read_the_history_only_once(): void
+    {
+        $lines = [];
+        for ($i = 0; $i < 37; $i++) {
+            $lines[] = json_encode(['tool' => $i % 2 ? 'other' : 'entries', 'sequence' => $i, 'message' => str_repeat('ø', 2300)], JSON_THROW_ON_ERROR);
+        }
+        file_put_contents($this->tempPath, implode("\n", $lines) . "\n" . '{"partial":');
+        $lock = fopen($this->tempPath . '.lock', 'c+b');
+        flock($lock, LOCK_EX);
+        CountingStreamWrapper::register();
+        CountingStreamWrapper::reset();
+        try {
+            $result = (new FileAuditStore('counted://' . $this->tempPath))->query('entries', null, 2, 3);
+            $this->assertSame([30, 28, 26], array_column($result->entries, 'sequence'));
+            $this->assertSame(19, $result->total);
+            $this->assertLessThanOrEqual(filesize($this->tempPath) + 8192, CountingStreamWrapper::$reads[$this->tempPath]);
+            $this->assertArrayNotHasKey($this->tempPath . '.lock', CountingStreamWrapper::$reads);
+        } finally {
+            CountingStreamWrapper::unregister();
+            CountingStreamWrapper::reset();
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        }
     }
 
     public function test_pagination_does_not_load_a_large_audit_history_into_memory(): void

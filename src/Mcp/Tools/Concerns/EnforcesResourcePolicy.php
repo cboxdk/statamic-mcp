@@ -86,6 +86,14 @@ trait EnforcesResourcePolicy
      */
     protected function filterOutputFields(array $result): array
     {
+        if (isset($result['success'], $result['meta']) && is_array($result['data'] ?? null) && ! array_is_list($result['data'])) {
+            // Operation replays and warning-bearing writes are already wrapped.
+            // Run the router's full policy on their payload, including metadata.
+            $result['data'] = $this->filterOutputFields(array_filter($result['data'], is_string(...), ARRAY_FILTER_USE_KEY));
+
+            return $result;
+        }
+
         /** @var ResourcePolicy $policy */
         $policy = app(ResourcePolicy::class);
 

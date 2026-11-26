@@ -94,42 +94,28 @@ class FileAuditStore implements DurableAuditStore
         int $perPage,
         ?string $actor = null,
     ): AuditResult {
-        return $this->withLock(function () use ($tool, $status, $page, $perPage, $actor): AuditResult {
-            if ($page < 1 || $perPage < 1) {
-                throw new \InvalidArgumentException('Audit pagination must be positive.');
+        if ($page < 1 || $perPage < 1) {
+            throw new \InvalidArgumentException('Audit pagination must be positive.');
+        }
+        // One reverse pass, no writer lock. Exact totals still need the whole
+        // active log, but only this page is retained and no second scan runs.
+        $offset = $page - 1 > intdiv(PHP_INT_MAX, $perPage) ? PHP_INT_MAX : ($page - 1) * $perPage;
+        $total = 0;
+        $pageEntries = [];
+        foreach ($this->matchingEntries($tool, $status, $actor) as $entry) {
+            if ($total >= $offset && count($pageEntries) < $perPage) {
+                $pageEntries[] = $entry;
             }
-            $total = 0;
-            foreach ($this->matchingEntries($tool, $status, $actor) as $entry) {
-                $total++;
-            }
-            $lastPage = max(1, (int) ceil($total / $perPage));
-            // Avoid integer overflow for an arbitrary out-of-range page request.
-            $offset = $page > $lastPage ? $total : ($page - 1) * $perPage;
-            $end = max(0, $total - $offset);
-            $start = max(0, $end - $perPage);
-            $pageEntries = [];
-            $index = 0;
-            if ($end > $start) {
-                foreach ($this->matchingEntries($tool, $status, $actor) as $entry) {
-                    if ($index >= $end) {
-                        break;
-                    }
-                    if ($index >= $start) {
-                        $pageEntries[] = $entry;
-                    }
-                    $index++;
-                }
-            }
-            $pageEntries = array_reverse($pageEntries);
+            $total++;
+        }
 
-            return new AuditResult(
-                entries: $pageEntries,
-                total: $total,
-                currentPage: $page,
-                lastPage: $lastPage,
-                perPage: $perPage,
-            );
-        });
+        return new AuditResult(
+            entries: $pageEntries,
+            total: $total,
+            currentPage: $page,
+            lastPage: max(1, (int) ceil($total / $perPage)),
+            perPage: $perPage,
+        );
     }
 
     /**
@@ -156,14 +142,21 @@ class FileAuditStore implements DurableAuditStore
                     }
                 }
                 unset($file);
-                $handle = fopen($this->path, 'wb');
+                $temporary = $this->path . '.tmp';
+                if (is_link($temporary)) {
+                    throw new \RuntimeException('Invalid audit temporary file.');
+                }
+                $handle = fopen($temporary, 'wb');
                 if ($handle === false) {
                     throw new \RuntimeException('Cannot purge audit log.');
                 }
                 try {
-                    if (! fflush($handle) || ! fsync($handle)) {
+                    // Replace rather than truncate: a lock-free reader keeps
+                    // its original file descriptor and sees one snapshot.
+                    if (! chmod($temporary, 0600) || ! fflush($handle) || ! fsync($handle) || ! rename($temporary, $this->path)) {
                         throw new \RuntimeException('Cannot persist audit purge.');
                     }
+                    $this->syncDirectory();
                 } finally {
                     fclose($handle);
                 }
@@ -230,7 +223,7 @@ class FileAuditStore implements DurableAuditStore
     }
 
     /**
-     * Read all non-empty lines from the log file using line-by-line reading.
+     * Read complete lines newest first from a fixed-size snapshot of one inode.
      *
      * If the file exceeds MAX_FILE_SIZE, only the last MAX_FILE_SIZE bytes are read
      * to prevent out-of-memory errors on production servers with large audit logs.
@@ -239,39 +232,58 @@ class FileAuditStore implements DurableAuditStore
      */
     private function readLines(): \Generator
     {
-        if (! file_exists($this->path)) {
+        clearstatcache(true, $this->path);
+        if (! is_file($this->path)) {
             return;
         }
-
-        $fileSize = filesize($this->path);
-        if ($fileSize === false || $fileSize === 0) {
+        $file = @fopen($this->path, 'rb');
+        if ($file === false) {
             return;
         }
-
-        $seekOffset = 0;
-        if ($fileSize > self::MAX_FILE_SIZE) {
-            Log::warning('Audit log file exceeds 50MB, reading only the last 50MB', [
-                'path' => $this->path,
-                'size_bytes' => $fileSize,
-            ]);
-            $seekOffset = $fileSize - self::MAX_FILE_SIZE;
-        }
-
-        $file = new \SplFileObject($this->path, 'r');
-
-        if ($seekOffset > 0) {
-            $file->fseek($seekOffset);
-            // Discard partial first line after seeking
-            $file->fgets();
-        }
-
-        while (! $file->eof()) {
-            $line = $file->fgets();
-            if (trim($line) !== '') {
-                yield rtrim($line, "\n\r");
+        try {
+            $stat = fstat($file);
+            if ($stat === false || $stat['size'] === 0) {
+                return;
             }
+            $position = $stat['size'];
+            $floor = max(0, $position - self::MAX_FILE_SIZE);
+            if ($floor > 0) {
+                Log::warning('Audit log file exceeds 50MB, reading only the last 50MB', ['size_bytes' => $position]);
+            }
+            $pending = '';
+            $tail = true;
+            $remaining = $position - $floor;
+            while ($remaining > 0) {
+                $length = min(8192, $remaining);
+                $remaining -= $length;
+                $position -= $length;
+                if (fseek($file, $position) !== 0) {
+                    throw new \RuntimeException('Cannot seek audit snapshot.');
+                }
+                $chunk = fread($file, $length);
+                if ($chunk === false || strlen($chunk) !== $length) {
+                    throw new \RuntimeException('Cannot read audit snapshot.');
+                }
+                $lines = explode("\n", $chunk . $pending);
+                $pending = array_shift($lines);
+                foreach (array_reverse($lines) as $line) {
+                    // The bytes after the final newline may be an interrupted
+                    // or still-running append. They are not a complete record.
+                    if ($tail) {
+                        $tail = false;
+                        continue;
+                    }
+                    if (trim($line) !== '') {
+                        yield rtrim($line, "\r");
+                    }
+                }
+            }
+            if ($floor === 0 && ! $tail && trim($pending) !== '') {
+                yield rtrim($pending, "\r");
+            }
+        } finally {
+            fclose($file);
         }
-
     }
 
     /**

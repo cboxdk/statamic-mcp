@@ -9,9 +9,9 @@ weight: 1
 ## Requirements
 
 - **PHP** 8.3 or higher
-- **Statamic CMS** v6.35.1+
+- **Statamic CMS** ^6.44
 - **Laravel** 12.0+
-- **laravel/mcp** ^1.1.2 (installed automatically as a dependency)
+- **laravel/mcp** ^1.3 (installed automatically as a dependency)
 
 ## Install via Composer
 
@@ -21,16 +21,35 @@ composer require cboxdk/statamic-mcp
 
 ## Run the Install Command
 
-The install command publishes configuration and (when using the database storage driver) creates the necessary database tables, and publishes the dashboard assets:
+The install command publishes configuration, saves an explicit stdio profile and
+runs the required database migrations for configured database drivers:
 
 ```bash
 php artisan mcp:statamic:install --profile=read_only
 ```
 
-This creates:
-- `config/statamic/mcp.php` — Package configuration
-- `storage/statamic-mcp/` — File-based token and audit storage (default driver)
-- `public/vendor/statamic-mcp/` — Dashboard assets (Vue 3 build)
+On an existing installation it preserves configuration unless `--force` is used,
+offers token and client-permission migration, and finishes with `mcp:doctor`.
+A failed doctor check makes the installer exit unsuccessfully even if files have
+already been written; fix the reported setting and run doctor again.
+
+If Laravel's configuration is cached, run `php artisan config:clear` before
+installing. The installer refuses to change a profile behind a stale cache;
+rebuild the cache with `php artisan config:cache` after doctor passes.
+
+Client setup merges the Statamic server into project-local `.mcp.json` (Claude
+Code) or `.cursor/mcp.json`, using an absolute artisan path and the selected
+profile. Invalid JSON is left untouched. Cursor guidance is maintained in a
+marked block without replacing unrelated rules. Cline setup is manual; the
+installer does not write invented VS Code settings or register Claude twice.
+
+The configuration is `config/statamic/mcp.php`; default file stores use
+`storage/statamic-mcp/`. Dashboard assets are published by Statamic's addon asset
+publishing, not by this command. If your deployment does not publish them:
+
+```bash
+php artisan vendor:publish --tag=statamic-mcp --force
+```
 
 By default, tokens are stored as YAML flat files. To use database storage instead, change the `stores.tokens` driver to `DatabaseTokenStore` in `config/statamic/mcp.php` and run `php artisan migrate`.
 
@@ -53,7 +72,9 @@ Check that the package is registered:
 composer show cboxdk/statamic-mcp
 ```
 
-Visit **Tools > MCP** in the Statamic Control Panel. You should see the dashboard with Connect, Tokens, Activity, and Settings tabs.
+Visit **Tools > MCP** for Connect, personal tokens and your own activity. The
+separate MCP Admin page contains all tokens, the site-wide audit log and system
+information according to your permissions. Approvals have their own page.
 
 ## Web Endpoint
 
@@ -102,7 +123,7 @@ composer require laravel/boost --dev
 
 ### Assets Not Loading
 
-- Run `php artisan vendor:publish --tag=statamic-mcp-assets --force`
+- Run `php artisan vendor:publish --tag=statamic-mcp --force`
 - Clear browser cache
 
 ## Next Steps
@@ -118,8 +139,13 @@ The command checks transport profiles, HTTPS/Origin settings, private-network fe
 protection, input budgets, driver contracts and local stores/locks in multi-node mode.
 It prints no token values or raw configuration/exception messages.
 
+An unset profile for a disabled transport is not a warning; an unsupported profile
+is a failure. Local/testing loopback HTTP is allowed without production HTTPS and
+debug-mode failures. Built-in local tools need no token; operator-profile
+integrations need a configured token with current consent.
+
 This is a read-only configuration check. It does not create test writes, acquire
-locks, contact exporters, validate the supplied token or migrate grants. Warnings
-identify checks that still require deployment verification, including trusted proxies,
-shared storage, file permissions, retention and recovery. A passing report does not
+locks, contact exporters, validate the supplied token or migrate grants. The JSON
+report includes `checks` and informational `notes`. Verify ingress, shared storage,
+file permissions, retention and recovery separately. A passing report does not
 certify complete v4 migration or release readiness.

@@ -58,11 +58,11 @@ export function useTokenApi() {
                 if (response.status === 422 && data.errors) {
                     return { ok: false, errors: parseValidationErrors(data) };
                 }
-                return { ok: false, errors: { name: data.message || 'An error occurred.' } };
+                return { ok: false, errors: { name: data.message || __('statamic-mcp::cp.generic_error') } };
             }
             return { ok: true, token: data.token };
         } catch {
-            return { ok: false, errors: { name: 'An error occurred. Please try again.' } };
+            return { ok: false, errors: { name: __('statamic-mcp::cp.generic_retry') } };
         } finally {
             submitting.value = false;
         }
@@ -85,11 +85,11 @@ export function useTokenApi() {
                 if (response.status === 422 && data.errors) {
                     return { ok: false, errors: parseValidationErrors(data) };
                 }
-                return { ok: false, errors: { name: data.message || 'An error occurred.' } };
+                return { ok: false, errors: { name: data.message || __('statamic-mcp::cp.generic_error') } };
             }
             return { ok: true };
         } catch {
-            return { ok: false, errors: { name: 'An error occurred. Please try again.' } };
+            return { ok: false, errors: { name: __('statamic-mcp::cp.generic_retry') } };
         } finally {
             submitting.value = false;
         }
@@ -102,9 +102,9 @@ export function useTokenApi() {
                 headers: headers(),
             });
             if (response.ok) return { ok: true };
-            return { ok: false, message: await errorMessage(response, 'The token could not be deleted.') };
+            return { ok: false, message: await errorMessage(response, __('statamic-mcp::cp.delete_failed')) };
         } catch {
-            return { ok: false, message: 'The token could not be deleted. Check your connection and try again.' };
+            return { ok: false, message: __('statamic-mcp::cp.delete_connection_failed') };
         }
     }
 
@@ -118,23 +118,23 @@ export function useTokenApi() {
                 const result = await response.json();
                 return { ok: true, token: result.token };
             }
-            return { ok: false, message: await errorMessage(response, 'The token could not be regenerated.') };
+            return { ok: false, message: await errorMessage(response, __('statamic-mcp::cp.regenerate_failed')) };
         } catch {
-            return { ok: false, message: 'The token could not be regenerated. Check your connection and try again.' };
+            return { ok: false, message: __('statamic-mcp::cp.regenerate_connection_failed') };
         }
     }
 
-    async function fetchClientConfig(clientId) {
+    async function fetchClientConfig(clientId, mode = 'bearer') {
         try {
-            const response = await fetch(cp_url('mcp/config/' + clientId), {
+            const response = await fetch(cp_url('mcp/config/' + clientId) + '?' + new URLSearchParams({ mode }), {
                 headers: headers(),
             });
             if (response.ok) {
                 return { ok: true, data: await response.json() };
             }
-            return { ok: false, message: await errorMessage(response, 'The client configuration could not be loaded.') };
+            return { ok: false, message: await errorMessage(response, __('statamic-mcp::cp.config_failed')) };
         } catch {
-            return { ok: false, message: 'The client configuration could not be loaded. Check your connection and try again.' };
+            return { ok: false, message: __('statamic-mcp::cp.config_connection_failed') };
         }
     }
 

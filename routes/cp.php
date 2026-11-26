@@ -35,6 +35,7 @@ Route::get('/config/{client}', [ConfigController::class, 'show'])->name('config.
 
 // Audit log endpoint
 Route::get('/audit', [AuditController::class, 'index'])->name('audit.index');
+Route::get('/activity', [AuditController::class, 'mine'])->name('audit.mine');
 
 // Note: OAuth authorize routes are registered separately in ServiceProvider::registerOAuthAuthorizeRoutes()
 // with statamic.cp middleware (session/CSRF) but WITHOUT statamic.cp.authenticated,

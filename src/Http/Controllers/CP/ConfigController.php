@@ -7,6 +7,7 @@ namespace Cboxdk\StatamicMcp\Http\Controllers\CP;
 use Cboxdk\StatamicMcp\Services\ClientConfigGenerator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Statamic\Http\Controllers\CP\CpController;
 
 class ConfigController extends CpController
@@ -31,32 +32,17 @@ class ConfigController extends CpController
 
         if (! isset($availableClients[$client])) {
             return response()->json([
-                'message' => "Unknown client type: {$client}. Available clients: " . implode(', ', array_keys($availableClients)),
+                'message' => __('statamic-mcp::messages.unknown_client', ['client' => $client, 'available' => implode(', ', array_keys($availableClients))]),
             ], 404);
         }
 
         /** @var string $baseUrl */
         $baseUrl = config('app.url', 'https://your-site.test');
 
-        $clientInfo = $availableClients[$client];
-        $method = $clientInfo['method'];
+        $validated = request()->validate(['mode' => ['sometimes', 'string', Rule::in($availableClients[$client]['modes'])]]);
+        /** @var string $mode */
+        $mode = $validated['mode'] ?? $availableClients[$client]['modes'][0];
 
-        /** @var array<string, mixed> $config */
-        $config = $this->configGenerator->{$method}($baseUrl, '<YOUR_TOKEN>');
-
-        $response = [
-            'client' => $client,
-            'name' => $clientInfo['name'],
-            'description' => $clientInfo['description'],
-            'config' => $config,
-            'config_file' => $clientInfo['config_file'] ?? null,
-        ];
-
-        if (! empty($clientInfo['cli_method'])) {
-            $cliMethod = $clientInfo['cli_method'];
-            $response['cli'] = $this->configGenerator->{$cliMethod}($baseUrl, '<YOUR_TOKEN>');
-        }
-
-        return response()->json($response);
+        return response()->json($this->configGenerator->snippet($client, $mode, $baseUrl));
     }
 }

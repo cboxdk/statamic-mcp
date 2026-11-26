@@ -36,6 +36,7 @@ use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\JsonSchema\JsonSchemaTypeFactory;
 use Illuminate\Support\Str;
+use Laravel\Mcp\Response;
 use Statamic\Facades\Site;
 
 /**
@@ -58,6 +59,40 @@ abstract class BaseRouter extends BaseStatamicTool
     final public function domain(): string
     {
         return $this->getDomain();
+    }
+
+    protected function resourceLinks(array $arguments, array $result): array
+    {
+        $action = is_string($arguments['action'] ?? null) ? $this->declaredAction($arguments['action']) : null;
+        if ($action === null || ! $action->writes() || $action->effect === ActionEffect::Delete
+            || ! config('statamic.mcp.resources.enabled', true)) {
+            return [];
+        }
+
+        // Use only identifiers already present in the filtered result. A link
+        // grants nothing; resources/read authorizes again when it is followed.
+        $data = is_array($result['data'] ?? null) ? $result['data'] : [];
+        $paths = match ($this->getDomain()) {
+            'entries' => ['entries' => ['entry.collection', 'entry.site', 'entry.id']],
+            'blueprints' => ['blueprints' => ['blueprint.namespace', 'blueprint.handle']],
+            'forms' => ['forms' => ['form.handle']],
+            'structures' => ['collections' => ['collection.handle'], 'taxonomies' => ['taxonomy.handle']],
+            default => [],
+        };
+        foreach ($paths as $path => $keys) {
+            $segments = [];
+            foreach ($keys as $key) {
+                $value = data_get($data, $key);
+                if (! is_string($value) || $value === '') {
+                    continue 2;
+                }
+                $segments[] = rawurlencode($value);
+            }
+
+            return [Response::resourceLink('statamic://' . $path . '/' . implode('/', $segments), name: 'Saved ' . $path, mimeType: 'application/json')];
+        }
+
+        return [];
     }
 
     /**
@@ -856,6 +891,18 @@ abstract class BaseRouter extends BaseStatamicTool
         $this->emitExecution(($result['success'] ?? true) === false ? Events\ExecutionFailed::class : Events\ExecutionCompleted::class,
             $action, $operationId, $effects, $start, $execution);
 
+        // Store warnings with the operation result so an idempotent replay
+        // reports the same ignored fields without running the write again.
+        if ($this->callWarnings !== [] && ($result['success'] ?? true) === true) {
+            if (! isset($result['success'], $result['meta'])) {
+                $result = $this->createSuccessResponse($result)->toArray();
+            }
+            $result['warnings'] = array_values(array_unique([
+                ...(is_array($result['warnings'] ?? null) ? array_filter($result['warnings'], 'is_string') : []),
+                ...$this->callWarnings,
+            ]));
+        }
+
         return $result;
     }
 
@@ -936,9 +983,37 @@ abstract class BaseRouter extends BaseStatamicTool
         return $result;
     }
 
-    /** @param  class-string<Events\ExecutionEvent>  $event */
-    private function emitExecution(string $event, string $action, string $operationId, string $effects, int $start, ?string $execution = null): void
+    /** @var list<array{class-string<Events\ExecutionEvent>, string, string, string, int, string|null}> */
+    private array $terminalEvents = [];
+
+    protected function beforeToolCall(): void
     {
+        $this->terminalEvents = [];
+    }
+
+    /** @param array<string, mixed> $result */
+    protected function afterToolCall(array $result): void
+    {
+        $pending = $this->terminalEvents;
+        $this->terminalEvents = [];
+        foreach ($pending as [$event, $action, $operationId, $effects, $start, $execution]) {
+            if ($event === Events\ExecutionCompleted::class && ($result['success'] ?? false) === false) {
+                $event = Events\ExecutionFailed::class;
+            }
+            $this->emitExecution($event, $action, $operationId, $effects, $start, $execution, $result);
+        }
+    }
+
+    /** @param  class-string<Events\ExecutionEvent>  $event
+     * @param  array<string, mixed>|null  $result
+     */
+    private function emitExecution(string $event, string $action, string $operationId, string $effects, int $start, ?string $execution = null, ?array $result = null): void
+    {
+        if ($event !== Events\ExecutionStarted::class && $result === null) {
+            $this->terminalEvents[] = [$event, $action, $operationId, $effects, $start, $execution];
+
+            return;
+        }
         $domain = trim((string) preg_replace('/[^a-z0-9-]+/', '-', strtolower($this->getDomain())), '-') ?: 'tool';
         $outcome = match ($event) {
             Events\ExecutionStarted::class => 'started',
@@ -948,11 +1023,18 @@ abstract class BaseRouter extends BaseStatamicTool
             default => 'replayed',
         };
         try {
+            $error = $result['error'] ?? null;
+            $code = is_array($error) && is_string($error['code'] ?? null) ? $error['code'] : null;
+            $bytes = $result === null ? false : json_encode($result, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
             $instance = new $event((string) Str::uuid(), $operationId,
                 app(IntegrationRegistry::class)->binding(static::class, $action)['id'] ?? 'statamic-mcp/' . $domain . '/' . ($action !== '' ? $action : 'unknown'),
                 app(IntegrationRegistry::class)->version(static::class),
-                $this->isCliContext() ? 'stdio' : 'http', $outcome, $effects, (hrtime(true) - $start) / 1_000_000, gmdate('Y-m-d\TH:i:s\Z'),
-                executionId: $execution ?? (string) Str::uuid());
+                $this->isCliContext() ? 'stdio' : 'http', $outcome, $effects, (hrtime(true) - $this->callStartedAt) / 1_000_000, gmdate('Y-m-d\TH:i:s\Z'),
+                executionId: $execution ?? (string) Str::uuid(), reason: $code === null ? null : strtolower($code),
+                errorCode: $code, correlationId: $this->callCorrelationId,
+                responseBytes: is_string($bytes) ? strlen($bytes) : null,
+                cacheMilliseconds: $this->cacheMilliseconds,
+                traceparent: $this->isCliContext() ? null : LifecycleEvents::traceparent());
         } catch (\Throwable) {
             return;
         }

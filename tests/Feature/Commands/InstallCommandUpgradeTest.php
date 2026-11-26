@@ -2,8 +2,11 @@
 
 declare(strict_types=1);
 
+use Cboxdk\StatamicMcp\Console\InstallCommand;
 use Cboxdk\StatamicMcp\Contracts\TokenStore;
+use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Process;
 
 beforeEach(function () {
     $this->originalBase = base_path();
@@ -84,4 +87,76 @@ it('fails an upgrade when client settings cannot be migrated', function () {
         ->expectsOutputToContain('Not migrated.')
         ->assertExitCode(1);
     expect(File::get(base_path('.claude/settings.json')))->toBe('invalid-json');
+});
+
+function installWithDetectedClients(): void
+{
+    app(Kernel::class)->registerCommand(new class extends InstallCommand
+    {
+        protected function detectAiAgents(): array
+        {
+            return array_fill_keys(['Claude Code', 'Cursor', 'Cline'], []);
+        }
+
+        protected function selectTargetAgents(array $availableAgents): array
+        {
+            return array_keys($availableAgents);
+        }
+    });
+}
+
+it('merges project client files idempotently without a second CLI registration or guessed Cline settings', function () {
+    installWithDetectedClients();
+    Process::preventStrayProcesses();
+    File::put(base_path('.cursorrules'), 'Keep my project rules.');
+    File::put(base_path('.mcp.json'), '{"mcpServers":{"other":{"command":"other","env":{}}},"extra":true}');
+    $options = ['--profile' => 'read_only', '--skip-migrations' => true, '--force' => true];
+    $this->artisan('mcp:statamic:install', $options)->assertExitCode(0);
+    $first = File::get(base_path('.cursorrules'));
+    File::append(base_path('.cursorrules'), "\nKeep my trailing rules.");
+    $this->artisan('mcp:statamic:install', $options)->assertExitCode(0);
+    expect(File::get(base_path('.cursorrules')))->toBe($first . "\nKeep my trailing rules.")
+        ->and(substr_count($first, '<!-- statamic-mcp:start -->'))->toBe(1)
+        ->and($first)->toStartWith('Keep my project rules.');
+    foreach (['.mcp.json', '.cursor/mcp.json'] as $path) {
+        $config = json_decode(File::get(base_path($path)), true, flags: JSON_THROW_ON_ERROR);
+        expect($config['mcpServers']['statamic'])->toBe(['command' => 'php',
+            'args' => [base_path('artisan'), 'mcp:start', 'statamic'],
+            'env' => ['STATAMIC_MCP_STDIO_PROFILE' => 'read_only']]);
+    }
+    $claude = json_decode(File::get(base_path('.mcp.json')), flags: JSON_THROW_ON_ERROR);
+    expect($claude->extra)->toBeTrue()->and($claude->mcpServers->other->env)->toBeInstanceOf(stdClass::class)
+        ->and(File::exists(base_path('.vscode/settings.json')))->toBeFalse();
+    Process::assertNothingRan();
+});
+
+it('preserves malformed client JSON and malformed Cursor blocks even with force', function (string $json) {
+    installWithDetectedClients();
+    File::put(base_path('.mcp.json'), $json);
+    $rules = "Before\n<!-- statamic-mcp:start -->\nMissing end";
+    File::put(base_path('.cursorrules'), $rules);
+    $this->artisan('mcp:statamic:install', ['--profile' => 'read_only', '--skip-migrations' => true, '--force' => true])
+        ->expectsOutputToContain('Invalid JSON object')->expectsOutputToContain('Malformed Statamic MCP block')->assertExitCode(0);
+    expect(File::get(base_path('.mcp.json')))->toBe($json)
+        ->and(File::get(base_path('.cursorrules')))->toBe($rules)
+        ->and(File::exists(base_path('.cursor/mcp.json')))->toBeFalse();
+})->with(['invalid-json', '[]', '{"mcpServers":[]}']);
+
+it('does not report readiness when doctor fails', function () {
+    config(['statamic.mcp.security.max_input_depth' => 0]);
+    $this->artisan('mcp:statamic:install', ['--upgrade' => true, '--profile' => 'read_only', '--skip-migrations' => true])
+        ->expectsOutputToContain('MCP is not ready')->assertExitCode(1);
+});
+
+it('refuses installation with cached configuration before writing a different profile', function () {
+    File::put(base_path('.env'), "STATAMIC_MCP_STDIO_PROFILE=read_only\n");
+    // Laravel records this at bootstrap; creating a cache file afterwards
+    // does not represent an application that was booted from that cache.
+    app()->instance('config_loaded_from_cache', true);
+
+    $this->artisan('mcp:statamic:install', ['--profile' => 'operator', '--skip-migrations' => true])
+        ->expectsOutputToContain('Run php artisan config:clear before installing')->assertExitCode(1);
+
+    expect(File::get(base_path('.env')))->toBe("STATAMIC_MCP_STDIO_PROFILE=read_only\n")
+        ->and(File::exists(base_path('.ai/guidelines/statamic-mcp.md')))->toBeFalse();
 });

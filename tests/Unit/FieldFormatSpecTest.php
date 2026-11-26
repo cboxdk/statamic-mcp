@@ -23,6 +23,21 @@ it('returns boolean shape for toggle', function (): void {
     expect($spec)->toMatchArray(['wire_format' => 'boolean', 'shape' => 'boolean']);
 });
 
+it('reports configured core field boundaries without inventing resource ids', function (): void {
+    $spec = new FieldFormatSpec;
+    expect($spec->for(makeField('width')))->toMatchArray(['allowed_values' => [25, 33, 50, 66, 75, 100], 'example' => 25]);
+    expect($spec->for(makeField('width', ['options' => [20, 80]]))['allowed_values'])->toBe([20, 80]);
+    expect($spec->for(makeField('range', ['min' => -2.5, 'max' => 7, 'step' => .5])))
+        ->toMatchArray(['wire_format' => 'number', 'min' => -2.5, 'max' => 7, 'step' => .5, 'example' => -2.5]);
+    expect($spec->for(makeField('range')))->toMatchArray(['wire_format' => 'integer', 'min' => 0, 'max' => 100, 'step' => 1]);
+    expect($spec->for(makeField('assets', ['container' => 'photos', 'max_files' => 1])))
+        ->toMatchArray(['container' => 'photos', 'max_files' => 1, 'wire_format' => 'string']);
+    expect($spec->for(makeField('dictionary', ['dictionary' => 'countries', 'max_items' => 1])))
+        ->toMatchArray(['dictionary' => 'countries', 'wire_format' => 'scalar']);
+    expect($spec->for(makeField('dictionary', ['dictionary' => 'countries'])))
+        ->toMatchArray(['dictionary' => 'countries', 'wire_format' => 'array']);
+});
+
 it('returns markdown shape with strict no-prosemirror rule', function (): void {
     $spec = (new FieldFormatSpec)->for(makeField('markdown'));
 

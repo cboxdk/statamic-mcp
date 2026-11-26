@@ -13,6 +13,9 @@ use Cboxdk\StatamicMcp\Mcp\Methods\ListPermittedTools;
 use Cboxdk\StatamicMcp\Mcp\Prompts\ContentWorkflowPrompt;
 use Cboxdk\StatamicMcp\Mcp\Resources\BlueprintIndexResource;
 use Cboxdk\StatamicMcp\Mcp\Resources\BlueprintResource;
+use Cboxdk\StatamicMcp\Mcp\Resources\CatalogResource;
+use Cboxdk\StatamicMcp\Mcp\Resources\EntryResource;
+use Cboxdk\StatamicMcp\Mcp\Resources\RecordResource;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\AssetsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\BlueprintsRouter;
@@ -145,6 +148,10 @@ class StatamicMcpServer extends Server
 
         $this->addCapability(self::CAPABILITY_COMPLETIONS);
         $this->prompts = array_map(fn ($name): ContentWorkflowPrompt => new ContentWorkflowPrompt($name), ContentWorkflowPrompt::NAMES);
+        $this->resources = [...$this->resources,
+            new CatalogResource('collections'), new CatalogResource('sites'), new CatalogResource('fieldtypes'),
+            new RecordResource('collection'), new RecordResource('taxonomy'), new RecordResource('form'),
+        ];
 
         // tools/list shows only the tools this caller can use.
         $this->methods['tools/list'] = ListPermittedTools::class;
@@ -190,11 +197,12 @@ class StatamicMcpServer extends Server
      * structure without spending a tool call. They enforce the same token
      * scopes, resource policy, and Statamic permissions the tools do.
      *
-     * @var array<int, class-string<Server\Resource>>
+     * @var array<int, Server\Resource|class-string<Server\Resource>>
      */
     protected array $resources = [
         BlueprintIndexResource::class,
         BlueprintResource::class,
+        EntryResource::class,
     ];
 
     /**

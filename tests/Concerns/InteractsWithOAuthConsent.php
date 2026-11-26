@@ -24,12 +24,12 @@ trait InteractsWithOAuthConsent
     /** @param TestResponse<Response> $response */
     protected function consentOfferFrom(TestResponse $response): string
     {
-        preg_match('/name="consent_offer" value="([^"]+)"/', $response->getContent(), $matches);
-        $this->assertArrayHasKey(1, $matches, 'Consent form must contain the server-authenticated offer.');
+        $offer = $response->viewData('page')['props']['consentOffer'] ?? null;
+        $this->assertIsString($offer, 'Consent page must contain the server-authenticated offer.');
 
         // Laravel's HTTP test client does not retain response cookies automatically.
         $this->withCookie(config('session.cookie'), app('session')->getId());
 
-        return html_entity_decode($matches[1], ENT_QUOTES);
+        return $offer;
     }
 }

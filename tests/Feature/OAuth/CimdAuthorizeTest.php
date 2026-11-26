@@ -126,7 +126,7 @@ class CimdAuthorizeTest extends TestCase
             ->get($this->authorizeUrl(http_build_query($this->validParams())));
 
         $response->assertOk();
-        $response->assertSee('from app.example.com');
+        $this->assertSame('app.example.com', $response->viewData('page')['props']['client']['host']);
     }
 
     public function test_consent_screen_displays_client_logo_when_present(): void
@@ -138,7 +138,7 @@ class CimdAuthorizeTest extends TestCase
             ->get($this->authorizeUrl(http_build_query($this->validParams())));
 
         $response->assertOk();
-        $response->assertSee('https://app.example.com/logo.png');
+        $this->assertSame('https://app.example.com/logo.png', $response->viewData('page')['props']['client']['logo']);
     }
 
     public function test_a_logo_from_another_host_or_over_http_is_not_shown(): void
@@ -166,7 +166,7 @@ class CimdAuthorizeTest extends TestCase
             ->get($this->authorizeUrl(http_build_query($params)));
 
         $response->assertOk();
-        $response->assertSee('localhost redirect URIs');
+        $this->assertTrue($response->viewData('page')['props']['localRedirects']);
     }
 
     // --- Approval flow with CIMD client_id ---
@@ -365,6 +365,6 @@ class CimdAuthorizeTest extends TestCase
         $response->assertOk();
         $response->assertSee('DCR Test Client');
         // DCR client should NOT show CIMD-specific hostname display
-        $response->assertDontSee('from ');
+        $this->assertNull($response->viewData('page')['props']['client']['host']);
     }
 }

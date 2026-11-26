@@ -1,12 +1,18 @@
 ---
 title: "AI Client Setup"
-description: "Copy-paste MCP configurations for Claude Desktop, Claude Code, Cursor, ChatGPT, Windsurf, and generic clients"
+description: "MCP configurations for Claude Desktop, Claude Code, Cursor, VS Code, ChatGPT, Codex, and Windsurf"
 weight: 3
 ---
 
 # AI Client Setup
 
 Copy-paste configurations for connecting AI assistants to your Statamic MCP endpoint. Replace `your-site.test` with your actual domain and `<your-token>` with the token created in the Control Panel.
+
+**Tools → MCP → Connect** generates these configurations for your site's endpoint.
+Choose token authentication, OAuth sign-in, or local stdio. After creating a token,
+the dashboard fills it into a copyable client snippet; dismissing it removes the
+secret and snippet. Never commit a filled snippet. Merge a server into existing
+configuration instead of replacing the whole file.
 
 ## Claude Desktop
 
@@ -52,12 +58,26 @@ Restart Claude Desktop after editing the config file.
 
 ## Claude Code
 
+For HTTP with a token:
+
+```bash
+claude mcp add --transport http statamic https://your-site.test/mcp/statamic \
+  --header 'Authorization: Bearer <your-token>'
+```
+
+For OAuth, omit the header, then open `/mcp` in Claude Code and choose Authenticate:
+
+```bash
+claude mcp add --transport http statamic https://your-site.test/mcp/statamic
+```
+
 Add to `.mcp.json` in your project root or `~/.claude.json` for global access:
 
 ```json
 {
     "mcpServers": {
         "statamic": {
+            "type": "http",
             "url": "https://your-site.test/mcp/statamic",
             "headers": {
                 "Authorization": "Bearer <your-token>"
@@ -86,12 +106,21 @@ Add to `.cursor/mcp.json` in your project root:
 
 ## ChatGPT
 
-Add to your ChatGPT MCP configuration:
+Use ChatGPT's **Settings → Apps** custom MCP app flow (Developer Mode and a
+supporting plan are required). Enter `https://your-site.test/mcp/statamic`, choose
+OAuth, and sign in to the Statamic Control Panel to review the requested access.
+OAuth must be enabled (`STATAMIC_MCP_OAUTH_ENABLED=true`) and the endpoint must be
+public HTTPS. ChatGPT has no local JSON configuration file for this connection.
+
+## VS Code
+
+Add to `.vscode/mcp.json`. This format uses `servers`, not `mcpServers`:
 
 ```json
 {
-    "mcpServers": {
+    "servers": {
         "statamic": {
+            "type": "http",
             "url": "https://your-site.test/mcp/statamic",
             "headers": {
                 "Authorization": "Bearer <your-token>"
@@ -101,15 +130,64 @@ Add to your ChatGPT MCP configuration:
 }
 ```
 
+For OAuth, omit `headers`, start the server, and follow VS Code's browser sign-in.
+For shared configuration, use VS Code input variables rather than a committed secret.
+
+## Codex
+
+Add to `~/.codex/config.toml` (or `.codex/config.toml` in a trusted project):
+
+```toml
+[mcp_servers.statamic]
+url = "https://your-site.test/mcp/statamic"
+bearer_token_env_var = "STATAMIC_MCP_TOKEN"
+```
+
+Set `STATAMIC_MCP_TOKEN` in Codex's environment. The dashboard's one-time filled
+snippet instead uses `http_headers = { Authorization = "Bearer <your-token>" }`;
+keep that file private. For OAuth, omit both token settings and run:
+
+```bash
+codex mcp add statamic --url https://your-site.test/mcp/statamic
+codex mcp login statamic
+```
+
+## Local stdio
+
+Use a local Statamic project with this addon installed. Run `php artisan mcp:statamic:install`
+to choose an explicit local profile, or configure `STATAMIC_MCP_STDIO_PROFILE`
+(for example `read_only`). Replace `/path/to/site/artisan` with its absolute path:
+
+```bash
+claude mcp add --transport stdio statamic -- php /path/to/site/artisan mcp:start statamic
+```
+
+Other local clients use `command: "php"` and
+`args: ["/path/to/site/artisan", "mcp:start", "statamic"]` in their server block.
+VS Code also requires `type: "stdio"`; Codex uses the same command/args as TOML.
+Built-in local tools run as the local operator and do not wait for Control Panel
+approvals. Installation profiles and resource policies still apply. Integration
+tools additionally need `STATAMIC_MCP_STDIO_TOKEN` with current capability consent
+and run as that grant's Statamic user.
+
+## Client read permissions
+
+The server is named `statamic` in these examples. Read-only permission patterns
+are `mcp__statamic__*-read` in Claude Code's `permissions.allow` and
+`Mcp(statamic:*-read)` in Cursor CLI's `.cursor/cli.json` `permissions.allow`. Keep
+write/admin tools subject to confirmation. These client rules do not grant server
+scopes; the token, site permissions, installation profile and resource policy
+still decide access. Discovery is separate from the `*-read` pattern.
+
 ## Windsurf
 
-Add to `.windsurf/mcp.json` in your project root or via the Command Palette:
+Add to `~/.codeium/windsurf/mcp_config.json`:
 
 ```json
 {
     "mcpServers": {
         "statamic": {
-            "url": "https://your-site.test/mcp/statamic",
+            "serverUrl": "https://your-site.test/mcp/statamic",
             "headers": {
                 "Authorization": "Bearer <your-token>"
             }
@@ -143,7 +221,10 @@ You can also test the endpoint directly with curl:
 curl -X POST https://your-site.test/mcp/statamic \
   -H "Authorization: Bearer <your-token>" \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
+  -H "Accept: application/json, text/event-stream" \
+  -H "MCP-Protocol-Version: 2026-07-28" \
+  -H "Mcp-Method: tools/list" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":1,"params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}'
 ```
 
 ## Self-Signed Certificates (Laravel Herd / Valet)

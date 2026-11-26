@@ -43,15 +43,15 @@ class TokenService
         $hash = hash('sha256', $plainTextToken);
         $scopeStrings = array_map(fn (TokenScope|string $scope): string => $scope instanceof TokenScope ? $scope->value : $scope, $scopes);
         if (array_diff($scopeStrings, app(ScopeAvailability::class)->names()) !== []) {
-            throw new \InvalidArgumentException('Cannot issue a token with unregistered scopes.');
+            throw new \InvalidArgumentException(__('statamic-mcp::messages.token_errors.unregistered_scopes'));
         }
 
         if (in_array(TokenScope::FullAccess->value, $scopeStrings, true)) {
-            throw new \InvalidArgumentException('Full access (*) is issued as an explicit scope list; expand it with ScopeAvailability::expandFullAccess().');
+            throw new \InvalidArgumentException(__('statamic-mcp::messages.token_errors.full_access'));
         }
 
         if ($capabilities === null && array_filter($scopeStrings, fn (string $scope): bool => TokenScope::tryFrom($scope) === null) !== []) {
-            throw new \InvalidArgumentException('Registered actions require explicit capability consent.');
+            throw new \InvalidArgumentException(__('statamic-mcp::messages.token_errors.capability_consent'));
         }
 
         $tokenData = $this->tokenStore->create(
@@ -147,13 +147,13 @@ class TokenService
                 // An OAuth token lives for oauth.token_ttl and is renewed by
                 // its client; a longer one would outlive the grant's design.
                 if ($existing?->oauthClientId !== null) {
-                    throw new TokenExpiryRefused('An OAuth token expires on its own schedule and is renewed by its client. Revoke it instead.');
+                    throw new TokenExpiryRefused(__('statamic-mcp::messages.token_errors.oauth_expiry'));
                 }
 
                 // The lifetime cap holds for edits as it does at creation.
                 $maxExpiry = self::maxExpiry();
                 if ($clearExpiry && $expiresAt === null && $maxExpiry !== null) {
-                    throw new TokenExpiryRefused('Tokens on this site must expire: security.max_token_lifetime_days is set. Choose a date instead.');
+                    throw new TokenExpiryRefused(__('statamic-mcp::messages.token_errors.expiry_required'));
                 }
                 if ($expiresAt !== null && $maxExpiry !== null && $expiresAt->greaterThan($maxExpiry)) {
                     $expiresAt = $maxExpiry;
@@ -168,7 +168,7 @@ class TokenService
             $scopeValues = $scopes === null ? null : array_map(fn (TokenScope|string $scope): string => $scope instanceof TokenScope ? $scope->value : $scope, $scopes);
             if ($scopeValues !== null && in_array(TokenScope::FullAccess->value, $scopeValues, true)
                 && ! in_array(TokenScope::FullAccess->value, $existing->scopes ?? [], true)) {
-                throw new \InvalidArgumentException('Full access (*) is issued as an explicit scope list; expand it with ScopeAvailability::expandFullAccess().');
+                throw new \InvalidArgumentException(__('statamic-mcp::messages.token_errors.full_access'));
             }
             $scopesChanged = $existing !== null && $scopeValues !== null
                 && (array_diff($scopeValues, $existing->scopes) !== [] || array_diff($existing->scopes, $scopeValues) !== []);
@@ -253,7 +253,7 @@ class TokenService
             if ($token->oauthClientId === $oauthClientId) {
                 if (! $this->tokenStore->delete($token->id)) {
                     if ($this->tokenStore->find($token->id) !== null) {
-                        throw new \RuntimeException('Access credential could not be revoked.');
+                        throw new \RuntimeException(__('statamic-mcp::messages.token_errors.revocation_failed'));
                     }
 
                     continue;

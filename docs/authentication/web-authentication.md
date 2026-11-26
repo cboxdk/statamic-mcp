@@ -19,7 +19,7 @@ Tokens are created in the CP at **Tools > MCP > Tokens**. Each token is:
 - **SHA-256 hashed** at rest — the plaintext is shown once at creation
 - **Scoped** — carries specific permissions (see [Token Scopes](token-scopes.md))
 - **Tied to a user** — never does more than that user's Statamic permissions allow. Entry writes are attributed to the user in revisions and `updated_by`, as a Control Panel save would be, and the audit log records whose token was used
-- **Optionally expiring** — set an expiry date or leave as permanent
+- **Lifetime-bounded** — the default cap is 365 days; permanent tokens require a null `security.max_token_lifetime_days`
 
 Expired tokens are rejected automatically. Revoked tokens are deleted from the database.
 
@@ -48,6 +48,23 @@ which the client checks against discovery's `issuer`.
 
 Registration accepts optional `application_type: "web"` or `"native"`. This is
 client metadata, not an OIDC mode or an exemption from redirect and PKCE checks.
+
+### Reviewing consent
+
+Consent uses the native Statamic Control Panel with the site, signed-in account,
+client and redirect destination shown before approval. Scope choices share the
+token picker's permission-filtered labels, descriptions and groups. Admin and
+delete scopes are not preselected, even when configured as defaults or requested
+through `*`; integration scopes also require an explicit selection. Review all
+selected scopes rather than assuming a full-access request selects everything.
+An empty selection never grants all scopes. The displayed offer is bound to the
+session, user, client and request and cannot be reused after submission.
+
+Control Panel copy, including consent and scope descriptions, uses the addon's
+English and Danish language files and the CP locale. Protocol tool names, scope
+values and error codes do not change with the display language.
+
+### Refresh rotation and storage
 
 Refresh tokens rotate on every exchange. Their successors share the original grant expiry, so refresh does not keep a grant alive indefinitely. Reusing an already-consumed refresh token revokes the refresh and access tokens for that user/client. Changing an OAuth token's scopes or expiry also ends refresh access and requires new consent. Renaming a token without changing those values preserves refresh access.
 
@@ -175,4 +192,8 @@ Set the maximum lifetime (in days) for tokens:
 STATAMIC_MCP_MAX_TOKEN_LIFETIME=365
 ```
 
-This is the upper bound — tokens cannot be created with an expiry beyond this limit. Leave unset or set to `null` for no maximum.
+This is the upper bound — an omitted or later expiry is capped. Leaving the
+environment variable unset keeps the 365-day default. Set
+`security.max_token_lifetime_days` to null (or `STATAMIC_MCP_MAX_TOKEN_LIFETIME=null`)
+only when permanent tokens should be available. Clearing an expiry while a cap
+is configured is refused; OAuth-token expiry cannot be edited through the CP.

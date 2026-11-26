@@ -39,14 +39,21 @@ Add the MCP server to your client's configuration. Replace `your-site.test` with
 
 File: `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 
+Desktop's config file uses stdio. Install Node.js and use `mcp-remote` to bridge
+to the HTTP endpoint, then restart Desktop. Alternatively, add the endpoint in
+Settings → Connectors and sign in through OAuth; no config file is needed.
+
 ```json
 {
     "mcpServers": {
         "statamic": {
-            "url": "https://your-site.test/mcp/statamic",
-            "headers": {
-                "Authorization": "Bearer <your-token>"
-            }
+            "command": "npx",
+            "args": [
+                "mcp-remote",
+                "https://your-site.test/mcp/statamic",
+                "--header",
+                "Authorization: Bearer <your-token>"
+            ]
         }
     }
 }
@@ -83,7 +90,7 @@ or
 
 If the connection works, the assistant will call the MCP tools and return structured data from your Statamic installation.
 
-## CLI Access (No Token Required)
+## CLI Access (Built-In Tools Need No Token)
 
 For local development without a web endpoint, use the CLI transport directly:
 
@@ -91,7 +98,7 @@ For local development without a web endpoint, use the CLI transport directly:
 STATAMIC_MCP_STDIO_PROFILE=read_only php artisan mcp:start statamic
 ```
 
-Stdio uses local process authority and requires an explicit profile. `read_only` excludes writes and sensitive domains; choose `operator` explicitly for local administration. Site-wide resource and field policies still apply.
+Built-in stdio tools use local process authority and require an explicit profile. `read_only` excludes writes and sensitive domains; choose `operator` explicitly for local administration. Site-wide resource and field policies still apply. Integration tools additionally require `STATAMIC_MCP_STDIO_TOKEN` with current capability consent; see [extending tools](extending/tools.md).
 
 ## OAuth 2.1 (Browser-Based Clients)
 

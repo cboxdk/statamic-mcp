@@ -37,7 +37,15 @@ class ConfirmationActionGate
         $gated = $map[$domain] ?? array_merge($map['default'] ?? ['delete'], self::FLOOR[$domain] ?? [],
             app(IntegrationRegistry::class)->approvals($domain));
 
-        return in_array('*', $gated, true) || in_array($action, $gated, true);
+        // Published configs already gate blueprint writes. Fieldsets share that policy.
+        $blueprintAction = $domain === 'blueprints' ? match ($action) {
+            'create_fieldset' => 'create',
+            'update_fieldset' => 'update',
+            'delete_fieldset' => 'delete',
+            default => $action,
+        } : $action;
+
+        return in_array('*', $gated, true) || in_array($action, $gated, true) || in_array($blueprintAction, $gated, true);
     }
 
     /** Explicit config wins; otherwise approvals are on in production only. */

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
+use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ValidatesContentRecords;
 use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
@@ -151,21 +152,9 @@ class ContentFacadeRouter extends BaseRouter
             }
             $collectionData[$collection->handle()] = [
                 'title' => $collection->title(),
-                'entry_count' => 0,
-                'published_count' => 0,
+                'entry_count' => Entry::query()->where('collection', $collection->handle())->count(),
+                'published_count' => Entry::query()->where('collection', $collection->handle())->where('published', true)->count(),
             ];
-        }
-        // Single pass over all entries instead of per-collection queries
-        $allEntries = Entry::query()->get();
-        foreach ($allEntries as $entry) {
-            /** @var \Statamic\Contracts\Entries\Entry $entry */
-            $col = $entry->collectionHandle();
-            if (isset($collectionData[$col])) {
-                $collectionData[$col]['entry_count']++;
-                if ($entry->published()) {
-                    $collectionData[$col]['published_count']++;
-                }
-            }
         }
         // Build collection details from aggregated data
         foreach ($collectionData as $handle => $data) {
@@ -188,15 +177,8 @@ class ContentFacadeRouter extends BaseRouter
             }
             $taxonomyData[$taxonomy->handle()] = [
                 'title' => $taxonomy->title(),
-                'term_count' => 0,
+                'term_count' => Term::query()->where('taxonomy', $taxonomy->handle())->count(),
             ];
-        }
-        $allTerms = Term::query()->get();
-        foreach ($allTerms as $term) {
-            $tax = $term->taxonomyHandle();
-            if (isset($taxonomyData[$tax])) {
-                $taxonomyData[$tax]['term_count']++;
-            }
         }
         foreach ($taxonomyData as $handle => $data) {
             $results['summary']['total_terms'] += $data['term_count'];
@@ -209,7 +191,6 @@ class ContentFacadeRouter extends BaseRouter
         // Audit globals
         /** @var \Illuminate\Support\Collection<int, \Statamic\Contracts\Globals\GlobalSet> $globalSets */
         $globalSets = GlobalSet::all();
-        $results['summary']['total_globals'] = $globalSets->count();
         /** @var \Statamic\Sites\Site $defaultSite */
         $defaultSite = Site::default();
         foreach ($globalSets as $globalSet) {
@@ -217,6 +198,7 @@ class ContentFacadeRouter extends BaseRouter
             if (! $this->globalIsReadable((string) $globalSet->handle())) {
                 continue;
             }
+            $results['summary']['total_globals']++;
             $hasValues = $globalSet->in($defaultSite->handle())->data()->isNotEmpty();
             $results['details']['globals'][] = [
                 'handle' => $globalSet->handle(),
@@ -266,6 +248,14 @@ class ContentFacadeRouter extends BaseRouter
      */
     private function executeCrossReference(array $arguments): array
     {
+        // Refuse rather than report orphaned terms from an incomplete entry scan.
+        // Also enforce the bound while scanning, because content can grow meanwhile.
+        $budget = 5000;
+        $records = Entry::query()->whereIn('collection', $this->readableCollectionHandles())->count()
+            + Term::query()->whereIn('taxonomy', $this->readableTaxonomyHandles())->count();
+        if ($records > $budget) {
+            return $this->createErrorResponse('Cross reference is limited to 5000 readable records. Use paginated content_validate for larger sites.', code: ErrorCode::TooLarge)->toArray();
+        }
         $results = [
             'workflow' => 'cross_reference',
             'analysis_timestamp' => now()->toISOString(),
@@ -321,11 +311,15 @@ class ContentFacadeRouter extends BaseRouter
             do {
                 $entries = Entry::query()
                     ->where('collection', $collection->handle())
+                    ->orderBy('id')
                     ->limit($perPage)
                     ->offset(($page - 1) * $perPage)
                     ->get();
 
                 foreach ($entries as $entry) {
+                    if (--$budget < 0) {
+                        return $this->createErrorResponse('Cross reference exceeded 5000 records while scanning. Use paginated content_validate.', code: ErrorCode::TooLarge)->toArray();
+                    }
                     $entryData = $entry->data();
                     $termReferences = 0;
 
@@ -363,9 +357,12 @@ class ContentFacadeRouter extends BaseRouter
             if (! in_array((string) $taxonomy->handle(), $this->readableTaxonomyHandles(), true)) {
                 continue;
             }
-            $terms = Term::query()->where('taxonomy', $taxonomy->handle())->get();
+            $terms = Term::query()->where('taxonomy', $taxonomy->handle())->orderBy('id')->limit($budget + 1)->get();
 
             foreach ($terms as $term) {
+                if (--$budget < 0) {
+                    return $this->createErrorResponse('Cross reference exceeded 5000 records while scanning. Use paginated content_validate.', code: ErrorCode::TooLarge)->toArray();
+                }
                 $termSlug = $term->slug();
                 $termId = $term->id();
 

@@ -17,6 +17,7 @@ class McpParentBehaviorTest extends TestCase
     {
         $collection = $this->createMock(Collection::class);
         $collection->method('handle')->willReturn('parent_probe');
+        $collection->method('sites')->willReturn(collect(['default']));
         $collection->method('dated')->willReturn(false);
         $collection->method('revisionsEnabled')->willReturn(false);
         $structure = $this->createMock(CollectionStructure::class);

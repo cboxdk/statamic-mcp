@@ -115,6 +115,19 @@ class McpProtocolSurfaceTest extends TestCase
             );
     }
 
+    public function test_fieldset_writes_and_reads_use_the_blueprint_facets(): void
+    {
+        $this->mcpTool(BlueprintsRouter::class, ['action' => 'create_fieldset', 'handle' => 'protocol_fields',
+            'fields' => [['handle' => 'summary', 'field' => ['type' => 'textarea']]],
+        ])->assertOk()->assertHasNoErrors()->assertStructuredContent(fn (AssertableJson $json) => $json
+            ->where('success', true)->where('meta.tool', 'statamic-blueprints-admin')
+            ->where('data.fieldset.handle', 'protocol_fields')->etc());
+        $this->mcpTool(BlueprintsRouter::class, ['action' => 'get_fieldset', 'handle' => 'protocol_fields'])
+            ->assertOk()->assertHasNoErrors()->assertStructuredContent(fn (AssertableJson $json) => $json
+            ->where('success', true)->where('meta.tool', 'statamic-blueprints-read')
+            ->where('data.fieldset.fields.summary.type', 'textarea')->etc());
+    }
+
     /**
      * The protocol's isError flag is what clients read to decide a call failed;
      * a false flag on a failed call reads as success to everything except a

@@ -38,6 +38,11 @@ it('gates create/generate/update/delete on blueprints (backwards-compat regressi
     // omitted from every write list, so a blueprints:read token could use it
     // to create blueprints (#56).
     expect(ConfirmationActionGate::gates('blueprints', 'generate'))->toBeTrue();
+    foreach (['create_fieldset', 'update_fieldset', 'delete_fieldset'] as $action) {
+        expect(ConfirmationActionGate::gates('blueprints', $action))->toBeTrue();
+    }
+    Config::set('statamic.mcp.confirmation.actions.blueprints', []);
+    expect(ConfirmationActionGate::gates('blueprints', 'delete_fieldset'))->toBeFalse();
 });
 
 it('gates the users actions that can hand over an account, even when a published config has no users key', function (): void {

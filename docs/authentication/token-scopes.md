@@ -13,17 +13,17 @@ Every API token carries a set of scopes that control which tools and actions the
 | Scope | Description |
 |-------|-------------|
 | `*` | Full access: expanded to an explicit list when the token is issued (see below) |
-| `blueprints:read` | Read blueprint definitions and field schemas |
-| `blueprints:admin` | Create, update, delete blueprints (v3: `blueprints:write`) |
+| `blueprints:read` | Read blueprints, fieldsets and installed fieldtype schemas |
+| `blueprints:admin` | Create, update, delete blueprints and fieldsets (v3: `blueprints:write`) |
 | `entries:read` | Read entries across collections |
 | `entries:write` | Create and update entries (as drafts), edit published content |
-| `entries:publish` | Publish, unpublish, publish a working copy, create or update with `published: true`. Needs `entries:write` too |
+| `entries:publish` | Publish, unpublish, publish a working copy; create/localize with `data.published: true`; update with any `data.published` flag, including false. Needs `entries:write` too |
 | `entries:delete` | Delete entries. Needs `entries:write` too |
 | `terms:read` | Read taxonomy terms |
 | `terms:write` | Create and update terms |
 | `terms:delete` | Delete terms. Needs `terms:write` too |
 | `globals:read` | Read global sets and their values |
-| `globals:write` | Update global values, manage global sets |
+| `globals:write` | Update localized global values; set definitions use `structures:admin` |
 | `structures:read` | Read collections, taxonomies, navigations, sites |
 | `structures:admin` | Create, update, delete structural configuration (v3: `structures:write`) |
 | `assets:read` | Read asset containers and files |
@@ -33,13 +33,21 @@ Every API token carries a set of scopes that control which tools and actions the
 | `users:admin` | Create, update, delete users and role assignments (v3: `users:write`) |
 | `system:read` | Read system info, health status, cache state, config |
 | `system:admin` | Clear caches, manage system operations (v3: `system:write`) |
+| `forms:read` | Read Forms 2 definitions, not submission values |
+| `forms:write` | Change form definitions and connector configuration; also required for spam marking |
+| `submissions:read` | Read, export and summarize permitted submissions; needed with `forms:write` for spam marking |
+| `submissions:delete` | Delete submissions, with approval by default |
 | `content-facade:read` | Read content audit and cross-reference data |
-| `content-facade:write` | Write content facade operations |
+
+The legacy `content-facade:write` enum value still exists, but no built-in action
+uses it. The facade has no write tool. Forms scopes are independent: see
+[Forms](../tools/forms.md) for the exact action grants and native permissions.
 
 ### Retired scopes
 
 These still load on old tokens but grant nothing, and nobody is offered them.
-`php artisan mcp:migrate-v4` drops or replaces them.
+`php artisan mcp:migrate-v4` previews their removal or revocation; `--apply`
+carries it out. It never adds replacement scopes.
 
 | Scope | Why |
 |-------|-----|
@@ -50,7 +58,8 @@ These still load on old tokens but grant nothing, and nobody is offered them.
 
 ### Read-Only Exploration
 
-Safe for any environment. The AI assistant can inspect everything but change nothing:
+These scopes permit reads, not writes. Profiles, native permissions and resource
+policies still restrict which data can be inspected:
 
 ```
 blueprints:read, entries:read, terms:read,
@@ -110,8 +119,8 @@ When a tool is called via the web endpoint, the `RequireMcpPermission` middlewar
 - **`entries:write`, `terms:write` and `assets:write` tokens keep editing** but can
   no longer publish or delete. Add `entries:publish`, `entries:delete`,
   `terms:delete` or `assets:delete` where a token should. Until then such calls
-  answer `Token missing required scope: …`, and a create that would have been
-  published is saved as a draft.
+  answer a missing-scope refusal. An explicit `data.published: true` is refused,
+  not silently changed to a draft. Send `data.published: false` to create a draft.
 - **`structures:write`, `blueprints:write`, `users:write` and `system:write` stop
   working.** v4 replaced them with `:admin` scopes. A token holding one is refused
   with a message naming its replacement; approve the token again.
@@ -142,6 +151,10 @@ process authority, without an HTTP token. Profiles and site-wide resource polici
 still restrict execution. Only `operator` enables administration. Missing or unknown
 profiles reject calls. Never switch transports to evade an HTTP permission denial.
 
+This token-free behavior applies to built-in tools. Integration tools also require
+`STATAMIC_MCP_STDIO_TOKEN` with current capability consent and run as that grant's
+Statamic user; see [extending tools](../extending/tools.md).
+
 ### Domain Mapping
 
 Each tool maps to a scope domain:
@@ -157,6 +170,10 @@ Each tool maps to a scope domain:
 | `statamic-users` | `users` |
 | `statamic-system` | `system` |
 | `statamic-content-facade` | `content-facade` |
+| `statamic-forms` | `forms` and, for submission actions, `submissions` |
+
+These are router domains. Clients call their `-read` and `-write`/`-admin` facets,
+not the unsuffixed names; see [tool discovery](../tools/overview.md#finding-the-tools).
 
 ## Managing Tokens
 
@@ -166,10 +183,15 @@ Tokens are created and revoked in the Statamic Control Panel at **Tools > MCP > 
 
 - **Name** — Human-readable label (e.g. "Claude Desktop - Production")
 - **Scopes** — One or more scopes from the table above, limited to those the token's user can exercise
-- **Expiry** — Optional expiration date (null = never expires)
+- **Expiry** — Bounded by `security.max_token_lifetime_days` (365 days by default); permanent tokens are available only when that cap is null
 - **User** — Each token belongs to a Statamic user
 
 ### Token Storage
 
 Tokens are stored as SHA-256 hashes (in YAML files by default, or in the `mcp_tokens` database table when using the database storage driver). The plaintext token is shown once at creation and cannot be retrieved later. If lost, revoke the old token and create a new one.
 
+File tokens coalesce `last_used_at` updates to at most once a minute; the displayed
+last-used time is not an exact request timestamp. Audit records provide individual
+call history when logging is enabled. Invalid credentials do not repeatedly parse
+every unchanged token file, and an index lookup still verifies the stored token
+hash. File mutations retain the store lock and atomic replacement behavior.

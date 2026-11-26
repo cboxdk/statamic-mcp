@@ -272,6 +272,14 @@ it('redacts sensitive arguments', function () {
         ->not->toContain('user@example.com');
 });
 
+it('bounds a wide argument block without dropping the audit outcome', function () {
+    ToolLogger::logToolCall('statamic-entries-read', array_fill(0, 2000, str_repeat('a', 40)), 'success');
+    $entry = json_decode(trim(file_get_contents(testLogPath())), true, flags: JSON_THROW_ON_ERROR);
+    expect($entry['status'])->toBe('success')
+        ->and(strlen(json_encode($entry['arguments'])))->toBeLessThanOrEqual(16384)
+        ->and($entry['arguments']['_truncated'])->toBeTrue();
+});
+
 it('redacts values containing email addresses regardless of key name', function () {
     ToolLogger::logToolCall(
         'statamic-entries',

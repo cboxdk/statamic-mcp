@@ -2,6 +2,7 @@ import '../css/addon.css';
 import McpPage from './pages/McpPage.vue';
 import McpAdminPage from './pages/McpAdminPage.vue';
 import McpApprovalsPage from './pages/McpApprovalsPage.vue';
+import McpConsentPage from './pages/McpConsentPage.vue';
 
 // Use Statamic.booting() to ensure $inertia is available.
 // Direct registration can fail if the addon script loads before
@@ -10,4 +11,5 @@ Statamic.booting((Statamic) => {
     Statamic.$inertia.register('statamic-mcp::McpPage', McpPage);
     Statamic.$inertia.register('statamic-mcp::McpAdminPage', McpAdminPage);
     Statamic.$inertia.register('statamic-mcp::McpApprovalsPage', McpApprovalsPage);
+    Statamic.$inertia.register('statamic-mcp::McpConsentPage', McpConsentPage);
 });

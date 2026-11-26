@@ -23,9 +23,24 @@ it('reports a read-only preflight without claiming end-to-end verification', fun
     $report = mcpDoctorReport();
     expect($report['read_only'])->toBeTrue()->and($report['schema'])->toBe(1)
         ->and(config('statamic.mcp'))->toBe($before);
-    $checks = collect($report['checks'])->keyBy('id');
-    expect($checks['storage.verification']['status'])->toBe('warn')
-        ->and($checks['migration.consent']['status'])->toBe('warn');
+    expect(implode(' ', $report['notes']))->toContain('No write, network or lock probe', 'does not migrate anything');
+});
+
+it('can be all green for disabled transports and valid local or public endpoints', function (bool $http, string $url, bool $debug) {
+    config(['statamic.mcp.web.enabled' => $http, 'app.url' => $url, 'app.debug' => $debug,
+        'statamic.mcp.profiles.http' => $http ? 'read_only' : null, 'statamic.mcp.profiles.stdio' => null,
+        'statamic.mcp.web.require_https' => ! $debug, 'statamic.mcp.web.allowed_origins' => []]);
+    $report = mcpDoctorReport();
+    expect($report['ok'])->toBeTrue()
+        ->and(array_unique(array_column($report['checks'], 'status')))->toBe(['pass']);
+})->with([[false, 'http://localhost', true], [true, 'http://localhost', true], [true, 'https://cms.example.com', false]]);
+
+it('never treats loopback HTTP as production TLS', function () {
+    app()->instance('env', 'production');
+    config(['statamic.mcp.web.enabled' => true, 'app.url' => 'http://127.0.0.1', 'app.debug' => true]);
+    $checks = collect(mcpDoctorReport()['checks'])->keyBy('id');
+    expect($checks['http.canonical_url']['status'])->toBe('fail')
+        ->and($checks['http.debug']['status'])->toBe('fail');
 });
 
 it('rejects remote deployment hazards without printing the supplied secrets', function () {
@@ -77,7 +92,7 @@ it('flags non-origin URLs and local locks without testing external connectivity'
 });
 
 it('fails debug mode on a public endpoint and warns when every proxy is trusted', function () {
-    config(['statamic.mcp.web.enabled' => true, 'app.debug' => true]);
+    config(['statamic.mcp.web.enabled' => true, 'app.url' => 'https://cms.example.com', 'app.debug' => true]);
     TrustProxies::at('*');
     try {
         $checks = collect(mcpDoctorReport()['checks'])->keyBy('id');
@@ -110,9 +125,9 @@ it('fails a stdout log channel when stdio is configured, through a stack', funct
     config(['logging.channels.console.with.stream' => 'php://stderr']);
     expect(collect(mcpDoctorReport()['checks'])->keyBy('id')['stdio.stdout']['status'])->toBe('pass');
 
-    // Without a stdio profile the server never runs over stdio: only a warning.
+    // Without a stdio profile the server never runs over stdio.
     config(['logging.channels.console.with.stream' => 'php://stdout', 'statamic.mcp.profiles.stdio' => null]);
-    expect(collect(mcpDoctorReport()['checks'])->keyBy('id')['stdio.stdout']['status'])->toBe('warn');
+    expect(collect(mcpDoctorReport()['checks'])->keyBy('id')['stdio.stdout']['status'])->toBe('pass');
 });
 
 it('counts tokens that outlive the lifetime cap and tokens carrying a retired content scope', function () {

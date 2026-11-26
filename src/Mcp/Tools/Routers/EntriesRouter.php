@@ -81,7 +81,24 @@ class EntriesRouter extends BaseRouter
     {
         $result = parent::filterOutputFields($result);
 
-        foreach (['blueprint', 'origin'] as $field) {
+        if (is_array($record = $result['entry'] ?? null) && is_string($record['collection'] ?? null)) {
+            // A stored operation result may outlive access to another site.
+            foreach (['origin', 'localizations'] as $key) {
+                $relations = $key === 'origin' ? [$record[$key] ?? null] : ($record[$key] ?? []);
+                $readable = [];
+                foreach (is_array($relations) ? $relations : [] as $relation) {
+                    $related = is_array($relation) && is_string($relation['id'] ?? null) ? Entry::find($relation['id']) : null;
+                    if ($related !== null && $this->canReadRelatedEntry($related, $record['collection'])) {
+                        $readable[] = $relation;
+                    }
+                }
+                if (array_key_exists($key, $record)) {
+                    $result['entry'][$key] = $key === 'origin' ? ($readable[0] ?? null) : $readable;
+                }
+            }
+        }
+
+        foreach (['blueprint', 'origin', 'localizations', 'merged_data'] as $field) {
             if (in_array($field, app(ResourcePolicy::class)->getDeniedFields('entries'), true)
                 && isset($result['entry']) && is_array($result['entry'])) {
                 unset($result['entry'][$field]);
@@ -132,6 +149,9 @@ class EntriesRouter extends BaseRouter
                 ->description('Collection handle in snake_case. Required for all actions. Example: "blog", "products"')
                 ->required(),
 
+            'blueprint' => JsonSchema::string()
+                ->description('For create: exact handle of a blueprint belonging to this collection. Omit to use the collection default.'),
+
             'id' => JsonSchema::string()
                 ->description('Entry UUID. Required for get, update, delete, publish, unpublish, list_revisions, get_revision, restore_revision, publish_working_copy actions'),
 
@@ -149,13 +169,19 @@ class EntriesRouter extends BaseRouter
                 ),
 
             'slug' => JsonSchema::string()
-                ->description('Entry slug for the create action. Defaults to a slug generated from the title. For update, pass "slug" inside data instead'),
+                ->description('For create: entry slug (defaults to the title). For get: exact slug in the collection and site, instead of id or uri. For update, pass "slug" inside data.'),
+
+            'uri' => JsonSchema::string()
+                ->description('For get: exact site-relative URI, such as /blog/hello, instead of id or slug. The entry must belong to the named collection.'),
 
             'filters' => JsonSchema::object()
                 ->description('Exact-match filters for list, as key-value pairs with scalar values. Keys are field handles from the collection\'s blueprints, or one of id, slug, title, published, date, uri, parent, origin, or "status" (published, scheduled, expired, draft). Any other key is refused with the list of valid keys. Example: {"status": "scheduled"}'),
 
             'include_unpublished' => JsonSchema::boolean()
                 ->description('Include draft/unpublished entries in list results. Default: false, which still lists scheduled and expired entries because they are published; read each entry\'s status, or filter by it'),
+
+            'sort' => JsonSchema::string()
+                ->description('Readable blueprint field or record property, optionally :asc or :desc (default id:asc). Example title:asc or date:desc. Ties use id:asc. Computed status cannot be sorted.'),
 
             'limit' => JsonSchema::integer()
                 ->description('Maximum results to return (default: 50, max: 1000)'),
@@ -317,14 +343,25 @@ class EntriesRouter extends BaseRouter
     }
 
     /** @return array<string, mixed> */
-    private function entryRecord(EntryContract $entry): array
+    private function entryRecord(EntryContract $entry, bool $includeMerged = false): array
     {
+        $origin = $entry->origin();
+        $origin = $origin instanceof EntryContract && $this->canReadRelatedEntry($origin, $entry->collectionHandle()) ? $origin : null;
+        $localizations = [];
+        foreach ($entry->collection()->sites() as $site) {
+            $localized = $entry->in($site);
+            if ($localized instanceof EntryContract && $localized->id() !== $entry->id() && $this->canReadRelatedEntry($localized, $entry->collectionHandle())) {
+                $localizations[] = ['id' => $localized->id(), 'site' => $localized->site()->handle()];
+            }
+        }
+
         return [
             'id' => $entry->id(),
             'collection' => $entry->collectionHandle(),
             'parent' => app(CollectionTreeEditor::class)->parent($entry),
             'blueprint' => $entry->blueprint()?->handle(),
-            'origin' => $entry->origin() ? ['id' => $entry->origin()->id(), 'site' => $entry->origin()->site()->handle()] : null,
+            'origin' => $origin ? ['id' => $origin->id(), 'site' => $origin->site()->handle()] : null,
+            'localizations' => $localizations,
             'site' => $entry->site()->handle(),
             'slug' => $entry->slug(),
             'published' => $entry->published(),
@@ -333,7 +370,37 @@ class EntriesRouter extends BaseRouter
             'last_modified' => $entry->lastModified()?->toISOString(),
             'url' => $entry->url(),
             'data' => $entry->data()->all(),
+            // Keep overrides distinct: replaying a read must not turn inherited
+            // values into permanent local overrides.
+            // Only reads include inherited values. Operation snapshots must not
+            // retain content from another entry whose access can change later.
+            ...($includeMerged && $entry->hasOrigin() ? ['merged_data' => app(ResourcePolicy::class)->filterFields('entries', $this->readableEntryValues($entry))] : []),
         ];
+    }
+
+    private function canReadRelatedEntry(EntryContract $related, string $collection): bool
+    {
+        $token = request()->attributes->get('mcp_token');
+        if (! McpContext::isCli() && $token instanceof McpTokenData
+            && ! app(TokenService::class)->hasScope($token, TokenScope::EntriesRead)) {
+            return false;
+        }
+
+        return $related->collectionHandle() === $collection
+            && app(ResourcePolicy::class)->canAccess('entries', $related->collectionHandle(), 'read')
+            && $this->authorizeResolvedEntry('getEntry', $related) === null;
+    }
+
+    /** @return array<string, mixed> */
+    private function readableEntryValues(EntryContract $entry): array
+    {
+        foreach ($entry->ancestors() as $origin) {
+            if (! $this->canReadRelatedEntry($origin, $entry->collectionHandle())) {
+                return $entry->data()->all();
+            }
+        }
+
+        return $entry->values()->all();
     }
 
     /**
@@ -435,8 +502,13 @@ class EntriesRouter extends BaseRouter
         foreach ($filters as $field => $value) {
             $query->where((string) $field, $value);
         }
+        [$sort, $direction] = $this->listSort($arguments['sort'] ?? null, Collection::find($collection)?->entryBlueprints() ?? [], array_values(array_diff(self::FILTER_PROPERTIES, ['status'])));
         $total = $query->count();
-        $entries = $query->orderBy('id')->offset($offset)->limit($limit)->get();
+        $query->orderBy($sort, $direction);
+        if ($sort !== 'id') {
+            $query->orderBy('id');
+        }
+        $entries = $query->offset($offset)->limit($limit)->get();
         $data = $entries->map(function ($entry) {
             return [
                 'id' => $entry->id(),
@@ -466,12 +538,31 @@ class EntriesRouter extends BaseRouter
      */
     private function getEntry(array $arguments): array
     {
-        $id = is_string($arguments['id']) ? $arguments['id'] : '';
+        $identifiers = array_intersect_key($arguments, array_flip(['id', 'slug', 'uri']));
+        if (count($identifiers) !== 1) {
+            return $this->createErrorResponse('Get requires exactly one of id, slug or uri.', field: 'id')->toArray();
+        }
+        $key = (string) array_key_first($identifiers);
+        $identifier = $identifiers[$key];
+        if (! is_string($identifier) || $identifier === '') {
+            return $this->createErrorResponse("{$key} must be a non-empty string.", field: $key)->toArray();
+        }
+        $id = is_string($arguments['id'] ?? null) ? $arguments['id'] : '';
         $site = $this->resolveSiteHandle($arguments);
         $version = is_string($arguments['revision_state'] ?? null) ? $arguments['revision_state'] : 'published';
-        $entry = $this->resolveEntryInCollection($id, $arguments);
+        $entry = $id !== '' ? $this->resolveEntryInCollection($id, $arguments) : null;
+        if (isset($arguments['slug'])) {
+            $matches = Entry::query()->where('collection', $arguments['collection'])->where('site', $site)->where('slug', $arguments['slug'])->limit(2)->get();
+            if ($matches->count() > 1) {
+                return $this->createErrorResponse('This slug matches more than one entry. Use id or uri.', field: 'slug')->toArray();
+            }
+            $entry = $matches->first();
+        } elseif (isset($arguments['uri'])) {
+            $found = Entry::findByUri($identifier, $site);
+            $entry = $found?->collectionHandle() === $arguments['collection'] ? $found : null;
+        }
         if ($entry === null) {
-            return $this->missingResource('Entry', $id, 'id')->toArray();
+            return $this->missingResource('Entry', $identifier, $key)->toArray();
         }
         // Get entry for specific site if needed
         if ($entry->site()->handle() !== $site) {
@@ -497,7 +588,7 @@ class EntriesRouter extends BaseRouter
             }
         }
         $response = [
-            'entry' => $this->entryRecord($entryVersion),
+            'entry' => $this->entryRecord($entryVersion, includeMerged: true),
         ];
         // Include revision status metadata when revisions are enabled
         if ($this->entryRevisionsEnabled($entry)) {
@@ -591,7 +682,13 @@ class EntriesRouter extends BaseRouter
         // forgets that key. The getter below then runs the normal resolution
         // path, so EntryBlueprintFound listeners still fire and addons that
         // inject fields keep working.
-        $collectionBlueprint = $collection->entryBlueprint();
+        $requestedBlueprint = $arguments['blueprint'] ?? null;
+        if ($requestedBlueprint !== null && (! is_string($requestedBlueprint)
+            || ! $collection->entryBlueprints()->contains(fn (Blueprint $candidate): bool => $candidate->handle() === $requestedBlueprint))) {
+            return $this->createErrorResponse('blueprint must name a blueprint belonging to this collection.', field: 'blueprint',
+                validValues: $collection->entryBlueprints()->map->handle()->values()->all())->toArray();
+        }
+        $collectionBlueprint = $collection->entryBlueprint($requestedBlueprint);
         if ($collectionBlueprint !== null) {
             $entry->blueprint($collectionBlueprint->handle());
         }
@@ -1368,9 +1465,9 @@ class EntriesRouter extends BaseRouter
     protected function actions(): array
     {
         return [
-            RouterAction::read('list', 'List a collection\'s entries', needs: ['collection'], optional: ['site', 'filters', 'include_unpublished', 'limit', 'cursor']),
-            RouterAction::read('get', 'Get one entry with its data and version', needs: ['collection', 'id'], optional: ['site', 'revision_state', 'fields']),
-            RouterAction::edit('create', 'Create an entry; data holds field values in the shapes the collection\'s blueprint gives them', needs: ['collection', 'data'], optional: ['site', 'slug', 'revision_message']),
+            RouterAction::read('list', 'List a collection\'s entries', needs: ['collection'], optional: ['site', 'filters', 'sort', 'include_unpublished', 'limit', 'cursor']),
+            RouterAction::read('get', 'Get one entry by id, slug or uri, with local overrides, inherited values and version', needs: ['collection', 'id|slug|uri'], optional: ['site', 'revision_state', 'fields']),
+            RouterAction::edit('create', 'Create an entry; data holds field values in the shapes the collection\'s blueprint gives them', needs: ['collection', 'data'], optional: ['site', 'slug', 'blueprint', 'revision_message']),
             RouterAction::edit('update', 'Update an entry; a published entry with revisions enabled gets a working copy', needs: ['collection', 'id', 'data'], optional: ['site', 'expected_version', 'merge_sets', 'revision_message']),
             RouterAction::edit('localize', 'Create an entry\'s localization in another site; untranslated fields keep falling back to the origin', needs: ['collection', 'id', 'site'], optional: ['data', 'revision_message']),
             RouterAction::delete('delete', 'Delete an entry', needs: ['collection', 'id'], optional: ['site', 'expected_version']),

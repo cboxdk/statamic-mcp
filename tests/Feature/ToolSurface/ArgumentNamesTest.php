@@ -22,12 +22,12 @@ class ArgumentNamesTest extends TestCase
         // Every tool
         'action', 'resource_type', 'approval_id', 'idempotency_key',
         // What a call addresses
-        'collection', 'taxonomy', 'container', 'form', 'namespace', 'handle', 'id', 'email', 'slug', 'path', 'site', 'field',
+        'collection', 'taxonomy', 'container', 'form', 'namespace', 'handle', 'id', 'email', 'slug', 'uri', 'path', 'site', 'field', 'blueprint',
         // What a write carries
-        'data', 'fields', 'title', 'replace_fields', 'merge_sets', 'expected_version', 'revision_message', 'revision_id', 'reason', 'role',
+        'data', 'fields', 'title', 'replace_fields', 'remove_fields', 'tab', 'merge_sets', 'expected_version', 'revision_message', 'revision_id', 'reason', 'role',
         'destination', 'filename', 'folder', 'content', 'encoding', 'source_url', 'file_path', 'config_key', 'cache_type', 'urls',
         // Reading and paging
-        'limit', 'cursor', 'filters', 'query', 'status', 'super', 'group', 'recursive', 'revision_state', 'include_unpublished',
+        'limit', 'cursor', 'sort', 'filters', 'query', 'status', 'super', 'group', 'recursive', 'revision_state', 'include_unpublished',
         'include_counts', 'include_details', 'include_fields', 'include_config', 'include_format_spec', 'include_permissions',
         'include_performance', 'include_tree', 'max_format_depth', 'output_format', 'scope', 'severity', 'max_findings',
     ];

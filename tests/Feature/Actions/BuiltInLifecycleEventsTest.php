@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Cboxdk\StatamicMcp\Actions\Contracts\LifecycleEvent;
 use Cboxdk\StatamicMcp\Actions\Contracts\LifecycleObserver;
 use Cboxdk\StatamicMcp\Actions\LifecycleObservers;
+use Cboxdk\StatamicMcp\Approvals\Approvals;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\EntriesRouter;
 use Cboxdk\StatamicMcp\Testing\FakeLifecycleObserver;
 use Illuminate\Support\Facades\File;
@@ -64,7 +65,12 @@ it('emits started then completed for a write, with committed effects and no cont
         ->and($completed['operation_id'])->toBe($started['operation_id'])
         ->and($started['execution_id'])->toBeString()
         ->and($completed['execution_id'])->toBe($started['execution_id'])
-        ->and($completed['transport'])->toBe('stdio');
+        ->and($completed['transport'])->toBe('stdio')
+        ->and($completed['correlation_id'])->toBe($started['correlation_id'])
+        ->and($completed['response_bytes'])->toBe(strlen(json_encode($result, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)))
+        ->and($completed['cache_ms'])->toBeGreaterThan(0)
+        ->and($completed['duration_ms'])->toBeGreaterThanOrEqual($completed['cache_ms'])
+        ->and($completed['error_code'])->toBeNull();
     evNoContent($this->events);
 });
 
@@ -72,7 +78,8 @@ it('reports a write the handler refused as failed with no effect, never complete
     (new EntriesRouter)->execute(['action' => 'update', 'collection' => 'ev_pages', 'id' => 'missing', 'data' => ['title' => 'x']]);
 
     expect(evNames($this->events))->toBe(['execution.started', 'execution.failed'])
-        ->and($this->events->events[1]->metadata()['effects'])->toBe('none');
+        ->and($this->events->events[1]->metadata()['effects'])->toBe('none')
+        ->and($this->events->events[1]->metadata()['error_code'])->toBe('NOT_FOUND');
 });
 
 it('reports a denied call without a started event', function () {
@@ -115,7 +122,7 @@ it('follows an approval from request to consumption, and records the person\'s r
     (new EntriesRouter)->execute(['action' => 'delete', 'collection' => 'ev_pages', 'id' => 'ev-one', 'approval_id' => $id]);
 
     expect(evNames($this->events))->toBe(['approval.requested', 'approval.approved',
-        'execution.started', 'execution.completed', 'approval.consumed']);
+        'execution.started', 'approval.consumed', 'execution.completed']);
     $approved = $this->events->events[1]->metadata();
     expect($approved['approval_id'])->toBe($id)->and($approved['via'])->toBe('control_panel')
         ->and($this->events->events[2]->metadata()['operation_id'])->toBe($id);
@@ -127,6 +134,51 @@ it('follows an approval from request to consumption, and records the person\'s r
 
     expect(evNames($this->events))->toBe(['approval.requested', 'approval.rejected'])
         ->and($this->events->events[1]->metadata()['reason'])->toBe('person');
+});
+
+it('does not carry terminal metadata into a later call when cache cleanup throws', function () {
+    $router = new class extends EntriesRouter
+    {
+        public bool $failCleanup = true;
+
+        protected function flushPendingCacheClears(): array
+        {
+            if ($this->failCleanup) {
+                throw new RuntimeException('Cache unavailable');
+            }
+
+            return parent::flushPendingCacheClears();
+        }
+    };
+    request()->attributes->set('mcp_correlation_id', 'first-call');
+    $first = $router->execute(['action' => 'update', 'collection' => 'ev_pages', 'id' => 'ev-one', 'data' => ['title' => 'Changed title']]);
+    expect($first['success'])->toBeFalse()
+        ->and($first['meta']['write_effects'])->toBe('committed');
+    $router->failCleanup = false;
+    request()->attributes->set('mcp_correlation_id', 'second-call');
+    expect($router->execute(['action' => 'get', 'collection' => 'ev_pages', 'id' => 'ev-one'])['success'])->toBeTrue();
+    expect(evNames($this->events))->toBe(['execution.started', 'execution.failed', 'execution.started', 'execution.completed'])
+        ->and($this->events->events[1]->metadata()['correlation_id'])->toBe('first-call')
+        ->and($this->events->events[3]->metadata()['correlation_id'])->toBe('second-call');
+});
+
+it('counts pending approvals without deciding them and emits expiry once on retry', function () {
+    config(['statamic.mcp.security.force_web_mode' => true, 'statamic.mcp.confirmation.enabled' => true,
+        'statamic.mcp.approvals.channels' => 'none']);
+    $this->actingAs(tap(User::make()->id('ev-owner')->email('o@example.test')->makeSuper())->save());
+    $call = ['action' => 'delete', 'collection' => 'ev_pages', 'id' => 'ev-one'];
+    $id = (new EntriesRouter)->execute($call)['data']['approval_id'];
+    $approvals = app(Approvals::class);
+    expect($approvals->pendingCountFor('user:ev-owner'))->toBe(1)
+        ->and($approvals->pendingCountFor('user:other'))->toBe(0);
+    $this->travel(16)->minutes();
+    expect($approvals->pendingCountFor('user:ev-owner'))->toBe(0);
+    foreach ([1, 2] as $attempt) {
+        $result = (new EntriesRouter)->execute([...$call, 'approval_id' => $id]);
+        expect($result['success'])->toBeFalse();
+    }
+    expect(evNames($this->events))->toBe(['approval.requested', 'approval.expired'])
+        ->and(Entry::find('ev-one'))->not->toBeNull();
 });
 
 it('keeps the write and its result when an observer throws after it', function () {

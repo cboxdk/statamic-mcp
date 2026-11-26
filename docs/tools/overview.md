@@ -21,7 +21,7 @@ Every tool follows the same pattern: send an `action` parameter to specify what 
 
 All take `collection`, an existing `blueprint` handle and `task`. Entry workflows also accept the source `site`. The prompt embeds current blueprint `_format_spec` data and, for an existing entry, its current content and version. Page-builder prompts read only the selected field. They enforce the same scopes, Statamic permissions, profile and denied-field rules as tool reads. If a selected record cannot be read, `prompts/get` returns a protocol error rather than an incomplete workflow.
 
-`completion/complete` offers readable collection, blueprint (with `context.arguments.collection`) and site handles, and the two modeling kinds. Suggestions scan authorized catalog pages and return up to 100 matches; `hasMore` signals omitted candidates. A fieldset result is a proposed definition for review: fieldset CRUD is not yet exposed. Calling any prompt does not save, publish or approve anything.
+`completion/complete` offers readable collection, blueprint (with `context.arguments.collection`) and site handles, and the two modeling kinds. Suggestions scan authorized catalog pages and return up to 100 matches; `hasMore` signals omitted candidates. A fieldset result is a proposed definition for review; save it explicitly with `statamic-blueprints-admin` and `action: create_fieldset`. Calling any prompt does not save, publish or approve anything.
 
 Existing entries must match the supplied blueprint. An unset page-builder field is reported explicitly; an inherited field is read through the origin's authorization checks. The complete prompt is subject to `security.max_response_size`. Translation instructions create drafts with `data.published=false` and use the destination site's version for subsequent updates.
 
@@ -84,7 +84,14 @@ Lists return `data.items`, `data.next_cursor` and `data.total`. Send `next_curso
 
 If the page exceeds `security.max_response_size`, it ends at a whole-record boundary and sets `truncated: true`. Its cursor resumes at the first record not returned. A single oversized record returns `TOO_LARGE` with recovery guidance; it is never silently skipped.
 
-Entries, terms, users and assets are ordered by id; configuration catalogs by handle; blueprints by namespace and handle; revisions newest first. Totals count only accessible records. Cursors are positions, not snapshots: concurrent writes can shift records between pages. Every call checks current permissions again.
+Entries and terms default to id order and accept the safe `sort` described below; users and assets use id order. Configuration catalogs use handle order; blueprints use namespace and handle; revisions are newest first. Totals count only accessible records. Cursors are positions, not snapshots: concurrent writes can shift records between pages. Every call checks current permissions again.
+
+Entry and term lists accept one `sort` field, for example `title:asc` or
+`date:desc`; omitted direction means `asc`. It must name a readable blueprint
+field or a supported record property. Entry `status` is filterable but is not a
+sort key. Unknown or denied fields and malformed directions are refused before
+querying. Equal values use id as a stable tie-breaker. Keep `sort` unchanged when
+continuing a cursor.
 
 ### Reading part of a large record
 
@@ -104,7 +111,13 @@ The blueprint read tool advertises `anthropic/maxResultSizeChars`, capped at 500
 
 Record writes return the saved record, including its opaque `version`, under the same key as `get` (`entry`, `term`, `global`, etc.). Deletes return the final snapshot. An asset copy returns the new record under `copy`. A collection move returns its saved tree and only the configuration the caller may see; a reorder-only editor does not gain administrative settings. Denied-field policies apply to write responses too, and user credentials are never included.
 
-Versions fingerprint record state; they are not framework versions. Entries, terms, globals and forms accept `expected_version` for optimistic concurrency, as do the optional Forms Pro settings and SEO Pro defaults/redirects. Check the action schema for supported arguments. Collection responses with `include_tree` also version the selected site's tree; those without it version the collection settings. User IDs are strings on both storage backends. System operations, such as cache clearing, do not have record versions.
+Versions fingerprint record state; they are not framework versions. Entries, terms, globals, forms and fieldsets accept `expected_version` on supported writes, as do the optional Forms Pro settings and SEO Pro defaults/redirects. Check the action schema for supported arguments. Collection responses with `include_tree` also version the selected site's tree; those without it version the collection settings. User IDs are strings on both storage backends. System operations, such as cache clearing, do not have record versions.
+
+Entry `get` accepts exactly one of `id`, `slug` or `uri`, always with `collection`. Slug and URI lookup use the selected `site` (the default site when omitted). An ambiguous slug is refused; use its id or URI instead. A URI cannot reach another collection.
+
+An entry's `data` contains its local overrides. A localized entry read also includes `merged_data`, Statamic's effective values after inheritance, for understanding the content; do not write this map back as local overrides. `origin` and `localizations` list only records the caller can read. If an ancestor is inaccessible, `merged_data` contains only local values. Writes return the saved local record without `merged_data`; read it afterwards for current inherited values. The version describes the local record, not its ancestors.
+
+Content writes report unrecognized top-level keys in envelope `warnings`, without their values. These keys are not automatically retained: only supported metadata survives the fieldtype pipeline, so check the returned record. Unknown nested fields still fail validation when `security.reject_unknown_fields` is enabled. An idempotent replay repeats the original warnings.
 
 Every built-in tool publishes an `outputSchema` for its envelope and result variants. Clients can validate `structuredContent` directly. Failed calls require `error`; successful calls carry the tool's records or list page. A completed write whose full response exceeds the configured limit remains successful with `response_truncated: true` and identifying metadata; do not repeat the write to retrieve its content.
 
@@ -125,6 +138,11 @@ returns the available catalog. Discovery is not a grant of access to every recor
 
 ## Domain Routers
 
+The headings below name implementation domains, not callable unsuffixed tools.
+Use `statamic-{domain}-read` for reads and `-admin` for blueprint, structure, user
+and system writes; entries, terms, globals, assets and forms use `-write`.
+Content-facade has only `statamic-content-facade-read`.
+
 ### `statamic-blueprints`
 
 Manage blueprint definitions, field schemas, and type generation.
@@ -133,13 +151,55 @@ Manage blueprint definitions, field schemas, and type generation.
 |--------|-------------|----------------|
 | `list` | List blueprints | `namespace`, `include_details`, `include_fields` |
 | `get` | Get a specific blueprint | `handle`, `namespace`, `field`, `include_config`, `include_format_spec`, `max_format_depth` |
-| `create` | Create a blueprint | `handle`, `namespace`, `fields` |
-| `update` | Update a blueprint | `handle`, `namespace`, `fields` |
-| `delete` | Delete a blueprint | `handle`, `namespace`, `confirm` |
+| `create` | Create a blueprint | `handle`, `namespace`, `fields`, `tab` |
+| `update` | Update definitions without flattening imports or sections | `handle`, `namespace`, `fields`, `tab`, `remove_fields`, `replace_fields` |
+| `delete` | Delete a blueprint | `handle`, `namespace`, `approval_id` |
 | `scan` | Scan all blueprints | `include_fields` |
 | `generate` | Generate a blueprint | `handle`, `namespace`, `fields` |
-| `types` | Generate TypeScript/PHP types | `handle`, `output_format` |
+| `types` | Generate types from the blueprint catalog | `namespace`, `output_format`, `limit`, `cursor` |
 | `validate` | Validate a blueprint | `handle`, `namespace` |
+| `list_fieldsets` | List readable fieldsets | `limit`, `cursor` |
+| `get_fieldset` | Read stored definitions, resolved fields and version | `handle` |
+| `create_fieldset` | Create a reusable fieldset | `handle`, `fields`, `title` |
+| `update_fieldset` | Merge definitions, retaining sections and imports | `handle`, `fields`, `title`, `remove_fields`, `replace_fields`, `expected_version` |
+| `delete_fieldset` | Delete only when no fieldset or blueprint uses it | `handle`, `expected_version` |
+| `fieldtypes` | List installed fieldtypes and native config fields | `handle`, `limit`, `cursor` |
+
+Blueprint `get` includes the stored `tabs` and `sections` when `include_config` is true. Each resolved field has `source` with its tab, section index, immediate fieldset, prefix and field reference. Imports stay linked to the fieldset; reading and updating a blueprint does not copy their expanded fields into it.
+
+Write native Statamic definitions with the admin tool:
+
+```json
+{
+  "action": "update",
+  "namespace": "collections",
+  "collection": "pages",
+  "handle": "landing",
+  "tab": "sidebar",
+  "fields": [
+    {"import": "shared", "prefix": "hero_", "config": {"summary": {"display": "Hero summary"}}},
+    {"handle": "intro", "field": "shared.summary", "config": {"display": "Introduction"}},
+    {"handle": "featured", "field": {"type": "toggle"}}
+  ],
+  "remove_fields": ["obsolete"]
+}
+```
+
+The `shared` fieldset and its `summary` field must already exist. Matching handles, or matching import/ prefix pairs, update in their existing sections. New definitions go into the first section of `tab`, creating the tab when necessary. Omit `tab` to use the first tab. `replace_fields: true` replaces the chosen tab's fields, or all tabs' fields when `tab` is omitted; it retains section metadata and refuses to overwrite a field belonging to another tab.
+
+Remove an imported block with its unambiguous selector, such as `remove_fields: ["import:shared|hero_"]`. Without a prefix, use `import:shared|`. An individual imported field cannot be removed from the consuming blueprint: edit the fieldset or remove the entire import. Definitions protected by `denied_fields` remain unchanged even during replacement or removal; imports containing denied fields are omitted from raw output and incoming writes.
+
+Fieldsets use the same blueprint scopes, resource policy and Statamic permissions. Unsafe reference paths and circular imports are refused before saving. Namespaced addon fieldsets can be read and overridden, but not created or deleted. Deleting a used fieldset fails without naming hidden consumers. Fieldset updates and deletes accept the `version` from `get_fieldset` as `expected_version`; an external edit causes `VERSION_CONFLICT`. HTTP approvals also become stale after the stored record changes. Existing approval configuration for blueprint create/update/delete applies to the corresponding fieldset actions.
+
+#### Field value formats
+
+Read each field's `_format_spec` before writing content. It describes the input shape, configured limits and storage conventions, including dictionary keys, numeric ranges and widths, key/value arrays, lists and resource-handle fields.
+
+- **Bard:** block fields take an array of ProseMirror nodes; inline fields take text and hard-break nodes without a paragraph wrapper. The server adds the native Control Panel wrapper internally. Unknown nodes, malformed content and unknown marks are refused before saving. Registered server-side Bard extensions remain supported. Toolbar marks and heading levels use Statamic's defaults when the blueprint does not override them; hiding a toolbar button does not invalidate stored content.
+- **Assets:** paths are relative to the configured `container`, not public URLs. The spec reports `container` and `max_files`. Use `container::path` if the field does not select a container.
+- **Dates:** range fields take `{ "start": "2026-01-03", "end": "2026-02-15" }`. Values without offsets are interpreted in the app timezone. Storage uses the field's configured date format.
+- **Arrays:** write a key/value object. With `expand: true`, Statamic stores rows containing `key`, `value` and optional `hidden`. A value read in that expanded form can be written back without losing its keys.
+- **Handle relationships:** collections, navigations, sites, forms, roles and groups take handles, not titles or IDs. Send an array; a stored single handle is also accepted. An explicit `max_items: 1` stores a scalar.
 
 ### `statamic-entries`
 
@@ -147,9 +207,9 @@ Dedicated entry operations with advanced filtering, search, and pagination.
 
 | Action | Description | Key Parameters |
 |--------|-------------|----------------|
-| `list` | List with filtering; `filters` takes field handles or `status` (published, scheduled, expired, draft) | `collection`, `filters`, `include_unpublished`, `limit`, `cursor` |
-| `get` | Get entry | `collection`, `id`, `version` |
-| `create` | Create entry | `collection`, `slug`, `data` |
+| `list` | List with filtering; `filters` takes field handles or `status` (published, scheduled, expired, draft) | `collection`, `site`, `filters`, `sort`, `include_unpublished`, `limit`, `cursor` |
+| `get` | Get an entry within its collection and site | `collection`, one of `id` / `slug` / `uri`, `site`, `revision_state`, `fields` |
+| `create` | Create entry using the default or an explicit collection blueprint | `collection`, `blueprint`, `slug`, `data` |
 | `update` | Update entry | `collection`, `id`, `data`, `merge_sets`, `revision_message`, `expected_version` |
 | `localize` | Create the entry's localization in another site | `collection`, `id`, `site`, `data` |
 | `delete` | Delete entry | `collection`, `id`, `expected_version` |
@@ -159,6 +219,8 @@ Dedicated entry operations with advanced filtering, search, and pagination.
 | `get_revision` | Read one revision | `collection`, `id`, `revision_id` |
 | `restore_revision` | Restore a revision | `collection`, `id`, `revision_id` |
 | `publish_working_copy` | Publish the working copy | `collection`, `id`, `revision_message` |
+
+On `create`, `blueprint` must be an exact handle belonging to the named collection. A missing or foreign handle is refused instead of silently falling back to another blueprint. Omit it to use the collection's default.
 
 #### Narrowing a blueprint response
 
@@ -259,7 +321,7 @@ Taxonomy term management with slug conflict prevention and dependency validation
 
 | Action | Description | Key Parameters |
 |--------|-------------|----------------|
-| `list` | List terms | `taxonomy`, `search`, `page`, `per_page` |
+| `list` | List terms | `taxonomy`, `site`, `filters`, `sort`, `limit`, `cursor` |
 | `get` | Get term | `taxonomy`, `slug` |
 | `create` | Create term | `taxonomy`, `slug`, `data` |
 | `update` | Update term | `taxonomy`, `slug`, `data`, `expected_version` |
@@ -357,10 +419,10 @@ Asset container and file operations. Requires a `resource_type` parameter (`cont
 | Action | Type | Description | Key Parameters |
 |--------|------|-------------|----------------|
 | `list` | container | List containers | — |
-| `get` | container | Get container | `handle` |
-| `create` | container | Create container | `data` |
-| `update` | container | Update container | `handle`, `data` |
-| `delete` | container | Delete container | `handle` |
+| `get` | container | Get container | `container` |
+| `create` | container | Create container | `container`, `data` |
+| `update` | container | Update container | `container`, `data` |
+| `delete` | container | Delete container | `container` |
 | `list` | asset | List assets in one folder (the root by default); `recursive` adds its subfolders | `container`, `folder`, `recursive` |
 | `get` | asset | Get asset | `container`, `path` |
 | `upload` | asset | Upload a file | `container`, `folder`, one of `source_url` / `content`+`encoding`+`filename` / `file_path` |
@@ -400,12 +462,14 @@ User CRUD with role and group management. Requires a `resource_type` parameter (
 
 | Action | Description | Key Parameters |
 |--------|-------------|----------------|
-| `list` | List users/roles/groups | `type` |
-| `get` | Get by ID/handle | `type`, `id` or `handle` |
-| `create` | Create user/role | `type`, `data` |
-| `update` | Update user/role | `type`, `id`, `data` |
-| `delete` | Delete user/role | `type`, `id` |
-| `assign-role` | Assign role to user | `user_id`, `role` |
+| `list` | List users/roles/groups | `resource_type`, `limit`, `cursor` |
+| `get` | Get a user by id/email, or a role/group by handle | `resource_type`, `id` or `email` or `handle` |
+| `create` | Create a user, role or group | `resource_type`, `data`, `handle` for roles/groups |
+| `update` | Update a user, role or group | `resource_type`, `id` or `email` or `handle`, `data` |
+| `delete` | Delete a user, role or group | `resource_type`, `id` or `email` or `handle` |
+| `activate`, `deactivate` | Change user status | `resource_type: user`, `id` or `email` |
+| `search` | Search users | `resource_type: user`, `query`, `role`, `group`, `super`, `status`, `limit`, `cursor` |
+| `assign_role`, `remove_role` | Change a user's role membership | `resource_type: user`, `id` or `email`, `role` |
 
 ### `statamic-system`
 
@@ -433,11 +497,17 @@ High-level analysis workflows that orchestrate multiple router calls.
 
 | Action | Description | Key Parameters |
 |--------|-------------|----------------|
-| `content_audit` | Report content volume and coverage gaps across collections, taxonomies, and globals | `filters` |
+| `content_audit` | Report content volume and coverage gaps across collections, taxonomies, and globals | — |
 | `content_validate` | Validate stored content against its blueprints and report schema drift | `scope`, `collection`, `taxonomy`, `severity`, `limit`, `cursor`, `max_findings` |
-| `cross_reference` | Analyze relationships and dependencies between content types | `filters` |
+| `cross_reference` | Analyze relationships and dependencies between content types | — |
 
 Schema accepts `action` (required, enum: `content_audit`, `content_validate`, `cross_reference`) and the parameters listed above.
+
+`cross_reference` refuses more than 5,000 readable entries and terms combined
+with `TOO_LARGE`. It also stops if that budget is exceeded while scanning. It
+does not return a partial graph whose missing records could look like orphans.
+Use paginated `content_validate` to check larger sites; that is a validation
+sweep, not a paginated cross-reference graph.
 
 #### `content_validate`
 
@@ -497,10 +567,31 @@ Namespaces include the per-collection and per-taxonomy forms Statamic uses for e
 and term blueprints, so a URI often looks like
 `statamic://blueprints/collections.pages/article`.
 
-Resources enforce the same authorization as the equivalent tool call: the domain
-must be enabled, the token must carry `blueprints:read`, the resource policy must
-allow the handle, and the underlying Statamic user must have permission. A blueprint
-the resource policy hides does not appear in the index at all.
+Blueprint resources require the installation profile, `blueprints:read` over
+HTTP, and the resource-policy allowlist. Statamic permissions apply unless
+`resources.require_statamic_permission` is false. They remain readable when
+`tools.blueprints.enabled` is false; disable them with `resources.enabled`.
+A blueprint hidden by the resource policy does not appear in the index.
+
+### Resource catalogs and links
+
+`statamic://collections`, `statamic://sites`, and `statamic://fieldtypes` expose
+the first page of their corresponding read tool. Continue a `next_cursor` with
+`statamic-structures-read` (`list`, `resource_type: collection|site`) or
+`statamic-blueprints-read` (`fieldtypes`) using the same arguments.
+
+Record templates are `statamic://entries/{collection}/{site}/{id}`,
+`statamic://collections/{collection}`, `statamic://taxonomies/{taxonomy}`,
+`statamic://forms/{form}` and `statamic://blueprints/{namespace}/{handle}`.
+Successful non-delete writes return resource links for these records. Following
+a link is a new read: a write-only token is not granted read access by the link.
+The content resources use their read router's scopes, resource/site permissions,
+field filtering and size limit. Blueprint resources retain their independent
+`resources.enabled` / `resources.require_statamic_permission` switches.
+
+Handle completions use authorized reads; denied collections, taxonomies and forms
+are not suggested. Entry resources complete collection and site, not entry IDs.
+Blueprint handles are completed within the selected namespace.
 
 ## Tool Annotations
 

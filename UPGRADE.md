@@ -6,6 +6,9 @@ touched by any step below.
 
 v4 requires Statamic **6.44+** and Laravel MCP **1.3+**.
 
+This guide describes the unreleased v4 branch. Do not treat it as confirmation
+that a v4 package has been published or the release verification is complete.
+
 ## Forms 2
 
 Use `statamic-forms-read` / `statamic-forms-write`, with the `form` argument.
@@ -39,6 +42,55 @@ The dashboard now uses Statamic 6's native UI kit. Publish the updated JavaScrip
 and CSS with `php artisan vendor:publish --tag=statamic-mcp --force` if your deployment
 does not publish addon assets automatically, then reload the Control Panel.
 Forms Pro is not required. Token ownership, scopes and approval permissions are unchanged.
+
+Personal activity now lives alongside your tokens; it cannot be switched to
+another actor. The admin log still requires `view mcp audit log`. OAuth consent
+uses the native CP and shared scope descriptions; admin, delete and integration
+scopes are not preselected. Review the selected scopes when reconnecting a client.
+English and Danish interface translations do not change protocol identifiers.
+
+## Content models and reads
+
+- Blueprints preserve native tabs, sections, fieldset imports, prefixes and field
+  references. Resolved fields report their source. Use the explicit fieldset
+  actions on the blueprint facets; updates/deletes accept `expected_version` and
+  deletion refuses fieldsets still in use. Existing blueprint approval settings
+  apply to the matching fieldset writes. See [the reference](docs/tools/overview.md#statamic-blueprints).
+- Entry `get` accepts exactly one of `id`, `slug` or `uri`, within `collection`
+  and the selected `site`. Localized reads distinguish local `data` from inherited
+  `merged_data`; do not write the latter back as local overrides. Origin and
+  localization links expose only readable records. The `blueprint` argument on
+  entry `create` must belong to the collection. Unrecognized top-level content keys
+  produce warnings, not a promise that those keys were stored.
+- Entry and term `sort` accepts one readable field/property with `asc` or `desc`;
+  arbitrary query expressions and denied fields are refused. Keep it unchanged
+  between cursor pages. `cross_reference` refuses more than 5,000 readable entries
+  and terms rather than presenting incomplete orphan results.
+- New [resource catalogs, templates and completions](docs/tools/overview.md#resources)
+  expose authorized records. A link returned by a write does not grant read access.
+  Blueprint resources still have an independent enable switch; other resources
+  retain their read router's tool toggle and authorization.
+
+## Installer, stores and observers
+
+The installer merges Claude Code/Cursor configuration, preserves unrelated rules,
+and leaves invalid JSON untouched. A failing `mcp:doctor` now fails installation
+even if configuration was written; correct the reported setting and run doctor
+again. Disabled transports are not warnings, local/test loopback HTTP is accepted,
+and built-in stdio tools do not need an integration token. See
+[installation](docs/getting-started/installation.md) for the limits of preflight.
+
+File-token `last_used_at` is coalesced to at most once a minute, not an exact
+request timestamp. File-audit queries read complete records from a snapshot
+without blocking writers; totals still scan the active log (at most its last
+50 MiB), not archived history. See [audit reads](docs/configuration/reference.md#activity-and-audit-reads).
+
+Observer consumers must account for terminal events after response sizing and
+cache work, with `approval.consumed` before `execution.completed`. The unreleased
+contract adds `approval.expired`, middleware-level `request.rejected`, and bounded
+diagnostic/timing metadata. `response_bytes` measures the encoded envelope, not
+network traffic. This implementation is still under test; see
+[lifecycle events](docs/extending/lifecycle-events.md) before changing consumers.
 
 ## Addon integrations
 
@@ -133,7 +185,8 @@ contain other client configuration secrets; keep them out of version control.
 - Dynamic client registration accepts `application_type: "web"` or `"native"`.
   Both use the same safe redirect validation; this does not enable OIDC or bypass PKCE.
 - The HTTP endpoint must be enabled explicitly (`STATAMIC_MCP_WEB_ENABLED=true`).
-- `confirmation_token` is ignored. A gated action answers `APPROVAL_REQUIRED`
+- Remove `confirmation_token`; a non-null value is refused as an unknown argument.
+  A gated action answers `APPROVAL_REQUIRED`
   with an `approval_id`; the person approves it in Tools → MCP → Approvals and
   the client repeats the call with that id.
 - Users `create`, `update`, `activate`, `assign_role` and `delete` need an
@@ -202,8 +255,8 @@ contain other client configuration secrets; keep them out of version control.
 - Record writes return the full permitted record and its `version`; deletes return
   its last snapshot. A collection `move` includes the saved tree, without exposing
   configuration to users who may only reorder. `version` fingerprints the record;
-  only entries, terms and globals currently accept `expected_version` to guard a
-  write. System operations have no record version. User IDs are strings, including
+  supported writes for entries, terms, globals, forms and fieldsets accept
+  `expected_version`. System operations have no record version. User IDs are strings, including
   Eloquent integer primary keys. Each tool's `outputSchema` describes successful
   records, list pages, failures and reduced successful write results.
 - Framework versions move out of tool metadata and system `info` to

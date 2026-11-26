@@ -36,12 +36,12 @@ final class ConsentOffer
     public function consume(Request $request, string $userId): array
     {
         $encrypted = $request->input('consent_offer');
-        abort_unless(is_string($encrypted) && strlen($encrypted) <= 262144, 400, 'Missing or invalid consent offer.');
+        abort_unless(is_string($encrypted) && strlen($encrypted) <= 262144, 400, __('statamic-mcp::messages.oauth.missing_consent'));
 
         try {
             $offer = json_decode(Crypt::decryptString($encrypted), true, 32, JSON_THROW_ON_ERROR);
         } catch (\Throwable) {
-            abort(400, 'Invalid consent offer.');
+            abort(400, __('statamic-mcp::messages.oauth.invalid_consent'));
         }
 
         abort_unless(is_array($offer)
@@ -53,11 +53,11 @@ final class ConsentOffer
             && is_array($offer['scopes'] ?? null)
             && array_is_list($offer['scopes'])
             && count(array_filter($offer['scopes'], 'is_string')) === count($offer['scopes']),
-            400, 'Consent has expired or does not match this request.');
+            400, __('statamic-mcp::messages.oauth.expired_consent'));
 
         // Cache::add is atomic across workers on the configured shared cache.
         abort_unless(Cache::add('statamic-mcp:consent:' . hash('sha256', $offer['nonce']), true,
-            max(1, $offer['expires'] - now()->getTimestamp())), 400, 'Consent has already been used.');
+            max(1, $offer['expires'] - now()->getTimestamp())), 400, __('statamic-mcp::messages.oauth.used_consent'));
 
         /** @var list<string> $scopes */
         $scopes = $offer['scopes'];
@@ -71,7 +71,7 @@ final class ConsentOffer
         $params = [];
         foreach (self::FIELDS as $field) {
             $value = $request->input($field, '');
-            abort_unless(is_string($value), 400, 'Invalid consent parameter.');
+            abort_unless(is_string($value), 400, __('statamic-mcp::messages.oauth.invalid_consent_parameter'));
             $params[$field] = $value;
         }
 

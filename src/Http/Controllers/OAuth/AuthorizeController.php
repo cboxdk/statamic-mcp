@@ -25,7 +25,9 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Log;
+use Inertia\Inertia;
 use Statamic\Facades\User;
+use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 class AuthorizeController extends Controller
 {
@@ -39,7 +41,7 @@ class AuthorizeController extends Controller
      *
      * Display the OAuth consent screen for the user to approve/deny.
      */
-    public function show(Request $request): Response|View|RedirectResponse
+    public function show(Request $request): HttpResponse|View
     {
         // Check authentication — redirect to Statamic CP login if not logged in.
         // This route uses statamic.cp middleware (session, CSRF, guard) but NOT
@@ -47,9 +49,8 @@ class AuthorizeController extends Controller
         //
         // We set url.intended so that after login, Statamic's authenticated() method
         // calls redirect()->intended() which redirects straight to this authorize URL.
-        // This is reliable regardless of HTTP Referer headers — the server-side redirect
-        // goes to our consent page (a Blade view, not Inertia), and Inertia automatically
-        // does a full page visit when it encounters a non-Inertia response.
+        // This is reliable regardless of HTTP Referer headers. Consent uses the
+        // native CP components, but submits a normal form for the OAuth redirect.
         $user = User::current();
         if (! $user) {
             /** @var string $cpRoute */
@@ -81,14 +82,14 @@ class AuthorizeController extends Controller
         }
 
         if ($client === null) {
-            return $this->errorPage('invalid_client', 'The app is not registered with this site, or its registration expired.');
+            return $this->errorPage('invalid_client', __('statamic-mcp::messages.oauth.unregistered_client'));
         }
 
         /** @var string $redirectUri */
         $redirectUri = $request->query('redirect_uri', '');
 
         if (! RedirectUriMatcher::matches($redirectUri, $client->redirectUris)) {
-            return $this->errorPage('invalid_request', 'The address the app asked to return to is not one it registered.');
+            return $this->errorPage('invalid_request', __('statamic-mcp::messages.oauth.unregistered_redirect'));
         }
 
         // Nothing is sent to redirect_uri before the person has seen the
@@ -101,7 +102,7 @@ class AuthorizeController extends Controller
         if ($responseType !== 'code') {
             return $this->errorPage(
                 'unsupported_response_type',
-                'Only response_type=code is supported.',
+                __('statamic-mcp::messages.oauth.unsupported_response_type'),
             );
         }
 
@@ -111,7 +112,7 @@ class AuthorizeController extends Controller
         if ($codeChallenge === '') {
             return $this->errorPage(
                 'invalid_request',
-                'The code_challenge parameter is required.',
+                __('statamic-mcp::messages.oauth.challenge_required'),
             );
         }
 
@@ -121,7 +122,7 @@ class AuthorizeController extends Controller
         if ($codeChallengeMethod !== 'S256') {
             return $this->errorPage(
                 'invalid_request',
-                'Only code_challenge_method=S256 is supported.',
+                __('statamic-mcp::messages.oauth.unsupported_challenge_method'),
             );
         }
 
@@ -140,7 +141,7 @@ class AuthorizeController extends Controller
                 if (! in_array($scopeValue, $validScopeValues, true)) {
                     return $this->errorPage(
                         'invalid_scope',
-                        "Unknown scope: {$scopeValue}",
+                        __('statamic-mcp::messages.oauth.unknown_scope', ['scope' => $scopeValue]),
                     );
                 }
 
@@ -166,15 +167,16 @@ class AuthorizeController extends Controller
         // nothing the user has gets told so.
         $availability = app(ScopeAvailability::class);
         $requestedFullAccess = in_array(TokenScope::FullAccess->value, array_column($requestedScopes, 'value'), true);
+        $options = array_column($availability->options($user), null, 'value');
         $requestedScopes = array_map(
-            fn (string $value): array => ['value' => $value, 'label' => $availability->label($value)],
+            fn (string $value): array => $options[$value],
             $availability->grantable($user, array_column($requestedScopes, 'value')),
         );
 
         if ($requestedScopes === []) {
             return $this->errorPage(
                 'invalid_scope',
-                'None of the requested scopes are available to this user.',
+                __('statamic-mcp::messages.oauth.no_available_scopes'),
             );
         }
 
@@ -189,17 +191,26 @@ class AuthorizeController extends Controller
 
         /** @var array<int, string> $configuredDefaults */
         $configuredDefaults = config('statamic.mcp.oauth.default_scopes', []);
-        $defaultScopes = $availability->grantable($user, $configuredDefaults);
+        $defaultScopes = array_values(array_filter(
+            $availability->grantable($user, $requestedFullAccess ? array_column($requestedScopes, 'value') : $configuredDefaults),
+            // Unknown integration semantics also require an explicit choice.
+            fn (string $value): bool => TokenScope::tryFrom($value) !== null
+                && ! str_ends_with($value, ':delete') && ! str_ends_with($value, ':admin'),
+        ));
 
-        /** @var view-string $viewName */
-        $viewName = 'statamic-mcp::oauth.consent';
-
-        $view = view($viewName, [
+        $view = Inertia::render('statamic-mcp::McpConsentPage', [
             'consentOffer' => app(ConsentOffer::class)->issue($request, UserIds::normalize($user->id()), array_column($requestedScopes, 'value')),
-            'client' => $client,
+            'client' => ['name' => $client->clientName, 'verified' => $client->isCimd,
+                'host' => $client->isCimd ? parse_url($client->clientId, PHP_URL_HOST) : null,
+                'logo' => $client->isCimd ? $client->logoUri : null],
+            'siteName' => config('app.name'),
+            'userName' => $user->email(),
+            'redirectHost' => parse_url($redirectUri, PHP_URL_HOST),
+            'localRedirects' => collect($client->redirectUris)->every(fn (string $uri): bool => in_array(parse_url($uri, PHP_URL_HOST), ['localhost', '127.0.0.1', '[::1]', '::1'], true)),
+            'submitUrl' => route('statamic.cp.statamic-mcp.oauth.approve'),
+            'csrfToken' => csrf_token(),
             'scopes' => $requestedScopes,
             'defaultScopes' => $defaultScopes,
-            'requestedFullAccess' => $requestedFullAccess,
             'oauthParams' => [
                 'client_id' => $clientId,
                 'redirect_uri' => $redirectUri,
@@ -209,15 +220,17 @@ class AuthorizeController extends Controller
                 'scope' => $scope,
                 'resource' => $request->input('resource'),
             ],
-        ]);
+        ])->toResponse($request);
 
         // The consent screen authorizes a grant with one click; it must not be
         // framed, so a cross-origin page cannot overlay it for a clickjacked
         // approval.
-        return response($view)->withHeaders([
+        $view->headers->add([
             'X-Frame-Options' => 'DENY',
             'Content-Security-Policy' => "frame-ancestors 'none'",
         ]);
+
+        return $view;
     }
 
     /**
@@ -252,11 +265,11 @@ class AuthorizeController extends Controller
         }
 
         if ($client === null) {
-            abort(400, 'Unknown client_id.');
+            abort(400, __('statamic-mcp::messages.oauth.unknown_client_id'));
         }
 
         if (! RedirectUriMatcher::matches($redirectUri, $client->redirectUris)) {
-            abort(400, 'Invalid redirect_uri.');
+            abort(400, __('statamic-mcp::messages.oauth.invalid_redirect_uri'));
         }
 
         try {
@@ -278,7 +291,7 @@ class AuthorizeController extends Controller
         if ($user === null) {
             return redirect($redirectUri . (str_contains($redirectUri, '?') ? '&' : '?') . http_build_query([
                 'error' => 'access_denied',
-                'error_description' => 'No authenticated user.',
+                'error_description' => __('statamic-mcp::messages.oauth.unauthenticated'),
                 'state' => $state,
                 'iss' => $request->getSchemeAndHttpHost(),
             ]));
@@ -292,7 +305,7 @@ class AuthorizeController extends Controller
         if ($allowedScopes === []) {
             return redirect($redirectUri . (str_contains($redirectUri, '?') ? '&' : '?') . http_build_query([
                 'error' => 'invalid_scope',
-                'error_description' => 'None of the requested scopes are available to this user.',
+                'error_description' => __('statamic-mcp::messages.oauth.no_available_scopes'),
                 'state' => $state,
                 'iss' => $request->getSchemeAndHttpHost(),
             ]));
@@ -308,7 +321,7 @@ class AuthorizeController extends Controller
         if (empty($scopes)) {
             return redirect($redirectUri . (str_contains($redirectUri, '?') ? '&' : '?') . http_build_query([
                 'error' => 'invalid_scope',
-                'error_description' => 'Select at least one permission.',
+                'error_description' => __('statamic-mcp::messages.oauth.select_permission'),
                 'state' => $state,
                 'iss' => $request->getSchemeAndHttpHost(),
             ]));

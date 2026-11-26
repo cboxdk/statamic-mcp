@@ -35,6 +35,15 @@ abstract class BaseStatamicTool extends Tool
 {
     use ClearsCaches;
 
+    /** @var list<string> Warnings generated while executing this call, never another call. */
+    protected array $callWarnings = [];
+
+    protected int $callStartedAt = 0;
+
+    protected string $callCorrelationId = '';
+
+    protected float $cacheMilliseconds = 0;
+
     /**
      * Define the tool's input schema.
      *
@@ -156,14 +165,7 @@ abstract class BaseStatamicTool extends Tool
     public function handle(Request $request): Response|ResponseFactory
     {
         $arguments = $request->all();
-        $result = $this->normalizeFailure($this->execute($arguments));
-
-        // Internal callers and stored v3 results may still use the message list.
-        // The protocol exposes one error contract, never two competing shapes.
-        unset($result['errors']);
-        if (($result['success'] ?? true) === false && is_array($result['data'] ?? null)) {
-            unset($result['data']['code']);
-        }
+        $result = $this->protocolEnvelope($this->execute($arguments));
 
         // Any well-formed standard envelope (has success + meta) is returned as
         // structured content regardless of outcome, so failures keep their data
@@ -179,10 +181,41 @@ abstract class BaseStatamicTool extends Tool
                     ->withStructuredContent($result);
             }
 
+            $links = $this->resourceLinks($arguments, $result);
+            if ($links !== []) {
+                return Response::make([Response::text($this->encodeEnvelope($result)), ...$links])->withStructuredContent($result);
+            }
+
             return Response::structured($result);
         }
 
         return Response::structured($result);
+    }
+
+    /**
+     * @param  array<string, mixed>  $arguments
+     * @param  array<string, mixed>  $result
+     *
+     * @return list<Response>
+     */
+    protected function resourceLinks(array $arguments, array $result): array
+    {
+        return [];
+    }
+
+    /** @param array<string, mixed> $result
+     * @return array<string, mixed>
+     */
+    protected function protocolEnvelope(array $result): array
+    {
+        $result = $this->normalizeFailure($result);
+        // Internal callers and old operation records may retain the legacy list.
+        unset($result['errors']);
+        if (($result['success'] ?? true) === false && is_array($result['data'] ?? null)) {
+            unset($result['data']['code']);
+        }
+
+        return $result;
     }
 
     /**
@@ -251,10 +284,18 @@ abstract class BaseStatamicTool extends Tool
      */
     final public function execute(array $arguments): array
     {
+        $this->beforeToolCall();
+        $this->callStartedAt = hrtime(true);
+        $rawCorrelation = request()->attributes->get('mcp_correlation_id');
+        $this->callCorrelationId = is_string($rawCorrelation) ? $rawCorrelation : (string) Str::uuid();
+        $this->cacheMilliseconds = 0;
+        $this->callWarnings = [];
         $this->startFromAFreshRequestState();
         $action = is_string($arguments['action'] ?? null) ? $arguments['action'] : 'get';
         $denial = app(InstallationProfile::class)->denial($this->getToolDomain(), $action, $arguments, $this->actionWrites($action));
         if ($denial !== null) {
+            app(StacheRepair::class)->stop();
+
             return $this->createErrorResponse($denial, code: ErrorCode::Forbidden)->toArray();
         }
         $this->writeEffects = null;
@@ -266,8 +307,13 @@ abstract class BaseStatamicTool extends Tool
             // Normally a no-op: the happy path already flushed inside the call.
             // This catches the throwing path, where a write may well have
             // landed before the throw and left its indexes stale.
-            $this->flushPendingCacheClears();
-            app(StacheRepair::class)->stop();
+            try {
+                $this->flushMeasuredCaches();
+            } catch (\Throwable $error) {
+                $result = $this->createSafeErrorResponse('Cache maintenance failed. Reconcile the record before retrying a write.', $this->callCorrelationId, $error);
+            } finally {
+                app(StacheRepair::class)->stop();
+            }
         }
 
         $writeMetadata = $this->writeMetadata(($result['success'] ?? false) === true);
@@ -276,7 +322,25 @@ abstract class BaseStatamicTool extends Tool
             $result['meta'] = [...$meta, ...$writeMetadata];
         }
 
+        $this->afterToolCall($this->protocolEnvelope($result));
+
         return $result;
+    }
+
+    protected function beforeToolCall(): void {}
+
+    /** @param array<string, mixed> $result */
+    protected function afterToolCall(array $result): void {}
+
+    /** @return array<string, string> */
+    private function flushMeasuredCaches(): array
+    {
+        $start = hrtime(true);
+        try {
+            return $this->flushPendingCacheClears();
+        } finally {
+            $this->cacheMilliseconds += (hrtime(true) - $start) / 1_000_000;
+        }
     }
 
     /**
@@ -289,13 +353,7 @@ abstract class BaseStatamicTool extends Tool
         $toolName = $this->name();
         $startTime = hrtime(true);
 
-        // Propagate correlation ID from middleware if available
-        $requestCorrelationId = null;
-        if (app()->bound('request')) {
-            $raw = request()->attributes->get('mcp_correlation_id');
-            $requestCorrelationId = is_string($raw) ? $raw : null;
-        }
-        $correlationId = $requestCorrelationId ?: Str::uuid()->toString();
+        $correlationId = $this->callCorrelationId;
 
         try {
             $arguments = $this->validateAndSanitizeArguments($arguments);
@@ -310,7 +368,7 @@ abstract class BaseStatamicTool extends Tool
             // handling below: the caller waits for it, so it is part of the
             // call in every sense that is reported.
             $standardized['meta'] = is_array($standardized['meta'] ?? null) ? $standardized['meta'] : [];
-            $cacheResults = $this->flushPendingCacheClears();
+            $cacheResults = $this->flushMeasuredCaches();
             if ($cacheResults !== []) {
                 $standardized['meta']['cache'] = $cacheResults;
             }

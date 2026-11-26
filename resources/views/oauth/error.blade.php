@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex">
-    <title>Authorization failed</title>
+    <title>{{ __('statamic-mcp::messages.oauth.error_title') }}</title>
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f3f4f6; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 1rem; color: #111827; }
@@ -28,9 +28,9 @@
         <div class="icon" aria-hidden="true">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
         </div>
-        <h1>This app could not be authorized</h1>
+        <h1>{{ __('statamic-mcp::messages.oauth.error_heading') }}</h1>
         <p>{{ $description }}</p>
-        <p style="margin-top: .75rem;">Close this window and try connecting again from the app. If it keeps happening, tell the app's developer.</p>
+        <p style="margin-top: .75rem;">{{ __('statamic-mcp::messages.oauth.error_help') }}</p>
         <code>{{ $error }}</code>
     </main>
 </body>

@@ -47,6 +47,61 @@ class EntriesRouterTest extends TestCase
         Stache::refresh();
     }
 
+    public function test_sort_is_stable_across_pages_and_refuses_hidden_or_unknown_fields(): void
+    {
+        foreach (['c' => 'Alpha', 'b' => 'Zulu', 'a' => 'Zulu'] as $id => $title) {
+            Entry::make()->id($id)->collection($this->collectionHandle)->slug($id)->published(true)->data(['title' => $title])->save();
+        }
+        $call = ['action' => 'list', 'collection' => $this->collectionHandle, 'sort' => 'title:desc', 'limit' => 1];
+        $ids = [];
+        do {
+            $result = $this->router->execute($call);
+            $this->assertTrue($result['success'], json_encode($result));
+            $ids[] = $result['data']['items'][0]['id'];
+            $call['cursor'] = $result['data']['next_cursor'];
+        } while ($call['cursor'] !== null);
+        $this->assertSame(['a', 'b', 'c'], $ids);
+
+        config(['statamic.mcp.tools.entries.denied_fields' => ['title']]);
+        foreach (['title:asc', 'unknown:desc', 'id:sideways', 'title desc'] as $sort) {
+            $result = $this->router->execute(['action' => 'list', 'collection' => $this->collectionHandle, 'sort' => $sort]);
+            $this->assertFalse($result['success'], $sort);
+        }
+    }
+
+    public function test_create_selects_only_a_blueprint_assigned_to_the_collection(): void
+    {
+        foreach (['short', 'long', 'unassigned'] as $handle) {
+            Blueprint::make($handle)->setNamespace('collections.' . ($handle === 'unassigned' ? 'other' : $this->collectionHandle))->setContents([
+                'fields' => [
+                    ['handle' => 'title', 'field' => ['type' => 'text']],
+                    ['handle' => $handle . '_value', 'field' => ['type' => 'text']],
+                ],
+            ])->save();
+        }
+
+        foreach (['long', 'short'] as $handle) {
+            $result = $this->router->execute([
+                'action' => 'create', 'collection' => $this->collectionHandle, 'blueprint' => $handle,
+                'data' => ['title' => $handle, $handle . '_value' => 'Kept'],
+            ]);
+            $this->assertTrue($result['success'], json_encode($result));
+            $stored = Entry::find($result['data']['entry']['id']);
+            $this->assertSame($handle, $stored->blueprint()->handle());
+            $this->assertSame('Kept', $stored->get($handle . '_value'));
+        }
+
+        $before = Entry::query()->where('collection', $this->collectionHandle)->count();
+        foreach (['unassigned', '../long', 'missing'] as $handle) {
+            $result = $this->router->execute([
+                'action' => 'create', 'collection' => $this->collectionHandle, 'blueprint' => $handle,
+                'data' => ['title' => 'Refused'],
+            ]);
+            $this->assertFalse($result['success'], json_encode($result));
+        }
+        $this->assertSame($before, Entry::query()->where('collection', $this->collectionHandle)->count());
+    }
+
     public function test_nonexistent_collection_returns_error(): void
     {
         $result = $this->router->execute([
@@ -56,6 +111,45 @@ class EntriesRouterTest extends TestCase
 
         $this->assertFalse($result['success']);
         $this->assertStringContainsString('Collection not found: nonexistent-collection', $result['errors'][0]);
+    }
+
+    public function test_get_resolves_exactly_one_identifier_within_the_named_collection(): void
+    {
+        $entry = Entry::make()->collection($this->collectionHandle)->slug('same-slug')->data(['title' => 'Allowed']);
+        $entry->save();
+        Collection::make('elsewhere')->routes('/elsewhere/{slug}')->save();
+        Entry::make()->collection('elsewhere')->slug('same-slug')->data(['title' => 'Not ours'])->save();
+
+        foreach ([['id' => $entry->id()], ['slug' => 'same-slug'], ['uri' => '/posts-' . $this->testId . '/same-slug']] as $identifier) {
+            $result = $this->router->execute(['action' => 'get', 'collection' => $this->collectionHandle, ...$identifier]);
+            $this->assertTrue($result['success'], json_encode($result));
+            $this->assertSame($entry->id(), $result['data']['entry']['id']);
+        }
+        foreach ([['uri' => '/elsewhere/same-slug'], ['id' => $entry->id(), 'slug' => 'same-slug'], ['slug' => ['same-slug']]] as $identifier) {
+            $result = $this->router->execute(['action' => 'get', 'collection' => $this->collectionHandle, ...$identifier]);
+            $this->assertFalse($result['success'], json_encode($result));
+        }
+    }
+
+    public function test_unknown_fields_warn_on_write_and_replay_but_not_the_next_read(): void
+    {
+        Blueprint::make('pages')->setNamespace('collections.' . $this->collectionHandle)->setContents([
+            'fields' => [['handle' => 'title', 'field' => ['type' => 'text']]],
+        ])->save();
+        config(['statamic.mcp.tools.structures.denied_fields' => ['parent']]);
+        $arguments = ['action' => 'create', 'collection' => $this->collectionHandle, 'idempotency_key' => 'unknown-fields-example',
+            'data' => ['title' => 'Saved', 'typo' => 'Not saved']];
+        $created = $this->router->execute($arguments);
+        $this->assertTrue($created['success'], json_encode($created));
+        $this->assertStringContainsString('typo', implode(' ', $created['warnings']));
+        $this->assertArrayNotHasKey('typo', $created['data']['entry']['data']);
+        $this->assertArrayNotHasKey('parent', $created['data']['entry']);
+        $replayed = $this->router->execute($arguments);
+        $this->assertSame($created['warnings'], $replayed['warnings']);
+        $this->assertArrayNotHasKey('parent', $replayed['data']['entry']);
+        $this->assertSame(1, Entry::query()->where('collection', $this->collectionHandle)->count());
+        $read = $this->router->execute(['action' => 'get', 'collection' => $this->collectionHandle, 'id' => $created['data']['entry']['id']]);
+        $this->assertEmpty($read['warnings'] ?? []);
     }
 
     public function test_list_entries_with_pagination(): void

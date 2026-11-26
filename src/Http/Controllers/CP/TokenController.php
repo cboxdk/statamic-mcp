@@ -77,7 +77,7 @@ class TokenController extends CpController
                 'expires_at' => $result['model']->expiresAt?->toIso8601String(),
                 'created_at' => $result['model']->createdAt->toIso8601String(),
             ],
-            'message' => 'Token created successfully. Copy your token now -- it will not be shown again.',
+            'message' => __('statamic-mcp::messages.token_created'),
         ], 201);
     }
 
@@ -92,7 +92,7 @@ class TokenController extends CpController
 
         if ($token === null) {
             return response()->json([
-                'message' => 'Token not found.',
+                'message' => __('statamic-mcp::messages.token_not_found'),
             ], 404);
         }
 
@@ -131,7 +131,7 @@ class TokenController extends CpController
             if ($token->userId !== $this->resolveUserId()) {
                 if ($owner !== null && $owner->isSuper() && ($current === null || ! $current->isSuper())) {
                     return response()->json([
-                        'message' => "Only a super admin can modify a super admin's token.",
+                        'message' => __('statamic-mcp::messages.super_token'),
                     ], 403);
                 }
 
@@ -172,7 +172,7 @@ class TokenController extends CpController
 
         if ($updated === null) {
             return response()->json([
-                'message' => 'Failed to update token.',
+                'message' => __('statamic-mcp::messages.update_failed'),
             ], 500);
         }
 
@@ -186,7 +186,7 @@ class TokenController extends CpController
                 'last_used_at' => $updated->lastUsedAt?->toIso8601String(),
                 'is_expired' => $updated->isExpired(),
             ],
-            'message' => 'Token updated successfully.',
+            'message' => __('statamic-mcp::messages.token_updated'),
         ]);
     }
 
@@ -201,7 +201,7 @@ class TokenController extends CpController
 
         if ($token === null) {
             return response()->json([
-                'message' => 'Token not found.',
+                'message' => __('statamic-mcp::messages.token_not_found'),
             ], 404);
         }
 
@@ -212,13 +212,13 @@ class TokenController extends CpController
         // another user's token, never obtaining a working credential for it.
         if ($token->userId !== $this->resolveUserId()) {
             return response()->json([
-                'message' => 'A token owned by another user cannot be regenerated — its secret would be disclosed to you. Revoke it instead and ask the owner to create a new one.',
+                'message' => __('statamic-mcp::messages.other_token_regenerate'),
             ], 403);
         }
 
         if ($token->oauthClientId !== null || str_contains($token->name, '(OAuth)')) {
             return response()->json([
-                'message' => 'OAuth tokens cannot be regenerated. The integration would lose access. Revoke the token and re-authorize instead.',
+                'message' => __('statamic-mcp::messages.oauth_regenerate'),
             ], 403);
         }
 
@@ -226,7 +226,7 @@ class TokenController extends CpController
 
         if ($result === null) {
             return response()->json([
-                'message' => 'Failed to regenerate token.',
+                'message' => __('statamic-mcp::messages.regenerate_failed'),
             ], 500);
         }
 
@@ -241,7 +241,7 @@ class TokenController extends CpController
                 'last_used_at' => $result['model']->lastUsedAt?->toIso8601String(),
                 'is_expired' => $result['model']->isExpired(),
             ],
-            'message' => 'Token regenerated. Copy your new token now — it will not be shown again.',
+            'message' => __('statamic-mcp::messages.token_regenerated'),
         ]);
     }
 
@@ -259,14 +259,14 @@ class TokenController extends CpController
 
         if ($token === null) {
             return response()->json([
-                'message' => 'Token not found.',
+                'message' => __('statamic-mcp::messages.token_not_found'),
             ], 404);
         }
 
         $this->tokenService->revokeToken($tokenId);
 
         return response()->json([
-            'message' => 'Token revoked successfully.',
+            'message' => __('statamic-mcp::messages.token_revoked'),
         ]);
     }
 
@@ -286,8 +286,10 @@ class TokenController extends CpController
         }
 
         return response()->json([
-            'message' => 'These scopes are not available to this user: ' . implode(', ', $unavailable)
-                . '. Available scopes: ' . implode(', ', $availability->filterValues($user, $availability->names())),
+            'message' => __('statamic-mcp::messages.scopes_unavailable', [
+                'scopes' => implode(', ', $unavailable),
+                'available' => implode(', ', $availability->filterValues($user, $availability->names())),
+            ]),
         ], 422);
     }
 

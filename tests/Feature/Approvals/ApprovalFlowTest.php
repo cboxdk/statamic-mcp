@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\BlueprintsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\EntriesRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\UsersRouter;
 use Illuminate\Support\Facades\File;
@@ -10,6 +11,7 @@ use Illuminate\Testing\TestResponse;
 use Statamic\Facades\Blueprint;
 use Statamic\Facades\Collection;
 use Statamic\Facades\Entry;
+use Statamic\Facades\Fieldset;
 use Statamic\Facades\Role;
 use Statamic\Facades\User;
 
@@ -148,6 +150,31 @@ it('expires', function () {
     apDecide($id, 'approve')->assertStatus(409);
     expect(apDelete('ap-one', ['approval_id' => $id])['data']['code'])->toBe('APPROVAL_EXPIRED')
         ->and(Entry::find('ap-one'))->not->toBeNull();
+});
+
+it('binds fieldset approval and optimistic writes to the on-disk version', function () {
+    $this->apOwner->makeSuper()->save();
+    $fieldset = Fieldset::make('approval_fields')->setContents(['fields' => [
+        ['handle' => 'title', 'field' => ['type' => 'text']],
+    ]]);
+    $fieldset->save();
+    $router = new BlueprintsRouter;
+    $call = ['action' => 'update_fieldset', 'handle' => 'approval_fields', 'title' => 'Agent title'];
+    $version = $router->execute(['action' => 'get_fieldset', 'handle' => 'approval_fields'])['data']['fieldset']['version'];
+    $asked = $router->execute($call);
+    expect($asked['data']['code'])->toBe('APPROVAL_REQUIRED');
+    apDecide($asked['data']['approval_id'], 'approve')->assertOk();
+    file_put_contents($fieldset->path(), "title: Changed externally\nfields:\n  - handle: title\n    field:\n      type: textarea\n");
+    $refused = $router->execute($call + ['approval_id' => $asked['data']['approval_id']]);
+    expect($refused['data']['code'])->toBe('APPROVAL_STALE');
+
+    config(['statamic.mcp.confirmation.enabled' => false]);
+    $conflict = $router->execute($call + ['expected_version' => $version]);
+    expect($conflict['data']['code'])->toBe('VERSION_CONFLICT');
+    $read = $router->execute(['action' => 'get_fieldset', 'handle' => 'approval_fields']);
+    expect($read['data']['fieldset']['title'])->toBe('Changed externally');
+    $saved = $router->execute($call + ['expected_version' => $read['data']['fieldset']['version']]);
+    expect($saved['success'])->toBeTrue(json_encode($saved));
 });
 
 it('never stands in for authorization: a permission lost after approval still refuses', function () {

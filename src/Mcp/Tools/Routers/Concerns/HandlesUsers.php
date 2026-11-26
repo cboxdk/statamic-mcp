@@ -53,9 +53,9 @@ trait HandlesUsers
         $pagination = $this->getPaginationArgs($arguments, defaultLimit: 100);
         $limit = $pagination['limit'];
         $offset = $pagination['offset'];
-        $allUsers = collect(User::all()->all());
-        $total = $allUsers->count();
-        $users = $allUsers->sortBy->id()->slice($offset, $limit)->map(function ($user) use ($includeDetails): array {
+        $query = User::query();
+        $total = $query->count();
+        $users = $query->orderBy('id')->offset($offset)->limit($limit)->get()->map(function ($user) use ($includeDetails): array {
             /** @var \Statamic\Contracts\Auth\User $user */
             return $this->serializeUser($user, $includeDetails);
         })->values()->all();

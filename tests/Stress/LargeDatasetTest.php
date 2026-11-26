@@ -132,6 +132,83 @@ class LargeDatasetTest extends TestCase
         $this->assertScalesLinearly($small, $large);
     }
 
+    public function test_unknown_hashes_do_not_reparse_an_unchanged_catalog_across_requests(): void
+    {
+        $store = $this->countedStore('misses');
+        $token = $store->create('user', 'Reader', 'known', ['entries:read'], null);
+        $this->assertNull($store->findByHash('absent'));
+        CountingStreamWrapper::reset();
+        for ($i = 0; $i < 5; $i++) {
+            $requestStore = new FileTokenStore('counted://' . $this->tempDir . '/misses');
+            $this->assertNull($requestStore->findByHash('absent-' . $i));
+        }
+        $this->assertSame(0, CountingStreamWrapper::writesTo('/.index.tmp'));
+        $this->assertArrayNotHasKey($this->tempDir . '/misses/' . $token->id . '.yaml', CountingStreamWrapper::$reads);
+
+        $store->markAsUsed($token->id);
+        CountingStreamWrapper::reset();
+        $this->assertNull((new FileTokenStore('counted://' . $this->tempDir . '/misses'))->findByHash('still-absent'));
+        $this->assertArrayNotHasKey($this->tempDir . '/misses/' . $token->id . '.yaml', CountingStreamWrapper::$reads);
+
+        // A file restored outside the API must invalidate the persisted catalog.
+        $path = $this->tempDir . '/misses/' . $token->id . '.yaml';
+        $record = file_get_contents($path);
+        $store->delete($token->id);
+        $this->assertNull($store->findByHash('known'));
+        file_put_contents($path, $record);
+        $this->assertSame($token->id, $store->findByHash('known')?->id);
+    }
+
+    public function test_a_restore_during_last_used_does_not_mark_a_stale_index_as_current(): void
+    {
+        $store = $this->countedStore('concurrent-restore');
+        $active = $store->create('user', 'Active', 'active-hash', ['entries:read'], null);
+        $restored = $store->create('user', 'Restored', 'restored-hash', ['entries:read'], null);
+        $path = $this->tempDir . '/concurrent-restore/' . $restored->id . '.yaml';
+        $record = file_get_contents($path);
+        $store->delete($restored->id);
+        $this->assertNull($store->findByHash('restored-hash'));
+
+        // An external restore does not participate in the API's mutation lock.
+        CountingStreamWrapper::$afterRename = static function (string $from) use ($path, $record): void {
+            if (str_ends_with($from, '/.token.tmp')) {
+                file_put_contents($path, $record);
+                CountingStreamWrapper::$afterRename = null;
+            }
+        };
+        $store->markAsUsed($active->id);
+
+        $fresh = new FileTokenStore('counted://' . $this->tempDir . '/concurrent-restore');
+        $this->assertSame($restored->id, $fresh->findByHash('restored-hash')?->id);
+        $this->assertSame($active->id, $fresh->findByHash('active-hash')?->id);
+    }
+
+    public function test_last_used_writes_at_most_once_a_minute_without_undoing_newer_changes(): void
+    {
+        $store = $this->countedStore('last-used');
+        Carbon::setTestNow('2026-11-26 12:00:00');
+        try {
+            $token = $store->create('user', 'Reader', 'known', ['entries:read'], null);
+            CountingStreamWrapper::reset();
+            $store->markAsUsed($token->id);
+            Carbon::setTestNow('2026-11-26 12:00:59');
+            (new FileTokenStore('counted://' . $this->tempDir . '/last-used'))->markAsUsed($token->id);
+            $this->assertSame(1, CountingStreamWrapper::writesTo('/.token.tmp'));
+            Carbon::setTestNow('2026-11-26 12:01:00');
+            $store->markAsUsed($token->id);
+            $this->assertSame(2, CountingStreamWrapper::writesTo('/.token.tmp'));
+            $this->assertSame('12:01:00', $store->find($token->id)?->lastUsedAt?->format('H:i:s'));
+            $store->update($token->id, ['name' => 'Narrowed', 'scopes' => []]);
+            $store->markAsUsed($token->id);
+            $this->assertSame([], $store->find($token->id)?->scopes);
+            $store->delete($token->id);
+            $store->markAsUsed($token->id);
+            $this->assertNull($store->findByHash('known'));
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
     public function test_search_by_user_scaling_is_roughly_linear(): void
     {
         $small = $this->lowestOf('benchmarkSearchByUser', 50);

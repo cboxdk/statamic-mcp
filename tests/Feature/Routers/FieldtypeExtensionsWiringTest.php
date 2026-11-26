@@ -19,8 +19,8 @@ use Statamic\Fields\Field;
  * Proves the registry is actually reached by the two paths that matter: the
  * blueprint's wire-format spec, and the entry write pipeline.
  *
- * `list` stands in for any fieldtype the package has no arm for — the same
- * position `seo` from aerni/advanced-seo occupies on a real site.
+ * `list` originally had no built-in spec. Adding one must not displace a
+ * site's existing registration while its matching sanitizer still runs.
  */
 class FieldtypeExtensionsWiringTest extends TestCase
 {
@@ -55,7 +55,7 @@ class FieldtypeExtensionsWiringTest extends TestCase
     public function test_blueprint_get_serves_a_registered_spec(): void
     {
         $before = $this->fieldSpec();
-        $this->assertArrayNotHasKey('_format_spec', $before);
+        $this->assertSame('scalar_list', $before['_format_spec']['shape']);
 
         FieldtypeExtensions::spec('list', fn (Field $field): array => [
             'wire_format' => 'array',

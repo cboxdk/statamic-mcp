@@ -9,6 +9,15 @@ use Illuminate\Routing\Middleware\ThrottleRequests;
 
 class RegistrationEndpointTest extends TestCase
 {
+    public function test_registration_refuses_malformed_authorities_and_credentials(): void
+    {
+        $this->withoutMiddleware(ThrottleRequests::class);
+        foreach (['https://<img src=x onerror=alert(1)>/callback', 'https://app.example\\@evil.example/callback', 'https://user:password@example.com/callback', "https://exam\nple.com/callback"] as $uri) {
+            $this->postJson('/mcp/oauth/register', ['client_name' => 'Unsafe', 'redirect_uris' => [$uri]])
+                ->assertStatus(400)->assertJsonPath('error', 'invalid_request');
+        }
+    }
+
     public function test_application_type_is_metadata_not_a_redirect_safety_bypass(): void
     {
         $this->withoutMiddleware(ThrottleRequests::class);

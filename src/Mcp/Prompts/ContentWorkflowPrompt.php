@@ -6,17 +6,16 @@ namespace Cboxdk\StatamicMcp\Mcp\Prompts;
 
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Authorization\InstallationProfile;
+use Cboxdk\StatamicMcp\Mcp\Support\HandleCompletions;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\BlueprintsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\EntriesRouter;
-use Cboxdk\StatamicMcp\Mcp\Tools\Routers\StructuresRouter;
 use Illuminate\Support\Arr;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Completions\CompletionResponse;
-use Laravel\Mcp\Server\Completions\DirectCompletionResponse;
 use Laravel\Mcp\Server\Contracts\Completable;
 use Laravel\Mcp\Server\Prompt;
 use Laravel\Mcp\Server\Prompts\Argument;
@@ -52,7 +51,7 @@ final class ContentWorkflowPrompt extends Prompt implements Completable
             new Argument('task', 'The content or change the person wants.', required: true),
         ];
         if ($this->workflow === 'model_content') {
-            $arguments[] = new Argument('kind', 'blueprint or fieldset; defaults to blueprint. A fieldset is a design proposal, not a supported write action.');
+            $arguments[] = new Argument('kind', 'blueprint or fieldset; defaults to blueprint. Saving requires an explicit admin tool call.');
         } else {
             $arguments[] = new Argument('id', 'Existing entry id. Omit only when creating a new entry.', required: $this->workflow !== 'write_entry');
             $arguments[] = new Argument('site', 'Source site handle; defaults to the default site.');
@@ -119,10 +118,10 @@ final class ContentWorkflowPrompt extends Prompt implements Completable
         }
 
         $instructions = match ($this->workflow) {
-            'write_entry' => 'Prepare the requested entry using the blueprint below. For an existing id, update only the requested fields. For a new entry, create a draft with data.published=false. The create action uses the collection default blueprint; if the supplied blueprint differs, resolve that before writing. Use statamic-entries-write only when the person requested saving; read back with statamic-entries-read.',
+            'write_entry' => 'Prepare the requested entry using the blueprint below. For an existing id, update only the requested fields. For a new entry, create a draft with data.published=false and pass the supplied blueprint handle as blueprint. Use statamic-entries-write only when the person requested saving; read back with statamic-entries-read.',
             'translate_entry' => 'Translate text into target_site using the source entry and blueprint below. Preserve ids, relationships, assets, set types and non-text values. Check for an existing localization with statamic-entries-read get and site=target_site. If absent and saving was requested, statamic-entries-write action=localize with site=target_site and data.published=false creates a draft with its origin link. localize does not accept expected_version. Read the destination with site=target_site, then update its id with site=target_site and its own expected_version, never the source version. Translate only localizable fields and preserve inheritance; raw entry.data omits inherited values. Do not publish unless requested.',
             'edit_page_builder' => 'Edit only the requested page-builder field. Preserve item ids, set types, ordering and untouched nested fields. statamic-entries-write update with merge_sets=true merges locally stored top-level replicator items by id; it does not merge arbitrary nested arrays or Bard nodes. When page_builder.source_site differs from entry.site, the field is inherited: write the complete inherited array with your edits and merge_sets=false for the first local override, or untouched sections will be lost. Removing or reordering also requires the complete array. A fields projection is not a replacement record: retrieve any missing parts before writing. Read back with statamic-entries-read.',
-            'model_content' => 'Design fields from the person’s requirements, using the existing blueprint below as context rather than a fixed template. For a blueprint, statamic-blueprints-admin update merges fields by handle; replace_fields=true replaces all fields. Propose the change before applying it unless saving was requested. For a fieldset, return a proposed fieldset definition and its import locations for review; fieldset CRUD is not currently exposed. Read back a saved blueprint with statamic-blueprints-read.',
+            'model_content' => 'Design fields from the person’s requirements, using the existing blueprint below as context rather than a fixed template. statamic-blueprints-admin update merges native definitions by handle or import/prefix, retaining sections; tab chooses where new fields go. replace_fields=true replaces the selected tab, or all tabs when omitted. Propose the change before applying it unless saving was requested. For a fieldset, use create_fieldset or update_fieldset and then add its imports to the consuming blueprints. Read back with statamic-blueprints-read get or get_fieldset.',
         };
 
         $response = Response::text($instructions . "\n\n"
@@ -210,33 +209,8 @@ final class ContentWorkflowPrompt extends Prompt implements Completable
         if ($argument === 'kind') {
             return CompletionResponse::match(['blueprint', 'fieldset']);
         }
-        if ($argument === 'collection' || $argument === 'site' || $argument === 'target_site') {
-            $router = new StructuresRouter;
-            $arguments = ['action' => 'list', 'resource_type' => $argument === 'collection' ? 'collection' : 'site', 'limit' => 500];
-        } elseif ($argument === 'blueprint' && is_string($context['collection'] ?? null)) {
-            $router = new BlueprintsRouter;
-            $arguments = ['action' => 'list', 'namespace' => 'collections', 'include_fields' => false, 'limit' => 500];
-        } else {
-            return CompletionResponse::empty();
-        }
 
-        $matches = [];
-        do {
-            $result = $this->read($router, $arguments);
-            $data = is_array($result['data'] ?? null) ? $result['data'] : [];
-            $items = is_array($data['items'] ?? null) ? $data['items'] : [];
-            foreach ($items as $item) {
-                if ($argument === 'blueprint' && (! is_array($item) || ($item['namespace'] ?? null) !== 'collections.' . $context['collection'])) {
-                    continue;
-                }
-                if (is_array($item) && is_string($item['handle'] ?? null) && str_starts_with(strtolower($item['handle']), strtolower($value))) {
-                    $matches[] = $item['handle'];
-                }
-            }
-            $arguments['cursor'] = $data['next_cursor'] ?? null;
-        } while (is_string($arguments['cursor']) && count($matches) <= 100);
-
-        return new DirectCompletionResponse(array_slice($matches, 0, 100), count($matches) > 100 || isset($data['next_cursor']));
+        return HandleCompletions::for($argument, $value, $context);
     }
 
     /**

@@ -84,8 +84,16 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
             $index = $this->readIndex();
 
             if (! isset($index[$tokenHash])) {
-                // Index might be stale or missing, rebuild
-                $this->rebuildIndex();
+                // A rejected credential must not parse every token again. Compare
+                // the catalog, including replacement inodes, across requests.
+                $fingerprint = $this->catalogFingerprint();
+                $stamp = $this->indexFilePath() . '.catalog';
+                if ($index === null || ! is_file($stamp) || file_get_contents($stamp) !== $fingerprint) {
+                    $this->rebuildIndex();
+                    if (file_put_contents($stamp, $fingerprint) === false) {
+                        throw new \RuntimeException('Cannot record token catalog fingerprint.');
+                    }
+                }
                 $index = $this->readIndex();
 
                 if (! isset($index[$tokenHash])) {
@@ -96,7 +104,10 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
             /** @var string $id */
             $id = $index[$tokenHash];
 
-            return $this->find($id);
+            $token = $this->find($id);
+
+            // An index is a hint, never evidence that the file still has this hash.
+            return $token !== null && hash_equals($token->tokenHash, $tokenHash) ? $token : null;
         });
     }
 
@@ -336,13 +347,27 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
                 return;
             }
 
+            $lastUsed = $data['last_used_at'] ?? null;
+            if (is_string($lastUsed) && Carbon::parse($lastUsed)->greaterThan(Carbon::now()->subMinute())) {
+                return;
+            }
             $data['last_used_at'] = Carbon::now()->toIso8601String();
 
             // Recording use is best effort: a token file that cannot be
             // replaced (a full disk) keeps its previous record, and the request
             // goes on. Every other mutation still reports the failure.
             try {
-                $this->writeYamlFile($id, $data);
+                $stamp = $this->indexFilePath() . '.catalog';
+                $catalog = is_file($stamp) ? $this->tokenCatalog() : [];
+                $catalogCurrent = isset($catalog[$id . '.yaml']) && file_get_contents($stamp) === $this->catalogFingerprint($catalog);
+                $replacement = $this->writeYamlFile($id, $data);
+                // Predict only our own replacement, from its open descriptor.
+                // Never stamp a fresh directory scan: an external restore may
+                // have added credentials that the index has not seen yet.
+                if ($catalogCurrent) {
+                    $catalog[$id . '.yaml'] = $replacement;
+                    file_put_contents($stamp, $this->catalogFingerprint($catalog));
+                }
             } catch (\RuntimeException) {
                 return;
             }
@@ -373,7 +398,7 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
     }
 
     /** @param array<string, mixed> $data */
-    private function writeYamlFile(string $id, array $data): void
+    private function writeYamlFile(string $id, array $data): string
     {
         $filePath = $this->tokenFilePath($id);
         $yaml = Yaml::dump($data, 2, 4, Yaml::DUMP_NULL_AS_TILDE);
@@ -389,9 +414,15 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
             if (! chmod($temporary, 0600) || fwrite($handle, $yaml) !== strlen($yaml) || ! fflush($handle)) {
                 throw new \RuntimeException('Cannot persist token record.');
             }
+            $stat = fstat($handle);
+            if ($stat === false) {
+                throw new \RuntimeException('Cannot inspect token replacement.');
+            }
             if (! rename($temporary, $filePath)) {
                 throw new \RuntimeException('Cannot replace token record.');
             }
+
+            return $stat['ino'] . ':' . $stat['mtime'] . ':' . $stat['size'];
         } finally {
             fclose($handle);
             if (is_file($temporary)) {
@@ -462,26 +493,69 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
     }
 
     /**
-     * @return array<string, string>
+     * @return array<string, string>|null
      */
-    private function readIndex(): array
+    private function readIndex(): ?array
     {
         $indexPath = $this->indexFilePath();
 
         if (! file_exists($indexPath)) {
-            return [];
+            return null;
         }
 
         $content = file_get_contents($indexPath);
 
         if ($content === false || $content === '') {
-            return [];
+            return null;
         }
 
-        /** @var array<string, string>|null $decoded */
         $decoded = json_decode($content, true);
+        if (! is_array($decoded)) {
+            return null;
+        }
+        $index = [];
+        foreach ($decoded as $hash => $id) {
+            if (! is_string($hash) || ! is_string($id)) {
+                return null;
+            }
+            $index[$hash] = $id;
+        }
 
-        return $decoded ?? [];
+        return $index;
+    }
+
+    /** @param array<string, string>|null $catalog */
+    private function catalogFingerprint(?array $catalog = null): string
+    {
+        return hash('sha256', serialize($catalog ?? $this->tokenCatalog()));
+    }
+
+    /**
+     * Metadata hint, not a content hash. External restores must invalidate the
+     * index during maintenance; same-size in-place writes can preserve metadata.
+     *
+     * @return array<string, string>
+     */
+    private function tokenCatalog(): array
+    {
+        $files = scandir($this->storagePath);
+        if ($files === false) {
+            throw new \RuntimeException('Cannot inspect token catalog.');
+        }
+        $catalog = [];
+        foreach ($files as $file) {
+            if (! str_ends_with($file, '.yaml')) {
+                continue;
+            }
+            clearstatcache(true, $this->storagePath . '/' . $file);
+            $stat = stat($this->storagePath . '/' . $file);
+            if ($stat === false) {
+                throw new \RuntimeException('Cannot inspect token file.');
+            }
+            $catalog[$file] = $stat['ino'] . ':' . $stat['mtime'] . ':' . $stat['size'];
+        }
+
+        return $catalog;
     }
 
     private function updateIndex(string $hash, string $id): void

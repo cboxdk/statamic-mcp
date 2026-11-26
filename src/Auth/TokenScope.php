@@ -45,41 +45,7 @@ enum TokenScope: string
      */
     public function label(): string
     {
-        return match ($this) {
-            self::FullAccess => 'Full Access',
-            self::ContentRead => 'Read Content (v3, retired)',
-            self::ContentWrite => 'Write Content (v3, retired)',
-            self::StructuresRead => 'Read Structures',
-            self::StructuresWrite => 'Write Structures (v3, replaced)',
-            self::StructuresAdmin => 'Administer Structures',
-            self::AssetsRead => 'Read Assets',
-            self::AssetsWrite => 'Edit Assets',
-            self::AssetsDelete => 'Delete Assets',
-            self::UsersRead => 'Read Users',
-            self::UsersWrite => 'Write Users (v3, replaced)',
-            self::UsersAdmin => 'Administer Users',
-            self::SystemRead => 'Read System',
-            self::SystemWrite => 'Write System (v3, replaced)',
-            self::SystemAdmin => 'Administer System',
-            self::BlueprintsRead => 'Read Blueprints',
-            self::BlueprintsWrite => 'Write Blueprints (v3, replaced)',
-            self::BlueprintsAdmin => 'Administer Blueprints',
-            self::EntriesRead => 'Read Entries',
-            self::EntriesWrite => 'Edit Entries',
-            self::EntriesPublish => 'Publish Entries',
-            self::EntriesDelete => 'Delete Entries',
-            self::TermsRead => 'Read Terms',
-            self::TermsWrite => 'Edit Terms',
-            self::TermsDelete => 'Delete Terms',
-            self::GlobalsRead => 'Read Globals',
-            self::GlobalsWrite => 'Write Globals',
-            self::FormsRead => 'Read Forms',
-            self::FormsWrite => 'Edit Forms',
-            self::SubmissionsRead => 'Read Submissions',
-            self::SubmissionsDelete => 'Delete Submissions',
-            self::ContentFacadeRead => 'Read Content Facade',
-            self::ContentFacadeWrite => 'Write Content Facade',
-        };
+        return __('statamic-mcp::scopes.labels.' . $this->name);
     }
 
     /**
@@ -87,41 +53,7 @@ enum TokenScope: string
      */
     public function description(): string
     {
-        return match ($this) {
-            self::FullAccess => 'Every scope you can hold today. Fixed when the token is issued: scopes added later are not included.',
-            self::ContentRead => 'Retired: no tool ever asked for it, so it granted nothing in v3 either. Use entries:read and terms:read.',
-            self::ContentWrite => 'Retired: no tool ever asked for it, so it granted nothing in v3 either. Use entries:write and terms:write.',
-            self::StructuresRead => 'View collections, taxonomies, navigations, and sites.',
-            self::StructuresWrite => 'Replaced by structures:admin in v4. Grants nothing; approve the token again.',
-            self::StructuresAdmin => 'Create, update, and delete collections, taxonomies, navigations, and sites.',
-            self::AssetsRead => 'View asset containers and files.',
-            self::AssetsWrite => 'Upload, move, copy, and edit assets. Deleting needs Delete Assets.',
-            self::AssetsDelete => 'Delete assets and asset containers. Also needs Edit Assets.',
-            self::UsersRead => 'View users, roles, and groups.',
-            self::UsersWrite => 'Replaced by users:admin in v4. Grants nothing; approve the token again.',
-            self::UsersAdmin => 'Create, update, and delete users, roles, and groups, and assign roles.',
-            self::SystemRead => 'View system info, health checks, and configuration.',
-            self::SystemWrite => 'Replaced by system:admin in v4. Grants nothing; approve the token again.',
-            self::SystemAdmin => 'Clear caches and change system settings.',
-            self::BlueprintsRead => 'View blueprints and fieldsets.',
-            self::BlueprintsWrite => 'Replaced by blueprints:admin in v4. Grants nothing; approve the token again.',
-            self::BlueprintsAdmin => 'Create, update, and delete blueprints and fieldsets.',
-            self::EntriesRead => 'View entries across collections.',
-            self::EntriesWrite => 'Create and update entries as drafts, and edit published content. Publishing and deleting need their own scopes.',
-            self::EntriesPublish => 'Publish and unpublish entries, and create them published. Also needs Edit Entries.',
-            self::EntriesDelete => 'Delete entries. Also needs Edit Entries.',
-            self::TermsRead => 'View taxonomy terms.',
-            self::TermsWrite => 'Create and update taxonomy terms. Deleting needs Delete Terms.',
-            self::TermsDelete => 'Delete taxonomy terms. Also needs Edit Terms.',
-            self::GlobalsRead => 'View global sets and their values.',
-            self::GlobalsWrite => 'Update global set values.',
-            self::FormsRead => 'View form definitions. Does not grant access to submissions or connector secrets.',
-            self::FormsWrite => 'Create and edit forms and their connections. Marking spam also needs Read Submissions.',
-            self::SubmissionsRead => 'Read, export and summarize form submissions in permitted sites.',
-            self::SubmissionsDelete => 'Permanently delete form submissions. Requires approval by default.',
-            self::ContentFacadeRead => 'Run content audits and cross-reference analysis.',
-            self::ContentFacadeWrite => 'Execute content workflow operations.',
-        };
+        return __('statamic-mcp::scopes.descriptions.' . $this->name);
     }
 
     /**

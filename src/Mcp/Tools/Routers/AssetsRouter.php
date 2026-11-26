@@ -27,6 +27,7 @@ use Statamic\Contracts\Assets\AssetContainer as AssetContainerContract;
 use Statamic\Contracts\Auth\User;
 use Statamic\Facades\Asset;
 use Statamic\Facades\AssetContainer;
+use Statamic\Facades\Pattern;
 use Statamic\Rules\AllowedFile;
 use Statamic\Support\Str;
 
@@ -388,13 +389,17 @@ class AssetsRouter extends BaseRouter
         if ($folder === null) {
             return $this->createErrorResponse("folder must be a path inside the container, such as 'uploads/cases', without '.' or '..' segments")->toArray();
         }
-        // Statamic reports root assets with folder '/', not ''. Its own
-        // assets() resolves the root and subfolders, recursive or not.
-        $allAssets = collect($assetContainer->assets($folder === '' ? '/' : $folder, $recursive)->all())
-            ->filter(fn (mixed $asset): bool => $asset instanceof AssetContract);
-        $total = $allAssets->count();
+        // Mirror AssetContainer::assets() folder semantics, but paginate before
+        // materializing assets (also works with the Eloquent repository).
+        $query = $assetContainer->queryAssets();
+        if (! $recursive) {
+            $query->where('folder', $folder === '' ? '/' : $folder);
+        } elseif ($folder !== '') {
+            $query->where('path', 'like', Pattern::sqlLikeQuote($folder) . '/%');
+        }
+        $total = $query->count();
         ['limit' => $limit, 'offset' => $offset] = $this->getPaginationArgs($arguments);
-        $assets = $allAssets->sortBy(fn (AssetContract $asset): string => $asset->id())->skip($offset)->take($limit)->map(function (AssetContract $asset) use ($includeDetails): array {
+        $assets = $query->orderBy('path')->offset($offset)->limit($limit)->get()->map(function (AssetContract $asset) use ($includeDetails): array {
             $data = [
                 'id' => $asset->id(),
                 'path' => $asset->path(),

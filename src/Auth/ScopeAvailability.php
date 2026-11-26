@@ -5,6 +5,10 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Auth;
 
 use Cboxdk\StatamicMcp\Actions\ScopeRegistry;
+use Cboxdk\StatamicMcp\Authorization\InstallationProfile;
+use Cboxdk\StatamicMcp\Mcp\ExtraTools;
+use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
+use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Statamic\Contracts\Assets\AssetContainer as AssetContainerContract;
 use Statamic\Contracts\Auth\User;
 use Statamic\Contracts\Globals\GlobalSet as GlobalSetContract;
@@ -56,7 +60,7 @@ class ScopeAvailability
             $core = TokenScope::tryFrom($value);
 
             return ['value' => $value, 'label' => $this->label($value),
-                'description' => $core?->description() ?? 'Access to the integration actions shown when this token was created.',
+                'description' => $core?->description() ?? __('statamic-mcp::cp.integration_access'),
                 'group' => $core?->group() ?? 'integrations'];
         }, $this->filterValues($user, $this->names()));
     }
@@ -66,6 +70,52 @@ class ScopeAvailability
         return TokenScope::tryFrom($value)?->label()
             ?? app(ScopeRegistry::class)->label($value)
             ?? throw new \InvalidArgumentException('Unknown scope.');
+    }
+
+    /**
+     * Explain scopes that the HTTP profile leaves with no usable action.
+     * This is presentation only; the authorizer still checks every call.
+     *
+     * @return array<string, string>
+     */
+    public function httpProfileRestrictions(): array
+    {
+        $profile = app(InstallationProfile::class);
+        if ($profile->name('http') === 'operator') {
+            return [];
+        }
+        $allowed = [];
+        foreach ([...StatamicMcpServer::CORE_TOOLS, ...StatamicMcpServer::SEARCHABLE_TOOLS, ...array_keys(ExtraTools::all())] as $class) {
+            try {
+                $router = app($class);
+                if (! $router instanceof BaseRouter) {
+                    continue;
+                }
+                foreach ($router->declaredActions() as $action) {
+                    foreach ($action->types ?: [null] as $type) {
+                        $arguments = ['resource_type' => $type, 'data' => ['published' => false]];
+                        $call = $router->describeCall($action->name, $arguments);
+                        if ($profile->denial($call->domain, $action->name, $arguments, $action->writes(), 'http') !== null) {
+                            continue;
+                        }
+                        foreach ($call->scopes as $scope) {
+                            $allowed[$scope instanceof TokenScope ? $scope->value : $scope] = true;
+                        }
+                    }
+                }
+            } catch (\Throwable $error) {
+                // A broken extension must not prevent the token page from loading.
+                report($error);
+            }
+        }
+        $blocked = [];
+        foreach ($this->advertised() as $scope) {
+            if ($scope !== '*' && ! isset($allowed[$scope])) {
+                $blocked[$scope] = __('statamic-mcp::cp.profile_blocked', ['profile' => $profile->name('http')]);
+            }
+        }
+
+        return $blocked;
     }
 
     public function allowsValue(?User $user, string $value): bool

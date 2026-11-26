@@ -4,16 +4,21 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Tests\Feature;
 
+use Cboxdk\StatamicMcp\Actions\LifecycleObservers;
 use Cboxdk\StatamicMcp\Auth\ScopeAvailability;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\ServiceProvider;
+use Cboxdk\StatamicMcp\Testing\FakeLifecycleObserver;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Illuminate\Testing\TestResponse;
+use Psr\Log\NullLogger;
 use Statamic\Facades\Blueprint;
 use Statamic\Facades\Collection;
 use Statamic\Facades\Entry;
+use Statamic\Facades\Form;
 use Statamic\Facades\Role;
+use Statamic\Facades\Taxonomy;
 use Statamic\Facades\User;
 use Statamic\Statamic;
 
@@ -60,6 +65,42 @@ class WebEndpointProtocolTest extends TestCase
         $this->assertSame([self::PROTOCOL_VERSION], $result['supportedVersions']);
         $this->assertArrayHasKey('tools', $result['capabilities']);
         $this->assertStringContainsString('Statamic', $result['instructions']);
+    }
+
+    public function test_rejected_http_requests_emit_only_safe_transport_metadata(): void
+    {
+        $observer = new FakeLifecycleObserver;
+        $this->app->instance(LifecycleObservers::class,
+            new LifecycleObservers(new NullLogger, [$observer]));
+        $trace = '00-12345678901234567890123456789012-1234567890123456-01';
+        foreach ([$trace, 'Secret launch plan'] as $header) {
+            $this->withHeaders(['Authorization' => 'Bearer do-not-leak', 'traceparent' => $header,
+                'MCP-Protocol-Version' => self::PROTOCOL_VERSION, 'Mcp-Method' => 'server/discover'])
+                ->postJson('/mcp/statamic', $this->body('server/discover'))->assertUnauthorized();
+        }
+        $this->assertCount(2, $observer->events);
+        $first = $observer->events[0]->metadata();
+        $this->assertSame('request.rejected', $first['event']);
+        $this->assertSame('UNAUTHENTICATED', $first['error_code']);
+        $this->assertSame($trace, $first['traceparent']);
+        $this->assertNull($observer->events[1]->metadata()['traceparent']);
+        $this->assertStringNotContainsString('do-not-leak', json_encode($first));
+    }
+
+    public function test_execution_bytes_measure_the_protocol_envelope_without_legacy_errors(): void
+    {
+        Collection::make('event_pages')->save();
+        $observer = new FakeLifecycleObserver;
+        $this->app->instance(LifecycleObservers::class,
+            new LifecycleObservers(new NullLogger, [$observer]));
+        $response = $this->rpc('tools/call', ['name' => 'statamic-entries-write', 'arguments' => [
+            'action' => 'update', 'collection' => 'event_pages', 'id' => 'missing', 'data' => ['title' => 'No record'],
+        ]])->assertOk();
+        $envelope = $response->json('result.structuredContent');
+        $this->assertFalse($envelope['success']);
+        $this->assertArrayNotHasKey('errors', $envelope);
+        $this->assertSame(strlen(json_encode($envelope, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)),
+            $observer->events[1]->metadata()['response_bytes']);
     }
 
     public function test_scope_challenges_cover_whole_batches_prompts_and_resources_before_dispatch(): void
@@ -602,6 +643,91 @@ class WebEndpointProtocolTest extends TestCase
 
         $response->assertOk();
         $this->assertStringContainsString('NOT_FOUND', (string) $response->getContent());
+    }
+
+    public function test_written_entries_link_to_authorized_resource_reads(): void
+    {
+        Collection::make('resource_pages')->save();
+        Blueprint::make('page')->setNamespace('collections.resource_pages')->setContents(['fields' => [
+            ['handle' => 'title', 'field' => ['type' => 'text']],
+            ['handle' => 'private_note', 'field' => ['type' => 'text']],
+        ]])->save();
+        $write = $this->rpc('tools/call', ['name' => 'statamic-entries-write', 'arguments' => [
+            'action' => 'create', 'collection' => 'resource_pages', 'data' => ['title' => 'Linked entry', 'private_note' => 'Hidden'],
+        ]])->assertOk()->assertJsonPath('result.structuredContent.success', true);
+        $link = $write->json('result.content.1');
+        $this->assertSame('resource_link', $link['type']);
+        $this->assertSame('application/json', $link['mimeType']);
+        config(['statamic.mcp.tools.entries.denied_fields' => ['private_note']]);
+        $read = $this->rpc('resources/read', ['uri' => $link['uri']])->assertOk();
+        $data = json_decode($read->json('result.contents.0.text'), true);
+        $this->assertTrue($data['success']);
+        $this->assertSame('Linked entry', $data['data']['entry']['data']['title']);
+        $this->assertArrayNotHasKey('private_note', $data['data']['entry']['data']);
+
+        config(['statamic.mcp.tools.entries.resources.read' => []]);
+        $denied = $this->rpc('resources/read', ['uri' => $link['uri']])->assertOk();
+        $this->assertFalse(json_decode($denied->json('result.contents.0.text'), true)['success']);
+        $denied->assertDontSee('Linked entry');
+        $user = User::make()->email('resource-write-only@example.test')->makeSuper();
+        $user->save();
+        $this->token = app(TokenService::class)->createToken((string) $user->id(), 'write-only', ['entries:write'])['token'];
+        $this->rpc('resources/read', ['uri' => $link['uri']])->assertForbidden()->assertJsonPath('scope', 'entries:read');
+    }
+
+    public function test_resource_catalogs_and_handle_completions_use_the_read_gates(): void
+    {
+        Collection::make('resource_public')->save();
+        Collection::make('resource_private')->save();
+        Taxonomy::make('resource_topics')->save();
+        Form::make('resource_contact')->title('Contact')->save();
+        Blueprint::make('page')->setNamespace('collections.resource_public')->setContents(['fields' => []])->save();
+        $uris = array_column($this->rpc('resources/list')->assertOk()->json('result.resources'), 'uri');
+        foreach (['collections', 'sites', 'fieldtypes'] as $catalog) {
+            $this->assertContains('statamic://' . $catalog, $uris);
+            $response = $this->rpc('resources/read', ['uri' => 'statamic://' . $catalog])->assertOk();
+            $this->assertTrue(json_decode($response->json('result.contents.0.text'), true)['success'], $response->getContent());
+        }
+        config(['statamic.mcp.tools.structures.resources.read' => ['resource_public', 'resource_topics']]);
+        foreach ([
+            ['statamic://entries/{collection}/{site}/{id}', 'collection', 'resource_', [], ['resource_public']],
+            ['statamic://taxonomies/{taxonomy}', 'taxonomy', 'resource_', [], ['resource_topics']],
+            ['statamic://forms/{form}', 'form', 'resource_', [], ['resource_contact']],
+            ['statamic://blueprints/{namespace}/{handle}', 'handle', 'pa', ['namespace' => 'collections.resource_public'], ['page']],
+        ] as [$uri, $argument, $value, $context, $expected]) {
+            $this->rpc('completion/complete', [
+                'ref' => ['type' => 'ref/resource', 'uri' => $uri],
+                'argument' => ['name' => $argument, 'value' => $value],
+                'context' => ['arguments' => $context],
+            ])->assertOk()->assertJsonPath('result.completion.values', $expected);
+        }
+        foreach (['collections/resource_public', 'taxonomies/resource_topics', 'forms/resource_contact'] as $path) {
+            $response = $this->rpc('resources/read', ['uri' => 'statamic://' . $path])->assertOk();
+            $this->assertTrue(json_decode($response->json('result.contents.0.text'), true)['success'], $response->getContent());
+        }
+        config(['statamic.mcp.resources.enabled' => false]);
+        $this->rpc('resources/read', ['uri' => 'statamic://collections'])->assertOk()->assertDontSee('resource_public');
+        $this->rpc('completion/complete', [
+            'ref' => ['type' => 'ref/resource', 'uri' => 'statamic://forms/{form}'],
+            'argument' => ['name' => 'form', 'value' => 'resource_'],
+        ])->assertOk()->assertJsonPath('result.completion.values', []);
+    }
+
+    public function test_resource_links_decode_handles_once_before_authorization_and_lookup(): void
+    {
+        $write = $this->rpc('tools/call', ['name' => 'statamic-structures-admin', 'arguments' => [
+            'action' => 'create', 'resource_type' => 'collection', 'handle' => 'news+events',
+            'data' => ['title' => 'News and events'],
+        ]])->assertOk()->assertJsonPath('result.structuredContent.success', true);
+        $uri = $write->json('result.content.1.uri');
+        $this->assertSame('statamic://collections/news%2Bevents', $uri);
+        config(['statamic.mcp.tools.structures.resources.read' => ['news+events']]);
+        $read = $this->rpc('resources/read', ['uri' => $uri])->assertOk();
+        $this->assertTrue(json_decode($read->json('result.contents.0.text'), true)['success']);
+        $this->rpc('resources/read', ['uri' => 'statamic://collections/news%252Bevents'])
+            ->assertOk()->assertDontSee('News and events');
+        config(['statamic.mcp.tools.structures.resources.read' => ['other']]);
+        $this->rpc('resources/read', ['uri' => $uri])->assertOk()->assertDontSee('News and events');
     }
 
     public function test_a_mismatched_method_header_is_rejected(): void

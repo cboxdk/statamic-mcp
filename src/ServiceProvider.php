@@ -50,6 +50,7 @@ use Statamic\Facades\Addon;
 use Statamic\Facades\CP\Nav;
 use Statamic\Facades\Git;
 use Statamic\Facades\Permission;
+use Statamic\Http\Middleware\CP\Localize;
 use Statamic\Providers\AddonServiceProvider;
 use Statamic\Statamic;
 
@@ -150,7 +151,8 @@ class ServiceProvider extends AddonServiceProvider
             ]);
         }
 
-        $this->registerPermissions();
+        // Resolve descriptions after Statamic selects the Control Panel locale.
+        Permission::extend(fn () => $this->registerPermissions());
         $this->registerCpNavigation();
         $this->registerDashboardRoutes();
     }
@@ -312,40 +314,40 @@ class ServiceProvider extends AddonServiceProvider
     {
         Permission::group('mcp', 'MCP', function () {
             Permission::register('view mcp dashboard')
-                ->label('View MCP Dashboard')
-                ->description('Access the MCP dashboard and connection setup');
+                ->label('statamic-mcp::messages.permissions.view_dashboard')
+                ->description(__('statamic-mcp::messages.permissions.view_dashboard_help'));
 
             Permission::register('manage mcp tokens', function ($permission) {
                 $permission
-                    ->label('Manage Own MCP Tokens')
-                    ->description('Create, view, and revoke own MCP tokens')
+                    ->label('statamic-mcp::messages.permissions.manage_own')
+                    ->description(__('statamic-mcp::messages.permissions.manage_own_help'))
                     ->children([
                         Permission::make('create mcp tokens')
-                            ->label('Create MCP Tokens'),
+                            ->label('statamic-mcp::messages.permissions.create'),
                         Permission::make('revoke mcp tokens')
-                            ->label('Revoke Own MCP Tokens'),
+                            ->label('statamic-mcp::messages.permissions.revoke_own'),
                     ]);
             });
 
             Permission::register('manage all mcp tokens', function ($permission) {
                 $permission
-                    ->label('Manage All MCP Tokens')
-                    ->description('View and manage all users\' MCP tokens')
+                    ->label('statamic-mcp::messages.permissions.manage_all')
+                    ->description(__('statamic-mcp::messages.permissions.manage_all_help'))
                     ->children([
                         Permission::make('view all mcp tokens')
-                            ->label('View All MCP Tokens'),
+                            ->label('statamic-mcp::messages.permissions.view_all'),
                         Permission::make('revoke all mcp tokens')
-                            ->label('Revoke All MCP Tokens'),
+                            ->label('statamic-mcp::messages.permissions.revoke_all'),
                     ]);
             });
 
             Permission::register('view mcp audit log')
-                ->label('View MCP Audit Log')
-                ->description('View MCP tool call activity and audit logs');
+                ->label('statamic-mcp::messages.permissions.view_audit')
+                ->description(__('statamic-mcp::messages.permissions.view_audit_help'));
 
             Permission::register('manage mcp settings')
-                ->label('Manage MCP Settings')
-                ->description('Configure MCP addon settings');
+                ->label('statamic-mcp::messages.permissions.manage_settings')
+                ->description(__('statamic-mcp::messages.permissions.manage_settings_help'));
         });
     }
 
@@ -362,11 +364,16 @@ class ServiceProvider extends AddonServiceProvider
         }
 
         Nav::extend(function ($nav): void {
+            $children = $this->adminNavChildren();
             $nav->tools('MCP')
                 ->route('statamic-mcp.dashboard')
                 ->icon('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><circle cx="12" cy="16" r="1"/></svg>')
                 ->can('view mcp dashboard')
-                ->children($this->adminNavChildren());
+                ->children($children);
+            // Keep the existing preference IDs, which children() derives from
+            // the English names, before replacing only their display labels.
+            $children[0]->display('statamic-mcp::messages.nav.approvals');
+            $children[1]->display('statamic-mcp::messages.nav.admin');
         });
     }
 
@@ -428,6 +435,9 @@ class ServiceProvider extends AddonServiceProvider
             ->group(function (): void {
                 // GET: Controller handles auth check itself (no statamic.cp.authenticated)
                 Route::get('/oauth/authorize', [AuthorizeController::class, 'show'])
+                    // Localize is normally in the authenticated group. Consent
+                    // needs the user's locale without that group's login redirect.
+                    ->middleware(Localize::class)
                     ->name('oauth.authorize');
 
                 // POST: Requires authenticated user (consent form submission)

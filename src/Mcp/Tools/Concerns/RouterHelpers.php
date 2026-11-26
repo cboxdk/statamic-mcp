@@ -279,6 +279,28 @@ trait RouterHelpers
     }
 
     /**
+     * Sorting creates Stache indexes just like filtering: only declared,
+     * readable fields may be used. The caller adds id as a stable tie-breaker.
+     *
+     * @param  iterable<Blueprint>  $blueprints
+     * @param  list<string>  $properties
+     *
+     * @return array{string, string}
+     */
+    protected function listSort(mixed $sort, iterable $blueprints, array $properties): array
+    {
+        $sort ??= 'id:asc';
+        if (! is_string($sort) || preg_match('/^([a-zA-Z_][a-zA-Z0-9_]*)(?::(asc|desc))?$/D', $sort, $parts) !== 1) {
+            throw ValidationException::withMessages(['sort' => 'Use field:asc or field:desc, for example title:asc.']);
+        }
+        if ($this->validateListFilters([$parts[1] => null], $blueprints, $properties) !== null) {
+            throw ValidationException::withMessages(['sort' => 'Sort must name a readable blueprint field or supported record property.']);
+        }
+
+        return [$parts[1], $parts[2] ?? 'asc'];
+    }
+
+    /**
      * Format a ValidationException into a standardized error response.
      *
      * @return array<string, mixed>

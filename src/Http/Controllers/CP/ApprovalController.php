@@ -50,7 +50,7 @@ class ApprovalController extends CpController
     {
         $this->authorize('view mcp dashboard');
         if ($this->pushKey() === null) {
-            return response()->json(['message' => 'Web push needs Cbox Relay.'], 409);
+            return response()->json(['message' => __('statamic-mcp::messages.push_requires_relay')], 409);
         }
         $subscription = $request->validate([
             'endpoint' => ['required', 'string', 'url:https', 'max:2048'],
@@ -69,7 +69,7 @@ class ApprovalController extends CpController
             self.addEventListener('push', (event) => {
                 let data = {};
                 try { data = event.data ? event.data.json() : {}; } catch (e) {}
-                event.waitUntil(self.registration.showNotification(data.title || 'Approval needed', {
+                event.waitUntil(self.registration.showNotification(data.title || __MCP_APPROVAL_TITLE__, {
                     body: data.body || '', tag: data.tag, data: { url: data.url }, requireInteraction: true,
                 }));
             });
@@ -81,6 +81,8 @@ class ApprovalController extends CpController
                 }
             });
             JS;
+
+        $js = str_replace('__MCP_APPROVAL_TITLE__', json_encode(__('statamic-mcp::messages.approval_needed'), JSON_THROW_ON_ERROR | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT), $js);
 
         return response($js, 200, ['Content-Type' => 'application/javascript', 'Cache-Control' => 'no-cache']);
     }
