@@ -25,7 +25,43 @@ Every tool follows the same pattern: send an `action` parameter to specify what 
 
 The `statamic_version` and `laravel_version` fields in `meta` are only included when `security.expose_versions` is enabled (defaults to `false`).
 
-On error, the response includes an `error` key with a human-readable message and a `code` key with a machine-readable error code.
+On failure, MCP sets `isError: true`. Both `structuredContent` and the JSON text content carry the same envelope:
+
+```json
+{
+    "success": false,
+    "error": {
+        "code": "NOT_FOUND",
+        "message": "Collection not found: postz",
+        "field": "collection",
+        "valid_values": ["posts"],
+        "hint": "Did you mean posts?"
+    },
+    "data": null,
+    "meta": {"tool": "statamic-entries-read", "timestamp": "2026-11-26T12:00:00Z"}
+}
+```
+
+`code` and `message` are always present. `field`, `valid_values` and `hint` are optional. Handle suggestions contain at most three nearby resources the caller can read, ordered by edit distance, then alphabetically. A write-only token receives no suggestions. Entry ids, user ids and email addresses are not suggested. Error messages are for people; branch on the code, not on English wording.
+
+### Error codes
+
+| Code | Meaning and next action |
+|---|---|
+| `VALIDATION` | Correct the arguments or field values named in the error. |
+| `NOT_FOUND` | The resource was not found; check its handle, id and namespace. |
+| `FORBIDDEN` | A profile, resource policy or Statamic permission refuses this call. Ask the site's administrator. |
+| `SCOPE_MISSING` | The token lacks a required scope. The owner must approve the additional access. |
+| `APPROVAL_REQUIRED`, `APPROVAL_PENDING` | Wait for the owner to approve the exact call, then repeat it with `data.approval_id` as the `approval_id` argument. |
+| `APPROVAL_REJECTED`, `APPROVAL_STALE`, `APPROVAL_MISMATCH`, `APPROVAL_EXPIRED`, `APPROVAL_SPENT` | This approval cannot authorize the call. Check the record and the owner's decision before requesting another approval. |
+| `VERSION_CONFLICT` | The version-guarded step did not run. Read the current record and redo the change against its version. For a multi-step write, inspect `meta.write_effects`: an earlier step may have saved. |
+| `OUTCOME_UNKNOWN` | A write may have landed. Read and reconcile the record; do not blindly retry with a new idempotency key. |
+| `IDEMPOTENCY_KEY_REUSED` | The key was already used with different input. Reconcile that operation before starting another. |
+| `IDEMPOTENCY_KEY_SPENT`, `IDEMPOTENCY_KEY_EXPIRED` | The key cannot execute again. Inspect the previous outcome before starting another operation. |
+| `TOO_LARGE` | Narrow the read with pagination, filters or a blueprint field path. A completed write instead returns a reduced successful result. |
+| `INTERNAL` | The server could not complete the call. Give `meta.correlation_id`, when present, to the operator. Inspect `meta.write_effects` before retrying a write. |
+
+Approval ids, current versions and other recovery information stay in `data`. Unknown codes in legacy extension results map to `INTERNAL`; arbitrary strings never become new wire codes. Unexpected exceptions hide diagnostic details in production and carry `meta.correlation_id` for investigation in server logs.
 
 ## Finding the tools
 

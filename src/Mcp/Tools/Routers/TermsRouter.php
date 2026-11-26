@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
+use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
 use Cboxdk\StatamicMcp\Mcp\Support\ConditionalFieldsValidator;
 use Cboxdk\StatamicMcp\Mcp\Support\SeoProFieldData;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
@@ -106,9 +107,6 @@ class TermsRouter extends BaseRouter
             return $this->createErrorResponse('Taxonomy handle must be a string')->toArray();
         }
         $taxonomyHandle = $arguments['taxonomy'];
-        if (! Taxonomy::find($taxonomyHandle)) {
-            return $this->createErrorResponse("Taxonomy not found: {$taxonomyHandle}")->toArray();
-        }
 
         // Statamic's TermPolicy checks the site only on create; the CP keeps
         // every other term screen to sites the user may access through its
@@ -116,6 +114,12 @@ class TermsRouter extends BaseRouter
         // it reaches here, the way entries do.
         if ($this->isWebContext() && ($siteError = $this->authorizeTermSite($this->resolveSiteHandle($arguments)))) {
             return $siteError;
+        }
+
+        if (! Taxonomy::find($taxonomyHandle)) {
+            return $this->missingResource('Taxonomy', $taxonomyHandle, 'taxonomy',
+                Taxonomy::all()->map->handle()->all(), $arguments,
+            )->toArray();
         }
 
         // Validate action-specific requirements
@@ -135,7 +139,7 @@ class TermsRouter extends BaseRouter
                         $current = $this->findTerm(['id' => $term->id()] + $arguments);
 
                         return $current === null
-                            ? $this->createErrorResponse('Term not found: ' . $term->id())->toArray()
+                            ? $this->missingResource('Term', $term->id(), 'id')->toArray()
                             : $this->termVersion($current);
                     },
                     fn (): array => $this->withTermVersion($action, $this->dispatchTermAction($action, $arguments)),
@@ -232,7 +236,7 @@ class TermsRouter extends BaseRouter
         $site = Site::get($handle);
         $user = User::current();
         if ($site === null || $user === null || ! $user->can('view', $site)) {
-            return $this->createErrorResponse('Permission denied: Cannot access this site')->toArray();
+            return $this->createErrorResponse('Permission denied: Cannot access this site', code: ErrorCode::Forbidden)->toArray();
         }
 
         return null;
@@ -288,49 +292,39 @@ class TermsRouter extends BaseRouter
         $pagination = $this->getPaginationArgs($arguments, 50, 1000);
         $limit = $pagination['limit'];
         $offset = $pagination['offset'];
-
-        try {
-            $query = Term::query()
-                ->where('taxonomy', $taxonomy)
-                ->where('site', $site);
-
-            $filters = is_array($arguments['filters'] ?? null) ? $arguments['filters'] : [];
-            if ($filterError = $this->validateListFilters(
-                $filters,
-                Taxonomy::find(is_string($taxonomy) ? $taxonomy : '')?->termBlueprints() ?? [],
-                self::FILTER_PROPERTIES,
-            )) {
-                return $filterError;
-            }
-
-            foreach ($filters as $field => $value) {
-                $query->where((string) $field, $value);
-            }
-
-            $total = $query->count();
-            $terms = $query->offset($offset)->limit($limit)->get();
-
-            $data = $terms->map(function ($term) {
-                return [
-                    'id' => $term->id(),
-                    'slug' => $term->slug(),
-                    'title' => $term->get('title', $term->slug()),
-                    'taxonomy' => $term->taxonomyHandle(),
-                    'site' => $term->site()->handle(),
-                    'url' => $term->url(),
-                ];
-            })->all();
-
-            return [
-                'terms' => $data,
-                'pagination' => $this->buildPaginationMeta($total, $limit, $offset),
-                'taxonomy' => $taxonomy,
-                'site' => $site,
-            ];
-
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to list terms: {$e->getMessage()}")->toArray();
+        $query = Term::query()
+            ->where('taxonomy', $taxonomy)
+            ->where('site', $site);
+        $filters = is_array($arguments['filters'] ?? null) ? $arguments['filters'] : [];
+        if ($filterError = $this->validateListFilters(
+            $filters,
+            Taxonomy::find(is_string($taxonomy) ? $taxonomy : '')?->termBlueprints() ?? [],
+            self::FILTER_PROPERTIES,
+        )) {
+            return $filterError;
         }
+        foreach ($filters as $field => $value) {
+            $query->where((string) $field, $value);
+        }
+        $total = $query->count();
+        $terms = $query->offset($offset)->limit($limit)->get();
+        $data = $terms->map(function ($term) {
+            return [
+                'id' => $term->id(),
+                'slug' => $term->slug(),
+                'title' => $term->get('title', $term->slug()),
+                'taxonomy' => $term->taxonomyHandle(),
+                'site' => $term->site()->handle(),
+                'url' => $term->url(),
+            ];
+        })->all();
+
+        return [
+            'terms' => $data,
+            'pagination' => $this->buildPaginationMeta($total, $limit, $offset),
+            'taxonomy' => $taxonomy,
+            'site' => $site,
+        ];
     }
 
     /**
@@ -344,56 +338,48 @@ class TermsRouter extends BaseRouter
     {
         $taxonomy = $arguments['taxonomy'];
         $site = $this->resolveSiteHandle($arguments);
-
-        try {
-            // Try to find by ID first, then by slug
-            if (! empty($arguments['id'])) {
-                $termId = is_string($arguments['id']) ? $arguments['id'] : '';
-                $term = Term::find($termId);
-                if ($term && $term->taxonomyHandle() !== $taxonomy) {
-                    $term = null; // Term belongs to different taxonomy
-                }
-            } elseif (! empty($arguments['slug'])) {
-                $term = Term::query()
-                    ->where('taxonomy', $taxonomy)
-                    ->where('slug', $arguments['slug'])
-                    ->first();
-            } else {
-                return $this->createErrorResponse('Term ID or slug is required for get action')->toArray();
+        // Try to find by ID first, then by slug
+        if (! empty($arguments['id'])) {
+            $termId = is_string($arguments['id']) ? $arguments['id'] : '';
+            $term = Term::find($termId);
+            if ($term && $term->taxonomyHandle() !== $taxonomy) {
+                $term = null; // Term belongs to different taxonomy
             }
-
-            if (! $term) {
-                $rawIdentifier = $arguments['id'] ?? $arguments['slug'];
-                $identifier = is_string($rawIdentifier) ? $rawIdentifier : '';
-
-                return $this->createErrorResponse("Term not found: {$identifier}")->toArray();
-            }
-
-            // Get term for specific site if needed
-            if ($term->site()->handle() !== $site) {
-                $localizedTerm = $term->in($site);
-                if ($localizedTerm) {
-                    $term = $localizedTerm;
-                }
-            }
-
-            return [
-                'term' => [
-                    'id' => $term->id(),
-                    'taxonomy' => $term->taxonomyHandle(),
-                    'site' => $term->site()->handle(),
-                    'slug' => $term->slug(),
-                    'url' => $term->url(),
-                    'data' => $term->data()->all(),
-                    'entries_count' => $this->getBooleanArgument($arguments, 'include_counts', false)
-                        ? $term->queryEntries()->count()
-                        : null,
-                ],
-            ];
-
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to get term: {$e->getMessage()}")->toArray();
+        } elseif (! empty($arguments['slug'])) {
+            $term = Term::query()
+                ->where('taxonomy', $taxonomy)
+                ->where('slug', $arguments['slug'])
+                ->first();
+        } else {
+            return $this->createErrorResponse('Term ID or slug is required for get action')->toArray();
         }
+        if (! $term) {
+            $rawIdentifier = $arguments['id'] ?? $arguments['slug'];
+            $identifier = is_string($rawIdentifier) ? $rawIdentifier : '';
+
+            return $this->missingResource('Term', $identifier, isset($arguments['id']) ? 'id' : 'slug')->toArray();
+        }
+        // Get term for specific site if needed
+        if ($term->site()->handle() !== $site) {
+            $localizedTerm = $term->in($site);
+            if ($localizedTerm) {
+                $term = $localizedTerm;
+            }
+        }
+
+        return [
+            'term' => [
+                'id' => $term->id(),
+                'taxonomy' => $term->taxonomyHandle(),
+                'site' => $term->site()->handle(),
+                'slug' => $term->slug(),
+                'url' => $term->url(),
+                'data' => $term->data()->all(),
+                'entries_count' => $this->getBooleanArgument($arguments, 'include_counts', false)
+                    ? $term->queryEntries()->count()
+                    : null,
+            ],
+        ];
     }
 
     /**
@@ -410,110 +396,98 @@ class TermsRouter extends BaseRouter
         $site = $this->resolveSiteHandle($arguments);
         /** @var array<string, mixed> $data */
         $data = is_array($arguments['data'] ?? []) ? ($arguments['data'] ?? []) : [];
+        $term = Term::make()
+            ->taxonomy($taxonomy);
+        // Set slug if provided, otherwise generate from title
+        if (! empty($arguments['slug'])) {
+            $requestedSlug = $arguments['slug'];
+            $requestedSlug = is_string($requestedSlug) ? $requestedSlug : '';
 
-        try {
-            $term = Term::make()
-                ->taxonomy($taxonomy);
-
-            // Set slug if provided, otherwise generate from title
-            if (! empty($arguments['slug'])) {
-                $requestedSlug = $arguments['slug'];
-                $requestedSlug = is_string($requestedSlug) ? $requestedSlug : '';
-
-                // Use Statamic's built-in validation for unique slugs
-                $slugValidator = Validator::make(['slug' => $requestedSlug], [
-                    'slug' => [
-                        'required',
-                        'string',
-                        new UniqueTermValue($taxonomy->handle(), null, $site),
-                    ],
-                ]);
-
-                if ($slugValidator->fails()) {
-                    $errors = $slugValidator->errors()->get('slug');
-                    /** @var array<string> $flatErrors */
-                    $flatErrors = array_map(fn ($error) => is_string($error) ? $error : implode(', ', (array) $error), $errors);
-
-                    return $this->createErrorResponse('Slug validation failed: ' . implode(', ', $flatErrors))->toArray();
-                }
-
-                $term->slug($requestedSlug);
-            } elseif (! $term->slug() && isset($data['title'])) {
-                $titleValue = $data['title'];
-                $term->slug(Str::slug(is_string($titleValue) ? $titleValue : ''));
-            }
-
-            // Get blueprint and validate field data
-            $blueprint = $term->blueprint();
-
-            if (! $blueprint) {
-                return $this->createErrorResponse('Cannot create term: Blueprint not found for this taxonomy. A blueprint is required for data validation.')->toArray();
-            }
-
-            if (! empty($data)) {
-                // Strip entry-level metadata and coerce values to expected types
-                $data = $this->sanitizeIncomingFieldData($blueprint, $data);
-
-                // Add slug to data for validation if it's set
-                $dataWithSlug = $data;
-                if ($term->slug()) {
-                    $dataWithSlug['slug'] = $term->slug();
-                }
-
-                // Use Statamic's Fields Validator for blueprint-based validation,
-                // then process through fieldtypes for storage format (matches CP pipeline).
-                try {
-                    $fields = $blueprint->fields()->addValues($dataWithSlug);
-
-                    (new ConditionalFieldsValidator)
-                        ->fields($fields)
-                        ->withConditionValues($dataWithSlug)
-                        ->withContext([
-                            'term' => $term,
-                            'taxonomy' => $taxonomy,
-                            'site' => $site,
-                        ])
-                        ->validate();
-
-                    // Process through fieldtypes for storage format
-                    $processed = $fields->process()->values()->except(['slug']);
-                    // SEO Pro processes an absent value as false. Leave omitted
-                    // SEO fields unset so new terms inherit their section defaults.
-                    foreach ($blueprint->fields()->all() as $handle => $field) {
-                        if ($field instanceof Field && $field->type() === 'seo_pro' && ! array_key_exists($handle, $data)) {
-                            $processed->forget($handle);
-                        }
-                    }
-                    $term->data(SeoProFieldData::restoreEmptyValues($blueprint, $processed->all(), $data));
-                } catch (ValidationException $e) {
-                    return $this->formatValidationError($e);
-                } catch (\Throwable $e) {
-                    return $this->createErrorResponse('Failed to process term data: ' . $e->getMessage())->toArray();
-                }
-            } else {
-                $term->data($data);
-            }
-
-            $this->persistStatamic(fn () => $term->save());
-
-            // Clear relevant caches
-            $this->clearCachesAfterWrite(['stache', 'static']);
-
-            return [
-                'term' => [
-                    'id' => $term->id(),
-                    'slug' => $term->slug(),
-                    'taxonomy' => $term->taxonomyHandle(),
-                    'site' => $term->site()->handle(),
-                    'url' => $term->url(),
-                    'data' => $term->data()->all(),
+            // Use Statamic's built-in validation for unique slugs
+            $slugValidator = Validator::make(['slug' => $requestedSlug], [
+                'slug' => [
+                    'required',
+                    'string',
+                    new UniqueTermValue($taxonomy->handle(), null, $site),
                 ],
-                'created' => true,
-            ];
+            ]);
 
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to create term: {$e->getMessage()}")->toArray();
+            if ($slugValidator->fails()) {
+                $errors = $slugValidator->errors()->get('slug');
+                /** @var array<string> $flatErrors */
+                $flatErrors = array_map(fn ($error) => is_string($error) ? $error : implode(', ', (array) $error), $errors);
+
+                return $this->createErrorResponse('Slug validation failed: ' . implode(', ', $flatErrors))->toArray();
+            }
+
+            $term->slug($requestedSlug);
+        } elseif (! $term->slug() && isset($data['title'])) {
+            $titleValue = $data['title'];
+            $term->slug(Str::slug(is_string($titleValue) ? $titleValue : ''));
         }
+        // Get blueprint and validate field data
+        $blueprint = $term->blueprint();
+        if (! $blueprint) {
+            return $this->createErrorResponse('Cannot create term: Blueprint not found for this taxonomy. A blueprint is required for data validation.', code: ErrorCode::NotFound)->toArray();
+        }
+        if (! empty($data)) {
+            // Strip entry-level metadata and coerce values to expected types
+            $data = $this->sanitizeIncomingFieldData($blueprint, $data);
+
+            // Add slug to data for validation if it's set
+            $dataWithSlug = $data;
+            if ($term->slug()) {
+                $dataWithSlug['slug'] = $term->slug();
+            }
+
+            // Use Statamic's Fields Validator for blueprint-based validation,
+            // then process through fieldtypes for storage format (matches CP pipeline).
+            try {
+                $fields = $blueprint->fields()->addValues($dataWithSlug);
+
+                (new ConditionalFieldsValidator)
+                    ->fields($fields)
+                    ->withConditionValues($dataWithSlug)
+                    ->withContext([
+                        'term' => $term,
+                        'taxonomy' => $taxonomy,
+                        'site' => $site,
+                    ])
+                    ->validate();
+
+                // Process through fieldtypes for storage format
+                $processed = $fields->process()->values()->except(['slug']);
+                // SEO Pro processes an absent value as false. Leave omitted
+                // SEO fields unset so new terms inherit their section defaults.
+                foreach ($blueprint->fields()->all() as $handle => $field) {
+                    if ($field instanceof Field && $field->type() === 'seo_pro' && ! array_key_exists($handle, $data)) {
+                        $processed->forget($handle);
+                    }
+                }
+                $term->data(SeoProFieldData::restoreEmptyValues($blueprint, $processed->all(), $data));
+            } catch (ValidationException $e) {
+                return $this->formatValidationError($e);
+            } catch (\Throwable $e) {
+                throw $e;
+            }
+        } else {
+            $term->data($data);
+        }
+        $this->persistStatamic(fn () => $term->save());
+        // Clear relevant caches
+        $this->clearCachesAfterWrite(['stache', 'static']);
+
+        return [
+            'term' => [
+                'id' => $term->id(),
+                'slug' => $term->slug(),
+                'taxonomy' => $term->taxonomyHandle(),
+                'site' => $term->site()->handle(),
+                'url' => $term->url(),
+                'data' => $term->data()->all(),
+            ],
+            'created' => true,
+        ];
     }
 
     /**
@@ -528,138 +502,123 @@ class TermsRouter extends BaseRouter
         $taxonomy = $arguments['taxonomy'];
         $site = $this->resolveSiteHandle($arguments);
         $data = $arguments['data'] ?? [];
+        // Try to find by ID first, then by slug
+        if (! empty($arguments['id'])) {
+            $termId = is_string($arguments['id']) ? $arguments['id'] : '';
+            $term = Term::find($termId);
 
-        try {
-            // Try to find by ID first, then by slug
-            if (! empty($arguments['id'])) {
-                $termId = is_string($arguments['id']) ? $arguments['id'] : '';
-                $term = Term::find($termId);
+            if ($term !== null && $term->taxonomyHandle() !== $taxonomy) {
+                $term = null;
+            }
+        } elseif (! empty($arguments['slug'])) {
+            $term = Term::query()
+                ->where('taxonomy', $taxonomy)
+                ->where('slug', $arguments['slug'])
+                ->first();
+        } else {
+            return $this->createErrorResponse('Term ID or slug is required for update action')->toArray();
+        }
+        if (! $term) {
+            $rawIdentifier = $arguments['id'] ?? $arguments['slug'];
+            $identifier = is_string($rawIdentifier) ? $rawIdentifier : '';
 
-                if ($term !== null && $term->taxonomyHandle() !== $taxonomy) {
-                    $term = null;
-                }
-            } elseif (! empty($arguments['slug'])) {
-                $term = Term::query()
-                    ->where('taxonomy', $taxonomy)
-                    ->where('slug', $arguments['slug'])
-                    ->first();
+            return $this->missingResource('Term', $identifier, isset($arguments['id']) ? 'id' : 'slug')->toArray();
+        }
+        // Get term for specific site
+        if ($term->site()->handle() !== $site) {
+            $localizedTerm = $term->in($site);
+            if ($localizedTerm) {
+                $term = $localizedTerm;
             } else {
-                return $this->createErrorResponse('Term ID or slug is required for update action')->toArray();
+                return $this->createErrorResponse("Term not available in site: {$site}", code: ErrorCode::NotFound, field: 'site')->toArray();
             }
+        }
+        if (! $term instanceof \Statamic\Contracts\Taxonomies\Term) {
+            return $this->createErrorResponse('Unsupported term implementation.')->toArray();
+        }
+        $term = clone $term;
+        // Validate data against blueprint before saving
+        $blueprint = $term->blueprint();
+        if (! $blueprint) {
+            return $this->createErrorResponse('Cannot update term: Blueprint not found. A blueprint is required for data validation.', code: ErrorCode::NotFound)->toArray();
+        }
+        /** @var array<string, mixed> $validatedData */
+        $validatedData = is_array($data) ? $data : [];
+        if (! empty($validatedData)) {
+            // Strip entry-level metadata and coerce values to expected types
+            $incomingSeoData = $validatedData;
+            $validatedData = SeoProFieldData::merge($blueprint, $validatedData, $term->data()->all());
+            $validatedData = $this->sanitizeIncomingFieldData($blueprint, $validatedData);
 
-            if (! $term) {
-                $rawIdentifier = $arguments['id'] ?? $arguments['slug'];
-                $identifier = is_string($rawIdentifier) ? $rawIdentifier : '';
+            // Merge new data with existing for full blueprint validation,
+            // minus stored nulls (see mergeStoredDataForValidation).
+            // Include slug since blueprint validates it as required
+            $mergedData = $this->mergeStoredDataForValidation($term->data()->all(), $validatedData);
+            $mergedData['slug'] = $term->slug();
 
-                return $this->createErrorResponse("Term not found: {$identifier}")->toArray();
-            }
+            // Backward compat: terms saved by MCP prior to v2.1 may have
+            // raw strings in structured fields. Safe to remove once all
+            // MCP-created content has been re-saved.
+            $mergedData = $this->sanitizeStoredFieldDataForValidation($blueprint, $mergedData);
 
-            // Get term for specific site
-            if ($term->site()->handle() !== $site) {
-                $localizedTerm = $term->in($site);
-                if ($localizedTerm) {
-                    $term = $localizedTerm;
-                } else {
-                    return $this->createErrorResponse("Term not available in site: {$site}")->toArray();
-                }
-            }
+            $validationContext = [
+                'term' => $term,
+                'taxonomy' => Taxonomy::find(is_string($taxonomy) ? $taxonomy : ''),
+                'site' => $site,
+            ];
 
-            if (! $term instanceof \Statamic\Contracts\Taxonomies\Term) {
-                return $this->createErrorResponse('Unsupported term implementation.')->toArray();
-            }
-            $term = clone $term;
-
-            // Validate data against blueprint before saving
-            $blueprint = $term->blueprint();
-
-            if (! $blueprint) {
-                return $this->createErrorResponse('Cannot update term: Blueprint not found. A blueprint is required for data validation.')->toArray();
-            }
-
-            /** @var array<string, mixed> $validatedData */
-            $validatedData = is_array($data) ? $data : [];
-
-            if (! empty($validatedData)) {
-                // Strip entry-level metadata and coerce values to expected types
-                $incomingSeoData = $validatedData;
-                $validatedData = SeoProFieldData::merge($blueprint, $validatedData, $term->data()->all());
-                $validatedData = $this->sanitizeIncomingFieldData($blueprint, $validatedData);
-
-                // Merge new data with existing for full blueprint validation,
-                // minus stored nulls (see mergeStoredDataForValidation).
-                // Include slug since blueprint validates it as required
-                $mergedData = $this->mergeStoredDataForValidation($term->data()->all(), $validatedData);
-                $mergedData['slug'] = $term->slug();
-
-                // Backward compat: terms saved by MCP prior to v2.1 may have
-                // raw strings in structured fields. Safe to remove once all
-                // MCP-created content has been re-saved.
-                $mergedData = $this->sanitizeStoredFieldDataForValidation($blueprint, $mergedData);
-
-                $validationContext = [
-                    'term' => $term,
-                    'taxonomy' => Taxonomy::find(is_string($taxonomy) ? $taxonomy : ''),
-                    'site' => $site,
-                ];
-
+            try {
+                (new ConditionalFieldsValidator)
+                    ->fields($blueprint->fields()->addValues($mergedData))
+                    ->withConditionValues($mergedData)
+                    ->withContext($validationContext)
+                    ->validate();
+            } catch (ValidationException $e) {
+                return $this->formatValidationError($e);
+            } catch (\TypeError $e) {
+                // Third-party fieldtype validation crash — fall back to
+                // validating only the incoming fields.
                 try {
                     (new ConditionalFieldsValidator)
-                        ->fields($blueprint->fields()->addValues($mergedData))
+                        ->fields($blueprint->fields()->addValues($validatedData))
                         ->withConditionValues($mergedData)
                         ->withContext($validationContext)
                         ->validate();
-                } catch (ValidationException $e) {
-                    return $this->formatValidationError($e);
-                } catch (\TypeError $e) {
-                    // Third-party fieldtype validation crash — fall back to
-                    // validating only the incoming fields.
-                    try {
-                        (new ConditionalFieldsValidator)
-                            ->fields($blueprint->fields()->addValues($validatedData))
-                            ->withConditionValues($mergedData)
-                            ->withContext($validationContext)
-                            ->validate();
-                    } catch (ValidationException $inner) {
-                        return $this->formatValidationError($inner);
-                    } catch (\Throwable $inner) {
-                        return $this->createErrorResponse('Failed to process term data: ' . $inner->getMessage())->toArray();
-                    }
-                } catch (\Throwable $e) {
-                    return $this->createErrorResponse('Failed to process term data: ' . $e->getMessage())->toArray();
+                } catch (ValidationException $inner) {
+                    return $this->formatValidationError($inner);
+                } catch (\Throwable $inner) {
+                    throw $inner;
                 }
-
-                // Process incoming data through fieldtypes for storage format
-                $incomingKeys = array_keys($validatedData);
-                /** @var array<string, mixed> $processedData */
-                $processedData = $blueprint->fields()->addValues($validatedData)
-                    ->process()->values()
-                    ->only($incomingKeys)
-                    ->all();
-
-                $processedData = SeoProFieldData::restoreEmptyValues($blueprint, $processedData, $validatedData);
-                $processedData = SeoProFieldData::preserveOmitted($blueprint, $processedData, $incomingSeoData, $term->data()->all());
-                $validatedData = $processedData;
+            } catch (\Throwable $e) {
+                throw $e;
             }
 
-            $this->persistStatamic(fn () => $term->merge($validatedData)->save());
+            // Process incoming data through fieldtypes for storage format
+            $incomingKeys = array_keys($validatedData);
+            /** @var array<string, mixed> $processedData */
+            $processedData = $blueprint->fields()->addValues($validatedData)
+                ->process()->values()
+                ->only($incomingKeys)
+                ->all();
 
-            // Clear relevant caches
-            $this->clearCachesAfterWrite(['stache', 'static']);
-
-            return [
-                'term' => [
-                    'id' => $term->id(),
-                    'slug' => $term->slug(),
-                    'taxonomy' => $term->taxonomyHandle(),
-                    'site' => $term->site()->handle(),
-                    'url' => $term->url(),
-                ],
-                'updated' => true,
-            ];
-
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to update term: {$e->getMessage()}")->toArray();
+            $processedData = SeoProFieldData::restoreEmptyValues($blueprint, $processedData, $validatedData);
+            $processedData = SeoProFieldData::preserveOmitted($blueprint, $processedData, $incomingSeoData, $term->data()->all());
+            $validatedData = $processedData;
         }
+        $this->persistStatamic(fn () => $term->merge($validatedData)->save());
+        // Clear relevant caches
+        $this->clearCachesAfterWrite(['stache', 'static']);
+
+        return [
+            'term' => [
+                'id' => $term->id(),
+                'slug' => $term->slug(),
+                'taxonomy' => $term->taxonomyHandle(),
+                'site' => $term->site()->handle(),
+                'url' => $term->url(),
+            ],
+            'updated' => true,
+        ];
     }
 
     /**
@@ -672,62 +631,50 @@ class TermsRouter extends BaseRouter
     private function deleteTerm(array $arguments): array
     {
         $taxonomy = $arguments['taxonomy'];
+        // Try to find by ID first, then by slug
+        if (! empty($arguments['id'])) {
+            $termId = is_string($arguments['id']) ? $arguments['id'] : '';
+            $term = Term::find($termId);
 
-        try {
-            // Try to find by ID first, then by slug
-            if (! empty($arguments['id'])) {
-                $termId = is_string($arguments['id']) ? $arguments['id'] : '';
-                $term = Term::find($termId);
-
-                if ($term !== null && $term->taxonomyHandle() !== $taxonomy) {
-                    $term = null;
-                }
-            } elseif (! empty($arguments['slug'])) {
-                $term = Term::query()
-                    ->where('taxonomy', $taxonomy)
-                    ->where('slug', $arguments['slug'])
-                    ->first();
-            } else {
-                return $this->createErrorResponse('Term ID or slug is required for delete action')->toArray();
+            if ($term !== null && $term->taxonomyHandle() !== $taxonomy) {
+                $term = null;
             }
-
-            if (! $term) {
-                $rawIdentifier = $arguments['id'] ?? $arguments['slug'];
-                $identifier = is_string($rawIdentifier) ? $rawIdentifier : '';
-
-                return $this->createErrorResponse("Term not found: {$identifier}")->toArray();
-            }
-
-            if ($this->isWebContext() && ($siteError = $this->authorizeTermSite($term->site()->handle()))) {
-                return $siteError;
-            }
-
-            $termData = [
-                'id' => $term->id(),
-                'slug' => $term->slug(),
-                'taxonomy' => $term->taxonomyHandle(),
-                'site' => $term->site()->handle(),
-            ];
-
-            // Check for entries using this term
-            $entriesCount = $term->queryEntries()->count();
-            if ($entriesCount > 0) {
-                return $this->createErrorResponse("Cannot delete term: {$entriesCount} entries are using this term")->toArray();
-            }
-
-            $this->persistStatamic(fn () => $term->delete());
-
-            // Clear relevant caches
-            $this->clearCachesAfterWrite(['stache', 'static']);
-
-            return [
-                'term' => $termData,
-                'deleted' => true,
-            ];
-
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to delete term: {$e->getMessage()}")->toArray();
+        } elseif (! empty($arguments['slug'])) {
+            $term = Term::query()
+                ->where('taxonomy', $taxonomy)
+                ->where('slug', $arguments['slug'])
+                ->first();
+        } else {
+            return $this->createErrorResponse('Term ID or slug is required for delete action')->toArray();
         }
+        if (! $term) {
+            $rawIdentifier = $arguments['id'] ?? $arguments['slug'];
+            $identifier = is_string($rawIdentifier) ? $rawIdentifier : '';
+
+            return $this->missingResource('Term', $identifier, isset($arguments['id']) ? 'id' : 'slug')->toArray();
+        }
+        if ($this->isWebContext() && ($siteError = $this->authorizeTermSite($term->site()->handle()))) {
+            return $siteError;
+        }
+        $termData = [
+            'id' => $term->id(),
+            'slug' => $term->slug(),
+            'taxonomy' => $term->taxonomyHandle(),
+            'site' => $term->site()->handle(),
+        ];
+        // Check for entries using this term
+        $entriesCount = $term->queryEntries()->count();
+        if ($entriesCount > 0) {
+            return $this->createErrorResponse("Cannot delete term: {$entriesCount} entries are using this term")->toArray();
+        }
+        $this->persistStatamic(fn () => $term->delete());
+        // Clear relevant caches
+        $this->clearCachesAfterWrite(['stache', 'static']);
+
+        return [
+            'term' => $termData,
+            'deleted' => true,
+        ];
     }
 
     protected function actions(): array

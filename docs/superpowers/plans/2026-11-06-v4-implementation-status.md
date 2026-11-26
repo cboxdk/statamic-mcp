@@ -12,7 +12,7 @@ Draft PR: https://github.com/cboxdk/statamic-mcp/pull/88.
 ## Polish plan checkpoint — 2026-11-26
 
 The approved five-phase polish plan supersedes the historical V00–V10 progress
-notes below. Phase 1 and 2.1–2.3 are pushed; phase 2.3 is `5b404c6`, with all
+notes below. Phase 1 and 2.1–2.4 are pushed; phase 2.4 is `52f338d`, with all
 19 CI checks green. Phase 2.4 removes `configure` and `config_set`, moves collection
 tree edits to `move`, and preserves configuration updates (including enabling and
 disabling collection ordering). Navigation/global-set updates use the router's
@@ -21,8 +21,19 @@ Statamic permissions without invented inner permission checks.
 Phase 2.4 verification: full suite **2063 passed, 33 skipped, 10494 assertions**;
 the subsequent ordering regression failed before the fix, then the focused tree
 and write-contract suite passed **34 tests, 134 assertions**. Pint and PHPStan 9
-passed. The skips require optional integrations or database environments. No
-merge, release or deployment. Phase 2.5–2.11 and the phase-boundary independent
+passed. The skips require optional integrations or database environments.
+
+Phase 2.5 implements the closed error-code enum and one MCP error object, with
+permission-filtered near-miss handles and production-safe exceptions. Independent
+review found legacy replay diagnostics, parent-policy misclassification, missing
+localization misclassification and lost reconciliation instructions; all four are
+fixed. Full suite: **2085 passed, 33 skipped, 10741 assertions**. Pint and PHPStan 9
+passed. The local, untracked lockfile had seven Symfony advisories in four packages;
+updating those packages and their http-foundation dependency to 8.1.12 cleared the
+audit. The full suite passed again with the same counts on those patched versions,
+including the optional Cbox clients. No published dependency constraint changed.
+
+No merge, release or deployment. Phase 2.6–2.11 and the phase-boundary independent
 review remain. The Statamic UI-kit work follows phase 2, before phase 3.
 
 ## V00 compatibility inventory

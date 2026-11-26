@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns;
 
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
+use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
+use Cboxdk\StatamicMcp\Mcp\Exceptions\ToolFailure;
 use Illuminate\Support\Collection;
 use Statamic\Contracts\Structures\Nav as NavContract;
 use Statamic\Facades\Blink;
@@ -61,37 +63,33 @@ trait HandlesNavigations
      */
     private function listNavigations(array $arguments): array
     {
-        try {
-            $includeDetails = $this->getBooleanArgument($arguments, 'include_details', true);
-            $policy = app(ResourcePolicy::class);
-            $navigations = Nav::all()->filter(
-                fn ($navigation): bool => $navigation instanceof NavContract
-                    && $policy->canAccess('structures', $navigation->handle(), 'read')
-            )->map(function ($navigation) use ($includeDetails) {
-                /** @var NavContract $navigation */
-                $data = [
-                    'handle' => $navigation->handle(),
-                    'title' => $navigation->title(),
-                ];
-
-                if ($includeDetails) {
-                    $data = array_merge($data, [
-                        'collections' => $navigation->collections()->map->handle()->all(),
-                        'max_depth' => $navigation->maxDepth(),
-                        'sites' => $navigation->sites()->all(),
-                    ]);
-                }
-
-                return $data;
-            })->all();
-
-            return [
-                'navigations' => $navigations,
-                'total' => count($navigations),
+        $includeDetails = $this->getBooleanArgument($arguments, 'include_details', true);
+        $policy = app(ResourcePolicy::class);
+        $navigations = Nav::all()->filter(
+            fn ($navigation): bool => $navigation instanceof NavContract
+                && $policy->canAccess('structures', $navigation->handle(), 'read')
+        )->map(function ($navigation) use ($includeDetails) {
+            /** @var NavContract $navigation */
+            $data = [
+                'handle' => $navigation->handle(),
+                'title' => $navigation->title(),
             ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to list navigations: {$e->getMessage()}")->toArray();
-        }
+
+            if ($includeDetails) {
+                $data = array_merge($data, [
+                    'collections' => $navigation->collections()->map->handle()->all(),
+                    'max_depth' => $navigation->maxDepth(),
+                    'sites' => $navigation->sites()->all(),
+                ]);
+            }
+
+            return $data;
+        })->all();
+
+        return [
+            'navigations' => $navigations,
+            'total' => count($navigations),
+        ];
     }
 
     /**
@@ -101,27 +99,21 @@ trait HandlesNavigations
      */
     private function getNavigation(array $arguments): array
     {
-        try {
-            $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
-            $navigation = Nav::find($handle);
-
-            if (! $navigation) {
-                return $this->createErrorResponse("Navigation not found: {$handle}")->toArray();
-            }
-
-            $data = [
-                'handle' => $navigation->handle(),
-                'title' => $navigation->title(),
-                'collections' => $navigation->collections()->map->handle()->all(),
-                'max_depth' => $navigation->maxDepth(),
-                'sites' => $navigation->sites()->all(),
-                'trees' => $this->navigationTreesPayload($navigation),
-            ];
-
-            return ['navigation' => $data];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to get navigation: {$e->getMessage()}")->toArray();
+        $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
+        $navigation = Nav::find($handle);
+        if (! $navigation) {
+            return $this->missingResource('Navigation', $handle, candidates: Nav::all()->map->handle()->all(), arguments: $arguments)->toArray();
         }
+        $data = [
+            'handle' => $navigation->handle(),
+            'title' => $navigation->title(),
+            'collections' => $navigation->collections()->map->handle()->all(),
+            'max_depth' => $navigation->maxDepth(),
+            'sites' => $navigation->sites()->all(),
+            'trees' => $this->navigationTreesPayload($navigation),
+        ];
+
+        return ['navigation' => $data];
     }
 
     /**
@@ -132,41 +124,32 @@ trait HandlesNavigations
     private function createNavigation(array $arguments): array
     {
         if (! $this->hasPermission('create', 'navigation')) {
-            return $this->createErrorResponse('Permission denied: Cannot create navigation')->toArray();
+            return $this->createErrorResponse('Permission denied: Cannot create navigation', code: ErrorCode::Forbidden)->toArray();
+        }
+        $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
+        $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : null;
+        if (! $handle) {
+            return $this->createErrorResponse('Navigation handle is required')->toArray();
+        }
+        if (array_key_exists('handle', $data) && $data['handle'] !== $handle) {
+            return $this->createErrorResponse('The new navigation\'s handle is the handle argument; data.handle may only repeat it.')->toArray();
+        }
+        $existsError = $this->checkHandleNotExists(Nav::find($handle), 'Navigation', $handle);
+        if ($existsError !== null) {
+            return $existsError;
+        }
+        $navigation = Nav::make($handle);
+        $error = $this->applyNavigationData($navigation, $data);
+        if ($error !== null) {
+            return $this->createErrorResponse($error)->toArray();
         }
 
-        try {
-            $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
-            $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : null;
-
-            if (! $handle) {
-                return $this->createErrorResponse('Navigation handle is required')->toArray();
-            }
-            if (array_key_exists('handle', $data) && $data['handle'] !== $handle) {
-                return $this->createErrorResponse('The new navigation\'s handle is the handle argument; data.handle may only repeat it.')->toArray();
-            }
-
-            $existsError = $this->checkHandleNotExists(Nav::find($handle), 'Navigation', $handle);
-            if ($existsError !== null) {
-                return $existsError;
-            }
-
-            $navigation = Nav::make($handle);
-
-            $error = $this->applyNavigationData($navigation, $data);
-            if ($error !== null) {
-                return $this->createErrorResponse($error)->toArray();
-            }
-
-            return [
-                'navigation' => [
-                    ...$this->navigationSummary($navigation),
-                    'created' => true,
-                ],
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to create navigation: {$e->getMessage()}")->toArray();
-        }
+        return [
+            'navigation' => [
+                ...$this->navigationSummary($navigation),
+                'created' => true,
+            ],
+        ];
     }
 
     /**
@@ -176,29 +159,23 @@ trait HandlesNavigations
      */
     private function updateNavigation(array $arguments): array
     {
-        try {
-            $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
-            $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
-
-            $navigation = Nav::find($handle);
-            if (! $navigation) {
-                return $this->createErrorResponse("Navigation not found: {$handle}")->toArray();
-            }
-
-            $error = $this->applyNavigationData($navigation, $data);
-            if ($error !== null) {
-                return $this->createErrorResponse($error)->toArray();
-            }
-
-            return [
-                'navigation' => [
-                    ...$this->navigationSummary($navigation),
-                    'updated' => true,
-                ],
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to update navigation: {$e->getMessage()}")->toArray();
+        $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
+        $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
+        $navigation = Nav::find($handle);
+        if (! $navigation) {
+            return $this->missingResource('Navigation', $handle, candidates: Nav::all()->map->handle()->all(), arguments: $arguments)->toArray();
         }
+        $error = $this->applyNavigationData($navigation, $data);
+        if ($error !== null) {
+            return $this->createErrorResponse($error)->toArray();
+        }
+
+        return [
+            'navigation' => [
+                ...$this->navigationSummary($navigation),
+                'updated' => true,
+            ],
+        ];
     }
 
     /**
@@ -209,31 +186,23 @@ trait HandlesNavigations
     private function deleteNavigation(array $arguments): array
     {
         if (! $this->hasPermission('delete', 'navigation')) {
-            return $this->createErrorResponse('Permission denied: Cannot delete navigation')->toArray();
+            return $this->createErrorResponse('Permission denied: Cannot delete navigation', code: ErrorCode::Forbidden)->toArray();
         }
-
-        try {
-            $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
-            $navigation = Nav::find($handle);
-
-            if (! $navigation) {
-                return $this->createErrorResponse("Navigation not found: {$handle}")->toArray();
-            }
-
-            $this->persistStatamic(fn () => $navigation->delete());
-
-            // Clear caches
-            $this->clearCachesAfterWrite(['stache', 'static']);
-
-            return [
-                'navigation' => [
-                    'handle' => $handle,
-                    'deleted' => true,
-                ],
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to delete navigation: {$e->getMessage()}")->toArray();
+        $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
+        $navigation = Nav::find($handle);
+        if (! $navigation) {
+            return $this->missingResource('Navigation', $handle, candidates: Nav::all()->map->handle()->all(), arguments: $arguments)->toArray();
         }
+        $this->persistStatamic(fn () => $navigation->delete());
+        // Clear caches
+        $this->clearCachesAfterWrite(['stache', 'static']);
+
+        return [
+            'navigation' => [
+                'handle' => $handle,
+                'deleted' => true,
+            ],
+        ];
     }
 
     /**
@@ -324,7 +293,7 @@ trait HandlesNavigations
                 $this->persistStatamic(fn () => $stored?->save());
             }
             if ($this->storedNavItems($navigation, $site) !== $items) {
-                throw new \RuntimeException("The navigation tree for site '{$site}' was not stored as sent. Read it before retrying.");
+                throw new ToolFailure(ErrorCode::OutcomeUnknown, "The navigation tree for site '{$site}' was not stored as sent. Read it before retrying.");
             }
         }
 

@@ -209,7 +209,7 @@ class StructuresUpdatePolicyTest extends TestCase
         } else {
             $response->assertOk()
                 ->assertJsonPath('result.isError', true)
-                ->assertJsonPath('result.structuredContent.errors', [$error]);
+                ->assertJsonPath('result.structuredContent.error.message', $error);
         }
 
         $saved = Yaml::parseFile($collection->path());

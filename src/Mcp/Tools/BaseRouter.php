@@ -15,6 +15,8 @@ use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\Authorization\InstallationProfile;
 use Cboxdk\StatamicMcp\Authorization\McpAuthorizer;
+use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
+use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorResponse;
 use Cboxdk\StatamicMcp\Mcp\ExtraTools;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\BuildsPaginatedResponse;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\EnforcesResourcePolicy;
@@ -81,6 +83,38 @@ abstract class BaseRouter extends BaseStatamicTool
     protected function actionNames(): array
     {
         return array_map(fn (RouterAction $action): string => $action->name, $this->declaredActions());
+    }
+
+    /**
+     * Candidates must already satisfy object/site-level read permissions.
+     * Check the read scope, profile and resource policy as well: a writer
+     * without read access must not discover other handles through a typo.
+     *
+     * @param  iterable<string>  $candidates
+     * @param  array<string, mixed>  $arguments
+     */
+    protected function missingResource(string $kind, string $handle, string $field = 'handle', iterable $candidates = [], array $arguments = []): ErrorResponse
+    {
+        $nearby = [];
+        foreach ($candidates as $candidate) {
+            $read = array_replace($arguments, ['action' => 'get', $field => $candidate]);
+            if (app(InstallationProfile::class)->denial($this->getDomain(), 'get', $read, false) !== null
+                || app(McpAuthorizer::class)->denial($this->describeCall('get', $read)) !== null) {
+                continue;
+            }
+            $distance = levenshtein($handle, $candidate);
+            if ($distance <= max(1, intdiv(strlen($handle), 3))) {
+                $nearby[] = ['handle' => $candidate, 'distance' => $distance];
+            }
+        }
+        usort($nearby, fn (array $a, array $b): int => ($a['distance'] <=> $b['distance']) ?: strcmp($a['handle'], $b['handle']));
+        $handles = array_slice(array_values(array_unique(array_column($nearby, 'handle'))), 0, 3);
+
+        return $this->createErrorResponse(
+            "{$kind} not found: {$handle}", code: ErrorCode::NotFound, field: $field,
+            validValues: $handles === [] ? null : $handles,
+            hint: $handles === [] ? null : 'Did you mean ' . implode(', ', $handles) . '?',
+        );
     }
 
     /**
@@ -376,7 +410,8 @@ abstract class BaseRouter extends BaseStatamicTool
     {
         if ($this->isWebContext() && ! $this->isWebToolEnabled()) {
             return $this->createErrorResponse(
-                'Permission denied: ' . ucfirst($this->getDomain()) . ' tool is disabled for web access'
+                'Permission denied: ' . ucfirst($this->getDomain()) . ' tool is disabled for web access',
+                code: ErrorCode::Forbidden,
             )->toArray();
         }
 
@@ -387,26 +422,29 @@ abstract class BaseRouter extends BaseStatamicTool
             $other = $this->facet($this->facet === 'read' ? 'write' : 'read')->name();
 
             return $this->createErrorResponse(
-                "The {$action} action is on the {$other} tool. This tool offers: " . implode(', ', $this->facetActionNames()) . '.'
+                "The {$action} action is on the {$other} tool. This tool offers: " . implode(', ', $this->facetActionNames()) . '.',
+                field: 'action', validValues: $this->facetActionNames(), hint: "Use {$other} for {$action}.",
             )->toArray();
         }
         if ($declared === null) {
             return $this->createErrorResponse(
                 ($action === '' ? 'action is required.' : "Unknown action '{$action}'.")
-                . ' Use one of: ' . implode(', ', $this->facet === null ? $this->actionNames() : $this->facetActionNames()) . '.'
+                . ' Use one of: ' . implode(', ', $this->facet === null ? $this->actionNames() : $this->facetActionNames()) . '.',
+                field: 'action', validValues: $this->facet === null ? $this->actionNames() : $this->facetActionNames(),
             )->toArray();
         }
         $type = is_string($arguments['resource_type'] ?? null) ? $arguments['resource_type'] : null;
         if (! $declared->appliesTo($type)) {
             return $this->createErrorResponse(
-                "The {$action} action does not apply to resource_type '{$type}'. It applies to: " . implode(', ', $declared->types) . '.'
+                "The {$action} action does not apply to resource_type '{$type}'. It applies to: " . implode(', ', $declared->types) . '.',
+                field: 'resource_type', validValues: $declared->types,
             )->toArray();
         }
 
         if (($denial = app(McpAuthorizer::class)->authenticationDenial()) !== null) {
             $this->emitExecution(Events\ExecutionDenied::class, $action, $this->freshOperationId(), 'none', hrtime(true));
 
-            return $this->createErrorResponse($denial)->toArray();
+            return $this->createErrorResponse($denial['message'], code: $denial['code'])->toArray();
         }
 
         // An action must not drop what it was asked to do: a top-level
@@ -417,12 +455,14 @@ abstract class BaseRouter extends BaseStatamicTool
                 "The {$action} action does not take " . implode(', ', $unknown) . '. '
                 . ($declared->declaresArguments() ? 'It takes: ' . implode(', ', $this->acceptedArguments($declared)) . '. ' : '')
                 . ($declared->writes() ? 'Nothing was written.' : 'Nothing was read.')
-                . ($declared->writes() && in_array('data', $this->acceptedArguments($declared), true) ? ' Field values and flags such as published go inside data.' : '')
+                . ($declared->writes() && in_array('data', $this->acceptedArguments($declared), true) ? ' Field values and flags such as published go inside data.' : ''),
+                field: $unknown[0], validValues: $this->acceptedArguments($declared),
             )->toArray();
         }
         if (($missing = $declared->missingNeeds($arguments)) !== []) {
             return $this->createErrorResponse(
-                "The {$action} action needs " . implode(', ', array_map(fn (string $need): string => str_replace('|', ' or ', $need), $missing)) . '.'
+                "The {$action} action needs " . implode(', ', array_map(fn (string $need): string => str_replace('|', ' or ', $need), $missing)) . '.',
+                field: $missing[0],
             )->toArray();
         }
 
@@ -432,7 +472,7 @@ abstract class BaseRouter extends BaseStatamicTool
         if ($denial !== null) {
             $this->emitExecution(Events\ExecutionDenied::class, $action, $this->freshOperationId(), 'none', hrtime(true));
 
-            return $this->createErrorResponse($denial)->toArray();
+            return $this->createErrorResponse($denial['message'], code: $denial['code'])->toArray();
         }
 
         // Filter denied fields from input
@@ -549,7 +589,7 @@ abstract class BaseRouter extends BaseStatamicTool
         }
         $profile = app(InstallationProfile::class)->name();
         if (! in_array($profile, ['editor', 'operator'], true)) {
-            return $this->createErrorResponse('This action is not allowed by the installation profile.')->toArray();
+            return $this->createErrorResponse('This action is not allowed by the installation profile.', code: ErrorCode::Forbidden)->toArray();
         }
 
         [$actor, $grant] = $this->callIdentity();

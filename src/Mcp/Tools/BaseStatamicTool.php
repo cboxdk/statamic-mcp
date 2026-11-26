@@ -5,15 +5,18 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools;
 
 use Cboxdk\StatamicMcp\Authorization\InstallationProfile;
+use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
 use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorResponse;
 use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ResponseMeta;
 use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\SuccessResponse;
 use Cboxdk\StatamicMcp\Mcp\Exceptions\FieldFormatException;
+use Cboxdk\StatamicMcp\Mcp\Exceptions\ToolFailure;
 use Cboxdk\StatamicMcp\Mcp\Support\StacheRepair;
 use Cboxdk\StatamicMcp\Mcp\Support\ToolLogger;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ClearsCaches;
 use Cboxdk\StatamicMcp\Support\InputBudget;
 use Cboxdk\StatamicMcp\Support\McpConfig;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\Support\Facades\Log;
@@ -111,7 +114,13 @@ abstract class BaseStatamicTool extends Tool
             // SDK clients validate failures too and discard what does not match.
             'data' => JsonSchema::union(['object', 'array', 'null'])->description('Operation result data; null on most failures'),
             'meta' => JsonSchema::object()->description('Response metadata (tool, timestamp, versions)'),
-            'errors' => JsonSchema::array()->description('Error messages if operation failed'),
+            'error' => JsonSchema::object([
+                'code' => JsonSchema::string()->enum(array_column(ErrorCode::cases(), 'value'))->required(),
+                'message' => JsonSchema::string()->required(),
+                'field' => JsonSchema::string(),
+                'valid_values' => JsonSchema::array()->items(JsonSchema::string()),
+                'hint' => JsonSchema::string(),
+            ])->withoutAdditionalProperties()->description('Failure and how to correct it; present when success is false'),
             'warnings' => JsonSchema::array()->description('Warning messages'),
         ];
     }
@@ -124,7 +133,14 @@ abstract class BaseStatamicTool extends Tool
     public function handle(Request $request): Response|ResponseFactory
     {
         $arguments = $request->all();
-        $result = $this->execute($arguments);
+        $result = $this->normalizeFailure($this->execute($arguments));
+
+        // Internal callers and stored v3 results may still use the message list.
+        // The protocol exposes one error contract, never two competing shapes.
+        unset($result['errors']);
+        if (($result['success'] ?? true) === false && is_array($result['data'] ?? null)) {
+            unset($result['data']['code']);
+        }
 
         // Any well-formed standard envelope (has success + meta) is returned as
         // structured content regardless of outcome, so failures keep their data
@@ -143,18 +159,41 @@ abstract class BaseStatamicTool extends Tool
             return Response::structured($result);
         }
 
-        // Fallback for non-standard error shapes (e.g., from createSafeErrorResponse)
-        $errors = $result['errors'] ?? null;
-        $firstError = is_array($errors) ? ($errors[0] ?? null) : null;
-        $errorRaw = $firstError ?? $result['error'] ?? 'Unknown error occurred';
-        $errorMessage = is_string($errorRaw) ? $errorRaw : 'Unknown error occurred';
+        return Response::structured($result);
+    }
 
-        $correlationId = $result['correlation_id'] ?? null;
-        if (is_string($correlationId)) {
-            $errorMessage .= " [correlation_id: {$correlationId}]";
+    /**
+     * Old operation records and extensions can return the former error shape.
+     * Normalize them without guessing a code from English message text.
+     *
+     * @param  array<string, mixed>  $result
+     *
+     * @return array<string, mixed>
+     */
+    private function normalizeFailure(array $result): array
+    {
+        if (($result['success'] ?? true) !== false) {
+            return $result;
         }
 
-        return Response::error($errorMessage);
+        $error = $result['error'] ?? null;
+        if (is_array($error) && is_string($error['code'] ?? null) && ErrorCode::tryFrom($error['code']) !== null && is_string($error['message'] ?? null)) {
+            return $result;
+        }
+
+        $errors = $result['errors'] ?? null;
+        $messages = is_array($errors) ? array_values(array_filter($errors, 'is_string')) : [];
+        $message = $messages !== [] ? implode('; ', $messages) : (is_string($error) ? $error : 'The operation failed.');
+        $data = $result['data'] ?? null;
+        $legacyCode = is_array($data) && is_string($data['code'] ?? null) ? ErrorCode::tryFrom($data['code']) : null;
+        if (($legacyCode === null || $legacyCode === ErrorCode::Internal) && ! app()->environment('local', 'testing')) {
+            // Old routers stored exception messages as ordinary failures. A
+            // replay must not disclose diagnostics the live call now hides.
+            $message = 'The operation failed. Check server logs for details.';
+        }
+        $normalized = $this->createErrorResponse($message, $data, code: $legacyCode ?? ErrorCode::Internal)->toArray();
+
+        return array_replace($normalized, $result, ['error' => $normalized['error']]);
     }
 
     /**
@@ -173,8 +212,8 @@ abstract class BaseStatamicTool extends Tool
         } catch (\JsonException) {
             // Unencodable payload — the structured content will carry whatever
             // survives serialization; the text content falls back to the message.
-            $errors = $envelope['errors'] ?? null;
-            $first = is_array($errors) ? ($errors[0] ?? null) : null;
+            $error = $envelope['error'] ?? null;
+            $first = is_array($error) ? ($error['message'] ?? null) : null;
 
             return is_string($first) ? $first : 'Unknown error occurred';
         }
@@ -193,7 +232,7 @@ abstract class BaseStatamicTool extends Tool
         $action = is_string($arguments['action'] ?? null) ? $arguments['action'] : 'get';
         $denial = app(InstallationProfile::class)->denial($this->getToolDomain(), $action, $arguments, $this->actionWrites($action));
         if ($denial !== null) {
-            return $this->createErrorResponse($denial)->toArray();
+            return $this->createErrorResponse($denial, code: ErrorCode::Forbidden)->toArray();
         }
         $this->writeEffects = null;
         $this->completedCacheClears = [];
@@ -314,6 +353,7 @@ abstract class BaseStatamicTool extends Tool
                     'exception' => $e->getMessage(),
                     'file' => $e->getFile(),
                     'line' => $e->getLine(),
+                    'correlation_id' => $correlationId,
                 ]);
             } catch (\Throwable) {
                 // A failing fallback logger must not replace the original outcome.
@@ -355,6 +395,7 @@ abstract class BaseStatamicTool extends Tool
      */
     private function wrapInStandardFormat(array $result): array
     {
+        $result = $this->normalizeFailure($result);
         if (isset($result['success']) && isset($result['meta'])) {
             $wrapped = $result;
         } else {
@@ -384,6 +425,7 @@ abstract class BaseStatamicTool extends Tool
             return $this->createErrorResponse(
                 'Response too large (' . round(strlen($encoded) / 1024) . 'KB). Use pagination or filters to reduce the result set.',
                 ['response_size_bytes' => strlen($encoded)],
+                code: ErrorCode::TooLarge,
             )->toArray();
         }
 
@@ -572,14 +614,24 @@ abstract class BaseStatamicTool extends Tool
      *
      * @param  string|array<int, string>  $errors
      * @param  array<int, string>  $warnings
+     * @param  list<string>|null  $validValues
      */
-    protected function createErrorResponse(string|array $errors, mixed $data = null, array $warnings = []): ErrorResponse
+    protected function createErrorResponse(string|array $errors, mixed $data = null, array $warnings = [], ?ErrorCode $code = null, ?string $field = null, ?array $validValues = null, ?string $hint = null): ErrorResponse
     {
+        // The former data.code API remains usable by installed extensions;
+        // arbitrary strings cannot become a new protocol error code.
+        $legacyCode = is_array($data) && is_string($data['code'] ?? null) ? $data['code'] : null;
+        $code ??= $legacyCode === null ? ErrorCode::Validation : (ErrorCode::tryFrom($legacyCode) ?? ErrorCode::Internal);
+
         return new ErrorResponse(
             errors: $errors,
             meta: $this->createResponseMeta(),
             data: $data,
-            warnings: $warnings
+            warnings: $warnings,
+            code: $code,
+            field: $field,
+            validValues: $validValues,
+            hint: $hint,
         );
     }
 
@@ -609,6 +661,7 @@ abstract class BaseStatamicTool extends Tool
     protected function isClientSafeException(\Throwable $e): bool
     {
         return $e instanceof FieldFormatException
+            || $e instanceof ToolFailure
             || $e instanceof ValidationException
             || $e instanceof FieldtypeNotFoundException
             || $e instanceof BlueprintNotFoundException;
@@ -635,13 +688,20 @@ abstract class BaseStatamicTool extends Tool
      */
     protected function createSafeErrorResponse(string $message, string $correlationId, ?\Throwable $exception = null): array
     {
-        $response = [
-            'success' => false,
-            'error' => $message,
-            'correlation_id' => $correlationId,
-            'timestamp' => now()->toISOString() ?? date('c'),
-            'tool' => $this->name(),
-        ];
+        $field = $exception instanceof ToolFailure ? $exception->field : null;
+        if ($exception instanceof ValidationException) {
+            $field = array_key_first($exception->errors());
+            $message = $this->sanitizeErrorMessage(implode('; ', array_merge(...array_values($exception->errors()))));
+        }
+        $code = match (true) {
+            $exception instanceof ToolFailure => $exception->errorCode,
+            $exception instanceof AuthorizationException => ErrorCode::Forbidden,
+            $exception instanceof BlueprintNotFoundException, $exception instanceof FieldtypeNotFoundException => ErrorCode::NotFound,
+            $exception instanceof ValidationException, $exception instanceof FieldFormatException, $exception instanceof \InvalidArgumentException => ErrorCode::Validation,
+            default => ErrorCode::Internal,
+        };
+        $response = $this->createErrorResponse($message, code: $code, field: $field === null ? null : (string) $field)->toArray();
+        $response['meta'] = [...$this->createResponseMeta()->jsonSerialize(), 'correlation_id' => $correlationId];
 
         if (app()->environment('local') && $exception) {
             $response['debug'] = [

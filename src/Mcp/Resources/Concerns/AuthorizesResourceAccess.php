@@ -61,7 +61,7 @@ trait AuthorizesResourceAccess
             permissions: config('statamic.mcp.resources.require_statamic_permission', true) ? [$this->requiredPermissions()] : [],
             handle: $handle,
             mode: 'read',
-        ));
+        ))['message'] ?? null;
     }
 
     /**

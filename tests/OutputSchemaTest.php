@@ -23,7 +23,7 @@ it('returns output schema with standard envelope from all tools', function (stri
         ->and($output)->toHaveKey('success')
         ->and($output)->toHaveKey('data')
         ->and($output)->toHaveKey('meta')
-        ->and($output)->toHaveKey('errors')
+        ->and($output)->toHaveKey('error')
         ->and($output)->toHaveKey('warnings');
 })->with([
     EntriesRouter::class,

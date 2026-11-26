@@ -22,6 +22,9 @@ use Opis\JsonSchema\Errors\ErrorFormatter;
 use Opis\JsonSchema\Validator;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Statamic\Facades\Collection;
+use Statamic\Facades\Entry;
+use Statamic\Facades\GlobalSet;
+use Statamic\Facades\Site;
 use Statamic\Facades\Taxonomy;
 
 /**
@@ -124,7 +127,10 @@ class McpProtocolSurfaceTest extends TestCase
             ->assertStructuredContent(fn (AssertableJson $json) => $json
                 ->where('success', false)
                 ->where('meta.tool', 'statamic-content-facade-read')
-                ->has('errors', 1)
+                ->where('error.code', 'VALIDATION')
+                ->where('error.field', 'action')
+                ->has('error.message')
+                ->missing('errors')
                 ->etc()
             );
     }
@@ -167,6 +173,77 @@ class McpProtocolSurfaceTest extends TestCase
 
         $this->assertContains('statamic-entries', $names);
         $this->assertSame(count(array_unique($names)), count($names), 'Tool names must be unique.');
+    }
+
+    /** @return array<string, array{class-string, array<string, mixed>}> */
+    public static function missingRecords(): array
+    {
+        return [
+            'entry' => [EntriesRouter::class, ['collection' => self::COLLECTION, 'id' => 'absent']],
+            'term' => [TermsRouter::class, ['taxonomy' => self::TAXONOMY, 'slug' => 'absent']],
+            'global' => [GlobalsRouter::class, ['handle' => 'absent']],
+            'blueprint' => [BlueprintsRouter::class, ['handle' => 'absent', 'namespace' => 'collections']],
+            'collection' => [StructuresRouter::class, ['resource_type' => 'collection', 'handle' => 'absent']],
+            'taxonomy' => [StructuresRouter::class, ['resource_type' => 'taxonomy', 'handle' => 'absent']],
+            'navigation' => [StructuresRouter::class, ['resource_type' => 'navigation', 'handle' => 'absent']],
+            'site' => [StructuresRouter::class, ['resource_type' => 'site', 'handle' => 'absent']],
+            'container' => [AssetsRouter::class, ['resource_type' => 'container', 'container' => 'absent']],
+            'user' => [UsersRouter::class, ['resource_type' => 'user', 'id' => 'absent']],
+            'role' => [UsersRouter::class, ['resource_type' => 'role', 'handle' => 'absent']],
+            'group' => [UsersRouter::class, ['resource_type' => 'group', 'handle' => 'absent']],
+        ];
+    }
+
+    #[DataProvider('missingRecords')]
+    public function test_missing_records_are_not_validation_failures(string $tool, array $arguments): void
+    {
+        $this->mcpTool($tool, ['action' => 'get'] + $arguments)
+            ->assertHasErrors()
+            ->assertStructuredContent(fn (AssertableJson $json) => $json
+                ->where('success', false)
+                ->where('error.code', 'NOT_FOUND')
+                ->has('error.message')->has('error.field')
+                ->missing('errors')->etc());
+    }
+
+    public function test_unexpected_repository_failures_are_internal_and_do_not_expose_details(): void
+    {
+        app()->detectEnvironment(fn (): string => 'production');
+        Entry::shouldReceive('find')->with('broken')->andThrow(new \RuntimeException('private database diagnostic'));
+
+        $this->mcpTool(EntriesRouter::class, ['action' => 'get', 'collection' => self::COLLECTION, 'id' => 'broken'])
+            ->assertHasErrors()
+            ->assertStructuredContent(fn (AssertableJson $json) => $json
+                ->where('success', false)
+                ->where('error.code', 'INTERNAL')
+                ->where('error.message', fn (string $message): bool => ! str_contains($message, 'private database diagnostic'))
+                ->has('meta.correlation_id')->missing('errors')->etc());
+    }
+
+    public function test_missing_localizations_are_not_found_with_or_without_a_version(): void
+    {
+        config(['statamic.editions.pro' => true, 'statamic.system.multisite' => true]);
+        Site::setSites([
+            'en' => ['name' => 'English', 'locale' => 'en_US', 'url' => '/'],
+            'da' => ['name' => 'Dansk', 'locale' => 'da_DK', 'url' => '/da/'],
+        ]);
+        Collection::find(self::COLLECTION)->sites(['en', 'da'])->save();
+        Entry::make()->id('english-only')->collection(self::COLLECTION)->locale('en')->slug('one')->save();
+        $set = GlobalSet::make('english-only')->sites(['en']);
+        $set->save();
+        $set->makeLocalization('en')->data(['title' => 'English'])->save();
+
+        foreach ([
+            [EntriesRouter::class, ['action' => 'get', 'collection' => self::COLLECTION, 'id' => 'english-only']],
+            [EntriesRouter::class, ['action' => 'update', 'collection' => self::COLLECTION, 'id' => 'english-only', 'data' => ['title' => 'Dansk']]],
+            [GlobalsRouter::class, ['action' => 'update', 'handle' => 'english-only', 'data' => ['title' => 'Dansk']]],
+            [GlobalsRouter::class, ['action' => 'update', 'handle' => 'english-only', 'data' => ['title' => 'Dansk'], 'expected_version' => 'old']],
+        ] as [$tool, $arguments]) {
+            $this->mcpTool($tool, $arguments + ['site' => 'da'])
+                ->assertHasErrors()
+                ->assertStructuredContent(fn (AssertableJson $json) => $json
+                    ->where('error.code', 'NOT_FOUND')->where('error.field', 'site')->etc());
+        }
     }
 
     public function test_server_reports_its_installed_package_version(): void

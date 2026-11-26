@@ -103,9 +103,11 @@ class BlueprintsRouterTest extends TestCase
             'include_details' => true,
         ]);
 
-        // Mock setup isn't properly configured, so expect failure
-        $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Failed to list blueprints:', $result['errors'][0]);
+        $this->assertTrue($result['success']);
+        $blueprint = collect($result['data']['blueprints'])->firstWhere('handle', 'detailed');
+        $this->assertSame('Detailed Blueprint', $blueprint['title']);
+        $this->assertArrayHasKey('hidden', $blueprint);
+        $this->assertArrayHasKey('order', $blueprint);
     }
 
     public function test_list_blueprints_without_fields(): void
@@ -117,9 +119,10 @@ class BlueprintsRouterTest extends TestCase
             'include_fields' => false,
         ]);
 
-        // Mock setup isn't properly configured, so expect failure
-        $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Failed to list blueprints:', $result['errors'][0]);
+        $this->assertTrue($result['success']);
+        $blueprint = collect($result['data']['blueprints'])->firstWhere('handle', 'no_fields');
+        $this->assertSame('No Fields', $blueprint['title']);
+        $this->assertArrayNotHasKey('fields', $blueprint);
     }
 
     public function test_get_specific_blueprint(): void
@@ -205,9 +208,10 @@ class BlueprintsRouterTest extends TestCase
             'output_format' => 'typescript',
         ]);
 
-        // Mock setup isn't properly configured, so expect failure
-        $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Failed to analyze types:', $result['errors'][0]);
+        $this->assertTrue($result['success']);
+        $this->assertSame('typescript', $result['data']['format']);
+        $this->assertSame('text', $result['data']['types']['type_test']['title']['type']);
+        $this->assertSame('toggle', $result['data']['types']['type_test']['published']['type']);
     }
 
     public function test_types_analysis_all_formats(): void
@@ -219,9 +223,9 @@ class BlueprintsRouterTest extends TestCase
             'output_format' => 'all',
         ]);
 
-        // Mock setup isn't properly configured, so expect failure
-        $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Failed to analyze types:', $result['errors'][0]);
+        $this->assertTrue($result['success']);
+        $this->assertSame('all', $result['data']['format']);
+        $this->assertSame('text', $result['data']['types']['format_test']['title']['type']);
     }
 
     public function test_validate_blueprint(): void
@@ -605,9 +609,7 @@ class BlueprintsRouterTest extends TestCase
                 ],
             ]);
 
-        Blueprint::shouldReceive('in')
-            ->with($namespace)
-            ->andReturn(collect([$handle => $blueprint]));
+        $blueprint->save();
     }
 
     /**
@@ -635,8 +637,6 @@ class BlueprintsRouterTest extends TestCase
                 ],
             ]);
 
-        Blueprint::shouldReceive('in')
-            ->with($namespace)
-            ->andReturn(collect([$handle => $blueprint]));
+        $blueprint->save();
     }
 }

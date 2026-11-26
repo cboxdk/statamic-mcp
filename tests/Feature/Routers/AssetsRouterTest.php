@@ -323,7 +323,7 @@ class AssetsRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('JSON values', $result['error']);
+        $this->assertStringContainsString('JSON values', $result['error']['message']);
     }
 
     public function test_upload_requires_a_supported_source(): void

@@ -63,7 +63,7 @@ it('allows an HTTP call only when token, actor and policy all agree', function (
 
     $denial = app(McpAuthorizer::class)->denial(matrixCall());
 
-    $expected === null ? expect($denial)->toBeNull() : expect($denial)->toContain($expected);
+    $expected === null ? expect($denial)->toBeNull() : expect($denial['message'])->toContain($expected);
 })->with([
     'token and actor' => [['entries:write'], ['view blog entries', 'edit blog entries'], null],
     'read token' => [['entries:read'], ['view blog entries', 'edit blog entries'], 'Token missing required scope: entries:write'],
@@ -72,7 +72,7 @@ it('allows an HTTP call only when token, actor and policy all agree', function (
 ]);
 
 it('refuses an unauthenticated HTTP call', function () {
-    expect(app(McpAuthorizer::class)->denial(matrixCall()))->toContain('Authentication required');
+    expect(app(McpAuthorizer::class)->denial(matrixCall())['message'])->toContain('Authentication required');
 });
 
 it('lets a super admin past permissions but never past the token', function () {
@@ -80,7 +80,7 @@ it('lets a super admin past permissions but never past the token', function () {
     matrixToken(['entries:read']);
 
     expect(app(McpAuthorizer::class)->denial(matrixCall('read')))->toBeNull()
-        ->and(app(McpAuthorizer::class)->denial(matrixCall('write')))->toContain('entries:write');
+        ->and(app(McpAuthorizer::class)->denial(matrixCall('write'))['message'])->toContain('entries:write');
 });
 
 it('applies the resource policy to HTTP and stdio alike, per mode', function (bool $web) {
@@ -93,7 +93,7 @@ it('applies the resource policy to HTTP and stdio alike, per mode', function (bo
     }
 
     expect(app(McpAuthorizer::class)->denial(matrixCall('read')))->toBeNull()
-        ->and(app(McpAuthorizer::class)->denial(matrixCall('write')))->toBe("Write access to 'blog' is not permitted by resource policy")
+        ->and(app(McpAuthorizer::class)->denial(matrixCall('write'))['message'])->toBe("Write access to 'blog' is not permitted by resource policy")
         ->and(app(McpAuthorizer::class)->denial(matrixCall('write', 'news')))->toBeNull();
 })->with(['http' => true, 'stdio' => false]);
 
@@ -108,6 +108,6 @@ it('fails closed for an extra tool that declares no scope or permission', functi
     matrixToken(['entries:read']);
     $call = fn (array $scopes) => new McpCall('site-health', 'get', $scopes, [], null, 'read', extraTool: true);
 
-    expect(app(McpAuthorizer::class)->denial($call([])))->toContain('declares no token scope')
-        ->and(app(McpAuthorizer::class)->denial($call([TokenScope::EntriesRead])))->toContain('Permission denied');
+    expect(app(McpAuthorizer::class)->denial($call([]))['message'])->toContain('declares no token scope')
+        ->and(app(McpAuthorizer::class)->denial($call([TokenScope::EntriesRead]))['message'])->toContain('Permission denied');
 });

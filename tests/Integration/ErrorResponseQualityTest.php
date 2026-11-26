@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Tests\Integration;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\AssetsRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\BlueprintsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\EntriesRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\StructuresRouter;
 use Cboxdk\StatamicMcp\Tests\TestCase;
+use Statamic\Facades\Blueprint;
 use Statamic\Facades\Collection;
 
 class ErrorResponseQualityTest extends TestCase
@@ -93,5 +95,28 @@ class ErrorResponseQualityTest extends TestCase
         $error = $result['errors'][0];
         $this->assertStringContainsString('Entry not found', $error);
         $this->assertStringContainsString('does-not-exist-uuid', $error);
+    }
+
+    public function test_blueprint_suggestions_resolve_in_the_requested_namespace(): void
+    {
+        foreach (['blog', 'private'] as $collection) {
+            Collection::make($collection)->save();
+        }
+        foreach (['post' => 'blog', 'posts' => 'private'] as $handle => $collection) {
+            Blueprint::make($handle)->setNamespace('collections.' . $collection)
+                ->setContents(['fields' => []])->save();
+        }
+        $result = (new BlueprintsRouter)->execute([
+            'action' => 'get', 'namespace' => 'collections', 'collection' => 'blog', 'handle' => 'postz',
+        ]);
+        $this->assertSame('NOT_FOUND', $result['error']['code']);
+        $this->assertSame(['post'], $result['error']['valid_values']);
+    }
+
+    public function test_numeric_handles_stay_strings_in_suggestions(): void
+    {
+        Collection::make('123')->save();
+        $result = (new EntriesRouter)->execute(['action' => 'list', 'collection' => '124']);
+        $this->assertSame(['123'], $result['error']['valid_values']);
     }
 }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\System;
 
+use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
 use Cboxdk\StatamicMcp\Mcp\ExtraTools;
 use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
@@ -70,7 +71,7 @@ class SchemaTool extends BaseStatamicTool
 
         if ($toolName !== null) {
             if (! isset($catalog[$toolName])) {
-                return $this->createErrorResponse("Unknown tool: {$toolName}. Available: " . implode(', ', array_keys($catalog)))->toArray();
+                return $this->createErrorResponse("Unknown tool: {$toolName}. Available: " . implode(', ', array_keys($catalog)), code: ErrorCode::NotFound, field: 'tool_name', validValues: array_keys($catalog))->toArray();
             }
 
             return ['tool' => $catalog[$toolName]];

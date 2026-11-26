@@ -8,6 +8,7 @@ use Cboxdk\StatamicMcp\Actions\ActionEffect;
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Authorization\McpCall;
+use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
 use Cboxdk\StatamicMcp\Mcp\ExtraTools;
 use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
 use Cboxdk\StatamicMcp\Support\McpContext;
@@ -175,13 +176,13 @@ trait RouterHelpers
         }
 
         if (! is_string($arguments['site'])) {
-            return $this->createErrorResponse('Site handle must be a string')->toArray();
+            return $this->createErrorResponse('Site handle must be a string', field: 'site')->toArray();
         }
 
         /** @var Collection<int|string, \Statamic\Sites\Site> $allSites */
         $allSites = Site::all();
         if (! $allSites->map->handle()->contains($arguments['site'])) {
-            return $this->createErrorResponse("Invalid site handle: {$arguments['site']}")->toArray();
+            return $this->createErrorResponse("Invalid site handle: {$arguments['site']}", code: ErrorCode::NotFound, field: 'site')->toArray();
         }
 
         return null;
@@ -272,7 +273,9 @@ trait RouterHelpers
             $errors[] = "{$field}: " . implode(', ', $fieldErrors);
         }
 
-        return $this->createErrorResponse('Field validation failed: ' . implode('; ', $errors))->toArray();
+        $field = array_key_first($e->errors());
+
+        return $this->createErrorResponse('Field validation failed: ' . implode('; ', $errors), field: $field === null ? null : (string) $field)->toArray();
     }
 
     /**

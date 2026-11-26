@@ -7,6 +7,7 @@ namespace Cboxdk\StatamicMcp\Authorization;
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
+use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Cboxdk\StatamicMcp\Support\McpContext;
 use Illuminate\Support\Facades\Log;
@@ -33,15 +34,18 @@ final class McpAuthorizer
      * The first gate on its own: over HTTP, nobody is acting. Asked before a
      * call's arguments are checked, so an anonymous caller learns nothing
      * about the call but that it must sign in.
+     *
+     * @return array{code: ErrorCode, message: string}|null
      */
-    public function authenticationDenial(): ?string
+    public function authenticationDenial(): ?array
     {
         return ! McpContext::isCli() && auth()->user() === null
-            ? 'Permission denied: Authentication required'
+            ? ['code' => ErrorCode::Forbidden, 'message' => 'Permission denied: Authentication required']
             : null;
     }
 
-    public function denial(McpCall $call): ?string
+    /** @return array{code: ErrorCode, message: string}|null */
+    public function denial(McpCall $call): ?array
     {
         if (($denial = $this->authenticationDenial()) !== null) {
             return $denial;
@@ -62,27 +66,28 @@ final class McpAuthorizer
         }
 
         if ($call->handle !== null && ! app(ResourcePolicy::class)->canAccess($call->domain, $call->handle, $call->mode)) {
-            return ucfirst($call->mode) . " access to '{$call->handle}' is not permitted by resource policy";
+            return ['code' => ErrorCode::Forbidden, 'message' => ucfirst($call->mode) . " access to '{$call->handle}' is not permitted by resource policy"];
         }
 
         return null;
     }
 
-    private function tokenDenial(McpCall $call, McpTokenData $token): ?string
+    /** @return array{code: ErrorCode, message: string}|null */
+    private function tokenDenial(McpCall $call, McpTokenData $token): ?array
     {
         if (in_array(TokenScope::FullAccess->value, $token->scopes, true)) {
             // A v3 token carrying `*` would grow to cover every scope added
             // later. v4 fixes full access to an explicit list when a token is
             // issued, so this one must be approved again.
-            return 'This token was issued with full access (*) before v4. Full access must be approved again: '
-                . 'create a new token, or authorize the client again.';
+            return ['code' => ErrorCode::ScopeMissing, 'message' => 'This token was issued with full access (*) before v4. Full access must be approved again: '
+                . 'create a new token, or authorize the client again.'];
         }
 
         // A tool another package added, in a domain this package has no scope
         // for, would otherwise need none. Fail closed: no token carries a scope
         // for it. Such a tool must become a registered action with its own scope.
         if ($call->scopes === [] && $call->extraTool) {
-            return 'This tool declares no token scope. Tools from other packages must be registered actions with their own scope.';
+            return ['code' => ErrorCode::ScopeMissing, 'message' => 'This tool declares no token scope. Tools from other packages must be registered actions with their own scope.'];
         }
 
         $tokens = app(TokenService::class);
@@ -99,13 +104,14 @@ final class McpAuthorizer
                 'ip' => request()->ip(),
             ]);
 
-            return "Token missing required scope: {$scope->value}" . $this->replacedScopeHint($token->scopes, $scope);
+            return ['code' => ErrorCode::ScopeMissing, 'message' => "Token missing required scope: {$scope->value}" . $this->replacedScopeHint($token->scopes, $scope)];
         }
 
         return null;
     }
 
-    private function permissionDenial(McpCall $call, User $user): ?string
+    /** @return array{code: ErrorCode, message: string}|null */
+    private function permissionDenial(McpCall $call, User $user): ?array
     {
         if ($user->isSuper()) {
             return null;
@@ -131,7 +137,7 @@ final class McpAuthorizer
                     'ip' => request()->ip(),
                 ]);
 
-                return "Permission denied: Cannot {$call->action} {$call->domain}";
+                return ['code' => ErrorCode::Forbidden, 'message' => "Permission denied: Cannot {$call->action} {$call->domain}"];
             }
         }
 

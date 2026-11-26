@@ -8,10 +8,11 @@ use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\Contracts\CollectionTreeEditor as CollectionTreeEditorContract;
+use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
+use Cboxdk\StatamicMcp\Mcp\Exceptions\ToolFailure;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Validation\ValidationException;
 use Statamic\Contracts\Entries\Collection;
 use Statamic\Contracts\Entries\Entry as EntryContract;
 use Statamic\Contracts\Routing\UrlBuilder;
@@ -26,9 +27,9 @@ use Statamic\Structures\Tree;
 /** Moves one existing branch. Never accepts replacement trees or deletes entries. */
 class CollectionTreeEditor implements CollectionTreeEditorContract
 {
-    private function refuse(string $message): never
+    private function refuse(string $message, ErrorCode $code = ErrorCode::Validation): never
     {
-        throw ValidationException::withMessages(['parent' => $message]);
+        throw new ToolFailure($code, $message, $code === ErrorCode::Validation ? 'parent' : null);
     }
 
     private function context(Collection $collection, string $site, bool $write): CollectionTree
@@ -40,28 +41,28 @@ class CollectionTreeEditor implements CollectionTreeEditorContract
         $policy = app(ResourcePolicy::class);
         foreach (['entries', 'structures'] as $domain) {
             if ($write && array_intersect(['parent', 'tree', 'children'], $policy->getDeniedFields($domain))) {
-                $this->refuse('Tree changes are denied by resource field policy.');
+                $this->refuse('Tree changes are denied by resource field policy.', ErrorCode::Forbidden);
             }
             if (! $policy->canAccess($domain, $collection->handle(), $mode)) {
-                $this->refuse("{$mode} access to this collection is denied by the {$domain} resource policy.");
+                $this->refuse("{$mode} access to this collection is denied by the {$domain} resource policy.", ErrorCode::Forbidden);
             }
         }
         if (McpContext::isWebRequest()) {
             $user = auth()->user();
             if (! $user || ! Gate::forUser($user)->allows('view', $collection) || ! Gate::forUser($user)->allows('view', $siteObject)) {
-                $this->refuse('Permission denied: Cannot access this collection site.');
+                $this->refuse('Permission denied: Cannot access this collection site.', ErrorCode::Forbidden);
             }
             if ($write && ! Gate::forUser($user)->allows('reorder', $collection)) {
-                $this->refuse('Permission denied: Reordering this collection is required.');
+                $this->refuse('Permission denied: Reordering this collection is required.', ErrorCode::Forbidden);
             }
             if ($token = request()->attributes->get('mcp_token')) {
                 if (! $token instanceof McpTokenData) {
-                    $this->refuse('Invalid MCP token context.');
+                    $this->refuse('Invalid MCP token context.', ErrorCode::Forbidden);
                 }
                 $scopes = $write ? [TokenScope::EntriesWrite, TokenScope::StructuresAdmin] : [TokenScope::EntriesRead, TokenScope::StructuresRead];
                 foreach ($scopes as $scope) {
                     if (! app(TokenService::class)->hasScope($token, $scope)) {
-                        $this->refuse("Token missing required scope: {$scope->value}");
+                        $this->refuse("Token missing required scope: {$scope->value}", ErrorCode::ScopeMissing);
                     }
                 }
             }
@@ -74,7 +75,7 @@ class CollectionTreeEditor implements CollectionTreeEditorContract
         Blink::forget('collection-structure-flattened-pages-collection' . $collection->handle() . '-' . $site);
         $tree = $collection->structure()->in($site);
         if (! $tree instanceof CollectionTree) {
-            $this->refuse('Collection tree not found.');
+            $this->refuse('Collection tree not found.', ErrorCode::NotFound);
         }
 
         return $this->freshTree($tree);
@@ -84,7 +85,7 @@ class CollectionTreeEditor implements CollectionTreeEditorContract
     {
         $tree = $source->structure()->makeTree($source->locale(), $source->getOriginal('tree', []));
         if (! $tree instanceof CollectionTree) {
-            $this->refuse('Collection tree not found.');
+            $this->refuse('Collection tree not found.', ErrorCode::NotFound);
         }
 
         // Rebuild pages without inheriting cached parents or URIs, while
@@ -133,7 +134,7 @@ class CollectionTreeEditor implements CollectionTreeEditorContract
         $version = $this->storedTreeVersion($collection, $site);
         $tree = $this->context($collection, $site, true);
         if (McpContext::isWebRequest() && $entry->id() && Entry::find($entry->id()) && ! Gate::forUser(auth()->user())->allows('edit', $entry)) {
-            $this->refuse('Permission denied: Cannot move this entry (author or site restriction).');
+            $this->refuse('Permission denied: Cannot move this entry (author or site restriction).', ErrorCode::Forbidden);
         }
         $parentPage = $parent ? $tree->find($parent) : null;
         if ($parent !== null) {
@@ -142,7 +143,7 @@ class CollectionTreeEditor implements CollectionTreeEditorContract
                 $this->refuse('Parent must exist in the same collection and site.');
             }
             if (McpContext::isWebRequest() && ! Gate::forUser(auth()->user())->allows('view', $target)) {
-                $this->refuse('Permission denied: Cannot view the requested parent.');
+                $this->refuse('Permission denied: Cannot view the requested parent.', ErrorCode::Forbidden);
             }
             if ($parentPage->isRoot()) {
                 $parent = null;
@@ -166,7 +167,7 @@ class CollectionTreeEditor implements CollectionTreeEditorContract
             foreach ($page->flattenedPages() as $descendant) {
                 $subtreeDepth = max($subtreeDepth, $descendant->depth() - $page->depth());
                 if (McpContext::isWebRequest() && ! Gate::forUser(auth()->user())->allows('edit', $descendant->entry())) {
-                    $this->refuse('Permission denied: Cannot move every entry in this subtree.');
+                    $this->refuse('Permission denied: Cannot move every entry in this subtree.', ErrorCode::Forbidden);
                 }
             }
         }
@@ -256,16 +257,16 @@ class CollectionTreeEditor implements CollectionTreeEditorContract
                 $this->refuse('The entry must be saved in the collection tree before it can be moved.');
             }
             if ($this->storedTreeVersion($entry->collection(), $entry->locale()) !== $plan->version) {
-                $this->refuse('The tree changed during this operation. Read it again before retrying.');
+                $this->refuse('The tree changed during this operation. Read it again before retrying.', ErrorCode::VersionConflict);
             }
             if (! $plan->candidate->save()) {
-                $this->refuse('The tree could not be saved.');
+                $this->refuse('The tree could not be saved.', ErrorCode::Internal);
             }
             Blink::flush();
 
             $actualParent = $this->parent($entry);
             if ($actualParent !== $plan->parent) {
-                $this->refuse('The tree save did not apply the requested parent.');
+                $this->refuse('The tree save did not apply the requested parent.', ErrorCode::OutcomeUnknown);
             }
 
             $savedParent = $actualParent;

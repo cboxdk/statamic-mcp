@@ -9,7 +9,9 @@ use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\Authorization\InstallationProfile;
 use Cboxdk\StatamicMcp\Contracts\CollectionTreeEditor;
+use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
 use Cboxdk\StatamicMcp\Mcp\Exceptions\FieldFormatException;
+use Cboxdk\StatamicMcp\Mcp\Exceptions\ToolFailure;
 use Cboxdk\StatamicMcp\Mcp\Support\ConditionalFieldsValidator;
 use Cboxdk\StatamicMcp\Mcp\Support\SeoProFieldData;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
@@ -83,7 +85,7 @@ class EntriesRouter extends BaseRouter
             }
             foreach (['entries', 'structures'] as $domain) {
                 if (in_array('parent', app(ResourcePolicy::class)->getDeniedFields($domain), true)) {
-                    throw ValidationException::withMessages(['parent' => 'Parent changes are denied by resource policy.']);
+                    throw new ToolFailure(ErrorCode::Forbidden, 'Parent changes are denied by resource policy.', 'parent');
                 }
             }
         }
@@ -182,7 +184,10 @@ class EntriesRouter extends BaseRouter
 
         $collectionHandle = is_string($arguments['collection']) ? $arguments['collection'] : '';
         if (! Collection::find($collectionHandle)) {
-            return $this->createErrorResponse("Collection not found: {$collectionHandle}")->toArray();
+            return $this->missingResource('Collection', $collectionHandle, 'collection',
+                Collection::all()->filter(fn ($collection): bool => $this->isCliContext() || User::current()?->can('view', $collection) === true)->map->handle()->all(),
+                $arguments,
+            )->toArray();
         }
 
         $siteError = $this->validateSiteHandle($arguments);
@@ -302,7 +307,7 @@ class EntriesRouter extends BaseRouter
                 }
 
                 return $entry === null
-                    ? $this->createErrorResponse('Entry not found: ' . $id)->toArray()
+                    ? $this->missingResource('Entry', $id, 'id')->toArray()
                     : $this->entryVersion($entry);
             },
             fn (): array => $this->withVersion($action, $write()),
@@ -344,72 +349,60 @@ class EntriesRouter extends BaseRouter
         $pagination = $this->getPaginationArgs($arguments, 50, 1000);
         $limit = $pagination['limit'];
         $offset = $pagination['offset'];
-
-        try {
-            if ($policyError = $this->authorizeEntrySite($site)) {
-                return $policyError;
-            }
-            $query = Entry::query()
-                ->where('collection', $collection)
-                ->where('site', $site);
-
-            $filters = is_array($arguments['filters'] ?? null) ? $arguments['filters'] : [];
-            if ($filterError = $this->validateListFilters(
-                $filters,
-                Collection::find($collection)?->entryBlueprints() ?? [],
-                self::FILTER_PROPERTIES,
-            )) {
-                return $filterError;
-            }
-
-            // An entry's status is computed from published, its date and the collection's
-            // date behavior, so it has to go through whereStatus(); where('status') throws.
-            // Asking for a status is explicit, so include_unpublished doesn't narrow it.
-            $status = $filters['status'] ?? null;
-            unset($filters['status']);
-
-            if ($status !== null) {
-                if (! is_string($status) || ! in_array($status, self::ENTRY_STATUSES, true)) {
-                    return $this->createErrorResponse(
-                        'Invalid status filter. Use one of: ' . implode(', ', self::ENTRY_STATUSES)
-                    )->toArray();
-                }
-
-                $query->whereStatus($status);
-            } elseif (! $includeUnpublished) {
-                $query->where('published', true);
-            }
-
-            foreach ($filters as $field => $value) {
-                $query->where((string) $field, $value);
-            }
-
-            $total = $query->count();
-            $entries = $query->offset($offset)->limit($limit)->get();
-
-            $data = $entries->map(function ($entry) {
-                return [
-                    'id' => $entry->id(),
-                    'slug' => $entry->slug(),
-                    'title' => $entry->get('title', $entry->slug()),
-                    'published' => $entry->published(),
-                    'status' => $entry->status(),
-                    'date' => $entry->date()?->toISOString(),
-                    'last_modified' => $entry->lastModified()?->toISOString(),
-                    'url' => $entry->url(),
-                ];
-            })->all();
-
-            return [
-                'entries' => $data,
-                'pagination' => $this->buildPaginationMeta($total, $limit, $offset),
-                'collection' => $collection,
-                'site' => $site,
-            ];
-
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to list entries: {$e->getMessage()}")->toArray();
+        if ($policyError = $this->authorizeEntrySite($site)) {
+            return $policyError;
         }
+        $query = Entry::query()
+            ->where('collection', $collection)
+            ->where('site', $site);
+        $filters = is_array($arguments['filters'] ?? null) ? $arguments['filters'] : [];
+        if ($filterError = $this->validateListFilters(
+            $filters,
+            Collection::find($collection)?->entryBlueprints() ?? [],
+            self::FILTER_PROPERTIES,
+        )) {
+            return $filterError;
+        }
+        // An entry's status is computed from published, its date and the collection's
+        // date behavior, so it has to go through whereStatus(); where('status') throws.
+        // Asking for a status is explicit, so include_unpublished doesn't narrow it.
+        $status = $filters['status'] ?? null;
+        unset($filters['status']);
+        if ($status !== null) {
+            if (! is_string($status) || ! in_array($status, self::ENTRY_STATUSES, true)) {
+                return $this->createErrorResponse(
+                    'Invalid status filter. Use one of: ' . implode(', ', self::ENTRY_STATUSES)
+                )->toArray();
+            }
+
+            $query->whereStatus($status);
+        } elseif (! $includeUnpublished) {
+            $query->where('published', true);
+        }
+        foreach ($filters as $field => $value) {
+            $query->where((string) $field, $value);
+        }
+        $total = $query->count();
+        $entries = $query->offset($offset)->limit($limit)->get();
+        $data = $entries->map(function ($entry) {
+            return [
+                'id' => $entry->id(),
+                'slug' => $entry->slug(),
+                'title' => $entry->get('title', $entry->slug()),
+                'published' => $entry->published(),
+                'status' => $entry->status(),
+                'date' => $entry->date()?->toISOString(),
+                'last_modified' => $entry->lastModified()?->toISOString(),
+                'url' => $entry->url(),
+            ];
+        })->all();
+
+        return [
+            'entries' => $data,
+            'pagination' => $this->buildPaginationMeta($total, $limit, $offset),
+            'collection' => $collection,
+            'site' => $site,
+        ];
     }
 
     /**
@@ -424,67 +417,54 @@ class EntriesRouter extends BaseRouter
         $id = is_string($arguments['id']) ? $arguments['id'] : '';
         $site = $this->resolveSiteHandle($arguments);
         $version = is_string($arguments['revision_state'] ?? null) ? $arguments['revision_state'] : 'published';
-
-        try {
-            $entry = $this->resolveEntryInCollection($id, $arguments);
-
-            if ($entry === null) {
-                return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
-            }
-
-            // Get entry for specific site if needed
-            if ($entry->site()->handle() !== $site) {
-                $localizedEntry = $entry->in($site);
-                if (! $localizedEntry) {
-                    return $this->createErrorResponse("Entry not available in site: {$site}")->toArray();
-                }
-                $entry = $localizedEntry;
-            }
-
-            if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
-                return $policyError;
-            }
-
-            $entryVersion = $entry;
-
-            if ($version === 'working_copy' || $version === 'latest') {
-                if ($this->entryRevisionsEnabled($entry) && $entry->hasWorkingCopy()) {
-                    $workingCopy = $entry->workingCopy();
-                    if ($workingCopy !== null) {
-                        /** @var \Statamic\Entries\Entry $entryVersion */
-                        $entryVersion = $entry->makeFromRevision($workingCopy);
-                    }
-                } elseif ($version === 'working_copy') {
-                    return $this->createErrorResponse('No working copy exists for this entry')->toArray();
-                }
-            }
-
-            $response = [
-                'entry' => [
-                    'id' => $entryVersion->id(),
-                    'collection' => $entryVersion->collectionHandle(),
-                    'parent' => app(CollectionTreeEditor::class)->parent($entryVersion),
-                    'site' => $entryVersion->site()->handle(),
-                    'slug' => $entryVersion->slug(),
-                    'published' => $entryVersion->published(),
-                    'status' => $entryVersion->status(),
-                    'date' => $entryVersion->date()?->toISOString(),
-                    'last_modified' => $entryVersion->lastModified()?->toISOString(),
-                    'url' => $entryVersion->url(),
-                    'data' => $entryVersion->data()->all(),
-                ],
-            ];
-
-            // Include revision status metadata when revisions are enabled
-            if ($this->entryRevisionsEnabled($entry)) {
-                $response['revision_status'] = $this->getRevisionStatusMeta($entry);
-            }
-
-            return $response;
-
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to get entry: {$e->getMessage()}")->toArray();
+        $entry = $this->resolveEntryInCollection($id, $arguments);
+        if ($entry === null) {
+            return $this->missingResource('Entry', $id, 'id')->toArray();
         }
+        // Get entry for specific site if needed
+        if ($entry->site()->handle() !== $site) {
+            $localizedEntry = $entry->in($site);
+            if (! $localizedEntry) {
+                return $this->createErrorResponse("Entry not available in site: {$site}", code: ErrorCode::NotFound, field: 'site')->toArray();
+            }
+            $entry = $localizedEntry;
+        }
+        if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
+            return $policyError;
+        }
+        $entryVersion = $entry;
+        if ($version === 'working_copy' || $version === 'latest') {
+            if ($this->entryRevisionsEnabled($entry) && $entry->hasWorkingCopy()) {
+                $workingCopy = $entry->workingCopy();
+                if ($workingCopy !== null) {
+                    /** @var \Statamic\Entries\Entry $entryVersion */
+                    $entryVersion = $entry->makeFromRevision($workingCopy);
+                }
+            } elseif ($version === 'working_copy') {
+                return $this->createErrorResponse('No working copy exists for this entry')->toArray();
+            }
+        }
+        $response = [
+            'entry' => [
+                'id' => $entryVersion->id(),
+                'collection' => $entryVersion->collectionHandle(),
+                'parent' => app(CollectionTreeEditor::class)->parent($entryVersion),
+                'site' => $entryVersion->site()->handle(),
+                'slug' => $entryVersion->slug(),
+                'published' => $entryVersion->published(),
+                'status' => $entryVersion->status(),
+                'date' => $entryVersion->date()?->toISOString(),
+                'last_modified' => $entryVersion->lastModified()?->toISOString(),
+                'url' => $entryVersion->url(),
+                'data' => $entryVersion->data()->all(),
+            ],
+        ];
+        // Include revision status metadata when revisions are enabled
+        if ($this->entryRevisionsEnabled($entry)) {
+            $response['revision_status'] = $this->getRevisionStatusMeta($entry);
+        }
+
+        return $response;
     }
 
     /**
@@ -505,211 +485,183 @@ class EntriesRouter extends BaseRouter
         $parentRequested = array_key_exists('parent', $data);
         $requestedParent = $data['parent'] ?? null;
         unset($data['parent']);
+        if ($policyError = $this->authorizeEntrySite($site)) {
+            return $policyError;
+        }
+        $entry = Entry::make()
+            ->collection($collection)
+            ->locale($site);
+        // Set slug from arguments (or data, for callers that send it as a
+        // field value) or generate from title. Slug is an entry property,
+        // not a data key, so it never stays in $data.
+        $requestedSlug = $arguments['slug'] ?? $data['slug'] ?? null;
+        unset($data['slug']);
+        if (! empty($requestedSlug)) {
+            $requestedSlug = is_string($requestedSlug) ? $requestedSlug : '';
 
-        try {
-            if ($policyError = $this->authorizeEntrySite($site)) {
+            // Use Statamic's built-in validation for unique slugs
+            $slugValidator = Validator::make(['slug' => $requestedSlug], [
+                'slug' => [
+                    'required',
+                    'string',
+                    new UniqueEntryValue($collection->handle(), null, $site),
+                ],
+            ]);
+
+            if ($slugValidator->fails()) {
+                $errors = $slugValidator->errors()->get('slug');
+                /** @var array<string> $flatErrors */
+                $flatErrors = array_map(fn ($error) => is_string($error) ? $error : implode(', ', (array) $error), $errors);
+
+                return $this->createErrorResponse('Slug validation failed: ' . implode(', ', $flatErrors))->toArray();
+            }
+
+            $entry->slug($requestedSlug);
+        } elseif (! $entry->slug() && isset($data['title'])) {
+            $titleValue = $data['title'];
+            $entry->slug(Str::slug(is_string($titleValue) ? $titleValue : ''));
+        }
+        // Extract published — it's a first-class entry property, not a data field
+        if (array_key_exists('published', $data)) {
+            $entry->published((bool) $data['published']);
+            unset($data['published']);
+        }
+        // For dated collections, parse the date and set it on the entry.
+        // Keep a normalized copy in data so the FieldsValidator sees the required field.
+        if (array_key_exists('date', $data) && $collection->dated()) {
+            try {
+                $parsedDate = $this->parseDateValue($data['date']);
+                $entry->date($parsedDate);
+                $data['date'] = $parsedDate->format('Y-m-d\TH:i:s.v\Z');
+            } catch (\Throwable $e) {
+                return $this->createErrorResponse("Invalid date value: {$e->getMessage()}")->toArray();
+            }
+        }
+        // Pin the blueprint to this collection before resolving it.
+        //
+        // Entry::blueprint() memoizes into Blink under
+        // "entry-{$this->id()}-blueprint", and an unsaved entry has no id,
+        // so every new entry shares the key "entry--blueprint". A web
+        // request creates at most one entry and never notices; this server
+        // is long-lived, so the second create in a different collection was
+        // handed the first collection's blueprint, and every field the two
+        // did not share was dropped from a write that reported success (#52).
+        //
+        // Assigning the handle goes through Statamic's fluent setter, which
+        // forgets that key. The getter below then runs the normal resolution
+        // path, so EntryBlueprintFound listeners still fire and addons that
+        // inject fields keep working.
+        $collectionBlueprint = $collection->entryBlueprint();
+        if ($collectionBlueprint !== null) {
+            $entry->blueprint($collectionBlueprint->handle());
+        }
+        // Get blueprint and validate field data
+        $blueprint = $entry->blueprint();
+        if (! $blueprint) {
+            return $this->createErrorResponse('Cannot create entry: Blueprint not found for this collection. A blueprint is required for data validation.', code: ErrorCode::NotFound)->toArray();
+        }
+        if (! empty($data)) {
+            // Strip entry-level metadata and coerce values to expected types
+            $data = $this->sanitizeIncomingFieldData($blueprint, $data);
+
+            // Add slug to data for validation if it's set
+            $dataWithSlug = $data;
+            if ($entry->slug()) {
+                $dataWithSlug['slug'] = $entry->slug();
+            }
+
+            // Use Statamic's Fields Validator for blueprint-based validation,
+            // then process through fieldtypes for storage format (matches CP pipeline).
+            try {
+                $fields = $blueprint->fields()->addValues($dataWithSlug);
+
+                // Resolve blueprint-level rule placeholders — Statamic's
+                // default slug field carries
+                // `new UniqueEntryValue({collection}, {id}, {site})`,
+                // which needs {collection} and {site} filled in ({id}
+                // resolves to null: nothing to exclude on create).
+                (new ConditionalFieldsValidator)
+                    ->fields($fields)
+                    ->withConditionValues($dataWithSlug)
+                    ->withContext([
+                        'entry' => $entry,
+                        'collection' => $collection,
+                        'site' => $site,
+                    ])
+                    ->withReplacements([
+                        'collection' => $collection->handle(),
+                        'site' => $site,
+                    ])
+                    ->validate();
+
+                // Process through fieldtypes (Terms strips prefixes,
+                // Bard normalizes nodes, Relationship wraps values, etc.)
+                // and store only what the caller sent. addValues()
+                // populates every field in the blueprint, so taking all
+                // of values() wrote an explicit null for each field left
+                // alone — a value, not an absence, which later updates
+                // merged into their validation payload and failed on.
+                /** @var array<string, mixed> $processed */
+                $processed = $fields->process()->values()->except(['slug', 'date'])->all();
+                $processed = SeoProFieldData::restoreEmptyValues($blueprint, $processed, $data);
+
+                $entry->data($this->withPassthroughKeys(array_intersect_key($processed, $data), $data, $blueprint));
+            } catch (ValidationException $e) {
+                return $this->formatValidationError($e);
+            } catch (\Throwable $e) {
+                throw $e;
+            }
+        } else {
+            $entry->data($data);
+        }
+        if ($parentRequested) {
+            app(CollectionTreeEditor::class)->validate($entry, $requestedParent);
+        }
+        if (! $this->entryRevisionsEnabled($entry) && $entry->published()
+            && ($policyError = $this->authorizeResolvedEntry('publishEntry', $entry))) {
+            if (is_array($arguments['data'] ?? null) && ! empty($arguments['data']['published'])) {
                 return $policyError;
             }
-            $entry = Entry::make()
-                ->collection($collection)
-                ->locale($site);
-
-            // Set slug from arguments (or data, for callers that send it as a
-            // field value) or generate from title. Slug is an entry property,
-            // not a data key, so it never stays in $data.
-            $requestedSlug = $arguments['slug'] ?? $data['slug'] ?? null;
-            unset($data['slug']);
-
-            if (! empty($requestedSlug)) {
-                $requestedSlug = is_string($requestedSlug) ? $requestedSlug : '';
-
-                // Use Statamic's built-in validation for unique slugs
-                $slugValidator = Validator::make(['slug' => $requestedSlug], [
-                    'slug' => [
-                        'required',
-                        'string',
-                        new UniqueEntryValue($collection->handle(), null, $site),
-                    ],
-                ]);
-
-                if ($slugValidator->fails()) {
-                    $errors = $slugValidator->errors()->get('slug');
-                    /** @var array<string> $flatErrors */
-                    $flatErrors = array_map(fn ($error) => is_string($error) ? $error : implode(', ', (array) $error), $errors);
-
-                    return $this->createErrorResponse('Slug validation failed: ' . implode(', ', $flatErrors))->toArray();
-                }
-
-                $entry->slug($requestedSlug);
-            } elseif (! $entry->slug() && isset($data['title'])) {
-                $titleValue = $data['title'];
-                $entry->slug(Str::slug(is_string($titleValue) ? $titleValue : ''));
-            }
-
-            // Extract published — it's a first-class entry property, not a data field
-            if (array_key_exists('published', $data)) {
-                $entry->published((bool) $data['published']);
-                unset($data['published']);
-            }
-
-            // For dated collections, parse the date and set it on the entry.
-            // Keep a normalized copy in data so the FieldsValidator sees the required field.
-            if (array_key_exists('date', $data) && $collection->dated()) {
-                try {
-                    $parsedDate = $this->parseDateValue($data['date']);
-                    $entry->date($parsedDate);
-                    $data['date'] = $parsedDate->format('Y-m-d\TH:i:s.v\Z');
-                } catch (\Throwable $e) {
-                    return $this->createErrorResponse("Invalid date value: {$e->getMessage()}")->toArray();
-                }
-            }
-
-            // Pin the blueprint to this collection before resolving it.
-            //
-            // Entry::blueprint() memoizes into Blink under
-            // "entry-{$this->id()}-blueprint", and an unsaved entry has no id,
-            // so every new entry shares the key "entry--blueprint". A web
-            // request creates at most one entry and never notices; this server
-            // is long-lived, so the second create in a different collection was
-            // handed the first collection's blueprint, and every field the two
-            // did not share was dropped from a write that reported success (#52).
-            //
-            // Assigning the handle goes through Statamic's fluent setter, which
-            // forgets that key. The getter below then runs the normal resolution
-            // path, so EntryBlueprintFound listeners still fire and addons that
-            // inject fields keep working.
-            $collectionBlueprint = $collection->entryBlueprint();
-
-            if ($collectionBlueprint !== null) {
-                $entry->blueprint($collectionBlueprint->handle());
-            }
-
-            // Get blueprint and validate field data
-            $blueprint = $entry->blueprint();
-
-            if (! $blueprint) {
-                return $this->createErrorResponse('Cannot create entry: Blueprint not found for this collection. A blueprint is required for data validation.')->toArray();
-            }
-
-            if (! empty($data)) {
-                // Strip entry-level metadata and coerce values to expected types
-                $data = $this->sanitizeIncomingFieldData($blueprint, $data);
-
-                // Add slug to data for validation if it's set
-                $dataWithSlug = $data;
-                if ($entry->slug()) {
-                    $dataWithSlug['slug'] = $entry->slug();
-                }
-
-                // Use Statamic's Fields Validator for blueprint-based validation,
-                // then process through fieldtypes for storage format (matches CP pipeline).
-                try {
-                    $fields = $blueprint->fields()->addValues($dataWithSlug);
-
-                    // Resolve blueprint-level rule placeholders — Statamic's
-                    // default slug field carries
-                    // `new UniqueEntryValue({collection}, {id}, {site})`,
-                    // which needs {collection} and {site} filled in ({id}
-                    // resolves to null: nothing to exclude on create).
-                    (new ConditionalFieldsValidator)
-                        ->fields($fields)
-                        ->withConditionValues($dataWithSlug)
-                        ->withContext([
-                            'entry' => $entry,
-                            'collection' => $collection,
-                            'site' => $site,
-                        ])
-                        ->withReplacements([
-                            'collection' => $collection->handle(),
-                            'site' => $site,
-                        ])
-                        ->validate();
-
-                    // Process through fieldtypes (Terms strips prefixes,
-                    // Bard normalizes nodes, Relationship wraps values, etc.)
-                    // and store only what the caller sent. addValues()
-                    // populates every field in the blueprint, so taking all
-                    // of values() wrote an explicit null for each field left
-                    // alone — a value, not an absence, which later updates
-                    // merged into their validation payload and failed on.
-                    /** @var array<string, mixed> $processed */
-                    $processed = $fields->process()->values()->except(['slug', 'date'])->all();
-                    $processed = SeoProFieldData::restoreEmptyValues($blueprint, $processed, $data);
-
-                    $entry->data($this->withPassthroughKeys(array_intersect_key($processed, $data), $data, $blueprint));
-                } catch (ValidationException $e) {
-                    return $this->formatValidationError($e);
-                } catch (\Throwable $e) {
-                    return $this->createErrorResponse('Failed to process entry data: ' . $e->getMessage())->toArray();
-                }
-            } else {
-                $entry->data($data);
-            }
-
-            if ($parentRequested) {
-                app(CollectionTreeEditor::class)->validate($entry, $requestedParent);
-            }
-
-            if (! $this->entryRevisionsEnabled($entry) && $entry->published()
-                && ($policyError = $this->authorizeResolvedEntry('publishEntry', $entry))) {
-                if (is_array($arguments['data'] ?? null) && ! empty($arguments['data']['published'])) {
-                    return $policyError;
-                }
-                $entry->published(false);
-            }
-
-            // Revision-aware create: use store() which saves as unpublished
-            // and creates an initial revision (matches CP behavior)
-            if ($this->entryRevisionsEnabled($entry)) {
-                $this->storeInitialRevision($entry, $arguments);
-            } else {
-                $this->persistStatamic(fn () => $this->touchedBy($entry)->save());
-            }
-
-            if ($parentRequested) {
-                try {
-                    $this->persistStatamic(fn () => app(CollectionTreeEditor::class)->move($entry, $requestedParent));
-                } catch (\Throwable $e) {
-                    // This call created the entry; do not leave a partial creation behind.
-                    $this->persistStatamic(fn () => $entry->delete());
-                    throw $e;
-                }
-            }
-
-            // Clear relevant caches
-            $this->clearCachesAfterWrite(['stache', 'static']);
-
-            $response = [
-                'entry' => [
-                    'id' => $entry->id(),
-                    'slug' => $entry->slug(),
-                    'collection' => $entry->collectionHandle(),
-                    'parent' => app(CollectionTreeEditor::class)->parent($entry),
-                    'site' => $entry->site()->handle(),
-                    'published' => $entry->published(),
-                    'status' => $entry->status(),
-                    'url' => $entry->url(),
-                    'title' => $entry->get('title'),
-                    'data' => $entry->data()->all(),
-                ],
-                'created' => true,
-            ];
-
-            if ($this->entryRevisionsEnabled($entry)) {
-                $response['revision_status'] = $this->getRevisionStatusMeta($entry);
-            }
-
-            return $response;
-
-        } catch (\Exception $e) {
-            // FieldFormatException + ValidationException carry curated messages with
-            // field paths — they reach the client through this envelope.
-            // Other Throwables (e.g. TypeError from third-party fieldtype pipelines)
-            // fall through to BaseStatamicTool::execute() which logs them centrally
-            // and applies environment-aware sanitization before the message goes
-            // to the client.
-            return $this->createErrorResponse("Failed to create entry: {$e->getMessage()}")->toArray();
+            $entry->published(false);
         }
+        // Revision-aware create: use store() which saves as unpublished
+        // and creates an initial revision (matches CP behavior)
+        if ($this->entryRevisionsEnabled($entry)) {
+            $this->storeInitialRevision($entry, $arguments);
+        } else {
+            $this->persistStatamic(fn () => $this->touchedBy($entry)->save());
+        }
+        if ($parentRequested) {
+            try {
+                $this->persistStatamic(fn () => app(CollectionTreeEditor::class)->move($entry, $requestedParent));
+            } catch (\Throwable $e) {
+                // This call created the entry; do not leave a partial creation behind.
+                $this->persistStatamic(fn () => $entry->delete());
+                throw $e;
+            }
+        }
+        // Clear relevant caches
+        $this->clearCachesAfterWrite(['stache', 'static']);
+        $response = [
+            'entry' => [
+                'id' => $entry->id(),
+                'slug' => $entry->slug(),
+                'collection' => $entry->collectionHandle(),
+                'parent' => app(CollectionTreeEditor::class)->parent($entry),
+                'site' => $entry->site()->handle(),
+                'published' => $entry->published(),
+                'status' => $entry->status(),
+                'url' => $entry->url(),
+                'title' => $entry->get('title'),
+                'data' => $entry->data()->all(),
+            ],
+            'created' => true,
+        ];
+        if ($this->entryRevisionsEnabled($entry)) {
+            $response['revision_status'] = $this->getRevisionStatusMeta($entry);
+        }
+
+        return $response;
     }
 
     /**
@@ -862,153 +814,134 @@ class EntriesRouter extends BaseRouter
         $site = $this->resolveSiteHandle($arguments);
         /** @var array<string, mixed> $data */
         $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
-
-        try {
-            $entry = $this->resolveEntryInCollection($id, $arguments);
-
-            if ($entry === null) {
-                return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
-            }
-
-            if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
-                return $policyError;
-            }
-
-            $collection = $entry->collection();
-
-            if (! in_array($site, $collection->sites()->all(), true)) {
-                return $this->createErrorResponse(
-                    "Collection [{$collection->handle()}] is not available in site [{$site}]. Available: "
-                    . $collection->sites()->join(', ') . '.'
-                )->toArray();
-            }
-
-            if ($entry->site()->handle() === $site) {
-                return $this->createErrorResponse(
-                    "Entry [{$id}] already originates in site [{$site}]. Use the update action instead."
-                )->toArray();
-            }
-
-            if ($entry->in($site) !== null) {
-                return $this->createErrorResponse(
-                    "Entry [{$id}] already has a localization in site [{$site}]. Use the update action with site [{$site}] to edit it."
-                )->toArray();
-            }
-
-            if ($policyError = $this->authorizeEntrySite($site)) {
-                return $policyError;
-            }
-            $localization = $entry->makeLocalization($site);
-
-            $blueprint = $localization->blueprint();
-
-            if (! $blueprint) {
-                return $this->createErrorResponse('Cannot localize entry: Blueprint not found. A blueprint is required for data validation.')->toArray();
-            }
-
-            // An empty localization inherits everything from the origin, which
-            // is the normal starting point for a translator.
-            if ($data !== []) {
-                if (array_key_exists('slug', $data)) {
-                    $requestedSlug = is_string($data['slug']) ? $data['slug'] : '';
-                    unset($data['slug']);
-
-                    if ($requestedSlug !== '') {
-                        $localization->slug($requestedSlug);
-                    }
-                }
-
-                try {
-                    $data = $this->sanitizeIncomingFieldData($blueprint, $data);
-
-                    // Slug is an entry property, not a data key, so it is absent
-                    // from the payload. Statamic's default blueprint marks it
-                    // required, so validation has to see the localization's own
-                    // value or every localize fails (cf. #39). The id replacement
-                    // excludes this entry from UniqueEntryValue, which the origin
-                    // would otherwise trip.
-                    $dataWithSlug = $data;
-                    $localizationSlug = $localization->slug();
-                    if (is_string($localizationSlug) && $localizationSlug !== '') {
-                        $dataWithSlug['slug'] = $localizationSlug;
-                    }
-
-                    $fields = $blueprint->fields()->addValues($dataWithSlug);
-
-                    (new ConditionalFieldsValidator)
-                        ->fields($fields)
-                        ->withConditionValues(array_merge($localization->values()->all(), $dataWithSlug))
-                        ->withContext([
-                            'entry' => $localization,
-                            'collection' => $collection,
-                            'site' => $site,
-                        ])
-                        ->withReplacements([
-                            'collection' => $collection->handle(),
-                            'id' => $localization->id(),
-                            'site' => $site,
-                        ])
-                        ->validate();
-
-                    // Store only what the caller actually sent. addValues()
-                    // populates every field in the blueprint, so taking all of
-                    // values() would write an explicit null for each field the
-                    // translator left alone — which both defeats the fallback
-                    // to the origin and poisons later updates, since update
-                    // validates the stored data merged with the incoming and
-                    // those nulls fail rules the field would otherwise skip.
-                    $processed = $fields->process()->values()->except(['slug', 'date'])->all();
-                    $processed = SeoProFieldData::restoreEmptyValues($blueprint, $processed, $data);
-
-                    $localization->data(
-                        $this->withPassthroughKeys(array_intersect_key($processed, $data), $data, $blueprint)
-                    );
-                } catch (ValidationException $e) {
-                    return $this->formatValidationError($e);
-                } catch (\Throwable $e) {
-                    return $this->createErrorResponse('Failed to process localization data: ' . $e->getMessage())->toArray();
-                }
-            }
-
-            if (! $this->entryRevisionsEnabled($localization) && $localization->published()
-                && ($policyError = $this->authorizeResolvedEntry('publishEntry', $localization))) {
-                if (is_array($arguments['data'] ?? null) && ! empty($arguments['data']['published'])) {
-                    return $policyError;
-                }
-                $localization->published(false);
-            }
-            if ($this->entryRevisionsEnabled($localization)) {
-                $this->storeInitialRevision($localization, $arguments);
-            } else {
-                $this->persistStatamic(fn () => $this->touchedBy($localization)->save());
-            }
-
-            $this->clearCachesAfterWrite(['stache', 'static']);
-
-            $response = [
-                'entry' => [
-                    'id' => $localization->id(),
-                    'slug' => $localization->slug(),
-                    'collection' => $localization->collectionHandle(),
-                    'site' => $localization->site()->handle(),
-                    'origin_site' => $entry->site()->handle(),
-                    'published' => $localization->published(),
-                    'status' => $localization->status(),
-                    'url' => $localization->url(),
-                    'title' => $localization->get('title'),
-                    'data' => $localization->data()->all(),
-                ],
-                'localized' => true,
-            ];
-
-            if ($this->entryRevisionsEnabled($localization)) {
-                $response['revision_status'] = $this->getRevisionStatusMeta($localization);
-            }
-
-            return $response;
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to localize entry: {$e->getMessage()}")->toArray();
+        $entry = $this->resolveEntryInCollection($id, $arguments);
+        if ($entry === null) {
+            return $this->missingResource('Entry', $id, 'id')->toArray();
         }
+        if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
+            return $policyError;
+        }
+        $collection = $entry->collection();
+        if (! in_array($site, $collection->sites()->all(), true)) {
+            return $this->createErrorResponse(
+                "Collection [{$collection->handle()}] is not available in site [{$site}]. Available: "
+                . $collection->sites()->join(', ') . '.'
+            )->toArray();
+        }
+        if ($entry->site()->handle() === $site) {
+            return $this->createErrorResponse(
+                "Entry [{$id}] already originates in site [{$site}]. Use the update action instead."
+            )->toArray();
+        }
+        if ($entry->in($site) !== null) {
+            return $this->createErrorResponse(
+                "Entry [{$id}] already has a localization in site [{$site}]. Use the update action with site [{$site}] to edit it."
+            )->toArray();
+        }
+        if ($policyError = $this->authorizeEntrySite($site)) {
+            return $policyError;
+        }
+        $localization = $entry->makeLocalization($site);
+        $blueprint = $localization->blueprint();
+        if (! $blueprint) {
+            return $this->createErrorResponse('Cannot localize entry: Blueprint not found. A blueprint is required for data validation.', code: ErrorCode::NotFound)->toArray();
+        }
+        // An empty localization inherits everything from the origin, which
+        // is the normal starting point for a translator.
+        if ($data !== []) {
+            if (array_key_exists('slug', $data)) {
+                $requestedSlug = is_string($data['slug']) ? $data['slug'] : '';
+                unset($data['slug']);
+
+                if ($requestedSlug !== '') {
+                    $localization->slug($requestedSlug);
+                }
+            }
+
+            try {
+                $data = $this->sanitizeIncomingFieldData($blueprint, $data);
+
+                // Slug is an entry property, not a data key, so it is absent
+                // from the payload. Statamic's default blueprint marks it
+                // required, so validation has to see the localization's own
+                // value or every localize fails (cf. #39). The id replacement
+                // excludes this entry from UniqueEntryValue, which the origin
+                // would otherwise trip.
+                $dataWithSlug = $data;
+                $localizationSlug = $localization->slug();
+                if (is_string($localizationSlug) && $localizationSlug !== '') {
+                    $dataWithSlug['slug'] = $localizationSlug;
+                }
+
+                $fields = $blueprint->fields()->addValues($dataWithSlug);
+
+                (new ConditionalFieldsValidator)
+                    ->fields($fields)
+                    ->withConditionValues(array_merge($localization->values()->all(), $dataWithSlug))
+                    ->withContext([
+                        'entry' => $localization,
+                        'collection' => $collection,
+                        'site' => $site,
+                    ])
+                    ->withReplacements([
+                        'collection' => $collection->handle(),
+                        'id' => $localization->id(),
+                        'site' => $site,
+                    ])
+                    ->validate();
+
+                // Store only what the caller actually sent. addValues()
+                // populates every field in the blueprint, so taking all of
+                // values() would write an explicit null for each field the
+                // translator left alone — which both defeats the fallback
+                // to the origin and poisons later updates, since update
+                // validates the stored data merged with the incoming and
+                // those nulls fail rules the field would otherwise skip.
+                $processed = $fields->process()->values()->except(['slug', 'date'])->all();
+                $processed = SeoProFieldData::restoreEmptyValues($blueprint, $processed, $data);
+
+                $localization->data(
+                    $this->withPassthroughKeys(array_intersect_key($processed, $data), $data, $blueprint)
+                );
+            } catch (ValidationException $e) {
+                return $this->formatValidationError($e);
+            } catch (\Throwable $e) {
+                throw $e;
+            }
+        }
+        if (! $this->entryRevisionsEnabled($localization) && $localization->published()
+            && ($policyError = $this->authorizeResolvedEntry('publishEntry', $localization))) {
+            if (is_array($arguments['data'] ?? null) && ! empty($arguments['data']['published'])) {
+                return $policyError;
+            }
+            $localization->published(false);
+        }
+        if ($this->entryRevisionsEnabled($localization)) {
+            $this->storeInitialRevision($localization, $arguments);
+        } else {
+            $this->persistStatamic(fn () => $this->touchedBy($localization)->save());
+        }
+        $this->clearCachesAfterWrite(['stache', 'static']);
+        $response = [
+            'entry' => [
+                'id' => $localization->id(),
+                'slug' => $localization->slug(),
+                'collection' => $localization->collectionHandle(),
+                'site' => $localization->site()->handle(),
+                'origin_site' => $entry->site()->handle(),
+                'published' => $localization->published(),
+                'status' => $localization->status(),
+                'url' => $localization->url(),
+                'title' => $localization->get('title'),
+                'data' => $localization->data()->all(),
+            ],
+            'localized' => true,
+        ];
+        if ($this->entryRevisionsEnabled($localization)) {
+            $response['revision_status'] = $this->getRevisionStatusMeta($localization);
+        }
+
+        return $response;
     }
 
     /**
@@ -1030,268 +963,237 @@ class EntriesRouter extends BaseRouter
         $parentRequested = array_key_exists('parent', $data);
         $requestedParent = $data['parent'] ?? null;
         unset($data['parent']);
+        $entry = $this->resolveEntryInCollection($id, $arguments);
+        if ($entry === null) {
+            return $this->missingResource('Entry', $id, 'id')->toArray();
+        }
+        // Get entry for specific site
+        if ($entry->site()->handle() !== $site) {
+            $localizedEntry = $entry->in($site);
+            if ($localizedEntry instanceof EntryContract) {
+                $entry = $localizedEntry;
+            } else {
+                return $this->createErrorResponse("Entry not available in site: {$site}", code: ErrorCode::NotFound, field: 'site')->toArray();
+            }
+        }
+        if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
+            return $policyError;
+        }
+        // Resource-dependent profile checks follow authentication and the
+        // concrete site/author policy, so denials cannot reveal draft state.
+        if (app(InstallationProfile::class)->name() === 'editor' && $entry->published()) {
+            return $this->createErrorResponse('Editor updates require an unpublished entry.', code: ErrorCode::Forbidden)->toArray();
+        }
+        $entry = clone $entry;
+        if ($parentRequested && $this->entryRevisionsEnabled($entry) && $entry->published()) {
+            if ($data !== []) {
+                return $this->createErrorResponse('Move a published entry separately from content edits when revisions are enabled.')->toArray();
+            }
+            $parent = $this->persistStatamic(fn () => app(CollectionTreeEditor::class)->move($entry, $requestedParent));
 
-        try {
-            $entry = $this->resolveEntryInCollection($id, $arguments);
-
-            if ($entry === null) {
-                return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
+            return ['entry' => ['id' => $entry->id(), 'parent' => $parent], 'updated' => true];
+        }
+        // Extract published — it's a first-class entry property
+        if (array_key_exists('published', $data)) {
+            if ($this->entryRevisionsEnabled($entry)) {
+                return $this->createErrorResponse(
+                    'The published flag cannot be changed via update when revisions are enabled. Use the publish or unpublish action instead.'
+                )->toArray();
             }
 
-            // Get entry for specific site
-            if ($entry->site()->handle() !== $site) {
-                $localizedEntry = $entry->in($site);
-                if ($localizedEntry instanceof EntryContract) {
-                    $entry = $localizedEntry;
-                } else {
-                    return $this->createErrorResponse("Entry not available in site: {$site}")->toArray();
-                }
-            }
-
-            if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
+            if ((bool) $data['published'] !== $entry->published()
+                && ($policyError = $this->authorizeResolvedEntry('publishEntry', $entry))) {
                 return $policyError;
             }
+            $entry->published((bool) $data['published']);
+            unset($data['published']);
+        }
+        // Handle slug separately *before* blueprint validation. Slug is
+        // an entry property, not a data key, so a requested change is
+        // applied to the entry object and removed from $data. This
+        // dedicated check passes the entry's id as the $except argument,
+        // so it gives a precise error without rejecting the entry's own
+        // slug as "already taken" (issue #27). The blueprint validation
+        // below re-validates the applied slug with resolved rule
+        // placeholders.
+        if (array_key_exists('slug', $data)) {
+            $newSlug = is_string($data['slug']) ? $data['slug'] : '';
+            $slugValidator = Validator::make(['slug' => $newSlug], [
+                'slug' => [
+                    'required',
+                    'string',
+                    new UniqueEntryValue($entry->collectionHandle(), $entry->id(), $site),
+                ],
+            ]);
 
-            // Resource-dependent profile checks follow authentication and the
-            // concrete site/author policy, so denials cannot reveal draft state.
-            if (app(InstallationProfile::class)->name() === 'editor' && $entry->published()) {
-                return $this->createErrorResponse('Editor updates require an unpublished entry.')->toArray();
+            if ($slugValidator->fails()) {
+                $errors = $slugValidator->errors()->get('slug');
+                /** @var array<string> $flatErrors */
+                $flatErrors = array_map(fn ($error) => is_string($error) ? $error : implode(', ', (array) $error), $errors);
+
+                return $this->createErrorResponse('Slug validation failed: ' . implode(', ', $flatErrors))->toArray();
             }
 
-            $entry = clone $entry;
-
-            if ($parentRequested && $this->entryRevisionsEnabled($entry) && $entry->published()) {
-                if ($data !== []) {
-                    return $this->createErrorResponse('Move a published entry separately from content edits when revisions are enabled.')->toArray();
-                }
-                $parent = $this->persistStatamic(fn () => app(CollectionTreeEditor::class)->move($entry, $requestedParent));
-
-                return ['entry' => ['id' => $entry->id(), 'parent' => $parent], 'updated' => true];
+            $entry->slug($newSlug);
+            unset($data['slug']);
+        }
+        // For dated collections, parse the date and set it on the entry.
+        // Keep a normalized copy in data so the FieldsValidator sees the required field.
+        if (array_key_exists('date', $data) && $entry->collection()->dated()) {
+            try {
+                $parsedDate = $this->parseDateValue($data['date']);
+                $entry->date($parsedDate);
+                $data['date'] = $parsedDate->format('Y-m-d\TH:i:s.v\Z');
+            } catch (\Throwable $e) {
+                return $this->createErrorResponse("Invalid date value: {$e->getMessage()}")->toArray();
             }
-
-            // Extract published — it's a first-class entry property
-            if (array_key_exists('published', $data)) {
-                if ($this->entryRevisionsEnabled($entry)) {
-                    return $this->createErrorResponse(
-                        'The published flag cannot be changed via update when revisions are enabled. Use the publish or unpublish action instead.'
-                    )->toArray();
-                }
-
-                if ((bool) $data['published'] !== $entry->published()
-                    && ($policyError = $this->authorizeResolvedEntry('publishEntry', $entry))) {
-                    return $policyError;
-                }
-                $entry->published((bool) $data['published']);
-                unset($data['published']);
-            }
-
-            // Handle slug separately *before* blueprint validation. Slug is
-            // an entry property, not a data key, so a requested change is
-            // applied to the entry object and removed from $data. This
-            // dedicated check passes the entry's id as the $except argument,
-            // so it gives a precise error without rejecting the entry's own
-            // slug as "already taken" (issue #27). The blueprint validation
-            // below re-validates the applied slug with resolved rule
-            // placeholders.
-            if (array_key_exists('slug', $data)) {
-                $newSlug = is_string($data['slug']) ? $data['slug'] : '';
-                $slugValidator = Validator::make(['slug' => $newSlug], [
-                    'slug' => [
-                        'required',
-                        'string',
-                        new UniqueEntryValue($entry->collectionHandle(), $entry->id(), $site),
-                    ],
-                ]);
-
-                if ($slugValidator->fails()) {
-                    $errors = $slugValidator->errors()->get('slug');
-                    /** @var array<string> $flatErrors */
-                    $flatErrors = array_map(fn ($error) => is_string($error) ? $error : implode(', ', (array) $error), $errors);
-
-                    return $this->createErrorResponse('Slug validation failed: ' . implode(', ', $flatErrors))->toArray();
-                }
-
-                $entry->slug($newSlug);
-                unset($data['slug']);
-            }
-
-            // For dated collections, parse the date and set it on the entry.
-            // Keep a normalized copy in data so the FieldsValidator sees the required field.
-            if (array_key_exists('date', $data) && $entry->collection()->dated()) {
+        }
+        // Validate data against blueprint before saving
+        $blueprint = $entry->blueprint();
+        if (! $blueprint) {
+            return $this->createErrorResponse('Cannot update entry: Blueprint not found. A blueprint is required for data validation.', code: ErrorCode::NotFound)->toArray();
+        }
+        if (! empty($data)) {
+            if (($arguments['merge_sets'] ?? false) === true) {
                 try {
-                    $parsedDate = $this->parseDateValue($data['date']);
-                    $entry->date($parsedDate);
-                    $data['date'] = $parsedDate->format('Y-m-d\TH:i:s.v\Z');
-                } catch (\Throwable $e) {
-                    return $this->createErrorResponse("Invalid date value: {$e->getMessage()}")->toArray();
+                    $data = $this->mergeReplicatorSets($blueprint, $entry, $data);
+                } catch (FieldFormatException $e) {
+                    return $this->createErrorResponse($e->getMessage())->toArray();
                 }
             }
 
-            // Validate data against blueprint before saving
-            $blueprint = $entry->blueprint();
+            // Strip entry-level metadata and coerce values to expected types
+            $incomingSeoData = $data;
+            $data = SeoProFieldData::merge($blueprint, $data, $entry->data()->all());
+            $data = $this->sanitizeIncomingFieldData($blueprint, $data);
 
-            if (! $blueprint) {
-                return $this->createErrorResponse('Cannot update entry: Blueprint not found. A blueprint is required for data validation.')->toArray();
+            // Validate incoming data against blueprint.
+            // We merge with existing data so required-field rules pass for
+            // unchanged fields — minus stored nulls, which would otherwise
+            // fail rules on fields the caller never sent (see
+            // mergeStoredDataForValidation). If the full-merge validation
+            // throws a TypeError (common with third-party fieldtypes like
+            // SEO Pro whose preProcessValidatable can't handle stored data
+            // formats), we fall back to validating only the incoming fields.
+            $mergedData = $this->mergeStoredDataForValidation($entry->data()->all(), $data);
+            $mergedData = $this->sanitizeStoredFieldDataForValidation($blueprint, $mergedData);
+
+            // Slug and date are entry properties, not data keys, so the
+            // merged payload never contains them on its own. Statamic's
+            // default blueprint declares slug as `required`, so validation
+            // must see the entry's effective values or every update fails
+            // with "The Slug field is required" (issue #39). Safe to
+            // re-validate the slug: withReplacements() below resolves
+            // `UniqueEntryValue({collection}, {id}, {site})` with this
+            // entry's id, excluding it from the uniqueness check — the
+            // exact false positive #27 was about.
+            $entryPropertyValues = [];
+            $entrySlug = $entry->slug();
+            if (is_string($entrySlug) && $entrySlug !== '') {
+                $entryPropertyValues['slug'] = $entrySlug;
             }
+            $entryDate = $entry->date();
+            if (! array_key_exists('date', $data) && $entry->collection()->dated() && $entryDate !== null) {
+                $entryPropertyValues['date'] = $entryDate->format('Y-m-d\TH:i:s.v\Z');
+            }
+            $mergedData = array_merge($mergedData, $entryPropertyValues);
 
-            if (! empty($data)) {
-                if (($arguments['merge_sets'] ?? false) === true) {
-                    try {
-                        $data = $this->mergeReplicatorSets($blueprint, $entry, $data);
-                    } catch (FieldFormatException $e) {
-                        return $this->createErrorResponse($e->getMessage())->toArray();
-                    }
-                }
+            $validationContext = [
+                'entry' => $entry,
+                'collection' => $entry->collection(),
+                'site' => $site,
+            ];
 
-                // Strip entry-level metadata and coerce values to expected types
-                $incomingSeoData = $data;
-                $data = SeoProFieldData::merge($blueprint, $data, $entry->data()->all());
-                $data = $this->sanitizeIncomingFieldData($blueprint, $data);
+            $ruleReplacements = [
+                'id' => $entry->id(),
+                'collection' => $entry->collectionHandle(),
+                'parent' => app(CollectionTreeEditor::class)->parent($entry),
+                'site' => $site,
+            ];
 
-                // Validate incoming data against blueprint.
-                // We merge with existing data so required-field rules pass for
-                // unchanged fields — minus stored nulls, which would otherwise
-                // fail rules on fields the caller never sent (see
-                // mergeStoredDataForValidation). If the full-merge validation
-                // throws a TypeError (common with third-party fieldtypes like
-                // SEO Pro whose preProcessValidatable can't handle stored data
-                // formats), we fall back to validating only the incoming fields.
-                $mergedData = $this->mergeStoredDataForValidation($entry->data()->all(), $data);
-                $mergedData = $this->sanitizeStoredFieldDataForValidation($blueprint, $mergedData);
-
-                // Slug and date are entry properties, not data keys, so the
-                // merged payload never contains them on its own. Statamic's
-                // default blueprint declares slug as `required`, so validation
-                // must see the entry's effective values or every update fails
-                // with "The Slug field is required" (issue #39). Safe to
-                // re-validate the slug: withReplacements() below resolves
-                // `UniqueEntryValue({collection}, {id}, {site})` with this
-                // entry's id, excluding it from the uniqueness check — the
-                // exact false positive #27 was about.
-                $entryPropertyValues = [];
-                $entrySlug = $entry->slug();
-                if (is_string($entrySlug) && $entrySlug !== '') {
-                    $entryPropertyValues['slug'] = $entrySlug;
-                }
-                $entryDate = $entry->date();
-                if (! array_key_exists('date', $data) && $entry->collection()->dated() && $entryDate !== null) {
-                    $entryPropertyValues['date'] = $entryDate->format('Y-m-d\TH:i:s.v\Z');
-                }
-                $mergedData = array_merge($mergedData, $entryPropertyValues);
-
-                $validationContext = [
-                    'entry' => $entry,
-                    'collection' => $entry->collection(),
-                    'site' => $site,
-                ];
-
-                $ruleReplacements = [
-                    'id' => $entry->id(),
-                    'collection' => $entry->collectionHandle(),
-                    'parent' => app(CollectionTreeEditor::class)->parent($entry),
-                    'site' => $site,
-                ];
-
+            try {
+                (new ConditionalFieldsValidator)
+                    ->fields($blueprint->fields()->addValues($mergedData))
+                    ->withConditionValues($mergedData)
+                    ->withContext($validationContext)
+                    ->withReplacements($ruleReplacements)
+                    ->validate();
+            } catch (ValidationException $e) {
+                return $this->formatValidationError($e);
+            } catch (\TypeError $e) {
+                // A TypeError in the validation pipeline typically means a
+                // third-party fieldtype's preProcessValidatable or extraRules
+                // cannot handle the stored data format.  Fall back to
+                // validating only the incoming fields — the existing data was
+                // already valid when it was saved.
                 try {
                     (new ConditionalFieldsValidator)
-                        ->fields($blueprint->fields()->addValues($mergedData))
+                        ->fields($blueprint->fields()->addValues(array_merge($data, $entryPropertyValues)))
                         ->withConditionValues($mergedData)
                         ->withContext($validationContext)
                         ->withReplacements($ruleReplacements)
                         ->validate();
-                } catch (ValidationException $e) {
-                    return $this->formatValidationError($e);
-                } catch (\TypeError $e) {
-                    // A TypeError in the validation pipeline typically means a
-                    // third-party fieldtype's preProcessValidatable or extraRules
-                    // cannot handle the stored data format.  Fall back to
-                    // validating only the incoming fields — the existing data was
-                    // already valid when it was saved.
-                    try {
-                        (new ConditionalFieldsValidator)
-                            ->fields($blueprint->fields()->addValues(array_merge($data, $entryPropertyValues)))
-                            ->withConditionValues($mergedData)
-                            ->withContext($validationContext)
-                            ->withReplacements($ruleReplacements)
-                            ->validate();
-                    } catch (ValidationException $inner) {
-                        return $this->formatValidationError($inner);
-                    } catch (\Throwable $inner) {
-                        return $this->createErrorResponse('Failed to process entry data: ' . $inner->getMessage())->toArray();
-                    }
-                } catch (\Throwable $e) {
-                    return $this->createErrorResponse('Failed to process entry data: ' . $e->getMessage())->toArray();
+                } catch (ValidationException $inner) {
+                    return $this->formatValidationError($inner);
+                } catch (\Throwable $inner) {
+                    throw $inner;
                 }
-
-                // Remove date — it's already set on the entry object
-                unset($data['date']);
-
-                // Process incoming data through fieldtypes for storage format
-                $incomingKeys = array_keys($data);
-                /** @var array<string, mixed> $processedData */
-                $processedData = $blueprint->fields()->addValues($data)
-                    ->process()->values()
-                    ->only($incomingKeys)
-                    ->all();
-
-                $processedData = SeoProFieldData::restoreEmptyValues($blueprint, $processedData, $data);
-                $processedData = SeoProFieldData::preserveOmitted($blueprint, $processedData, $incomingSeoData, $entry->data()->all());
-                $data = $this->withPassthroughKeys($processedData, $data, $blueprint);
+            } catch (\Throwable $e) {
+                throw $e;
             }
 
-            if ($parentRequested) {
-                // Routes can depend on fields such as title, not only slug.
-                // Validate the final values without changing the stored entry.
-                $proposedEntry = clone $entry;
-                $proposedEntry->merge($data);
-                app(CollectionTreeEditor::class)->validate($proposedEntry, $requestedParent);
-            }
+            // Remove date — it's already set on the entry object
+            unset($data['date']);
 
-            // Revision-aware save: if revisions enabled and entry is published,
-            // save to working copy instead of directly modifying the published entry
-            if ($this->entryRevisionsEnabled($entry) && $entry->published()) {
-                return $this->saveAsWorkingCopy($entry, $data, is_string($arguments['revision_message'] ?? null) ? $arguments['revision_message'] : null);
-            }
+            // Process incoming data through fieldtypes for storage format
+            $incomingKeys = array_keys($data);
+            /** @var array<string, mixed> $processedData */
+            $processedData = $blueprint->fields()->addValues($data)
+                ->process()->values()
+                ->only($incomingKeys)
+                ->all();
 
-            $this->persistStatamic(fn () => $this->touchedBy($entry->merge($data))->save());
-
-            if ($parentRequested) {
-                $this->persistStatamic(fn () => app(CollectionTreeEditor::class)->move($entry, $requestedParent));
-            }
-
-            // Clear relevant caches
-            $this->clearCachesAfterWrite(['stache', 'static']);
-
-            $response = [
-                'entry' => [
-                    'id' => $entry->id(),
-                    'slug' => $entry->slug(),
-                    'collection' => $entry->collectionHandle(),
-                    'parent' => app(CollectionTreeEditor::class)->parent($entry),
-                    'site' => $entry->site()->handle(),
-                    'published' => $entry->published(),
-                    'status' => $entry->status(),
-                    'last_modified' => $entry->lastModified()?->toISOString(),
-                    'url' => $entry->url(),
-                ],
-                'updated' => true,
-            ];
-
-            if ($this->entryRevisionsEnabled($entry)) {
-                $response['revision_status'] = $this->getRevisionStatusMeta($entry);
-            }
-
-            return $response;
-
-        } catch (\Exception $e) {
-            // FieldFormatException + ValidationException carry curated messages with
-            // field paths — they reach the client through this envelope.
-            // Other Throwables (e.g. TypeError from third-party fieldtype pipelines)
-            // fall through to BaseStatamicTool::execute() which logs them centrally
-            // and applies environment-aware sanitization before the message goes
-            // to the client.
-            return $this->createErrorResponse("Failed to update entry: {$e->getMessage()}")->toArray();
+            $processedData = SeoProFieldData::restoreEmptyValues($blueprint, $processedData, $data);
+            $processedData = SeoProFieldData::preserveOmitted($blueprint, $processedData, $incomingSeoData, $entry->data()->all());
+            $data = $this->withPassthroughKeys($processedData, $data, $blueprint);
         }
+        if ($parentRequested) {
+            // Routes can depend on fields such as title, not only slug.
+            // Validate the final values without changing the stored entry.
+            $proposedEntry = clone $entry;
+            $proposedEntry->merge($data);
+            app(CollectionTreeEditor::class)->validate($proposedEntry, $requestedParent);
+        }
+        // Revision-aware save: if revisions enabled and entry is published,
+        // save to working copy instead of directly modifying the published entry
+        if ($this->entryRevisionsEnabled($entry) && $entry->published()) {
+            return $this->saveAsWorkingCopy($entry, $data, is_string($arguments['revision_message'] ?? null) ? $arguments['revision_message'] : null);
+        }
+        $this->persistStatamic(fn () => $this->touchedBy($entry->merge($data))->save());
+        if ($parentRequested) {
+            $this->persistStatamic(fn () => app(CollectionTreeEditor::class)->move($entry, $requestedParent));
+        }
+        // Clear relevant caches
+        $this->clearCachesAfterWrite(['stache', 'static']);
+        $response = [
+            'entry' => [
+                'id' => $entry->id(),
+                'slug' => $entry->slug(),
+                'collection' => $entry->collectionHandle(),
+                'parent' => app(CollectionTreeEditor::class)->parent($entry),
+                'site' => $entry->site()->handle(),
+                'published' => $entry->published(),
+                'status' => $entry->status(),
+                'last_modified' => $entry->lastModified()?->toISOString(),
+                'url' => $entry->url(),
+            ],
+            'updated' => true,
+        ];
+        if ($this->entryRevisionsEnabled($entry)) {
+            $response['revision_status'] = $this->getRevisionStatusMeta($entry);
+        }
+
+        return $response;
     }
 
     /**
@@ -1304,39 +1206,28 @@ class EntriesRouter extends BaseRouter
     private function deleteEntry(array $arguments): array
     {
         $id = is_string($arguments['id']) ? $arguments['id'] : '';
-
-        try {
-            $entry = $this->resolveEntryInCollection($id, $arguments);
-
-            if ($entry === null) {
-                return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
-            }
-
-            if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
-                return $policyError;
-            }
-
-            $entryData = [
-                'id' => $entry->id(),
-                'slug' => $entry->slug(),
-                'collection' => $entry->collectionHandle(),
-                'parent' => app(CollectionTreeEditor::class)->parent($entry),
-                'site' => $entry->site()->handle(),
-            ];
-
-            $this->persistStatamic(fn () => $entry->delete());
-
-            // Clear relevant caches
-            $this->clearCachesAfterWrite(['stache', 'static']);
-
-            return [
-                'entry' => $entryData,
-                'deleted' => true,
-            ];
-
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to delete entry: {$e->getMessage()}")->toArray();
+        $entry = $this->resolveEntryInCollection($id, $arguments);
+        if ($entry === null) {
+            return $this->missingResource('Entry', $id, 'id')->toArray();
         }
+        if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
+            return $policyError;
+        }
+        $entryData = [
+            'id' => $entry->id(),
+            'slug' => $entry->slug(),
+            'collection' => $entry->collectionHandle(),
+            'parent' => app(CollectionTreeEditor::class)->parent($entry),
+            'site' => $entry->site()->handle(),
+        ];
+        $this->persistStatamic(fn () => $entry->delete());
+        // Clear relevant caches
+        $this->clearCachesAfterWrite(['stache', 'static']);
+
+        return [
+            'entry' => $entryData,
+            'deleted' => true,
+        ];
     }
 
     /**
@@ -1349,52 +1240,39 @@ class EntriesRouter extends BaseRouter
     private function publishEntry(array $arguments): array
     {
         $id = is_string($arguments['id']) ? $arguments['id'] : '';
-
-        try {
-            $entry = $this->resolveEntryInCollection($id, $arguments);
-
-            if ($entry === null) {
-                return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
-            }
-
-            if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
-                return $policyError;
-            }
-
-            /** @var \Statamic\Entries\Entry $entry */
-            // Use Statamic's built-in publish() which delegates to publishWorkingCopy()
-            // when revisions are enabled, or sets published(true)->save() otherwise
-            $entry = clone $entry;
-            $publishedEntry = $this->persistStatamic(fn () => $entry->publish($this->revisionOptions($arguments)));
-
-            if ($publishedEntry instanceof \Statamic\Entries\Entry) {
-                $entry = $publishedEntry;
-            }
-
-            // Clear relevant caches
-            $this->clearCachesAfterWrite(['stache', 'static']);
-
-            $response = [
-                'entry' => [
-                    'id' => $entry->id(),
-                    'slug' => $entry->slug(),
-                    'published' => $entry->published(),
-                    'status' => $entry->status(),
-                    'date' => $entry->date()?->toISOString(),
-                    'url' => $entry->url(),
-                ],
-                'published' => true,
-            ];
-
-            if ($this->entryRevisionsEnabled($entry)) {
-                $response['revision_status'] = $this->getRevisionStatusMeta($entry);
-            }
-
-            return $response;
-
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to publish entry: {$e->getMessage()}")->toArray();
+        $entry = $this->resolveEntryInCollection($id, $arguments);
+        if ($entry === null) {
+            return $this->missingResource('Entry', $id, 'id')->toArray();
         }
+        if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
+            return $policyError;
+        }
+        /** @var \Statamic\Entries\Entry $entry */
+        // Use Statamic's built-in publish() which delegates to publishWorkingCopy()
+        // when revisions are enabled, or sets published(true)->save() otherwise
+        $entry = clone $entry;
+        $publishedEntry = $this->persistStatamic(fn () => $entry->publish($this->revisionOptions($arguments)));
+        if ($publishedEntry instanceof \Statamic\Entries\Entry) {
+            $entry = $publishedEntry;
+        }
+        // Clear relevant caches
+        $this->clearCachesAfterWrite(['stache', 'static']);
+        $response = [
+            'entry' => [
+                'id' => $entry->id(),
+                'slug' => $entry->slug(),
+                'published' => $entry->published(),
+                'status' => $entry->status(),
+                'date' => $entry->date()?->toISOString(),
+                'url' => $entry->url(),
+            ],
+            'published' => true,
+        ];
+        if ($this->entryRevisionsEnabled($entry)) {
+            $response['revision_status'] = $this->getRevisionStatusMeta($entry);
+        }
+
+        return $response;
     }
 
     /**
@@ -1407,56 +1285,43 @@ class EntriesRouter extends BaseRouter
     private function unpublishEntry(array $arguments): array
     {
         $id = is_string($arguments['id']) ? $arguments['id'] : '';
-
-        try {
-            $entry = $this->resolveEntryInCollection($id, $arguments);
-
-            if ($entry === null) {
-                return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
-            }
-
-            if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
-                return $policyError;
-            }
-
-            /** @var \Statamic\Entries\Entry $entry */
-            // Use Statamic's built-in unpublish() which delegates to unpublishWorkingCopy()
-            // when revisions are enabled, or sets published(false)->save() otherwise
-            $entry = clone $entry;
-            if ($this->entryRevisionsEnabled($entry)) {
-                $unpublishedEntry = $this->persistStatamic(fn () => $entry->unpublish($this->revisionOptions($arguments)));
-            } else {
-                // Native unpublish() discards save()'s false return value.
-                $this->persistStatamic(fn () => $entry->published(false)->save());
-                $unpublishedEntry = $entry;
-            }
-
-            if ($unpublishedEntry instanceof \Statamic\Entries\Entry) {
-                $entry = $unpublishedEntry;
-            }
-
-            // Clear relevant caches
-            $this->clearCachesAfterWrite(['stache', 'static']);
-
-            $response = [
-                'entry' => [
-                    'id' => $entry->id(),
-                    'slug' => $entry->slug(),
-                    'published' => $entry->published(),
-                    'status' => $entry->status(),
-                ],
-                'unpublished' => true,
-            ];
-
-            if ($this->entryRevisionsEnabled($entry)) {
-                $response['revision_status'] = $this->getRevisionStatusMeta($entry);
-            }
-
-            return $response;
-
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to unpublish entry: {$e->getMessage()}")->toArray();
+        $entry = $this->resolveEntryInCollection($id, $arguments);
+        if ($entry === null) {
+            return $this->missingResource('Entry', $id, 'id')->toArray();
         }
+        if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
+            return $policyError;
+        }
+        /** @var \Statamic\Entries\Entry $entry */
+        // Use Statamic's built-in unpublish() which delegates to unpublishWorkingCopy()
+        // when revisions are enabled, or sets published(false)->save() otherwise
+        $entry = clone $entry;
+        if ($this->entryRevisionsEnabled($entry)) {
+            $unpublishedEntry = $this->persistStatamic(fn () => $entry->unpublish($this->revisionOptions($arguments)));
+        } else {
+            // Native unpublish() discards save()'s false return value.
+            $this->persistStatamic(fn () => $entry->published(false)->save());
+            $unpublishedEntry = $entry;
+        }
+        if ($unpublishedEntry instanceof \Statamic\Entries\Entry) {
+            $entry = $unpublishedEntry;
+        }
+        // Clear relevant caches
+        $this->clearCachesAfterWrite(['stache', 'static']);
+        $response = [
+            'entry' => [
+                'id' => $entry->id(),
+                'slug' => $entry->slug(),
+                'published' => $entry->published(),
+                'status' => $entry->status(),
+            ],
+            'unpublished' => true,
+        ];
+        if ($this->entryRevisionsEnabled($entry)) {
+            $response['revision_status'] = $this->getRevisionStatusMeta($entry);
+        }
+
+        return $response;
     }
 
     protected function actions(): array
@@ -1494,7 +1359,7 @@ class EntriesRouter extends BaseRouter
         $site = Site::get($handle);
         $user = User::current();
         if ($site === null || $user === null || ! $user->can('view', $site)) {
-            return $this->createErrorResponse('Permission denied: Cannot access this site')->toArray();
+            return $this->createErrorResponse('Permission denied: Cannot access this site', code: ErrorCode::Forbidden)->toArray();
         }
 
         return null;
@@ -1518,7 +1383,7 @@ class EntriesRouter extends BaseRouter
         $user = User::current();
 
         if ($user === null || ! $user->can('view', $entry->site()) || ! $user->can($ability, $entry)) {
-            return $this->createErrorResponse("Permission denied: your account may not {$ability} this entry (author or site restriction)")->toArray();
+            return $this->createErrorResponse("Permission denied: your account may not {$ability} this entry (author or site restriction)", code: ErrorCode::Forbidden)->toArray();
         }
 
         // Publishing through the `published` flag on create or update is
@@ -1526,7 +1391,7 @@ class EntriesRouter extends BaseRouter
         $token = request()->attributes->get('mcp_token');
         if ($ability === 'publish' && $token instanceof McpTokenData
             && ! app(TokenService::class)->hasScope($token, TokenScope::EntriesPublish)) {
-            return $this->createErrorResponse('Token missing required scope: ' . TokenScope::EntriesPublish->value)->toArray();
+            return $this->createErrorResponse('Token missing required scope: ' . TokenScope::EntriesPublish->value, code: ErrorCode::ScopeMissing)->toArray();
         }
 
         return null;

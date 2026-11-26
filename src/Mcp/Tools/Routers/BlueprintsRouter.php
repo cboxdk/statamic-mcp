@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
+use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
 use Cboxdk\StatamicMcp\Mcp\Support\FieldFormatSpec;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
@@ -141,54 +142,47 @@ class BlueprintsRouter extends BaseRouter
      */
     private function listBlueprints(array $arguments): array
     {
-        try {
-            $namespace = $arguments['namespace'] ?? null;
-            $includeDetails = $this->getBooleanArgument($arguments, 'include_details', false);
-            $includeFields = $this->getBooleanArgument($arguments, 'include_fields', true);
+        $namespace = $arguments['namespace'] ?? null;
+        $includeDetails = $this->getBooleanArgument($arguments, 'include_details', false);
+        $includeFields = $this->getBooleanArgument($arguments, 'include_fields', true);
+        $blueprints = $this->collectAllBlueprints(is_string($namespace) ? $namespace : null);
+        $total = $blueprints->count();
+        $pagination = $this->getPaginationArgs($arguments);
+        $limit = $pagination['limit'];
+        $offset = $pagination['offset'];
+        $data = $blueprints->values()->skip($offset)->take($limit)
+            ->map(function (mixed $blueprint) use ($includeDetails, $includeFields): array {
+                /** @var BlueprintContract $blueprint */
+                $result = [
+                    'handle' => $blueprint->handle(),
+                    'title' => $blueprint->title(),
+                    'namespace' => $blueprint->namespace(),
+                ];
 
-            $blueprints = $this->collectAllBlueprints(is_string($namespace) ? $namespace : null);
+                if ($includeDetails) {
+                    $result['hidden'] = $blueprint->hidden();
+                    $result['order'] = $blueprint->order();
+                }
 
-            $total = $blueprints->count();
-            $pagination = $this->getPaginationArgs($arguments);
-            $limit = $pagination['limit'];
-            $offset = $pagination['offset'];
+                if ($includeFields) {
+                    $result['fields'] = $blueprint->fields()->all()->map(function (mixed $field): array {
+                        /** @var Field $field */
+                        return [
+                            'handle' => $field->handle(),
+                            'type' => $field->type(),
+                            'display' => $field->display(),
+                        ];
+                    })->toArray();
+                }
 
-            $data = $blueprints->values()->skip($offset)->take($limit)
-                ->map(function (mixed $blueprint) use ($includeDetails, $includeFields): array {
-                    /** @var BlueprintContract $blueprint */
-                    $result = [
-                        'handle' => $blueprint->handle(),
-                        'title' => $blueprint->title(),
-                        'namespace' => $blueprint->namespace(),
-                    ];
+                return $result;
+            })->values();
 
-                    if ($includeDetails) {
-                        $result['hidden'] = $blueprint->hidden();
-                        $result['order'] = $blueprint->order();
-                    }
-
-                    if ($includeFields) {
-                        $result['fields'] = $blueprint->fields()->all()->map(function (mixed $field): array {
-                            /** @var Field $field */
-                            return [
-                                'handle' => $field->handle(),
-                                'type' => $field->type(),
-                                'display' => $field->display(),
-                            ];
-                        })->toArray();
-                    }
-
-                    return $result;
-                })->values();
-
-            return [
-                'blueprints' => $data->toArray(),
-                'pagination' => $this->buildPaginationMeta($total, $limit, $offset),
-                'namespace' => $namespace,
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to list blueprints: {$e->getMessage()}")->toArray();
-        }
+        return [
+            'blueprints' => $data->toArray(),
+            'pagination' => $this->buildPaginationMeta($total, $limit, $offset),
+            'namespace' => $namespace,
+        ];
     }
 
     /**
@@ -368,76 +362,64 @@ class BlueprintsRouter extends BaseRouter
      */
     private function getBlueprint(array $arguments): array
     {
-        try {
-            $handle = is_string($arguments['handle']) ? $arguments['handle'] : '';
-            $namespace = isset($arguments['namespace']) && is_string($arguments['namespace']) ? $arguments['namespace'] : null;
-            $collectionHandle = isset($arguments['collection']) && is_string($arguments['collection']) ? $arguments['collection'] : null;
-            $taxonomyHandle = isset($arguments['taxonomy']) && is_string($arguments['taxonomy']) ? $arguments['taxonomy'] : null;
-            $includeConfig = $this->getBooleanArgument($arguments, 'include_config', true);
-            $includeFormatSpec = $this->getBooleanArgument($arguments, 'include_format_spec', true);
-            $maxFormatDepth = $this->getIntegerArgument($arguments, 'max_format_depth', 2, 0, 5);
-
-            $blueprint = $this->findBlueprint($handle, $namespace, $collectionHandle, $taxonomyHandle);
-
-            if ($blueprint === null) {
-                return $this->createErrorResponse('Blueprint not found: ' . $handle)->toArray();
-            }
-
-            // Resolve through the section so Entry/TermBlueprintFound listeners can add runtime fields.
-            $resolvedNamespace = $blueprint->namespace();
-            if (is_string($resolvedNamespace) && str_starts_with($resolvedNamespace, 'collections.')) {
-                $blueprint = Collection::find(substr($resolvedNamespace, 12))?->entryBlueprint($blueprint->handle()) ?? $blueprint;
-            } elseif (is_string($resolvedNamespace) && str_starts_with($resolvedNamespace, 'taxonomies.')) {
-                $blueprint = Taxonomy::find(substr($resolvedNamespace, 11))?->termBlueprint($blueprint->handle()) ?? $blueprint;
-            }
-
-            $formatSpec = $includeFormatSpec ? new FieldFormatSpec($maxFormatDepth) : null;
-
-            $fieldPath = isset($arguments['field']) && is_string($arguments['field']) && $arguments['field'] !== ''
-                ? $arguments['field']
-                : null;
-
-            if ($fieldPath !== null) {
-                return $this->getBlueprintSubtree($blueprint, $fieldPath, $includeConfig, $formatSpec);
-            }
-
-            $data = [
-                'handle' => $blueprint->handle(),
-                'title' => $blueprint->title(),
-                'namespace' => $blueprint->namespace(),
-                'hidden' => $blueprint->hidden(),
-                'order' => $blueprint->order(),
-                'fields' => $blueprint->fields()->all()->map(function (mixed $field) use ($includeConfig, $formatSpec): array {
-                    /** @var Field $field */
-                    $fieldData = [
-                        'handle' => $field->handle(),
-                        'type' => $field->type(),
-                        'display' => $field->display(),
-                    ];
-
-                    if ($includeConfig) {
-                        $fieldData['config'] = $field->config();
-                    }
-
-                    if ($formatSpec !== null) {
-                        $spec = $formatSpec->for($field);
-                        if ($spec !== null) {
-                            $fieldData['_format_spec'] = $spec;
-                        }
-                    }
-
-                    return $fieldData;
-                })->toArray(),
-            ];
-
-            if ($formatSpec !== null && ($iconSets = $formatSpec->collectedIconSets()) !== []) {
-                $data['icon_sets'] = $iconSets;
-            }
-
-            return ['blueprint' => $data];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to get blueprint: {$e->getMessage()}")->toArray();
+        $handle = is_string($arguments['handle']) ? $arguments['handle'] : '';
+        $namespace = isset($arguments['namespace']) && is_string($arguments['namespace']) ? $arguments['namespace'] : null;
+        $collectionHandle = isset($arguments['collection']) && is_string($arguments['collection']) ? $arguments['collection'] : null;
+        $taxonomyHandle = isset($arguments['taxonomy']) && is_string($arguments['taxonomy']) ? $arguments['taxonomy'] : null;
+        $includeConfig = $this->getBooleanArgument($arguments, 'include_config', true);
+        $includeFormatSpec = $this->getBooleanArgument($arguments, 'include_format_spec', true);
+        $maxFormatDepth = $this->getIntegerArgument($arguments, 'max_format_depth', 2, 0, 5);
+        $blueprint = $this->findBlueprint($handle, $namespace, $collectionHandle, $taxonomyHandle);
+        if ($blueprint === null) {
+            return $this->missingResource('Blueprint', $handle, candidates: $this->candidateBlueprintHandles($namespace, $collectionHandle, $taxonomyHandle), arguments: $arguments)->toArray();
         }
+        // Resolve through the section so Entry/TermBlueprintFound listeners can add runtime fields.
+        $resolvedNamespace = $blueprint->namespace();
+        if (is_string($resolvedNamespace) && str_starts_with($resolvedNamespace, 'collections.')) {
+            $blueprint = Collection::find(substr($resolvedNamespace, 12))?->entryBlueprint($blueprint->handle()) ?? $blueprint;
+        } elseif (is_string($resolvedNamespace) && str_starts_with($resolvedNamespace, 'taxonomies.')) {
+            $blueprint = Taxonomy::find(substr($resolvedNamespace, 11))?->termBlueprint($blueprint->handle()) ?? $blueprint;
+        }
+        $formatSpec = $includeFormatSpec ? new FieldFormatSpec($maxFormatDepth) : null;
+        $fieldPath = isset($arguments['field']) && is_string($arguments['field']) && $arguments['field'] !== ''
+            ? $arguments['field']
+            : null;
+        if ($fieldPath !== null) {
+            return $this->getBlueprintSubtree($blueprint, $fieldPath, $includeConfig, $formatSpec);
+        }
+        $data = [
+            'handle' => $blueprint->handle(),
+            'title' => $blueprint->title(),
+            'namespace' => $blueprint->namespace(),
+            'hidden' => $blueprint->hidden(),
+            'order' => $blueprint->order(),
+            'fields' => $blueprint->fields()->all()->map(function (mixed $field) use ($includeConfig, $formatSpec): array {
+                /** @var Field $field */
+                $fieldData = [
+                    'handle' => $field->handle(),
+                    'type' => $field->type(),
+                    'display' => $field->display(),
+                ];
+
+                if ($includeConfig) {
+                    $fieldData['config'] = $field->config();
+                }
+
+                if ($formatSpec !== null) {
+                    $spec = $formatSpec->for($field);
+                    if ($spec !== null) {
+                        $fieldData['_format_spec'] = $spec;
+                    }
+                }
+
+                return $fieldData;
+            })->toArray(),
+        ];
+        if ($formatSpec !== null && ($iconSets = $formatSpec->collectedIconSets()) !== []) {
+            $data['icon_sets'] = $iconSets;
+        }
+
+        return ['blueprint' => $data];
     }
 
     /**
@@ -447,130 +429,115 @@ class BlueprintsRouter extends BaseRouter
      */
     private function createBlueprint(array $arguments): array
     {
+        $handle = isset($arguments['handle']) && is_string($arguments['handle']) ? $arguments['handle'] : null;
+        $namespace = isset($arguments['namespace']) && is_string($arguments['namespace']) ? $arguments['namespace'] : 'collections';
+        $collectionHandle = isset($arguments['collection']) && is_string($arguments['collection']) ? $arguments['collection'] : null;
+        $taxonomyHandle = isset($arguments['taxonomy']) && is_string($arguments['taxonomy']) ? $arguments['taxonomy'] : null;
+        $fields = isset($arguments['fields']) && is_array($arguments['fields']) ? $arguments['fields'] : [];
+        $title = isset($arguments['title']) && is_string($arguments['title']) ? $arguments['title'] : Str::title(str_replace('_', ' ', (string) $handle));
+        if (! $handle) {
+            return $this->createErrorResponse('Handle is required for blueprint creation')->toArray();
+        }
+        if ($locationError = $this->validateBlueprintLocation($handle, $namespace, $collectionHandle, $taxonomyHandle)) {
+            return $locationError;
+        }
+        // Validate namespace-specific requirements
+        if ($namespace === 'collections' && ! $collectionHandle) {
+            return $this->createErrorResponse('collection is required when namespace=collections. Example: collection="brands", handle="brand"')->toArray();
+        }
+        if ($namespace === 'taxonomies' && ! $taxonomyHandle) {
+            return $this->createErrorResponse('taxonomy is required when namespace=taxonomies. Example: taxonomy="categories", handle="category"')->toArray();
+        }
+        // Validate collection/taxonomy exists
+        if ($namespace === 'collections') {
+            // collection is guaranteed to exist here due to validation above
+            if (! Collection::find($collectionHandle)) {
+                return $this->createErrorResponse("Collection not found: {$collectionHandle}. Create the collection first with statamic-structures-admin.", code: ErrorCode::NotFound, field: 'collection')->toArray();
+            }
+        }
+        if ($namespace === 'taxonomies') {
+            // taxonomy is guaranteed to exist here due to validation above
+            if (! Taxonomy::find($taxonomyHandle)) {
+                return $this->createErrorResponse("Taxonomy not found: {$taxonomyHandle}. Create the taxonomy first with statamic-structures-admin.", code: ErrorCode::NotFound, field: 'taxonomy')->toArray();
+            }
+        }
+        // At this point $handle is guaranteed non-null (checked above), and
+        // $collectionHandle/$taxonomyHandle are guaranteed non-null when required (checked above).
+        $safeHandle = (string) $handle;
+        $safeCollectionHandle = (string) $collectionHandle;
+        $safeTaxonomyHandle = (string) $taxonomyHandle;
+        // Determine the correct namespace
+        $blueprintNamespace = match ($namespace) {
+            'collections' => "collections.{$safeCollectionHandle}",
+            'taxonomies' => "taxonomies.{$safeTaxonomyHandle}",
+            default => $namespace,
+        };
+        // Use file lock to prevent race conditions in concurrent creation
+        $lockKey = md5("{$blueprintNamespace}.{$safeHandle}");
+        $lockPath = storage_path("framework/cache/blueprint-{$lockKey}.lock");
+        $lockDir = dirname($lockPath);
+        if (! is_dir($lockDir)) {
+            @mkdir($lockDir, 0755, true);
+        }
+        $lockFile = fopen($lockPath, 'c');
+        if (! $lockFile) {
+            return $this->createErrorResponse('Could not acquire lock for blueprint creation')->toArray();
+        }
+        if (! flock($lockFile, LOCK_EX)) {
+            fclose($lockFile);
+
+            return $this->createErrorResponse('Could not acquire lock for blueprint creation')->toArray();
+        }
         try {
-            $handle = isset($arguments['handle']) && is_string($arguments['handle']) ? $arguments['handle'] : null;
-            $namespace = isset($arguments['namespace']) && is_string($arguments['namespace']) ? $arguments['namespace'] : 'collections';
-            $collectionHandle = isset($arguments['collection']) && is_string($arguments['collection']) ? $arguments['collection'] : null;
-            $taxonomyHandle = isset($arguments['taxonomy']) && is_string($arguments['taxonomy']) ? $arguments['taxonomy'] : null;
-            $fields = isset($arguments['fields']) && is_array($arguments['fields']) ? $arguments['fields'] : [];
-            $title = isset($arguments['title']) && is_string($arguments['title']) ? $arguments['title'] : Str::title(str_replace('_', ' ', (string) $handle));
-
-            if (! $handle) {
-                return $this->createErrorResponse('Handle is required for blueprint creation')->toArray();
+            // Check if blueprint already exists in this namespace (inside lock)
+            $existing = collect(Blueprint::in($blueprintNamespace)->all())->firstWhere('handle', $safeHandle);
+            $existsError = $this->checkHandleNotExists($existing, "Blueprint in {$blueprintNamespace}", $safeHandle);
+            if ($existsError !== null) {
+                return $existsError;
             }
 
-            if ($locationError = $this->validateBlueprintLocation($handle, $namespace, $collectionHandle, $taxonomyHandle)) {
-                return $locationError;
-            }
+            // Create the blueprint contents following default.yaml structure
+            $contents = ['title' => $title];
 
-            // Validate namespace-specific requirements
-            if ($namespace === 'collections' && ! $collectionHandle) {
-                return $this->createErrorResponse('collection is required when namespace=collections. Example: collection="brands", handle="brand"')->toArray();
-            }
-
-            if ($namespace === 'taxonomies' && ! $taxonomyHandle) {
-                return $this->createErrorResponse('taxonomy is required when namespace=taxonomies. Example: taxonomy="categories", handle="category"')->toArray();
-            }
-
-            // Validate collection/taxonomy exists
-            if ($namespace === 'collections') {
-                // collection is guaranteed to exist here due to validation above
-                if (! Collection::find($collectionHandle)) {
-                    return $this->createErrorResponse("Collection not found: {$collectionHandle}. Create the collection first with statamic-structures-admin.")->toArray();
+            // Validate and add fields if provided
+            if (! empty($fields)) {
+                $validationResult = $this->validateFields($fields);
+                if (isset($validationResult['success']) && $validationResult['success'] === false) {
+                    return $validationResult;
                 }
+                /** @var array<int, array{handle: string, field: array<string, mixed>}> $validatedFields */
+                $validatedFields = $validationResult['validated'];
+                $contents['fields'] = $validatedFields;
             }
 
-            if ($namespace === 'taxonomies') {
-                // taxonomy is guaranteed to exist here due to validation above
-                if (! Taxonomy::find($taxonomyHandle)) {
-                    return $this->createErrorResponse("Taxonomy not found: {$taxonomyHandle}. Create the taxonomy first with statamic-structures-admin.")->toArray();
-                }
-            }
+            // Create the blueprint
+            $blueprint = Blueprint::make($safeHandle)
+                ->setNamespace($blueprintNamespace)
+                ->setContents($contents);
 
-            // At this point $handle is guaranteed non-null (checked above), and
-            // $collectionHandle/$taxonomyHandle are guaranteed non-null when required (checked above).
-            $safeHandle = (string) $handle;
-            $safeCollectionHandle = (string) $collectionHandle;
-            $safeTaxonomyHandle = (string) $taxonomyHandle;
+            $this->persistStatamic(fn () => $blueprint->save(), ['stache']);
 
-            // Determine the correct namespace
-            $blueprintNamespace = match ($namespace) {
-                'collections' => "collections.{$safeCollectionHandle}",
-                'taxonomies' => "taxonomies.{$safeTaxonomyHandle}",
-                default => $namespace,
-            };
-
-            // Use file lock to prevent race conditions in concurrent creation
-            $lockKey = md5("{$blueprintNamespace}.{$safeHandle}");
-            $lockPath = storage_path("framework/cache/blueprint-{$lockKey}.lock");
-            $lockDir = dirname($lockPath);
-            if (! is_dir($lockDir)) {
-                @mkdir($lockDir, 0755, true);
-            }
-
-            $lockFile = fopen($lockPath, 'c');
-            if (! $lockFile) {
-                return $this->createErrorResponse('Could not acquire lock for blueprint creation')->toArray();
-            }
-            if (! flock($lockFile, LOCK_EX)) {
-                fclose($lockFile);
-
-                return $this->createErrorResponse('Could not acquire lock for blueprint creation')->toArray();
-            }
-
-            try {
-                // Check if blueprint already exists in this namespace (inside lock)
-                $existing = collect(Blueprint::in($blueprintNamespace)->all())->firstWhere('handle', $safeHandle);
-                $existsError = $this->checkHandleNotExists($existing, "Blueprint in {$blueprintNamespace}", $safeHandle);
-                if ($existsError !== null) {
-                    return $existsError;
-                }
-
-                // Create the blueprint contents following default.yaml structure
-                $contents = ['title' => $title];
-
-                // Validate and add fields if provided
-                if (! empty($fields)) {
-                    $validationResult = $this->validateFields($fields);
-                    if (isset($validationResult['success']) && $validationResult['success'] === false) {
-                        return $validationResult;
-                    }
-                    /** @var array<int, array{handle: string, field: array<string, mixed>}> $validatedFields */
-                    $validatedFields = $validationResult['validated'];
-                    $contents['fields'] = $validatedFields;
-                }
-
-                // Create the blueprint
-                $blueprint = Blueprint::make($safeHandle)
-                    ->setNamespace($blueprintNamespace)
-                    ->setContents($contents);
-
-                $this->persistStatamic(fn () => $blueprint->save(), ['stache']);
-
-                return [
-                    'blueprint' => [
-                        'handle' => $blueprint->handle(),
-                        'title' => $blueprint->title(),
-                        'namespace' => $blueprint->namespace(),
-                        'path' => $blueprint->path(),
-                        'full_path' => $namespace === 'collections'
-                            ? "collections/{$safeCollectionHandle}/{$safeHandle}.yaml"
-                            : ($namespace === 'taxonomies'
-                                ? "taxonomies/{$safeTaxonomyHandle}/{$safeHandle}.yaml"
-                                : "{$namespace}/{$safeHandle}.yaml"),
-                    ],
-                    'created' => true,
-                    'guidance' => $namespace === 'collections'
-                        ? "Blueprint created for collection '{$safeCollectionHandle}'. You can now create multiple blueprints (e.g., 'short', 'long', 'featured') for the same collection."
-                        : null,
-                ];
-            } finally {
-                flock($lockFile, LOCK_UN);
-                fclose($lockFile);
-                @unlink($lockPath);
-            }
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to create blueprint: {$e->getMessage()}")->toArray();
+            return [
+                'blueprint' => [
+                    'handle' => $blueprint->handle(),
+                    'title' => $blueprint->title(),
+                    'namespace' => $blueprint->namespace(),
+                    'path' => $blueprint->path(),
+                    'full_path' => $namespace === 'collections'
+                        ? "collections/{$safeCollectionHandle}/{$safeHandle}.yaml"
+                        : ($namespace === 'taxonomies'
+                            ? "taxonomies/{$safeTaxonomyHandle}/{$safeHandle}.yaml"
+                            : "{$namespace}/{$safeHandle}.yaml"),
+                ],
+                'created' => true,
+                'guidance' => $namespace === 'collections'
+                    ? "Blueprint created for collection '{$safeCollectionHandle}'. You can now create multiple blueprints (e.g., 'short', 'long', 'featured') for the same collection."
+                    : null,
+            ];
+        } finally {
+            flock($lockFile, LOCK_UN);
+            fclose($lockFile);
+            @unlink($lockPath);
         }
     }
 
@@ -808,73 +775,62 @@ class BlueprintsRouter extends BaseRouter
      */
     private function updateBlueprint(array $arguments): array
     {
-        try {
-            $handle = is_string($arguments['handle']) ? $arguments['handle'] : '';
-            $namespace = isset($arguments['namespace']) && is_string($arguments['namespace']) ? $arguments['namespace'] : null;
-            $fields = isset($arguments['fields']) && is_array($arguments['fields']) ? $arguments['fields'] : null;
-            $title = isset($arguments['title']) && is_string($arguments['title']) ? $arguments['title'] : null;
-
-            // Find the blueprint
-            $collectionHandle = isset($arguments['collection']) && is_string($arguments['collection']) ? $arguments['collection'] : null;
-            $taxonomyHandle = isset($arguments['taxonomy']) && is_string($arguments['taxonomy']) ? $arguments['taxonomy'] : null;
-
-            $blueprint = $this->findBlueprint($handle, $namespace, $collectionHandle, $taxonomyHandle);
-
-            if ($blueprint === null) {
-                return $this->createErrorResponse('Blueprint not found: ' . $handle)->toArray();
-            }
-            // Blink holds the found instance: a refused save must not leave it changed.
-            $blueprint = clone $blueprint;
-
-            // Update the blueprint contents
-            $contents = $blueprint->contents();
-
-            if ($title !== null) {
-                $contents['title'] = $title;
-            }
-
-            if ($fields !== null) {
-                $validationResult = $this->validateFields($fields);
-                if (isset($validationResult['success']) && $validationResult['success'] === false) {
-                    return $validationResult;
-                }
-                /** @var array<int, array{handle: string, field: array<string, mixed>}> $validatedFields */
-                $validatedFields = $validationResult['validated'];
-
-                $replaceFields = isset($arguments['replace_fields']) && $arguments['replace_fields'] === true;
-
-                if ($replaceFields) {
-                    // Remove tabs structure and set flat fields — Statamic will re-normalize
-                    unset($contents['tabs']);
-                    $contents['fields'] = $validatedFields;
-                } else {
-                    $contents = $this->mergeFieldsIntoContents($contents, $validatedFields);
-                }
-            }
-
-            $blueprint->setContents($contents);
-            $this->persistStatamic(fn () => $blueprint->save(), ['stache']);
-
-            return [
-                'blueprint' => [
-                    'handle' => $blueprint->handle(),
-                    'title' => $blueprint->title(),
-                    'namespace' => $blueprint->namespace(),
-                    'fields' => $blueprint->fields()->all()->map(function (mixed $field): array {
-                        /** @var Field $field */
-                        return [
-                            'handle' => $field->handle(),
-                            'type' => $field->type(),
-                            'display' => $field->display(),
-                            'config' => $field->config(),
-                        ];
-                    })->toArray(),
-                ],
-                'updated' => true,
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to update blueprint: {$e->getMessage()}")->toArray();
+        $handle = is_string($arguments['handle']) ? $arguments['handle'] : '';
+        $namespace = isset($arguments['namespace']) && is_string($arguments['namespace']) ? $arguments['namespace'] : null;
+        $fields = isset($arguments['fields']) && is_array($arguments['fields']) ? $arguments['fields'] : null;
+        $title = isset($arguments['title']) && is_string($arguments['title']) ? $arguments['title'] : null;
+        // Find the blueprint
+        $collectionHandle = isset($arguments['collection']) && is_string($arguments['collection']) ? $arguments['collection'] : null;
+        $taxonomyHandle = isset($arguments['taxonomy']) && is_string($arguments['taxonomy']) ? $arguments['taxonomy'] : null;
+        $blueprint = $this->findBlueprint($handle, $namespace, $collectionHandle, $taxonomyHandle);
+        if ($blueprint === null) {
+            return $this->missingResource('Blueprint', $handle, candidates: $this->candidateBlueprintHandles($namespace, $collectionHandle, $taxonomyHandle), arguments: $arguments)->toArray();
         }
+        // Blink holds the found instance: a refused save must not leave it changed.
+        $blueprint = clone $blueprint;
+        // Update the blueprint contents
+        $contents = $blueprint->contents();
+        if ($title !== null) {
+            $contents['title'] = $title;
+        }
+        if ($fields !== null) {
+            $validationResult = $this->validateFields($fields);
+            if (isset($validationResult['success']) && $validationResult['success'] === false) {
+                return $validationResult;
+            }
+            /** @var array<int, array{handle: string, field: array<string, mixed>}> $validatedFields */
+            $validatedFields = $validationResult['validated'];
+
+            $replaceFields = isset($arguments['replace_fields']) && $arguments['replace_fields'] === true;
+
+            if ($replaceFields) {
+                // Remove tabs structure and set flat fields — Statamic will re-normalize
+                unset($contents['tabs']);
+                $contents['fields'] = $validatedFields;
+            } else {
+                $contents = $this->mergeFieldsIntoContents($contents, $validatedFields);
+            }
+        }
+        $blueprint->setContents($contents);
+        $this->persistStatamic(fn () => $blueprint->save(), ['stache']);
+
+        return [
+            'blueprint' => [
+                'handle' => $blueprint->handle(),
+                'title' => $blueprint->title(),
+                'namespace' => $blueprint->namespace(),
+                'fields' => $blueprint->fields()->all()->map(function (mixed $field): array {
+                    /** @var Field $field */
+                    return [
+                        'handle' => $field->handle(),
+                        'type' => $field->type(),
+                        'display' => $field->display(),
+                        'config' => $field->config(),
+                    ];
+                })->toArray(),
+            ],
+            'updated' => true,
+        ];
     }
 
     /**
@@ -884,36 +840,27 @@ class BlueprintsRouter extends BaseRouter
      */
     private function deleteBlueprint(array $arguments): array
     {
-        try {
-            $handle = is_string($arguments['handle']) ? $arguments['handle'] : '';
-            $namespace = isset($arguments['namespace']) && is_string($arguments['namespace']) ? $arguments['namespace'] : null;
-
-            // Find the blueprint
-            $collectionHandle = isset($arguments['collection']) && is_string($arguments['collection']) ? $arguments['collection'] : null;
-            $taxonomyHandle = isset($arguments['taxonomy']) && is_string($arguments['taxonomy']) ? $arguments['taxonomy'] : null;
-
-            $blueprint = $this->findBlueprint($handle, $namespace, $collectionHandle, $taxonomyHandle);
-
-            if ($blueprint === null) {
-                return $this->createErrorResponse('Blueprint not found: ' . $handle)->toArray();
-            }
-
-            // Store blueprint info before deletion
-            $blueprintInfo = [
-                'handle' => $blueprint->handle(),
-                'title' => $blueprint->title(),
-                'namespace' => $blueprint->namespace(),
-            ];
-
-            $this->persistStatamic(fn () => $blueprint->delete(), ['stache']);
-
-            return [
-                'deleted' => true,
-                'blueprint' => $blueprintInfo,
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to delete blueprint: {$e->getMessage()}")->toArray();
+        $handle = is_string($arguments['handle']) ? $arguments['handle'] : '';
+        $namespace = isset($arguments['namespace']) && is_string($arguments['namespace']) ? $arguments['namespace'] : null;
+        // Find the blueprint
+        $collectionHandle = isset($arguments['collection']) && is_string($arguments['collection']) ? $arguments['collection'] : null;
+        $taxonomyHandle = isset($arguments['taxonomy']) && is_string($arguments['taxonomy']) ? $arguments['taxonomy'] : null;
+        $blueprint = $this->findBlueprint($handle, $namespace, $collectionHandle, $taxonomyHandle);
+        if ($blueprint === null) {
+            return $this->missingResource('Blueprint', $handle, candidates: $this->candidateBlueprintHandles($namespace, $collectionHandle, $taxonomyHandle), arguments: $arguments)->toArray();
         }
+        // Store blueprint info before deletion
+        $blueprintInfo = [
+            'handle' => $blueprint->handle(),
+            'title' => $blueprint->title(),
+            'namespace' => $blueprint->namespace(),
+        ];
+        $this->persistStatamic(fn () => $blueprint->delete(), ['stache']);
+
+        return [
+            'deleted' => true,
+            'blueprint' => $blueprintInfo,
+        ];
     }
 
     /**
@@ -933,92 +880,79 @@ class BlueprintsRouter extends BaseRouter
      */
     private function generateBlueprint(array $arguments): array
     {
-        try {
-            $handle = isset($arguments['handle']) && is_string($arguments['handle']) ? $arguments['handle'] : null;
-            $namespace = isset($arguments['namespace']) && is_string($arguments['namespace']) ? $arguments['namespace'] : 'collections';
-            $title = isset($arguments['title']) && is_string($arguments['title']) ? $arguments['title'] : Str::title(str_replace(['_', '-'], ' ', (string) $handle));
-
-            if (! $handle) {
-                return $this->createErrorResponse('Handle is required for blueprint generation')->toArray();
-            }
-
-            if ($locationError = $this->validateBlueprintLocation($handle, $namespace)) {
-                return $locationError;
-            }
-
-            // Fields must be provided by the user/LLM — never hardcoded
-            $fields = isset($arguments['fields']) && is_array($arguments['fields']) ? $arguments['fields'] : [];
-            if (empty($fields)) {
-                return $this->createErrorResponse('Fields are required for blueprint generation. Provide field definitions as an array of objects with at least "handle" and "type" keys.')->toArray();
-            }
-
-            // At this point $handle is guaranteed non-null
-            $safeHandle = $handle;
-
-            // Check if blueprint already exists
-            $existing = collect(Blueprint::in($namespace)->all())->firstWhere('handle', $safeHandle);
-            $existsError = $this->checkHandleNotExists($existing, "Blueprint in {$namespace}", $safeHandle);
-            if ($existsError !== null) {
-                return $existsError;
-            }
-
-            // Build field definitions from user-provided input.
-            // The generate action accepts a simplified format where "type" is at the
-            // top level, so we normalize to the standard {handle, field} indexed array
-            // that Statamic's Blueprint::setContents() expects.
-            /** @var array<int, array{handle: string, field: array<string, mixed>}> $fieldDefinitions */
-            $fieldDefinitions = [];
-            foreach ($fields as $field) {
-                if (! is_array($field)) {
-                    continue;
-                }
-                $fieldHandle = is_string($field['handle'] ?? null) ? $field['handle'] : null;
-                $fieldType = is_string($field['type'] ?? null) ? $field['type'] : null;
-                if (! $fieldHandle || ! $fieldType) {
-                    continue;
-                }
-                $fieldConfig = $field;
-                unset($fieldConfig['handle']);
-                $fieldDefinitions[] = [
-                    'handle' => $fieldHandle,
-                    'field' => $fieldConfig,
-                ];
-            }
-
-            if (empty($fieldDefinitions)) {
-                return $this->createErrorResponse('No valid field definitions found. Each field must have at least "handle" and "type".')->toArray();
-            }
-
-            // Create the blueprint
-            $blueprint = Blueprint::make($safeHandle)
-                ->setNamespace($namespace)
-                ->setContents([
-                    'title' => $title,
-                    'fields' => $fieldDefinitions,
-                ]);
-
-            $this->persistStatamic(fn () => $blueprint->save(), ['stache']);
-
-            return [
-                'blueprint' => [
-                    'handle' => $blueprint->handle(),
-                    'title' => $blueprint->title(),
-                    'namespace' => $blueprint->namespace(),
-                    'fields' => $blueprint->fields()->all()->map(function (mixed $field): array {
-                        /** @var Field $field */
-                        return [
-                            'handle' => $field->handle(),
-                            'type' => $field->type(),
-                            'display' => $field->display(),
-                            'config' => $field->config(),
-                        ];
-                    })->toArray(),
-                ],
-                'generated' => true,
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to generate blueprint: {$e->getMessage()}")->toArray();
+        $handle = isset($arguments['handle']) && is_string($arguments['handle']) ? $arguments['handle'] : null;
+        $namespace = isset($arguments['namespace']) && is_string($arguments['namespace']) ? $arguments['namespace'] : 'collections';
+        $title = isset($arguments['title']) && is_string($arguments['title']) ? $arguments['title'] : Str::title(str_replace(['_', '-'], ' ', (string) $handle));
+        if (! $handle) {
+            return $this->createErrorResponse('Handle is required for blueprint generation')->toArray();
         }
+        if ($locationError = $this->validateBlueprintLocation($handle, $namespace)) {
+            return $locationError;
+        }
+        // Fields must be provided by the user/LLM — never hardcoded
+        $fields = isset($arguments['fields']) && is_array($arguments['fields']) ? $arguments['fields'] : [];
+        if (empty($fields)) {
+            return $this->createErrorResponse('Fields are required for blueprint generation. Provide field definitions as an array of objects with at least "handle" and "type" keys.')->toArray();
+        }
+        // At this point $handle is guaranteed non-null
+        $safeHandle = $handle;
+        // Check if blueprint already exists
+        $existing = collect(Blueprint::in($namespace)->all())->firstWhere('handle', $safeHandle);
+        $existsError = $this->checkHandleNotExists($existing, "Blueprint in {$namespace}", $safeHandle);
+        if ($existsError !== null) {
+            return $existsError;
+        }
+        // Build field definitions from user-provided input.
+        // The generate action accepts a simplified format where "type" is at the
+        // top level, so we normalize to the standard {handle, field} indexed array
+        // that Statamic's Blueprint::setContents() expects.
+        /** @var array<int, array{handle: string, field: array<string, mixed>}> $fieldDefinitions */
+        $fieldDefinitions = [];
+        foreach ($fields as $field) {
+            if (! is_array($field)) {
+                continue;
+            }
+            $fieldHandle = is_string($field['handle'] ?? null) ? $field['handle'] : null;
+            $fieldType = is_string($field['type'] ?? null) ? $field['type'] : null;
+            if (! $fieldHandle || ! $fieldType) {
+                continue;
+            }
+            $fieldConfig = $field;
+            unset($fieldConfig['handle']);
+            $fieldDefinitions[] = [
+                'handle' => $fieldHandle,
+                'field' => $fieldConfig,
+            ];
+        }
+        if (empty($fieldDefinitions)) {
+            return $this->createErrorResponse('No valid field definitions found. Each field must have at least "handle" and "type".')->toArray();
+        }
+        // Create the blueprint
+        $blueprint = Blueprint::make($safeHandle)
+            ->setNamespace($namespace)
+            ->setContents([
+                'title' => $title,
+                'fields' => $fieldDefinitions,
+            ]);
+        $this->persistStatamic(fn () => $blueprint->save(), ['stache']);
+
+        return [
+            'blueprint' => [
+                'handle' => $blueprint->handle(),
+                'title' => $blueprint->title(),
+                'namespace' => $blueprint->namespace(),
+                'fields' => $blueprint->fields()->all()->map(function (mixed $field): array {
+                    /** @var Field $field */
+                    return [
+                        'handle' => $field->handle(),
+                        'type' => $field->type(),
+                        'display' => $field->display(),
+                        'config' => $field->config(),
+                    ];
+                })->toArray(),
+            ],
+            'generated' => true,
+        ];
     }
 
     /**
@@ -1028,46 +962,40 @@ class BlueprintsRouter extends BaseRouter
      */
     private function analyzeTypes(array $arguments): array
     {
-        try {
-            $outputFormat = $arguments['output_format'] ?? 'typescript';
-            $pagination = $this->getPaginationArgs($arguments, 50, 200);
-            $limit = $pagination['limit'];
-            $offset = $pagination['offset'];
-            $namespace = isset($arguments['namespace']) && is_string($arguments['namespace']) ? $arguments['namespace'] : null;
+        $outputFormat = $arguments['output_format'] ?? 'typescript';
+        $pagination = $this->getPaginationArgs($arguments, 50, 200);
+        $limit = $pagination['limit'];
+        $offset = $pagination['offset'];
+        $namespace = isset($arguments['namespace']) && is_string($arguments['namespace']) ? $arguments['namespace'] : null;
+        $blueprints = $this->collectAllBlueprints($namespace);
+        $total = $blueprints->count();
+        $paged = $blueprints->values()->skip($offset)->take($limit);
+        $types = [];
+        foreach ($paged as $blueprint) {
+            /** @var BlueprintContract $blueprint */
+            $fields = $blueprint->fields()->all()->map(function (mixed $field): array {
+                /** @var Field $field */
+                return [
+                    'handle' => $field->handle(),
+                    'type' => $field->type(),
+                    'required' => $field->isRequired(),
+                ];
+            })->toArray();
 
-            $blueprints = $this->collectAllBlueprints($namespace);
-            $total = $blueprints->count();
-            $paged = $blueprints->values()->skip($offset)->take($limit);
-
-            $types = [];
-            foreach ($paged as $blueprint) {
-                /** @var BlueprintContract $blueprint */
-                $fields = $blueprint->fields()->all()->map(function (mixed $field): array {
-                    /** @var Field $field */
-                    return [
-                        'handle' => $field->handle(),
-                        'type' => $field->type(),
-                        'required' => $field->isRequired(),
-                    ];
-                })->toArray();
-
-                $handle = $blueprint->handle();
-                if ($handle === null) {
-                    continue;
-                }
-
-                $types[$handle] = $fields;
+            $handle = $blueprint->handle();
+            if ($handle === null) {
+                continue;
             }
 
-            return [
-                'format' => $outputFormat,
-                'types' => $types,
-                'pagination' => $this->buildPaginationMeta($total, $limit, $offset),
-                'generated_at' => now()->toISOString(),
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to analyze types: {$e->getMessage()}")->toArray();
+            $types[$handle] = $fields;
         }
+
+        return [
+            'format' => $outputFormat,
+            'types' => $types,
+            'pagination' => $this->buildPaginationMeta($total, $limit, $offset),
+            'generated_at' => now()->toISOString(),
+        ];
     }
 
     /**
@@ -1077,48 +1005,39 @@ class BlueprintsRouter extends BaseRouter
      */
     private function validateBlueprint(array $arguments): array
     {
-        try {
-            $handle = is_string($arguments['handle']) ? $arguments['handle'] : '';
-            $namespace = isset($arguments['namespace']) && is_string($arguments['namespace']) ? $arguments['namespace'] : null;
-
-            $collectionHandle = isset($arguments['collection']) && is_string($arguments['collection']) ? $arguments['collection'] : null;
-            $taxonomyHandle = isset($arguments['taxonomy']) && is_string($arguments['taxonomy']) ? $arguments['taxonomy'] : null;
-
-            $blueprint = $this->findBlueprint($handle, $namespace, $collectionHandle, $taxonomyHandle);
-
-            if ($blueprint === null) {
-                return $this->createErrorResponse('Blueprint not found: ' . $handle)->toArray();
-            }
-
-            // Basic validation - check if fields are valid
-            $validationResults = [
-                'valid' => true,
-                'errors' => [],
-                'warnings' => [],
-            ];
-
-            $fields = $blueprint->fields()->all();
-            foreach ($fields as $field) {
-                /** @var Field $field */
-                // Basic field validation
-                if (empty($field->handle())) {
-                    $validationResults['valid'] = false;
-                    $validationResults['errors'][] = 'Field missing handle';
-                }
-
-                if (empty($field->type())) {
-                    $validationResults['valid'] = false;
-                    $validationResults['errors'][] = "Field '{$field->handle()}' missing type";
-                }
-            }
-
-            return [
-                'blueprint' => $handle,
-                'validation' => $validationResults,
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to validate blueprint: {$e->getMessage()}")->toArray();
+        $handle = is_string($arguments['handle']) ? $arguments['handle'] : '';
+        $namespace = isset($arguments['namespace']) && is_string($arguments['namespace']) ? $arguments['namespace'] : null;
+        $collectionHandle = isset($arguments['collection']) && is_string($arguments['collection']) ? $arguments['collection'] : null;
+        $taxonomyHandle = isset($arguments['taxonomy']) && is_string($arguments['taxonomy']) ? $arguments['taxonomy'] : null;
+        $blueprint = $this->findBlueprint($handle, $namespace, $collectionHandle, $taxonomyHandle);
+        if ($blueprint === null) {
+            return $this->missingResource('Blueprint', $handle, candidates: $this->candidateBlueprintHandles($namespace, $collectionHandle, $taxonomyHandle), arguments: $arguments)->toArray();
         }
+        // Basic validation - check if fields are valid
+        $validationResults = [
+            'valid' => true,
+            'errors' => [],
+            'warnings' => [],
+        ];
+        $fields = $blueprint->fields()->all();
+        foreach ($fields as $field) {
+            /** @var Field $field */
+            // Basic field validation
+            if (empty($field->handle())) {
+                $validationResults['valid'] = false;
+                $validationResults['errors'][] = 'Field missing handle';
+            }
+
+            if (empty($field->type())) {
+                $validationResults['valid'] = false;
+                $validationResults['errors'][] = "Field '{$field->handle()}' missing type";
+            }
+        }
+
+        return [
+            'blueprint' => $handle,
+            'validation' => $validationResults,
+        ];
     }
 
     /**
@@ -1160,6 +1079,34 @@ class BlueprintsRouter extends BaseRouter
         }
 
         return $blueprints;
+    }
+
+    /**
+     * Only suggest handles that the same lookup can actually resolve. A
+     * collection-specific typo must not suggest another collection's schema.
+     *
+     * @return list<string>
+     */
+    private function candidateBlueprintHandles(?string $namespace, ?string $collection, ?string $taxonomy): array
+    {
+        $effectiveNamespace = match ($namespace) {
+            'collections' => $collection ? "collections.{$collection}" : $namespace,
+            'taxonomies' => $taxonomy ? "taxonomies.{$taxonomy}" : $namespace,
+            default => $namespace,
+        };
+        $blueprints = $effectiveNamespace === null
+            ? $this->collectAllBlueprints()
+            : collect(Blueprint::in($effectiveNamespace)->all());
+
+        $handles = [];
+        foreach ($blueprints as $blueprint) {
+            if ($blueprint instanceof BlueprintContract && ($handle = $blueprint->handle()) !== null
+                && $this->findBlueprint($handle, $namespace, $collection, $taxonomy) !== null) {
+                $handles[] = $handle;
+            }
+        }
+
+        return $handles;
     }
 
     /**

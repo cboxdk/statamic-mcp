@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Concerns;
 
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
+use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
 use Statamic\Contracts\Auth\User as UserContract;
 use Statamic\Contracts\Entries\Entry as EntryContract;
 use Statamic\Entries\Entry;
@@ -170,39 +171,29 @@ trait HandlesRevisions
     private function listRevisionsAction(array $arguments): array
     {
         $id = is_string($arguments['id'] ?? null) ? $arguments['id'] : '';
-
-        try {
-            $entry = $this->resolveRevisionEntry($arguments);
-
-            if ($entry === null) {
-                return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
-            }
-
-            if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
-                return $policyError;
-            }
-
-            /** @var Entry $entry */
-            $revisionsError = $this->requireRevisionsEnabled($entry);
-            if ($revisionsError) {
-                return $revisionsError;
-            }
-
-            $revisions = $entry->revisions();
-
-            $formatted = $revisions->map(function (Revision $revision) {
-                return $this->formatRevisionMeta($revision);
-            })->values()->all();
-
-            return [
-                'entry_id' => $entry->id(),
-                'revisions' => $formatted,
-                'total' => count($formatted),
-                'revision_status' => $this->getRevisionStatusMeta($entry),
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to list revisions: {$e->getMessage()}")->toArray();
+        $entry = $this->resolveRevisionEntry($arguments);
+        if ($entry === null) {
+            return $this->missingResource('Entry', $id, 'id')->toArray();
         }
+        if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
+            return $policyError;
+        }
+        /** @var Entry $entry */
+        $revisionsError = $this->requireRevisionsEnabled($entry);
+        if ($revisionsError) {
+            return $revisionsError;
+        }
+        $revisions = $entry->revisions();
+        $formatted = $revisions->map(function (Revision $revision) {
+            return $this->formatRevisionMeta($revision);
+        })->values()->all();
+
+        return [
+            'entry_id' => $entry->id(),
+            'revisions' => $formatted,
+            'total' => count($formatted),
+            'revision_status' => $this->getRevisionStatusMeta($entry),
+        ];
     }
 
     /**
@@ -216,51 +207,40 @@ trait HandlesRevisions
     {
         $id = is_string($arguments['id'] ?? null) ? $arguments['id'] : '';
         $revisionId = is_string($arguments['revision_id'] ?? null) ? $arguments['revision_id'] : '';
-
-        try {
-            $entry = $this->resolveRevisionEntry($arguments);
-
-            if ($entry === null) {
-                return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
-            }
-
-            if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
-                return $policyError;
-            }
-
-            /** @var Entry $entry */
-            $revisionsError = $this->requireRevisionsEnabled($entry);
-            if ($revisionsError) {
-                return $revisionsError;
-            }
-
-            $revision = $entry->revision($revisionId);
-
-            if ($revision === null) {
-                return $this->createErrorResponse("Revision not found: {$revisionId}")->toArray();
-            }
-
-            // A revision snapshot carries the entry's full data, which the
-            // top-level output filter does not reach, so denied fields must be
-            // stripped here too — otherwise get_revision discloses what get hides.
-            $attributes = $revision->attributes();
-            if (isset($attributes['data']) && is_array($attributes['data'])) {
-                /** @var array<string, mixed> $revisionData */
-                $revisionData = $attributes['data'];
-                $attributes['data'] = app(ResourcePolicy::class)
-                    ->filterFields($this->getDomain(), $revisionData);
-            }
-
-            return [
-                'entry_id' => $entry->id(),
-                'revision' => [
-                    ...$this->formatRevisionMeta($revision),
-                    'attributes' => $attributes,
-                ],
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to get revision: {$e->getMessage()}")->toArray();
+        $entry = $this->resolveRevisionEntry($arguments);
+        if ($entry === null) {
+            return $this->missingResource('Entry', $id, 'id')->toArray();
         }
+        if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
+            return $policyError;
+        }
+        /** @var Entry $entry */
+        $revisionsError = $this->requireRevisionsEnabled($entry);
+        if ($revisionsError) {
+            return $revisionsError;
+        }
+        $revision = $entry->revision($revisionId);
+        if ($revision === null) {
+            return $this->missingResource('Revision', $revisionId, 'revision_id')->toArray();
+        }
+        // A revision snapshot carries the entry's full data, which the
+        // top-level output filter does not reach, so denied fields must be
+        // stripped here too — otherwise get_revision discloses what get hides.
+        $attributes = $revision->attributes();
+        if (isset($attributes['data']) && is_array($attributes['data'])) {
+            /** @var array<string, mixed> $revisionData */
+            $revisionData = $attributes['data'];
+            $attributes['data'] = app(ResourcePolicy::class)
+                ->filterFields($this->getDomain(), $revisionData);
+        }
+
+        return [
+            'entry_id' => $entry->id(),
+            'revision' => [
+                ...$this->formatRevisionMeta($revision),
+                'attributes' => $attributes,
+            ],
+        ];
     }
 
     /**
@@ -278,57 +258,44 @@ trait HandlesRevisions
     {
         $id = is_string($arguments['id'] ?? null) ? $arguments['id'] : '';
         $revisionId = is_string($arguments['revision_id'] ?? null) ? $arguments['revision_id'] : '';
-
-        try {
-            $entry = $this->resolveRevisionEntry($arguments);
-
-            if ($entry === null) {
-                return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
-            }
-
-            if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
-                return $policyError;
-            }
-
-            /** @var Entry $entry */
-            $revisionsError = $this->requireRevisionsEnabled($entry);
-            if ($revisionsError) {
-                return $revisionsError;
-            }
-
-            $revision = $entry->revision($revisionId);
-
-            if ($revision === null) {
-                return $this->createErrorResponse("Revision not found: {$revisionId}")->toArray();
-            }
-
-            if ($entry->published()) {
-                // Published: create a working copy from the revision
-                $this->persistStatamic(fn () => $revision->toWorkingCopy()->user($this->actingUser())->date(now())->save());
-            } else {
-                // Unpublished: directly update the entry from the revision
-                /** @var Entry $restoredEntry */
-                $restoredEntry = $entry->makeFromRevision($revision);
-                $this->persistStatamic(fn () => $restoredEntry->published(false)->save());
-            }
-
-            // Clear relevant caches
-            $this->clearCachesAfterWrite(['stache', 'static']);
-
-            // Re-fetch entry for fresh state (in-memory object is stale after restore)
-            $refreshed = $this->resolveRevisionEntry($arguments);
-
-            return [
-                'entry_id' => $entry->id(),
-                'restored_from' => $revisionId,
-                'restored_as_working_copy' => $refreshed !== null ? $refreshed->published() : $entry->published(),
-                'revision_status' => $refreshed !== null
-                    ? $this->getRevisionStatusMeta($refreshed)
-                    : $this->getRevisionStatusMeta($entry),
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to restore revision: {$e->getMessage()}")->toArray();
+        $entry = $this->resolveRevisionEntry($arguments);
+        if ($entry === null) {
+            return $this->missingResource('Entry', $id, 'id')->toArray();
         }
+        if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
+            return $policyError;
+        }
+        /** @var Entry $entry */
+        $revisionsError = $this->requireRevisionsEnabled($entry);
+        if ($revisionsError) {
+            return $revisionsError;
+        }
+        $revision = $entry->revision($revisionId);
+        if ($revision === null) {
+            return $this->missingResource('Revision', $revisionId, 'revision_id')->toArray();
+        }
+        if ($entry->published()) {
+            // Published: create a working copy from the revision
+            $this->persistStatamic(fn () => $revision->toWorkingCopy()->user($this->actingUser())->date(now())->save());
+        } else {
+            // Unpublished: directly update the entry from the revision
+            /** @var Entry $restoredEntry */
+            $restoredEntry = $entry->makeFromRevision($revision);
+            $this->persistStatamic(fn () => $restoredEntry->published(false)->save());
+        }
+        // Clear relevant caches
+        $this->clearCachesAfterWrite(['stache', 'static']);
+        // Re-fetch entry for fresh state (in-memory object is stale after restore)
+        $refreshed = $this->resolveRevisionEntry($arguments);
+
+        return [
+            'entry_id' => $entry->id(),
+            'restored_from' => $revisionId,
+            'restored_as_working_copy' => $refreshed !== null ? $refreshed->published() : $entry->published(),
+            'revision_status' => $refreshed !== null
+                ? $this->getRevisionStatusMeta($refreshed)
+                : $this->getRevisionStatusMeta($entry),
+        ];
     }
 
     /**
@@ -344,55 +311,42 @@ trait HandlesRevisions
     private function publishWorkingCopyAction(array $arguments): array
     {
         $id = is_string($arguments['id'] ?? null) ? $arguments['id'] : '';
-
-        try {
-            $entry = $this->resolveRevisionEntry($arguments);
-
-            if ($entry === null) {
-                return $this->createErrorResponse('Entry not found: ' . $id)->toArray();
-            }
-
-            if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
-                return $policyError;
-            }
-
-            /** @var Entry $entry */
-            $revisionsError = $this->requireRevisionsEnabled($entry);
-            if ($revisionsError) {
-                return $revisionsError;
-            }
-
-            if (! $entry->hasWorkingCopy()) {
-                return $this->createErrorResponse('No working copy exists to publish')->toArray();
-            }
-
-            $this->persistStatamic(fn () => $entry->publish($this->revisionOptions($arguments)));
-
-            // Clear relevant caches
-            $this->clearCachesAfterWrite(['stache', 'static']);
-
-            // Re-fetch entry for fresh state with site context
-            $refreshed = $this->resolveRevisionEntry($arguments);
-
-            if ($refreshed === null) {
-                return $this->createErrorResponse('Failed to re-fetch entry after publishing')->toArray();
-            }
-
-            return [
-                'entry' => [
-                    'id' => $refreshed->id(),
-                    'slug' => $refreshed->slug(),
-                    'collection' => $refreshed->collectionHandle(),
-                    'site' => $refreshed->site()->handle(),
-                    'published' => $refreshed->published(),
-                    'url' => $refreshed->url(),
-                ],
-                'published' => true,
-                'revision_status' => $this->getRevisionStatusMeta($refreshed),
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to publish working copy: {$e->getMessage()}")->toArray();
+        $entry = $this->resolveRevisionEntry($arguments);
+        if ($entry === null) {
+            return $this->missingResource('Entry', $id, 'id')->toArray();
         }
+        if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
+            return $policyError;
+        }
+        /** @var Entry $entry */
+        $revisionsError = $this->requireRevisionsEnabled($entry);
+        if ($revisionsError) {
+            return $revisionsError;
+        }
+        if (! $entry->hasWorkingCopy()) {
+            return $this->createErrorResponse('No working copy exists to publish')->toArray();
+        }
+        $this->persistStatamic(fn () => $entry->publish($this->revisionOptions($arguments)));
+        // Clear relevant caches
+        $this->clearCachesAfterWrite(['stache', 'static']);
+        // Re-fetch entry for fresh state with site context
+        $refreshed = $this->resolveRevisionEntry($arguments);
+        if ($refreshed === null) {
+            return $this->createErrorResponse('Failed to re-fetch entry after publishing', code: ErrorCode::OutcomeUnknown)->toArray();
+        }
+
+        return [
+            'entry' => [
+                'id' => $refreshed->id(),
+                'slug' => $refreshed->slug(),
+                'collection' => $refreshed->collectionHandle(),
+                'site' => $refreshed->site()->handle(),
+                'published' => $refreshed->published(),
+                'url' => $refreshed->url(),
+            ],
+            'published' => true,
+            'revision_status' => $this->getRevisionStatusMeta($refreshed),
+        ];
     }
 
     /**

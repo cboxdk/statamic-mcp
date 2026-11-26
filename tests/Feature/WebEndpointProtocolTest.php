@@ -10,6 +10,8 @@ use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\ServiceProvider;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Illuminate\Testing\TestResponse;
+use Statamic\Facades\Collection;
+use Statamic\Facades\Role;
 use Statamic\Facades\User;
 
 /**
@@ -55,6 +57,58 @@ class WebEndpointProtocolTest extends TestCase
         $this->assertSame([self::PROTOCOL_VERSION], $result['supportedVersions']);
         $this->assertArrayHasKey('tools', $result['capabilities']);
         $this->assertStringContainsString('Statamic', $result['instructions']);
+    }
+
+    public function test_not_found_suggestions_only_include_readable_handles(): void
+    {
+        foreach (['posts', 'posters', 'post', 'news'] as $handle) {
+            Collection::make($handle)->save();
+        }
+        $call = ['name' => 'statamic-entries-read', 'arguments' => ['action' => 'list', 'collection' => 'postz']];
+        $this->rpc('tools/call', $call)->assertOk()
+            ->assertJsonPath('result.isError', true)
+            ->assertJsonPath('result.structuredContent.error.code', 'NOT_FOUND')
+            ->assertJsonPath('result.structuredContent.error.field', 'collection')
+            ->assertJsonPath('result.structuredContent.error.valid_values', ['post', 'posts']);
+
+        config(['statamic.mcp.tools.entries.resources.read' => ['postz', 'posts']]);
+        $this->rpc('tools/call', $call)->assertOk()
+            ->assertJsonPath('result.structuredContent.error.valid_values', ['posts']);
+
+        config(['statamic.mcp.tools.entries.resources.read' => null]);
+        Role::make()->handle('typo-reader')->permissions([
+            'access cp', 'view postz entries', 'view posts entries',
+        ])->save();
+        $reader = User::make()->email('typo-reader@example.test')->assignRole('typo-reader');
+        $reader->save();
+        $this->token = app(TokenService::class)->createToken((string) $reader->id(), 'reader', ['entries:read'])['token'];
+        $this->rpc('tools/call', $call)->assertOk()
+            ->assertJsonPath('result.structuredContent.error.valid_values', ['posts']);
+
+        $writer = User::make()->email('typo-writer@example.test')->makeSuper();
+        $writer->save();
+        $this->token = app(TokenService::class)->createToken((string) $writer->id(), 'writer', ['entries:write'])['token'];
+        $this->rpc('tools/call', ['name' => 'statamic-entries-write', 'arguments' => [
+            'action' => 'create', 'collection' => 'postz', 'data' => ['title' => 'Never saved'],
+        ]])->assertOk()->assertJsonPath('result.structuredContent.error.code', 'NOT_FOUND')
+            ->assertJsonMissingPath('result.structuredContent.error.valid_values')
+            ->assertJsonMissingPath('result.structuredContent.error.hint');
+    }
+
+    public function test_forbidden_and_missing_scope_are_distinct_tool_errors(): void
+    {
+        config(['statamic.mcp.tools.entries.resources.read' => []]);
+        $call = ['name' => 'statamic-entries-read', 'arguments' => ['action' => 'list', 'collection' => 'pages']];
+        $this->rpc('tools/call', $call)->assertOk()
+            ->assertJsonPath('result.isError', true)
+            ->assertJsonPath('result.structuredContent.error.code', 'FORBIDDEN');
+
+        $user = User::make()->email('wrong-scope@example.test')->makeSuper();
+        $user->save();
+        $this->token = app(TokenService::class)->createToken((string) $user->id(), 'wrong-scope', ['terms:read'])['token'];
+        $this->rpc('tools/call', $call)->assertOk()
+            ->assertJsonPath('result.isError', true)
+            ->assertJsonPath('result.structuredContent.error.code', 'SCOPE_MISSING');
     }
 
     public function test_removed_actions_are_not_advertised_or_executable(): void

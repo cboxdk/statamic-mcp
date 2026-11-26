@@ -34,6 +34,7 @@ journal never holds secrets or hashes. If it cannot be written, nothing changes.
 
 ## Clients
 
+- Tool failures now use `error: {code, message, field?, valid_values?, hint?}` alongside MCP `isError: true`. Replace reads of `errors[0]`, a string `error`, or `data.code` with `error.message` and `error.code`. Recovery data such as `approval_id` and `current_version` stays in `data`; unexpected exceptions include `meta.correlation_id`. See [error codes](docs/tools/overview.md#error-codes). Internal PHP `execute()` callers still receive the legacy `errors` list, but the protocol does not.
 - Basic Auth is gone. Use a Bearer token or OAuth.
 - The HTTP endpoint must be enabled explicitly (`STATAMIC_MCP_WEB_ENABLED=true`).
 - `confirmation_token` is ignored. A gated action answers `APPROVAL_REQUIRED`

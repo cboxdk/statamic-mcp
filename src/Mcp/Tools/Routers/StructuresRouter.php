@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
+use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
+use Cboxdk\StatamicMcp\Mcp\Exceptions\ToolFailure;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesCollections;
@@ -14,7 +16,6 @@ use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesSites;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesTaxonomies;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
-use Illuminate\Validation\ValidationException;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Attributes\Title;
@@ -36,7 +37,7 @@ class StructuresRouter extends BaseRouter
         if (($arguments['resource_type'] ?? '') === 'collection' && (array_key_exists('entry', $data) || array_key_exists('parent', $data))) {
             foreach (['entries', 'structures'] as $domain) {
                 if (array_intersect(['entry', 'parent'], app(ResourcePolicy::class)->getDeniedFields($domain))) {
-                    throw ValidationException::withMessages(['parent' => 'Tree changes are denied by resource policy.']);
+                    throw new ToolFailure(ErrorCode::Forbidden, 'Tree changes are denied by resource policy.', 'parent');
                 }
             }
         }

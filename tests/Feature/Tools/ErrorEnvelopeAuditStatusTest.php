@@ -10,6 +10,8 @@ use Cboxdk\StatamicMcp\Storage\Audit\FileAuditStore;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\Support\Facades\Log;
+use Laravel\Mcp\Request;
+use Laravel\Mcp\ResponseFactory;
 use Mockery;
 
 /**
@@ -78,6 +80,26 @@ class ErrorEnvelopeAuditStatusTest extends TestCase
         $this->assertSame('test-envelope-tool.update: success', $entry['message']);
     }
 
+    public function test_legacy_failures_use_the_current_wire_contract_without_inventing_codes(): void
+    {
+        foreach ([
+            [['success' => false, 'errors' => ['Read the record again.'], 'data' => ['code' => 'VERSION_CONFLICT', 'current_version' => 'v2']], 'VERSION_CONFLICT', 'Read the record again.'],
+            [['success' => false, 'error' => 'Old failure shape'], 'INTERNAL', 'Old failure shape'],
+            [['success' => false, 'errors' => ['Extension refused.'], 'data' => ['code' => 'EXTENSION_SPECIFIC']], 'INTERNAL', 'Extension refused.'],
+        ] as [$legacy, $code, $message]) {
+            $tool = new EnvelopeTool(fn (): array => $legacy);
+            $response = $tool->handle(new Request);
+            $this->assertInstanceOf(ResponseFactory::class, $response);
+            $this->assertTrue($response->responses()->first()->isError());
+            $content = $response->getStructuredContent();
+            $this->assertFalse($content['success']);
+            $this->assertSame(['code' => $code, 'message' => $message], $content['error']);
+            $this->assertArrayNotHasKey('errors', $content);
+            $this->assertArrayNotHasKey('code', $content['data'] ?? []);
+            $this->assertArrayHasKey('meta', $content);
+        }
+    }
+
     public function test_an_audit_failure_cannot_replace_a_completed_write_result(): void
     {
         $store = Mockery::mock(AuditStore::class);
@@ -94,6 +116,25 @@ class ErrorEnvelopeAuditStatusTest extends TestCase
         $this->assertTrue($result['data']['updated']);
         $this->assertSame('unavailable', $result['meta']['audit_status']);
         $this->assertSame(1, $calls);
+    }
+
+    public function test_legacy_diagnostics_are_hidden_in_production_but_recovery_messages_survive(): void
+    {
+        app()->detectEnvironment(fn (): string => 'production');
+        foreach ([null, 'INTERNAL', 'EXTENSION_SPECIFIC', 'VERSION_CONFLICT'] as $code) {
+            $message = $code === 'VERSION_CONFLICT' ? 'Read the record again.' : 'SQLSTATE connection to private-db.internal failed';
+            $tool = new EnvelopeTool(fn (): array => [
+                'success' => false, 'errors' => [$message], 'data' => ['code' => $code],
+            ]);
+            $response = $tool->handle(new Request);
+            $this->assertInstanceOf(ResponseFactory::class, $response);
+            $content = $response->getStructuredContent();
+            $this->assertSame($code === 'VERSION_CONFLICT' ? 'VERSION_CONFLICT' : 'INTERNAL', $content['error']['code']);
+            $this->assertStringNotContainsString('private-db.internal', json_encode($content, JSON_THROW_ON_ERROR));
+            if ($code === 'VERSION_CONFLICT') {
+                $this->assertSame($message, $content['error']['message']);
+            }
+        }
     }
 
     public function test_failing_audit_and_fallback_logger_preserve_the_execution_error(): void

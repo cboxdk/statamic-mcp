@@ -80,7 +80,7 @@ it('can enable and disable collection ordering through update', function () {
     }
 });
 
-it('enforces both scopes and policies on the explicit collection move', function (array $scopes, string $policy, string $field, string $error) {
+it('enforces both scopes and policies on the explicit collection move', function (array $scopes, string $policy, string $field, string $error, string $code) {
     collectionTreeRegressionFixture();
     config([
         'statamic.editions.pro' => true,
@@ -107,15 +107,16 @@ it('enforces both scopes and policies on the explicit collection move', function
         'data' => ['entry' => 'child', 'parent' => 'b'],
     ]);
     expect($result['success'])->toBeFalse()
+        ->and($result['error']['code'])->toBe($code)
         ->and(json_encode($result))->toContain($error)
         ->and(file_get_contents($path))->toBe($before);
 })->with([
-    'no entries scope' => [['structures:admin'], '', '', 'entries:write'],
-    'no structures scope' => [['entries:write'], '', '', 'structures:admin'],
-    'entries policy' => [['entries:write', 'structures:admin'], 'entries', '', 'entries resource policy'],
-    'structures policy' => [['entries:write', 'structures:admin'], 'structures', '', 'resource policy'],
-    'entries field policy' => [['entries:write', 'structures:admin'], '', 'entries', 'Tree changes are denied'],
-    'structures field policy' => [['entries:write', 'structures:admin'], '', 'structures', 'Tree changes are denied'],
+    'no entries scope' => [['structures:admin'], '', '', 'entries:write', 'SCOPE_MISSING'],
+    'no structures scope' => [['entries:write'], '', '', 'structures:admin', 'SCOPE_MISSING'],
+    'entries policy' => [['entries:write', 'structures:admin'], 'entries', '', 'entries resource policy', 'FORBIDDEN'],
+    'structures policy' => [['entries:write', 'structures:admin'], 'structures', '', 'resource policy', 'FORBIDDEN'],
+    'entries field policy' => [['entries:write', 'structures:admin'], '', 'entries', 'Tree changes are denied', 'FORBIDDEN'],
+    'structures field policy' => [['entries:write', 'structures:admin'], '', 'structures', 'Tree changes are denied', 'FORBIDDEN'],
 ]);
 
 it('hides denied parent metadata on entry reads and content writes', function (string $domain) {
@@ -131,6 +132,13 @@ it('hides denied parent metadata on entry reads and content writes', function (s
         expect($result['success'])->toBeTrue()
             ->and($result['data']['entry'])->not->toHaveKey('parent');
     }
+    $refused = $router->execute([
+        'action' => 'update', 'collection' => 'tree_pages', 'id' => 'child',
+        'data' => ['parent' => 'b'],
+    ]);
+    expect($refused['success'])->toBeFalse()
+        ->and($refused['error']['code'])->toBe('FORBIDDEN')
+        ->and($refused['error']['field'])->toBe('parent');
 })->with(['entries', 'structures']);
 
 it('filters collection trees for every caller and both field policies', function (string $context, string $domain) {
