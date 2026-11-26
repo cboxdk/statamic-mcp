@@ -16,6 +16,7 @@ use Statamic\Fieldtypes\Bard;
 use Statamic\Fieldtypes\Date;
 use Statamic\Fieldtypes\Grid;
 use Statamic\Fieldtypes\Group;
+use Statamic\Fieldtypes\Relationship;
 use Statamic\Fieldtypes\Replicator;
 
 trait SanitizesFieldData
@@ -254,11 +255,19 @@ trait SanitizesFieldData
             'date' => $this->sanitizeDateValue($field, $value),
             'assets' => $this->normalizeAssetFieldValue($field, $value),
             'terms', 'entries', 'users', 'checkboxes' => $this->sanitizeRelationshipValue($value),
-            // A registered sanitizer replaces the built-in string check, so a
-            // site can still decide for itself what a string field accepts.
-            default => FieldtypeExtensions::hasSanitizer($field) || ! in_array($field->type(), self::STRING_FIELDTYPES, true)
-                ? FieldtypeExtensions::applySanitizer($field, $value, $path)
-                : $this->sanitizeStringValue($field, $value, $allowLegacyCoercion, $path),
+            // A registered sanitizer replaces the built-in checks below, so a
+            // site can still decide for itself what a field accepts.
+            default => match (true) {
+                FieldtypeExtensions::hasSanitizer($field) => FieldtypeExtensions::applySanitizer($field, $value, $path),
+                // Every Relationship validates as `array`, but stores a bare id
+                // when max_items is 1 (process() unwraps it again on save). The
+                // Control Panel wraps it before submitting; this does the same
+                // for every subclass — entries, terms, users, form, collections,
+                // navs, sites and the rest — not a list that falls behind (#102).
+                $field->fieldtype() instanceof Relationship => $this->sanitizeRelationshipValue($value),
+                in_array($field->type(), self::STRING_FIELDTYPES, true) => $this->sanitizeStringValue($field, $value, $allowLegacyCoercion, $path),
+                default => FieldtypeExtensions::applySanitizer($field, $value, $path),
+            },
         };
     }
 
