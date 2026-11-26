@@ -29,15 +29,27 @@ use Statamic\Contracts\Auth\User;
  */
 final class McpAuthorizer
 {
+    /**
+     * The first gate on its own: over HTTP, nobody is acting. Asked before a
+     * call's arguments are checked, so an anonymous caller learns nothing
+     * about the call but that it must sign in.
+     */
+    public function authenticationDenial(): ?string
+    {
+        return ! McpContext::isCli() && auth()->user() === null
+            ? 'Permission denied: Authentication required'
+            : null;
+    }
+
     public function denial(McpCall $call): ?string
     {
-        if (! McpContext::isCli()) {
-            /** @var User|null $user */
-            $user = auth()->user();
+        if (($denial = $this->authenticationDenial()) !== null) {
+            return $denial;
+        }
 
-            if (! $user) {
-                return 'Permission denied: Authentication required';
-            }
+        if (! McpContext::isCli()) {
+            /** @var User $user */
+            $user = auth()->user();
 
             $token = request()->attributes->get('mcp_token');
             if ($token instanceof McpTokenData && ($denial = $this->tokenDenial($call, $token)) !== null) {

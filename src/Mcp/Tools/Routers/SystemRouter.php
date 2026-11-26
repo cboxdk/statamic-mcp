@@ -34,24 +34,16 @@ class SystemRouter extends BaseRouter
         return 'system';
     }
 
-    protected function facetArguments(): array
-    {
-        return [
-            'read' => ['include_details', 'include_performance'],
-            'write' => ['config_value'],
-        ];
-    }
-
     protected function actions(): array
     {
         return [
-            RouterAction::read('info', 'System information: versions, sites, content counts and environment.'),
-            RouterAction::read('health', 'Run the health checks and report what they found.'),
-            RouterAction::read('cache_status', 'Report the state of each cache. Optional: cache_type, include_details.'),
-            RouterAction::admin('cache_clear', 'Clear a cache. Needs cache_type.'),
-            RouterAction::admin('cache_warm', 'Warm a cache. Needs cache_type.'),
-            RouterAction::read('config_get', 'Read an MCP configuration value. Needs config_key.'),
-            RouterAction::admin('config_set', 'Change MCP tool configuration for this process; local stdio only. Needs config_key, config_value.'),
+            RouterAction::read('info', 'System information: versions, sites, content counts and environment', optional: ['include_details', 'include_performance']),
+            RouterAction::read('health', 'Run the health checks and report what they found', optional: []),
+            RouterAction::read('cache_status', 'Report the state of each cache, or of one', optional: ['cache_type']),
+            RouterAction::admin('cache_clear', 'Clear a cache; cache_type defaults to all', optional: ['cache_type']),
+            RouterAction::admin('cache_warm', 'Warm a cache; cache_type defaults to stache', optional: ['cache_type']),
+            RouterAction::read('config_get', 'Read an MCP configuration value', needs: ['config_key']),
+            RouterAction::admin('config_set', 'Change MCP tool configuration for this process; local stdio only', needs: ['config_key', 'config_value']),
         ];
     }
 

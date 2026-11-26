@@ -129,7 +129,7 @@ class FieldtypeExtensionsWiringTest extends TestCase
         $result = (new BlueprintsRouter)->execute([
             'action' => 'get',
             'namespace' => 'collections',
-            'collection_handle' => $this->collectionHandle,
+            'collection' => $this->collectionHandle,
             'handle' => 'pages',
             'include_format_spec' => true,
         ]);

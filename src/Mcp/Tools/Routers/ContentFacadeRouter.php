@@ -48,9 +48,9 @@ class ContentFacadeRouter extends BaseRouter
     protected function actions(): array
     {
         return [
-            RouterAction::read('content_audit', 'Report content volume and coverage gaps across collections, taxonomies and globals. Optional: scope, collection, taxonomy, limit.'),
-            RouterAction::read('content_validate', 'Check stored content against its blueprints and report drift. Optional: scope, collection, taxonomy, severity, limit, offset, max_findings.'),
-            RouterAction::read('cross_reference', 'Map relationships between content types and find references to records that no longer exist. Optional: filters, limit.'),
+            RouterAction::read('content_audit', 'Report content volume and coverage gaps across collections, taxonomies and globals', optional: []),
+            RouterAction::read('content_validate', 'Check stored content against its blueprints and report drift', optional: ['scope', 'collection', 'taxonomy', 'severity', 'limit', 'offset', 'max_findings']),
+            RouterAction::read('cross_reference', 'Map relationships between content types and find references to records that no longer exist', optional: []),
         ];
     }
 
@@ -62,23 +62,21 @@ class ContentFacadeRouter extends BaseRouter
     protected function defineSchema(JsonSchemaContract $schema): array
     {
         return array_merge(parent::defineSchema($schema), [
-            'filters' => JsonSchema::object()
-                ->description('Optional filter conditions to narrow the workflow scope'),
             'scope' => JsonSchema::string()
-                ->description('content_validate: which record types to sweep. Defaults to all.')
+                ->description('which record types to sweep. Defaults to all.')
                 ->enum(['all', ...RecordType::scopes()]),
             'collection' => JsonSchema::string()
-                ->description('content_validate: restrict the entry sweep to one collection handle'),
+                ->description('restrict the entry sweep to one collection handle'),
             'taxonomy' => JsonSchema::string()
-                ->description('content_validate: restrict the term sweep to one taxonomy handle'),
+                ->description('restrict the term sweep to one taxonomy handle'),
             'limit' => JsonSchema::integer()
-                ->description('content_validate: how many records to scan in this call (default 100, max 500)'),
+                ->description('how many records to scan in this call (default 100, max 500)'),
             'offset' => JsonSchema::integer()
-                ->description('content_validate: record offset, for paging through a large site'),
+                ->description('record offset, for paging through a large site'),
             'max_findings' => JsonSchema::integer()
-                ->description('content_validate: cap on findings returned per call (default 200, max 2000). Counts stay accurate when findings are truncated.'),
+                ->description('cap on findings returned per call (default 200, max 2000). Counts stay accurate when findings are truncated.'),
             'severity' => JsonSchema::string()
-                ->description('content_validate: only return findings at this severity')
+                ->description('only return findings at this severity')
                 ->enum(['error', 'warning']),
         ]);
     }

@@ -115,8 +115,8 @@ class UserPrivilegeBoundaryTest extends TestCase
         $this->actAs(['create user groups', 'edit user groups']);
 
         $result = (new UsersRouter)->execute([
-            'action' => 'create', 'resource_type' => 'group',
-            'data' => ['handle' => $group, 'title' => 'Staff', 'roles' => [$role]],
+            'action' => 'create', 'resource_type' => 'group', 'handle' => $group,
+            'data' => ['title' => 'Staff', 'roles' => [$role]],
         ]);
 
         $this->assertFalse($result['success']);

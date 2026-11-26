@@ -124,17 +124,17 @@ class NavigationTreeWriteTest extends TestCase
         $this->assertSame('/c', $this->storedTree()[0]['url']);
     }
 
-    public function test_configure_still_reads_the_legacy_config_argument(): void
+    public function test_configure_takes_a_tree_in_data(): void
     {
         $result = $this->router->execute([
             'action' => 'configure',
             'resource_type' => 'navigation',
             'handle' => 'main',
-            'config' => ['tree' => [['title' => 'Legacy', 'url' => '/legacy']]],
+            'data' => ['tree' => [['title' => 'Configured', 'url' => '/configured']]],
         ]);
 
         $this->assertTrue($result['success'], json_encode($result['errors'] ?? []));
-        $this->assertSame('/legacy', $this->storedTree()[0]['url']);
+        $this->assertSame('/configured', $this->storedTree()[0]['url']);
     }
 
     public function test_create_can_carry_a_tree(): void

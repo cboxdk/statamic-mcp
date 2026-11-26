@@ -59,6 +59,22 @@ class StructuresResourcePolicyTest extends TestCase
         ));
     }
 
+    /**
+     * Each action with only what it reads: get and delete take no data, so
+     * the only name they can be checked on is handle.
+     *
+     * @return array<string, mixed>
+     */
+    private function structureCall(string $action, string $type, string $handle, mixed $dataHandle): array
+    {
+        return $this->router->execute([
+            'action' => $action,
+            'resource_type' => $type,
+            'handle' => $handle,
+            ...(in_array($action, ['update', 'configure'], true) ? ['data' => ['handle' => $dataHandle, 'title' => 'Hijacked']] : []),
+        ]);
+    }
+
     public function test_collection_reads_and_writes_cannot_authorize_a_different_data_handle(): void
     {
         Collection::make('protected')->title('Original')->save();
@@ -66,13 +82,7 @@ class StructuresResourcePolicyTest extends TestCase
 
         foreach (['get', 'update', 'delete', 'configure'] as $action) {
             foreach (['allowed', '', ['allowed']] as $dataHandle) {
-                $result = $this->router->execute([
-                    'action' => $action,
-                    'resource_type' => 'collection',
-                    'handle' => 'protected',
-                    'data' => ['handle' => $dataHandle, 'title' => 'Hijacked'],
-                    'config' => ['title' => 'Hijacked'],
-                ]);
+                $result = $this->structureCall($action, 'collection', 'protected', $dataHandle);
 
                 $mode = $action === 'get' ? 'Read' : 'Write';
                 $this->assertFalse($result['success'], json_encode($result) ?: '');
@@ -95,13 +105,7 @@ class StructuresResourcePolicyTest extends TestCase
 
             foreach ($actions as $action) {
                 foreach (['allowed', '', ['allowed']] as $dataHandle) {
-                    $result = $this->router->execute([
-                        'action' => $action,
-                        'resource_type' => $type,
-                        'handle' => $handle,
-                        'data' => ['handle' => $dataHandle, 'title' => 'Hijacked'],
-                        'config' => ['title' => 'Hijacked'],
-                    ]);
+                    $result = $this->structureCall($action, $type, $handle, $dataHandle);
 
                     $mode = $action === 'get' ? 'Read' : 'Write';
                     $this->assertFalse($result['success'], json_encode($result) ?: '');
@@ -141,56 +145,46 @@ class StructuresResourcePolicyTest extends TestCase
         $this->assertSame('Updated', Collection::find('allowed')?->title());
     }
 
-    public function test_create_authorizes_the_data_handle_it_creates(): void
+    public function test_create_is_authorized_on_the_handle_it_creates(): void
     {
-        $allowed = $this->router->execute([
-            'action' => 'create', 'resource_type' => 'collection', 'handle' => 'protected',
-            'data' => ['handle' => 'allowed', 'title' => 'Created'],
-        ]);
-        $this->assertTrue($allowed['success'], json_encode($allowed) ?: '');
-        $this->assertSame('Created', Collection::find('allowed')?->title());
-        $this->assertNull(Collection::find('protected'));
-
         $denied = $this->router->execute([
-            'action' => 'create', 'resource_type' => 'collection', 'handle' => 'allowed',
-            'data' => ['handle' => 'protected', 'title' => 'Denied'],
+            'action' => 'create', 'resource_type' => 'collection', 'handle' => 'protected',
+            'data' => ['title' => 'Denied'],
         ]);
         $this->assertFalse($denied['success'], json_encode($denied) ?: '');
         $this->assertSame(["Write access to 'protected' is not permitted by resource policy"], $denied['errors']);
         $this->assertNull(Collection::find('protected'));
-    }
 
-    public function test_create_nonstring_data_handle_falls_back_to_the_top_level_handle(): void
-    {
-        foreach ([null, [], 42] as $index => $dataHandle) {
-            $allowedHandle = "allowed_{$index}";
-            $allowed = $this->router->execute([
-                'action' => 'create', 'resource_type' => 'collection', 'handle' => $allowedHandle,
-                'data' => ['handle' => $dataHandle, 'title' => 'Created'],
-            ]);
-            $this->assertTrue($allowed['success'], json_encode($allowed) ?: '');
-            $this->assertNotNull(Collection::find($allowedHandle));
-
-            $denied = $this->router->execute([
-                'action' => 'create', 'resource_type' => 'collection', 'handle' => 'protected',
-                'data' => ['handle' => $dataHandle, 'title' => 'Denied'],
-            ]);
-            $this->assertFalse($denied['success'], json_encode($denied) ?: '');
-            $this->assertSame(["Write access to 'protected' is not permitted by resource policy"], $denied['errors']);
-            $this->assertNull(Collection::find('protected'));
-        }
-    }
-
-    public function test_empty_string_data_handle_does_not_create_the_top_level_handle(): void
-    {
-        $result = $this->router->execute([
+        $allowed = $this->router->execute([
             'action' => 'create', 'resource_type' => 'collection', 'handle' => 'allowed',
-            'data' => ['handle' => '', 'title' => 'Not created'],
+            'data' => ['handle' => 'allowed', 'title' => 'Created'],
         ]);
+        $this->assertTrue($allowed['success'], json_encode($allowed) ?: '');
+        $this->assertSame('Created', Collection::find('allowed')?->title());
+    }
 
-        $this->assertFalse($result['success']);
-        $this->assertSame(['Collection handle is required'], $result['errors']);
+    public function test_a_create_data_handle_other_than_the_handle_creates_nothing(): void
+    {
+        // v3 let data.handle win over handle on create. v4 checks and creates
+        // handle only, so a data.handle may repeat it and nothing else: an
+        // allowed handle cannot carry a denied data.handle, nor the reverse.
+        foreach (['protected', '', null, [], 42] as $dataHandle) {
+            $result = $this->router->execute([
+                'action' => 'create', 'resource_type' => 'collection', 'handle' => 'allowed',
+                'data' => ['handle' => $dataHandle, 'title' => 'Not created'],
+            ]);
+            $this->assertFalse($result['success'], json_encode($result) ?: '');
+            $this->assertSame(["The new collection's handle is the handle argument; data.handle may only repeat it."], $result['errors']);
+        }
+
+        $result = $this->router->execute([
+            'action' => 'create', 'resource_type' => 'collection', 'handle' => 'protected',
+            'data' => ['handle' => 'allowed', 'title' => 'Denied'],
+        ]);
+        $this->assertSame(["Write access to 'protected' is not permitted by resource policy"], $result['errors']);
+
         $this->assertNull(Collection::find('allowed'));
+        $this->assertNull(Collection::find('protected'));
     }
 
     public function test_create_policy_uses_the_handle_remaining_after_denied_field_filtering(): void
@@ -215,20 +209,14 @@ class StructuresResourcePolicyTest extends TestCase
 
         $this->token([]);
         foreach (['get' => 'read', 'update' => 'admin'] as $action => $mode) {
-            $result = $this->router->execute([
-                'action' => $action, 'resource_type' => 'collection', 'handle' => 'allowed',
-                'data' => ['title' => 'Hijacked'],
-            ]);
+            $result = $this->structureCall($action, 'collection', 'allowed', 'allowed');
             $this->assertSame(["Token missing required scope: structures:{$mode}"], $result['errors']);
         }
 
         $this->actAs([]);
         $this->token(['structures:read', 'structures:admin']);
         foreach (['get', 'update'] as $action) {
-            $result = $this->router->execute([
-                'action' => $action, 'resource_type' => 'collection', 'handle' => 'allowed',
-                'data' => ['title' => 'Hijacked'],
-            ]);
+            $result = $this->structureCall($action, 'collection', 'allowed', 'allowed');
             $this->assertSame(["Permission denied: Cannot {$action} structures"], $result['errors']);
         }
         $this->assertSame('Original', Collection::find('allowed')?->title());

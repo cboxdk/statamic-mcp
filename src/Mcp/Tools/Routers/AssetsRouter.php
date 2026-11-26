@@ -43,25 +43,17 @@ class AssetsRouter extends BaseRouter
         return true;
     }
 
-    protected function facetArguments(): array
-    {
-        return [
-            'read' => ['include_details', 'include_counts', 'recursive', 'filters'],
-            'write' => ['data', 'destination', 'filename', 'content', 'source_url', 'file_path', 'encoding'],
-        ];
-    }
-
     protected function actions(): array
     {
         return [
-            RouterAction::read('list', 'List containers, or the assets in one. Needs resource_type; container for assets; optional: folder, recursive, filters.'),
-            RouterAction::read('get', 'Get a container (handle) or an asset (container, path).'),
-            RouterAction::edit('create', 'Create a container (handle, data) or an asset from inline content (container, filename, content, encoding).'),
-            RouterAction::edit('update', 'Update a container\'s settings (handle, data) or an asset\'s metadata (container, path, data).'),
-            RouterAction::delete('delete', 'Delete a container (handle) or an asset (container, path).'),
-            RouterAction::edit('move', 'Move or rename an asset. Needs container, path, destination.', ['asset']),
-            RouterAction::edit('copy', 'Copy an asset. Needs container, path, destination.', ['asset']),
-            RouterAction::edit('upload', 'Upload a file into a container. Needs container and one of: source_url (the server fetches it), content with encoding and filename, or file_path (local stdio only); optional: folder.', ['asset']),
+            RouterAction::read('list', 'List containers, or the assets in one container', optional: ['container', 'folder', 'recursive', 'include_details', 'include_counts', 'limit', 'offset']),
+            RouterAction::read('get', 'Get a container, or an asset by its path', needs: ['container'], optional: ['path', 'include_counts']),
+            RouterAction::edit('create', 'Create a container (its settings in data), or an asset from inline content (filename, content, encoding)', needs: ['container'], optional: ['data', 'filename', 'content', 'encoding']),
+            RouterAction::edit('update', 'Update a container\'s settings, or an asset\'s metadata by its path', needs: ['container', 'data'], optional: ['path']),
+            RouterAction::delete('delete', 'Delete a container, or an asset by its path', needs: ['container'], optional: ['path']),
+            RouterAction::edit('move', 'Move or rename an asset', ['asset'], needs: ['container', 'path', 'destination']),
+            RouterAction::edit('copy', 'Copy an asset', ['asset'], needs: ['container', 'path', 'destination']),
+            RouterAction::edit('upload', 'Upload a file into a container: source_url (the server fetches it), content with encoding and filename, or file_path (local stdio only)', ['asset'], needs: ['container', 'source_url|content|file_path'], optional: ['filename', 'encoding', 'folder', 'data']),
         ];
     }
 
@@ -77,11 +69,9 @@ class AssetsRouter extends BaseRouter
     {
         return array_merge(parent::defineSchema($schema), [
             'container' => JsonSchema::string()
-                ->description('Asset container handle. Required for asset operations. Example: "images", "documents"'),
+                ->description('Asset container handle: the container to act on, or for container create the new container\'s handle. Example: "images", "documents"'),
             'path' => JsonSchema::string()
                 ->description('Asset path within the container including filename. Example: "blog/hero.jpg", "docs/guide.pdf"'),
-            'handle' => JsonSchema::string()
-                ->description('Deprecated — use "container" for container operations. Container handle'),
             'data' => JsonSchema::object()
                 ->description('Asset or container metadata. For assets: field values like alt, title. For containers: configuration like title, disk.'),
             'destination' => JsonSchema::string()
@@ -103,10 +93,12 @@ class AssetsRouter extends BaseRouter
                 ->description('Include extended metadata (size, mime type, dimensions for images) in response'),
             'include_counts' => JsonSchema::boolean()
                 ->description('Include asset and folder counts. Can be slow with large containers — omit for faster responses'),
+            'limit' => JsonSchema::integer()
+                ->description('Maximum assets to return (default: 50, max: 500)'),
+            'offset' => JsonSchema::integer()
+                ->description('Number of assets to skip for pagination. Use with limit for paging'),
             'recursive' => JsonSchema::boolean()
                 ->description('Include assets in subdirectories of the listed folder. Default: false (only the folder itself, the container root when no folder is given)'),
-            'filters' => JsonSchema::object()
-                ->description('Filter conditions for list operations as key-value pairs. Supported: "folder", the same as the folder argument'),
         ]);
     }
 
@@ -234,7 +226,7 @@ class AssetsRouter extends BaseRouter
     private function getContainer(array $arguments): array
     {
         try {
-            $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
+            $handle = is_string($arguments['container'] ?? null) ? $arguments['container'] : '';
             $container = AssetContainer::find($handle);
 
             if (! $container) {
@@ -278,10 +270,13 @@ class AssetsRouter extends BaseRouter
     {
         try {
             $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
-            $handle = is_string($data['handle'] ?? null) ? $data['handle'] : (is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '');
+            $handle = is_string($arguments['container'] ?? null) ? $arguments['container'] : '';
 
             if (! $handle) {
                 return $this->createErrorResponse('Container handle is required')->toArray();
+            }
+            if (array_key_exists('handle', $data) && $data['handle'] !== $handle) {
+                return $this->createErrorResponse('The new container\'s handle is the container argument; data.handle may only repeat it.')->toArray();
             }
 
             $existsError = $this->checkHandleNotExists(AssetContainer::find($handle), 'Container', $handle);
@@ -327,7 +322,7 @@ class AssetsRouter extends BaseRouter
     private function updateContainer(array $arguments): array
     {
         try {
-            $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
+            $handle = is_string($arguments['container'] ?? null) ? $arguments['container'] : '';
             $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
 
             $container = AssetContainer::find($handle);
@@ -371,7 +366,7 @@ class AssetsRouter extends BaseRouter
     private function deleteContainer(array $arguments): array
     {
         try {
-            $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
+            $handle = is_string($arguments['container'] ?? null) ? $arguments['container'] : '';
             $container = AssetContainer::find($handle);
 
             if (! $container) {
@@ -423,8 +418,7 @@ class AssetsRouter extends BaseRouter
                 return $this->createErrorResponse("Asset container not found: {$container}")->toArray();
             }
 
-            $filters = is_array($arguments['filters'] ?? null) ? $arguments['filters'] : [];
-            $folder = $this->assetFolder($arguments['folder'] ?? $filters['folder'] ?? null);
+            $folder = $this->assetFolder($arguments['folder'] ?? null);
             if ($folder === null) {
                 return $this->createErrorResponse("folder must be a path inside the container, such as 'uploads/cases', without '.' or '..' segments")->toArray();
             }
@@ -1199,8 +1193,7 @@ class AssetsRouter extends BaseRouter
             : ['configure asset containers'];
 
         if ($type === 'container') {
-            // getContainer() acts on `handle`, so the permission is keyed on it.
-            $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
+            $handle = $container;
 
             return match ($action) {
                 // listContainers() filters per container.
@@ -1352,26 +1345,17 @@ class AssetsRouter extends BaseRouter
     }
 
     /**
-     * The resource policy must see the same container the action acts on:
-     * `data.handle ?? handle` for a container create, `handle` for every other
-     * container action, `container` for an asset action. The default resolver
-     * tries `container` before `handle`, so a container create carrying an
-     * allowed `container` alongside a denied `data.handle` slipped past; and
-     * preferring `data.handle` for update and delete let an allowed name there
-     * cover a denied `handle`.
+     * The resource policy must see the container the action acts on, which
+     * in v4 is always `container`: for an asset, the container it lives in;
+     * for a container action, the container itself (a create's new handle
+     * included). v3 read `handle` or `data.handle` for containers, and the
+     * priority between them let an allowed name cover a denied one.
      *
      * @param  array<string, mixed>  $arguments
      */
     protected function resolveResourceHandle(array $arguments): ?string
     {
-        if (($arguments['resource_type'] ?? null) === 'container') {
-            $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
-            $raw = ($arguments['action'] ?? null) === 'create'
-                ? $data['handle'] ?? $arguments['handle'] ?? null
-                : $arguments['handle'] ?? null;
-        } else {
-            $raw = $arguments['container'] ?? null;
-        }
+        $raw = $arguments['container'] ?? null;
 
         return is_string($raw) && $raw !== '' ? $raw : null;
     }

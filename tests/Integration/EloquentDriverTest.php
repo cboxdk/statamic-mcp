@@ -213,7 +213,7 @@ class EloquentDriverTest extends TestCase
         $this->assertSame('/p/home', UuidEntryModel::find($page)?->uri);
         $this->assertSame($page, Entry::findByUri('/p/home')?->id());
 
-        $blueprint = (new BlueprintsRouter)->execute(['action' => 'update', 'namespace' => 'collections', 'collection_handle' => 'pages', 'handle' => 'page',
+        $blueprint = (new BlueprintsRouter)->execute(['action' => 'update', 'namespace' => 'collections', 'collection' => 'pages', 'handle' => 'page',
             'fields' => [['handle' => 'body', 'field' => ['type' => 'textarea']]]]);
         $this->assertTrue($blueprint['success'], json_encode($blueprint) ?: '');
         $this->assertStringContainsString('textarea', (string) DB::table('blueprints')->where('handle', 'page')->value('data'));
@@ -245,7 +245,7 @@ class EloquentDriverTest extends TestCase
         Storage::fake('assets');
         $assets = new AssetsRouter;
 
-        $container = $assets->execute(['action' => 'create', 'resource_type' => 'container', 'data' => ['handle' => 'images', 'title' => 'Images', 'disk' => 'assets']]);
+        $container = $assets->execute(['action' => 'create', 'resource_type' => 'container', 'container' => 'images', 'data' => ['title' => 'Images', 'disk' => 'assets']]);
         $this->assertTrue($container['success'], json_encode($container) ?: '');
         $this->assertSame('Images', DB::table('asset_containers')->where('handle', 'images')->value('title'));
 

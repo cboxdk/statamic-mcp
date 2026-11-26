@@ -47,7 +47,7 @@ class CascadeVetoTest extends TestCase
         // v3's `force` is no longer an argument at all, and without it the
         // delete refuses to cascade.
         $forced = (new StructuresRouter)->execute(['action' => 'delete', 'resource_type' => 'collection', 'handle' => $handle, 'force' => true]);
-        $this->assertStringContainsString('Unknown argument: force', implode(' ', $forced['errors'] ?? []));
+        $this->assertStringContainsString('does not take force', implode(' ', $forced['errors'] ?? []));
         $result = (new StructuresRouter)->execute(['action' => 'delete', 'resource_type' => 'collection', 'handle' => $handle]);
 
         $this->assertFalse($result['success'], json_encode($result));
@@ -69,7 +69,7 @@ class CascadeVetoTest extends TestCase
         // v3's `force` is no longer an argument at all, and without it the
         // delete refuses to cascade.
         $forced = (new StructuresRouter)->execute(['action' => 'delete', 'resource_type' => 'taxonomy', 'handle' => $handle, 'force' => true]);
-        $this->assertStringContainsString('Unknown argument: force', implode(' ', $forced['errors'] ?? []));
+        $this->assertStringContainsString('does not take force', implode(' ', $forced['errors'] ?? []));
         $result = (new StructuresRouter)->execute(['action' => 'delete', 'resource_type' => 'taxonomy', 'handle' => $handle]);
 
         $this->assertFalse($result['success'], json_encode($result));

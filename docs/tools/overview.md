@@ -90,7 +90,7 @@ useful depth. Pass `field` to `statamic-blueprints get` with a dot path to scope
 the response to one field or set:
 
 ```json
-{ "action": "get", "namespace": "collections", "collection_handle": "pages",
+{ "action": "get", "namespace": "collections", "collection": "pages",
   "handle": "pages", "field": "page_builder.ContentSection.media" }
 ```
 

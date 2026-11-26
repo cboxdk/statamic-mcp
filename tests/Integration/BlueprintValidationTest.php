@@ -35,7 +35,7 @@ class BlueprintValidationTest extends TestCase
             'action' => 'create',
             'handle' => "flat_{$this->testId}",
             'namespace' => 'collections',
-            'collection_handle' => $this->collectionHandle,
+            'collection' => $this->collectionHandle,
             'fields' => [
                 ['handle' => 'title', 'type' => 'text'],
             ],
@@ -54,7 +54,7 @@ class BlueprintValidationTest extends TestCase
             'action' => 'create',
             'handle' => "badtype_{$this->testId}",
             'namespace' => 'collections',
-            'collection_handle' => $this->collectionHandle,
+            'collection' => $this->collectionHandle,
             'fields' => [
                 ['handle' => 'body', 'field' => ['type' => 'richtext']],
             ],
@@ -77,7 +77,7 @@ class BlueprintValidationTest extends TestCase
             'action' => 'create',
             'handle' => $bpHandle,
             'namespace' => 'collections',
-            'collection_handle' => $this->collectionHandle,
+            'collection' => $this->collectionHandle,
             'fields' => [
                 ['handle' => 'title', 'field' => ['type' => 'text', 'display' => 'Title']],
                 ['handle' => 'body', 'field' => ['type' => 'markdown', 'display' => 'Body']],
@@ -93,7 +93,7 @@ class BlueprintValidationTest extends TestCase
             'action' => 'get',
             'handle' => $bpHandle,
             'namespace' => 'collections',
-            'collection_handle' => $this->collectionHandle,
+            'collection' => $this->collectionHandle,
         ]);
 
         $this->assertTrue($getResult['success']);
@@ -110,7 +110,7 @@ class BlueprintValidationTest extends TestCase
             'action' => 'create',
             'handle' => "dup_{$this->testId}",
             'namespace' => 'collections',
-            'collection_handle' => $this->collectionHandle,
+            'collection' => $this->collectionHandle,
             'fields' => [
                 ['handle' => 'title', 'field' => ['type' => 'text']],
                 ['handle' => 'title', 'field' => ['type' => 'textarea']],
@@ -130,7 +130,7 @@ class BlueprintValidationTest extends TestCase
             'action' => 'create',
             'handle' => $bpHandle,
             'namespace' => 'collections',
-            'collection_handle' => $this->collectionHandle,
+            'collection' => $this->collectionHandle,
             'fields' => [
                 ['handle' => 'title', 'field' => ['type' => 'text', 'display' => '{{evil}}']],
             ],
@@ -143,7 +143,7 @@ class BlueprintValidationTest extends TestCase
             'action' => 'get',
             'handle' => $bpHandle,
             'namespace' => 'collections',
-            'collection_handle' => $this->collectionHandle,
+            'collection' => $this->collectionHandle,
         ]);
 
         $this->assertTrue($getResult['success']);
@@ -167,7 +167,7 @@ class BlueprintValidationTest extends TestCase
             'action' => 'create',
             'handle' => $bpHandle,
             'namespace' => 'collections',
-            'collection_handle' => $this->collectionHandle,
+            'collection' => $this->collectionHandle,
             'fields' => [
                 ['handle' => 'title', 'field' => ['type' => 'text', 'display' => 'Title']],
                 ['handle' => 'body', 'field' => ['type' => 'markdown', 'display' => 'Body']],
@@ -180,7 +180,7 @@ class BlueprintValidationTest extends TestCase
             'action' => 'update',
             'handle' => $bpHandle,
             'namespace' => 'collections',
-            'collection_handle' => $this->collectionHandle,
+            'collection' => $this->collectionHandle,
             'fields' => [
                 ['handle' => 'category', 'field' => ['type' => 'text', 'display' => 'Category']],
             ],
@@ -206,7 +206,7 @@ class BlueprintValidationTest extends TestCase
             'action' => 'create',
             'handle' => $bpHandle,
             'namespace' => 'collections',
-            'collection_handle' => $this->collectionHandle,
+            'collection' => $this->collectionHandle,
             'fields' => [
                 ['handle' => 'title', 'field' => ['type' => 'text', 'display' => 'Title']],
                 ['handle' => 'body', 'field' => ['type' => 'markdown', 'display' => 'Body']],
@@ -219,7 +219,7 @@ class BlueprintValidationTest extends TestCase
             'action' => 'update',
             'handle' => $bpHandle,
             'namespace' => 'collections',
-            'collection_handle' => $this->collectionHandle,
+            'collection' => $this->collectionHandle,
             'replace_fields' => true,
             'fields' => [
                 ['handle' => 'category', 'field' => ['type' => 'text', 'display' => 'Category']],
@@ -246,7 +246,7 @@ class BlueprintValidationTest extends TestCase
             'action' => 'create',
             'handle' => $bpHandle,
             'namespace' => 'collections',
-            'collection_handle' => $this->collectionHandle,
+            'collection' => $this->collectionHandle,
             'fields' => [
                 ['handle' => 'title', 'field' => ['type' => 'text', 'display' => 'Title']],
             ],
@@ -258,7 +258,7 @@ class BlueprintValidationTest extends TestCase
             'action' => 'update',
             'handle' => $bpHandle,
             'namespace' => 'collections',
-            'collection_handle' => $this->collectionHandle,
+            'collection' => $this->collectionHandle,
             'fields' => [
                 ['handle' => 'title', 'field' => ['type' => 'textarea', 'display' => 'Title (Textarea)']],
             ],
@@ -314,7 +314,7 @@ class BlueprintValidationTest extends TestCase
             'action' => 'update',
             'handle' => $bpHandle,
             'namespace' => 'collections',
-            'collection_handle' => $this->collectionHandle,
+            'collection' => $this->collectionHandle,
             'fields' => [
                 ['handle' => 'meta_title', 'field' => ['type' => 'text', 'display' => 'SEO Title (Updated)']],
                 ['handle' => 'category', 'field' => ['type' => 'text', 'display' => 'Category']],
@@ -352,7 +352,7 @@ class BlueprintValidationTest extends TestCase
             'action' => 'create',
             'handle' => "nearmiss_{$this->testId}",
             'namespace' => 'collections',
-            'collection_handle' => $this->collectionHandle,
+            'collection' => $this->collectionHandle,
             'fields' => [
                 ['handle' => 'tags', 'field' => ['type' => 'terms', 'taxonomy' => 'tags']],
             ],

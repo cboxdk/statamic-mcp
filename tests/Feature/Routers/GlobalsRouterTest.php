@@ -115,19 +115,19 @@ class GlobalsRouterTest extends TestCase
         $this->assertEquals($this->globalHandle, $result['data']['global']['blueprint']['handle']);
     }
 
-    public function test_get_global_with_global_set_param(): void
+    public function test_the_v3_global_set_alias_is_refused(): void
     {
-        $globalSet = GlobalSet::find($this->globalHandle);
-        $this->setGlobalValues($globalSet, 'default', ['site_title' => 'Via Global Set Param']);
-
+        // v4 names a global set by handle only. The alias is refused rather
+        // than ignored, so a v3 caller learns the new name instead of reading
+        // "handle is required".
         $result = $this->router->execute([
             'action' => 'get',
             'global_set' => $this->globalHandle,
         ]);
 
-        $this->assertTrue($result['success']);
-        $this->assertEquals($this->globalHandle, $result['data']['global']['handle']);
-        $this->assertEquals('Via Global Set Param', $result['data']['global']['data']['site_title']);
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('does not take global_set', $result['errors'][0]);
+        $this->assertStringContainsString('handle', $result['errors'][0]);
     }
 
     public function test_missing_handle_for_get_returns_error(): void
@@ -137,7 +137,7 @@ class GlobalsRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Global set handle is required', $result['errors'][0]);
+        $this->assertStringContainsString('needs handle', $result['errors'][0]);
     }
 
     public function test_missing_handle_for_update_returns_error(): void
@@ -148,7 +148,7 @@ class GlobalsRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Global set handle is required', $result['errors'][0]);
+        $this->assertStringContainsString('needs handle', $result['errors'][0]);
     }
 
     public function test_missing_data_for_update_returns_error(): void
@@ -159,7 +159,7 @@ class GlobalsRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Data is required for update action', $result['errors'][0]);
+        $this->assertStringContainsString('The update action needs data', $result['errors'][0]);
     }
 
     public function test_nonexistent_global_set_returns_error(): void

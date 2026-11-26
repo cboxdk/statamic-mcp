@@ -173,7 +173,7 @@ class ScopeEnforcementTest extends TestCase
             'action' => 'create',
             'handle' => 'denied_bp',
             'namespace' => 'collections',
-            'collection_handle' => $this->collectionHandle,
+            'collection' => $this->collectionHandle,
             'fields' => [
                 ['handle' => 'title', 'field' => ['type' => 'text']],
             ],

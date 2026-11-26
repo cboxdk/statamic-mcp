@@ -223,7 +223,9 @@ class McpJsonSchemaValidationTest extends TestCase
         foreach ($tools as $toolClass) {
             $tool = app($toolClass);
 
-            if (! $tool instanceof BaseRouter) {
+            // Only a tool with write actions takes approval_id; a read-only
+            // router (content-facade) has nothing to approve.
+            if (! $tool instanceof BaseRouter || ! $tool->offersFacet('write')) {
                 continue;
             }
 

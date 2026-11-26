@@ -114,10 +114,13 @@ trait HandlesGlobalSets
 
         try {
             $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
-            $handle = is_string($data['handle'] ?? null) ? $data['handle'] : (is_string($arguments['handle'] ?? null) ? $arguments['handle'] : null);
+            $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : null;
 
             if (! $handle) {
                 return $this->createErrorResponse('Global set handle is required')->toArray();
+            }
+            if (array_key_exists('handle', $data) && $data['handle'] !== $handle) {
+                return $this->createErrorResponse('The new global set\'s handle is the handle argument; data.handle may only repeat it.')->toArray();
             }
 
             $existsError = $this->checkHandleNotExists(GlobalSet::find($handle), 'Global set', $handle);
@@ -242,7 +245,7 @@ trait HandlesGlobalSets
     {
         try {
             $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
-            $config = is_array($arguments['config'] ?? null) ? $arguments['config'] : [];
+            $config = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
 
             $globalSet = GlobalSet::find($handle);
             if (! $globalSet) {

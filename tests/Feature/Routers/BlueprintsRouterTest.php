@@ -307,7 +307,7 @@ class BlueprintsRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Handle is required for get action', $result['errors'][0]);
+        $this->assertStringContainsString('The get action needs handle', $result['errors'][0]);
     }
 
     public function test_missing_handle_for_update(): void
@@ -317,7 +317,7 @@ class BlueprintsRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Handle is required for update action', $result['errors'][0]);
+        $this->assertStringContainsString('The update action needs handle', $result['errors'][0]);
     }
 
     public function test_missing_handle_for_delete(): void
@@ -327,7 +327,7 @@ class BlueprintsRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Handle is required for delete action', $result['errors'][0]);
+        $this->assertStringContainsString('The delete action needs handle', $result['errors'][0]);
     }
 
     public function test_missing_handle_for_validate(): void
@@ -337,7 +337,7 @@ class BlueprintsRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Handle is required for validate action', $result['errors'][0]);
+        $this->assertStringContainsString('The validate action needs handle', $result['errors'][0]);
     }
 
     public function test_blueprint_not_found(): void
@@ -385,7 +385,7 @@ class BlueprintsRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Handle is required for blueprint creation', $result['errors'][0]);
+        $this->assertStringContainsString('The create action needs handle', $result['errors'][0]);
     }
 
     public function test_create_blueprint_requires_collection_handle_for_collections(): void
@@ -398,7 +398,7 @@ class BlueprintsRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('collection_handle is required when namespace=collections', $result['errors'][0]);
+        $this->assertStringContainsString('collection is required when namespace=collections', $result['errors'][0]);
     }
 
     public function test_create_blueprint_requires_taxonomy_handle_for_taxonomies(): void
@@ -411,7 +411,7 @@ class BlueprintsRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('taxonomy_handle is required when namespace=taxonomies', $result['errors'][0]);
+        $this->assertStringContainsString('taxonomy is required when namespace=taxonomies', $result['errors'][0]);
     }
 
     public function test_create_blueprint_validates_collection_exists(): void
@@ -424,7 +424,7 @@ class BlueprintsRouterTest extends TestCase
             'action' => 'create',
             'handle' => 'test_blog',
             'namespace' => 'collections',
-            'collection_handle' => 'nonexistent_collection',
+            'collection' => 'nonexistent_collection',
             'title' => 'Test Blog',
         ]);
 
@@ -442,7 +442,7 @@ class BlueprintsRouterTest extends TestCase
             'action' => 'create',
             'handle' => 'test_tag',
             'namespace' => 'taxonomies',
-            'taxonomy_handle' => 'nonexistent_taxonomy',
+            'taxonomy' => 'nonexistent_taxonomy',
             'title' => 'Test Tag',
         ]);
 
@@ -469,7 +469,7 @@ class BlueprintsRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Fields are required for blueprint generation', $result['errors'][0]);
+        $this->assertStringContainsString('The generate action needs fields', $result['errors'][0]);
     }
 
     public function test_generate_blueprint_requires_valid_field_definitions(): void

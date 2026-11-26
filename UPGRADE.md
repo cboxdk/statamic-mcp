@@ -68,6 +68,24 @@ journal never holds secrets or hashes. If it cannot be written, nothing changes.
   To let a client read without asking: `mcp__statamic__*-read` in Claude Code's
   `permissions.allow`, `statamic:*-read` in Cursor's MCP allowlist. claude.ai and
   ChatGPT do it from the tools' read-only hints.
+- Arguments have one name each, and an action refuses an argument it does not
+  take (v3 ignored it) and names what it does take. Rename these in saved
+  prompts and scripts:
+
+  | Tool | v3 argument | v4 argument |
+  |---|---|---|
+  | entries | `version` (get) | `revision_state` |
+  | globals | `global_set` | `handle` |
+  | blueprints | `collection_handle`, `taxonomy_handle` | `collection`, `taxonomy` |
+  | assets | `handle` (containers) | `container` |
+  | assets | `filters.folder` | `folder` |
+  | structures | `config` (configure) | `data` |
+  | assets, structures, users | `data.handle` on create | `handle` (`container` for assets); `data.handle` may only repeat it |
+  | system | `resource_type` | – (system has no resource types) |
+
+  `filters` is gone from users, structures and content-facade, where nothing
+  read it. Structures `list` (collections, taxonomies) and asset `list` now
+  show `limit` and `offset`, which they always applied.
 - `tools/list` shows only what the token can use, and `search_tools`/`execute_tools`
   are gone unless `catalog.searchable` is turned on.
 - Stdio needs an explicit profile, and registered actions over stdio need a

@@ -40,13 +40,13 @@ class BlueprintAndFilePathSafetyTest extends TestCase
         // the create ultimately succeeds depends on field shape etc.; here we
         // only assert it is not stopped by the location guard.
         $result = (new BlueprintsRouter)->execute([
-            'action' => 'create', 'namespace' => 'collections', 'collection_handle' => 'blog', 'handle' => 'legit_handle', 'fields' => self::FIELDS,
+            'action' => 'create', 'namespace' => 'collections', 'collection' => 'blog', 'handle' => 'legit_handle', 'fields' => self::FIELDS,
         ]);
 
         $error = (string) ($result['errors'][0] ?? '');
         $this->assertStringNotContainsString('Invalid handle', $error);
         $this->assertStringNotContainsString('Invalid namespace', $error);
-        $this->assertStringNotContainsString('Invalid collection_handle', $error);
+        $this->assertStringNotContainsString('Invalid collection', $error);
     }
 
     public function test_file_path_upload_is_refused_for_remote_clients(): void

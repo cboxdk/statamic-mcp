@@ -75,7 +75,7 @@ class StructuresConfigurePolicyTest extends TestCase
 
         $arguments = [
             'action' => 'configure', 'resource_type' => $type, 'handle' => 'demo',
-            'config' => ['title' => 'Changed'],
+            'data' => ['title' => 'Changed'],
         ];
 
         $result = $transport === 'cli'
@@ -99,7 +99,7 @@ class StructuresConfigurePolicyTest extends TestCase
 
         $result = (new StructuresRouter)->execute([
             'action' => 'configure', 'resource_type' => $type, 'handle' => 'demo',
-            'config' => ['title' => 'Changed'],
+            'data' => ['title' => 'Changed'],
         ]);
 
         $this->assertTrue($result['success'], json_encode($result) ?: '');
@@ -115,7 +115,7 @@ class StructuresConfigurePolicyTest extends TestCase
 
         $response = $this->configureOverHttp([
             'action' => 'configure', 'resource_type' => 'collection', 'handle' => 'demo',
-            'config' => ['title' => 'Changed', 'template' => 'updated'],
+            'data' => ['title' => 'Changed', 'template' => 'updated'],
         ], $this->token('pat'));
 
         $response->assertOk()->assertJsonPath('result.structuredContent.success', true);
@@ -133,7 +133,7 @@ class StructuresConfigurePolicyTest extends TestCase
 
         $response = $this->configureOverHttp([
             'action' => 'configure', 'resource_type' => 'globalset', 'handle' => 'demo',
-            'config' => ['title' => 'Changed'],
+            'data' => ['title' => 'Changed'],
         ], $this->token('pat'));
 
         $response->assertOk()
@@ -152,7 +152,7 @@ class StructuresConfigurePolicyTest extends TestCase
 
         $result = (new StructuresRouter)->execute([
             'action' => 'configure', 'resource_type' => 'navigation', 'handle' => 'demo',
-            'config' => ['tree' => [[
+            'data' => ['tree' => [[
                 'url' => '/public',
                 'data' => ['secret' => 'Denied', 'visible' => 'Kept'],
             ]]],
@@ -163,7 +163,7 @@ class StructuresConfigurePolicyTest extends TestCase
         $this->assertSame(['visible' => 'Kept'], Yaml::parseFile($tree->path())['tree'][0]['data']);
     }
 
-    public function test_navigation_data_fallback_remains_filtered(): void
+    public function test_navigation_configure_data_remains_filtered(): void
     {
         $navigation = Nav::make('demo')->title('Original');
         $navigation->save();
@@ -178,24 +178,6 @@ class StructuresConfigurePolicyTest extends TestCase
         $saved = Yaml::parseFile($navigation->path());
         $this->assertSame('Original', $saved['title']);
         $this->assertSame(2, $saved['max_depth']);
-    }
-
-    public function test_filtered_config_does_not_fall_back_to_navigation_data(): void
-    {
-        $navigation = Nav::make('demo')->title('Original')->maxDepth(1);
-        $navigation->save();
-        Stache::refresh();
-
-        $result = (new StructuresRouter)->execute([
-            'action' => 'configure', 'resource_type' => 'navigation', 'handle' => 'demo',
-            'config' => ['title' => 'Changed'],
-            'data' => ['title' => 'Changed through data', 'max_depth' => 2],
-        ]);
-
-        $this->assertTrue($result['success'], json_encode($result) ?: '');
-        $saved = Yaml::parseFile($navigation->path());
-        $this->assertSame('Original', $saved['title']);
-        $this->assertSame(1, $saved['max_depth']);
     }
 
     /**
@@ -221,7 +203,7 @@ class StructuresConfigurePolicyTest extends TestCase
 
         $response = $this->configureOverHttp([
             'action' => 'configure', 'resource_type' => 'collection', 'handle' => 'demo',
-            'config' => ['title' => 'Changed', 'template' => 'updated'],
+            'data' => ['title' => 'Changed', 'template' => 'updated'],
         ], $scope === null ? null : $this->token('pat', $scope, $permitted));
 
         if ($scope === null) {
@@ -237,14 +219,22 @@ class StructuresConfigurePolicyTest extends TestCase
         $this->assertSame('original', $saved['template']);
     }
 
-    public function test_schema_describes_the_config_argument_consumed_by_configure(): void
+    public function test_configure_takes_its_settings_in_data_and_refuses_the_v3_config_argument(): void
     {
         $schema = (new StructuresRouter)->facet('write')->toArray()['inputSchema'];
+        $this->assertArrayNotHasKey('config', $schema['properties']);
+        $this->assertStringContainsString("configure: Change a structure's settings. Needs handle, data.", $schema['properties']['action']['description']);
 
-        $this->assertSame('object', $schema['properties']['config']['type']);
-        $this->assertStringContainsString('configure: Change a structure\'s settings. Needs resource_type, handle, config.', $schema['properties']['action']['description']);
-        // The read tool has no use for config, so it does not offer it.
-        $this->assertArrayNotHasKey('config', (new StructuresRouter)->facet('read')->toArray()['inputSchema']['properties']);
+        Nav::make('demo')->title('Original')->save();
+        Stache::refresh();
+        $result = (new StructuresRouter)->execute([
+            'action' => 'configure', 'resource_type' => 'navigation', 'handle' => 'demo',
+            'config' => ['title' => 'Changed'],
+        ]);
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('does not take config', $result['errors'][0]);
+        $this->assertSame('Original', Nav::find('demo')->title());
     }
 
     private function token(string $transport, TokenScope $scope = TokenScope::StructuresAdmin, bool $permitted = true): string

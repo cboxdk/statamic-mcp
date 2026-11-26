@@ -89,7 +89,7 @@ class CollectionViewerPermissionTest extends TestCase
     {
         $this->actAs(["view {$this->handle} entries"]);
 
-        $result = $this->getCollection(['include_counts' => true, 'include_details' => true]);
+        $result = $this->getCollection(['include_counts' => true]);
 
         $this->assertTrue($result['success'], json_encode($result) ?: '');
         $this->assertSame([
@@ -162,7 +162,7 @@ class CollectionViewerPermissionTest extends TestCase
         $this->actAs(["view {$this->handle} entries"], ['structures:read', 'structures:admin']);
 
         foreach (['create', 'update', 'configure', 'delete'] as $action) {
-            $result = $this->getCollection(['action' => $action, 'data' => ['title' => 'Changed']]);
+            $result = $this->getCollection(['action' => $action, ...($action === 'delete' ? [] : ['data' => ['title' => 'Changed']])]);
 
             $this->assertFalse($result['success'], $action . ' must require configure collections');
             $this->assertStringContainsString('Permission denied', (string) ($result['errors'][0] ?? ''));
@@ -187,7 +187,7 @@ class CollectionViewerPermissionTest extends TestCase
     {
         $this->actAs(["view {$this->handle} entries"]);
         config(['statamic.mcp.tools.structures.resources.read' => ['some_other_collection']]);
-        $result = $this->getCollection(['data' => ['handle' => 'some_other_collection']]);
+        $result = $this->getCollection();
         $this->assertFalse($result['success']);
         $this->assertStringContainsString('resource policy', (string) ($result['errors'][0] ?? ''));
 

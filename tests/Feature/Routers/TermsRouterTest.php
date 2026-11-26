@@ -46,7 +46,7 @@ class TermsRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Taxonomy handle is required', $result['errors'][0]);
+        $this->assertStringContainsString('The list action needs taxonomy', $result['errors'][0]);
     }
 
     public function test_nonexistent_taxonomy_returns_error(): void
@@ -196,7 +196,7 @@ class TermsRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Term ID or slug is required', $result['errors'][0]);
+        $this->assertStringContainsString('needs id or slug', $result['errors'][0]);
     }
 
     public function test_get_nonexistent_term_returns_error(): void
@@ -286,7 +286,7 @@ class TermsRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Data is required', $result['errors'][0]);
+        $this->assertStringContainsString('The create action needs data', $result['errors'][0]);
     }
 
     public function test_create_term_generates_slug_from_title(): void
@@ -371,7 +371,7 @@ class TermsRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Term ID or slug is required', $result['errors'][0]);
+        $this->assertStringContainsString('needs id or slug', $result['errors'][0]);
     }
 
     // ─── Delete action ─────────────────────────────────────────────────
@@ -404,7 +404,7 @@ class TermsRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Term ID or slug is required', $result['errors'][0]);
+        $this->assertStringContainsString('needs id or slug', $result['errors'][0]);
     }
 
     public function test_delete_nonexistent_term_returns_error(): void

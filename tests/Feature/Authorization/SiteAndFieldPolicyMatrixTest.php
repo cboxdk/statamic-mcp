@@ -67,12 +67,19 @@ beforeEach(function () {
 
 function mxCall(string $domain, string $action, string $site, array $data = []): array
 {
+    // Each action gets only what it reads: v4 refuses the rest.
+    $write = in_array($action, ['create', 'update'], true) ? ['data' => $data ?: ['title' => 'Edited']] : [];
+
     return match ($domain) {
         'entries' => (new EntriesRouter)->execute(['action' => $action, 'collection' => 'mx_pages', 'site' => $site]
-            + ($action === 'create' ? ['data' => ['title' => 'New ' . $site, 'published' => false] + $data] : ['id' => 'mx-entry', 'data' => $data ?: ['title' => 'Edited']])),
+            + ($action === 'create' ? ['data' => ['title' => 'New ' . $site, 'published' => false] + $data] : ['id' => 'mx-entry'] + $write)),
         'terms' => (new TermsRouter)->execute(['action' => $action, 'taxonomy' => 'mx_tags', 'site' => $site]
-            + ($action === 'create' ? ['slug' => 'new-' . $site, 'data' => ['title' => 'New'] + $data] : ['slug' => 'one', 'data' => $data ?: ['title' => 'Edited']])),
-        'globals' => (new GlobalsRouter)->execute(['action' => $action, 'handle' => 'mx_settings', 'site' => $site, 'data' => $data ?: ['title' => 'Edited']]),
+            + match ($action) {
+                'create' => ['slug' => 'new-' . $site, 'data' => ['title' => 'New'] + $data],
+                'list' => [],
+                default => ['slug' => 'one'] + $write,
+            }),
+        'globals' => (new GlobalsRouter)->execute(['action' => $action, 'handle' => 'mx_settings', 'site' => $site] + $write),
     };
 }
 

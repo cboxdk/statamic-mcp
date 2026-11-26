@@ -146,11 +146,19 @@ A 3.3.0 security audit hardened the tool layer. Keep these when touching routers
   localized variables). `tests/Feature/Authorization/SiteAndFieldPolicyMatrixTest.php`
   is the matrix; a new content domain gets a row there.
 - **`resolveResourceHandle()` must name the same resource the handler acts on.**
-  `GlobalsRouter` (`global_set ?? handle`), `StructuresRouter` and `AssetsRouter`
-  (`container` for assets; `handle` for containers, `data.handle` only on
-  create) override it for exactly this reason; the default priority list would
-  otherwise let an unrelated allowed argument satisfy the policy for a denied
-  target.
+  In v4 every router names its target with one argument: `handle` (globals,
+  structures, blueprints, roles, groups) or `container` (assets, containers
+  included). A create takes the new name there too and refuses a `data.handle`
+  that differs. `GlobalsRouter`, `StructuresRouter`, `BlueprintsRouter` and
+  `AssetsRouter` override it to pin that argument; the default priority list
+  would otherwise let an unrelated allowed argument satisfy the policy for a
+  denied target.
+- **Every built-in action declares its arguments** (`RouterAction` `needs`/`optional`,
+  `a|b` for alternatives). That declaration builds the tool's schema (the union of its
+  actions' arguments), the action description, the missing-argument error and the
+  refusal of any argument the action does not take, reads included. A router must not
+  re-check a need itself. `ArgumentNamesTest` holds the vocabulary; a new name is added
+  there deliberately, never a synonym.
 - **A router's permission check is `getRequiredPermissions()`, and it names
   real Statamic permissions.** `AssetsRouter`'s handlers once re-checked
   invented ones (`create assets`, `edit asset_containers`) and locked every
@@ -883,8 +891,8 @@ facets of the same class (`BaseRouter::facet('read'|'write')`):
   closed world. Write: destructive, not idempotent; `openWorldHint` from
   `writesReachOutside()` (assets, because upload fetches `source_url`).
 - **Schema**: only that side's actions in the `action` enum (the description is built from
-  the declarations), only resource types an action of that side applies to, and minus
-  `facetArguments()` of the other side. `approval_id`/`idempotency_key` are write-only.
+  the declarations), only resource types an action of that side applies to, and only the
+  arguments that side's actions declare. `approval_id`/`idempotency_key` are write-only.
 - **Calls**: a read tool given a write action (or the reverse) is refused, naming the
   other tool. The unfaceted router (`$router->execute()`) still runs every action; tests
   use it, `InteractsWithMcp::mcpTool()` picks the facet from the action.

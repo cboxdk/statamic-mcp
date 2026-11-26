@@ -92,7 +92,7 @@ abstract class BaseRouter extends BaseStatamicTool
     {
         $actions = [];
         foreach ($this->declaredActions() as $action) {
-            $actions[$action->name] = $action->description;
+            $actions[$action->name] = $action->summary();
         }
 
         return $actions;
@@ -207,7 +207,6 @@ abstract class BaseRouter extends BaseStatamicTool
     {
         $clone = clone $this;
         $clone->facet = $facet;
-        $clone->declaredArguments = null;
 
         return $clone;
     }
@@ -318,17 +317,6 @@ abstract class BaseRouter extends BaseStatamicTool
         return false;
     }
 
-    /**
-     * Arguments only one side uses, so the other tool's schema leaves them
-     * out. Everything else is offered to both.
-     *
-     * @return array{read?: list<string>, write?: list<string>}
-     */
-    protected function facetArguments(): array
-    {
-        return [];
-    }
-
     /** @return list<RouterAction> */
     private function facetActions(): array
     {
@@ -354,7 +342,7 @@ abstract class BaseRouter extends BaseStatamicTool
 
         $properties = [
             'action' => JsonSchema::string()
-                ->description(implode(' ', array_map(fn (RouterAction $action): string => "{$action->name}: {$action->description}", $actions)))
+                ->description(implode(' ', array_map(fn (RouterAction $action): string => "{$action->name}: {$action->summary()}", $actions)))
                 ->enum(array_map(fn (RouterAction $action): string => $action->name, $actions))
                 ->required(),
         ];
@@ -415,12 +403,26 @@ abstract class BaseRouter extends BaseStatamicTool
             )->toArray();
         }
 
-        // A write must not drop what it was asked to do: a top-level
-        // `published` on create was ignored, and the entry saved as a draft.
-        if ($this->isWriteAction($action) && ($unknown = $this->unknownArguments($arguments)) !== []) {
+        if (($denial = app(McpAuthorizer::class)->authenticationDenial()) !== null) {
+            $this->emitExecution(Events\ExecutionDenied::class, $action, $this->freshOperationId(), 'none', hrtime(true));
+
+            return $this->createErrorResponse($denial)->toArray();
+        }
+
+        // An action must not drop what it was asked to do: a top-level
+        // `published` on create was ignored and the entry saved as a draft,
+        // and a list given a filter it does not read answers unfiltered.
+        if (($unknown = $this->unknownArguments($declared, $arguments)) !== []) {
             return $this->createErrorResponse(
-                'Unknown argument' . (count($unknown) > 1 ? 's' : '') . ': ' . implode(', ', $unknown) . '. Nothing was written.'
-                . ($this->acceptsArgument('data') ? ' Field values and flags such as published go inside data.' : '')
+                "The {$action} action does not take " . implode(', ', $unknown) . '. '
+                . ($declared->declaresArguments() ? 'It takes: ' . implode(', ', $this->acceptedArguments($declared)) . '. ' : '')
+                . ($declared->writes() ? 'Nothing was written.' : 'Nothing was read.')
+                . ($declared->writes() && in_array('data', $this->acceptedArguments($declared), true) ? ' Field values and flags such as published go inside data.' : '')
+            )->toArray();
+        }
+        if (($missing = $declared->missingNeeds($arguments)) !== []) {
+            return $this->createErrorResponse(
+                "The {$action} action needs " . implode(', ', array_map(fn (string $need): string => str_replace('|', ' or ', $need), $missing)) . '.'
             )->toArray();
         }
 
@@ -451,43 +453,76 @@ abstract class BaseRouter extends BaseStatamicTool
     }
 
     /**
-     * Top-level arguments the tool's schema does not declare.
+     * Arguments given a value that the action does not take. An action that
+     * declares no arguments (an extension's) takes whatever the schema
+     * offers, and only its writes are checked, as before declarations.
      *
      * @param  array<string, mixed>  $arguments
      *
      * @return list<string>
      */
-    private function unknownArguments(array $arguments): array
+    private function unknownArguments(RouterAction $action, array $arguments): array
     {
-        return array_values(array_filter(array_map('strval', array_keys($arguments)), fn (string $key): bool => ! $this->acceptsArgument($key)));
+        if (! $action->declaresArguments() && ! $action->writes()) {
+            return [];
+        }
+        $accepted = array_flip($this->acceptedArguments($action));
+
+        return array_values(array_filter(
+            array_map('strval', array_keys(array_filter($arguments, fn (mixed $value): bool => $value !== null))),
+            fn (string $key): bool => ! isset($accepted[$key]),
+        ));
     }
 
-    /** @var array<string, mixed>|null */
-    private ?array $declaredArguments = null;
+    /**
+     * Every argument the action takes, the shared ones included.
+     *
+     * @return list<string>
+     */
+    private function acceptedArguments(RouterAction $action): array
+    {
+        if (! $action->declaresArguments()) {
+            return array_map('strval', array_keys($this->defineSchema(new JsonSchemaTypeFactory)));
+        }
+
+        return [
+            'action',
+            ...($this->getTypes() !== [] ? ['resource_type'] : []),
+            ...$action->argumentNames(),
+            ...($action->writes() ? ['approval_id', 'idempotency_key'] : []),
+        ];
+    }
 
     /**
-     * The schema clients see: the router's arguments, less those only the
-     * other tool of the pair uses.
+     * The schema clients see: the arguments the tool's actions take. When
+     * every action declares its arguments, nothing else is offered; an
+     * argument an action names that the router does not define is a bug in
+     * the router and fails loudly.
      *
      * @return array<string, mixed>
      */
     public function schema(JsonSchemaContract $schema): array
     {
         $properties = $this->defineSchema($schema);
-        if ($this->facet === null) {
-            return $properties;
+        $actions = $this->facetActions();
+
+        if ($actions !== [] && array_filter($actions, fn (RouterAction $action): bool => ! $action->declaresArguments()) === []) {
+            $taken = [];
+            foreach ($actions as $action) {
+                foreach ($this->acceptedArguments($action) as $name) {
+                    if (! array_key_exists($name, $properties)) {
+                        throw new \LogicException(static::class . " action '{$action->name}' takes '{$name}', which its schema does not define.");
+                    }
+                    $taken[$name] = true;
+                }
+            }
+
+            return array_intersect_key($properties, $taken);
         }
-        $other = $this->facet === 'read' ? 'write' : 'read';
-        $onlyOther = [...($this->facetArguments()[$other] ?? []), ...($other === 'write' ? ['approval_id', 'idempotency_key'] : [])];
 
-        return array_diff_key($properties, array_flip($onlyOther));
-    }
-
-    private function acceptsArgument(string $key): bool
-    {
-        $this->declaredArguments ??= $this->schema(new JsonSchemaTypeFactory);
-
-        return array_key_exists($key, $this->declaredArguments);
+        return $this->facet === 'read'
+            ? array_diff_key($properties, array_flip(['approval_id', 'idempotency_key']))
+            : $properties;
     }
 
     /**

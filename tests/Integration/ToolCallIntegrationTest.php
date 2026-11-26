@@ -154,7 +154,7 @@ class ToolCallIntegrationTest extends TestCase
             'action' => 'get',
             'handle' => $this->collectionHandle,
             'namespace' => 'collections',
-            'collection_handle' => $this->collectionHandle,
+            'collection' => $this->collectionHandle,
         ]);
 
         $this->assertTrue($result['success']);

@@ -21,7 +21,6 @@ class SystemRouterTest extends TestCase
     {
         $result = $this->router->execute([
             'action' => 'health',
-            'resource_type' => 'status',
         ]);
 
         $this->assertTrue($result['success']);
@@ -51,7 +50,6 @@ class SystemRouterTest extends TestCase
     {
         $result = $this->router->execute([
             'action' => 'info',
-            'resource_type' => 'system',
         ]);
 
         $this->assertTrue($result['success']);
@@ -72,7 +70,6 @@ class SystemRouterTest extends TestCase
     {
         $result = $this->router->execute([
             'action' => 'info',
-            'resource_type' => 'system',
             'include_details' => true,
         ]);
 
@@ -91,22 +88,23 @@ class SystemRouterTest extends TestCase
     {
         $result = $this->router->execute([
             'action' => 'invalid_action',
-            'resource_type' => 'status',
         ]);
 
         $this->assertFalse($result['success']);
         $this->assertStringContainsString("Unknown action 'invalid_action'. Use one of: info, health", $result['errors'][0]);
     }
 
-    public function test_invalid_type(): void
+    public function test_an_argument_the_action_does_not_take_is_refused(): void
     {
+        // System has no resource types. v3 ignored one; v4 says so, because a
+        // read that drops an argument answers a question nobody asked.
         $result = $this->router->execute([
             'action' => 'health',
             'resource_type' => 'invalid_type',
         ]);
 
-        // Invalid type test actually succeeds - the router handles it
-        $this->assertTrue($result['success']);
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('does not take resource_type', $result['errors'][0]);
     }
 
     public function test_cache_clear_without_type_defaults_to_all(): void
@@ -137,7 +135,7 @@ class SystemRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Config key is required', $result['errors'][0]);
+        $this->assertStringContainsString('The config_get action needs config_key', $result['errors'][0]);
     }
 
     public function test_config_get_allowed_key(): void
@@ -269,7 +267,6 @@ class SystemRouterTest extends TestCase
 
         $result = $this->router->execute([
             'action' => 'info',
-            'resource_type' => 'system',
             'include_details' => false,
             'include_performance' => true,
         ]);

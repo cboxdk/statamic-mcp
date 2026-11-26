@@ -83,7 +83,7 @@ class AssetsRouterTest extends TestCase
         $result = $this->router->execute([
             'action' => 'get',
             'resource_type' => 'container',
-            'handle' => 'photos',
+            'container' => 'photos',
         ]);
 
         $this->assertTrue($result['success']);
@@ -109,8 +109,8 @@ class AssetsRouterTest extends TestCase
         $result = $this->router->execute([
             'action' => 'create',
             'resource_type' => 'container',
+            'container' => 'test_videos',
             'data' => [
-                'handle' => 'test_videos',
                 'title' => 'Test Video Files',
                 'disk' => 'assets',
                 'allow_uploads' => true,
@@ -137,7 +137,7 @@ class AssetsRouterTest extends TestCase
         $result = $this->router->execute([
             'action' => 'update',
             'resource_type' => 'container',
-            'handle' => 'files',
+            'container' => 'files',
             'data' => [
                 'title' => 'Updated Files',
                 'allow_uploads' => true,
@@ -161,7 +161,7 @@ class AssetsRouterTest extends TestCase
         $result = $this->router->execute([
             'action' => 'delete',
             'resource_type' => 'container',
-            'handle' => 'temp',
+            'container' => 'temp',
         ]);
 
         $this->assertTrue($result['success']);
@@ -257,11 +257,20 @@ class AssetsRouterTest extends TestCase
         );
     }
 
-    public function test_list_assets_accepts_folder_filter(): void
+    public function test_list_assets_refuses_the_v3_folder_filter(): void
     {
+        // v3 also read the folder from filters.folder. v4 has one name for it,
+        // and the old one is refused rather than ignored, which would list
+        // the whole container as if the folder had been applied.
         $this->createFolderFixture();
 
-        $this->assertSame(['team/alice.jpg', 'team/bob.jpg'], $this->listedPaths(['filters' => ['folder' => 'team']]));
+        $result = $this->router->execute([
+            'action' => 'list', 'resource_type' => 'asset', 'container' => 'folder_assets',
+            'filters' => ['folder' => 'team'],
+        ]);
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('does not take filters', $result['errors'][0]);
     }
 
     public function test_list_assets_rejects_folder_outside_container(): void
@@ -322,10 +331,10 @@ class AssetsRouterTest extends TestCase
         $this->createContainerWithPermissions('uploads', 'Uploads', 'assets', ['allow_uploads' => true]);
         $result = $this->router->execute([
             'action' => 'upload', 'resource_type' => 'asset', 'container' => 'uploads',
-            'path' => 'uploads/uploaded.jpg',
+            'filename' => 'uploaded.jpg',
         ]);
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('One of source_url', $result['errors'][0]);
+        $this->assertStringContainsString('needs source_url or content or file_path', $result['errors'][0]);
     }
 
     public function test_move_asset(): void
@@ -438,7 +447,7 @@ class AssetsRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Asset container not found', $result['errors'][0]);
+        $this->assertStringContainsString('The get action needs container', $result['errors'][0]);
     }
 
     public function test_missing_container_for_asset_operations(): void
@@ -457,7 +466,7 @@ class AssetsRouterTest extends TestCase
         $result = $this->router->execute([
             'action' => 'get',
             'resource_type' => 'container',
-            'handle' => 'nonexistent',
+            'container' => 'nonexistent',
         ]);
 
         $this->assertFalse($result['success']);

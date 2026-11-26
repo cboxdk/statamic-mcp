@@ -46,7 +46,7 @@ it('refuses a stale version without saving, also when the change came from outsi
     Entry::find('ev-entry')->set('title', 'Changed in the CP')->save();
 
     foreach (['update', 'delete', 'publish'] as $action) {
-        $result = ev(['action' => $action, 'expected_version' => $version, 'data' => ['title' => 'Overwrite']]);
+        $result = ev(['action' => $action, 'expected_version' => $version, ...($action === 'update' ? ['data' => ['title' => 'Overwrite']] : [])]);
         expect($result['success'])->toBeFalse()
             ->and(implode(' ', $result['errors']))->toContain('Version conflict')
             ->and($result['data']['code'])->toBe('VERSION_CONFLICT');

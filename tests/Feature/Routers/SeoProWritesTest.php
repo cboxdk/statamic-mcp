@@ -89,7 +89,7 @@ class SeoProWritesTest extends TestCase
         $result = (new BlueprintsRouter)->execute([
             'action' => 'get', 'handle' => 'seo',
             'namespace' => $isEntry ? 'collections' : 'taxonomies',
-            $isEntry ? 'collection_handle' : 'taxonomy_handle' => $args[$isEntry ? 'collection' : 'taxonomy'],
+            $isEntry ? 'collection' : 'taxonomy' => $args[$isEntry ? 'collection' : 'taxonomy'],
         ]);
         $this->assertTrue($result['success'], json_encode($result));
         $field = collect($result['data']['blueprint']['fields'])->firstWhere('handle', 'seo');

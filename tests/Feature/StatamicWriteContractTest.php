@@ -68,7 +68,7 @@ class StatamicWriteContractTest extends TestCase
         $this->actingAs($user);
 
         foreach (['get', 'update'] as $action) {
-            $result = (new GlobalsRouter)->execute(['action' => $action, 'handle' => $handle, 'site' => 'de', 'data' => ['title' => 'Forbidden']]);
+            $result = (new GlobalsRouter)->execute(['action' => $action, 'handle' => $handle, 'site' => 'de', ...($action === 'update' ? ['data' => ['title' => 'Forbidden']] : [])]);
             $this->assertFalse($result['success'], json_encode($result));
             $this->assertStringContainsString('Permission denied', implode(' ', $result['errors']));
         }

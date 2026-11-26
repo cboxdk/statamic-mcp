@@ -58,7 +58,7 @@ class StructuresRouterTest extends TestCase
 
         // Should fail with missing handle
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Collection handle is required', $result['errors'][0]);
+        $this->assertStringContainsString('The create action needs handle', $result['errors'][0]);
     }
 
     public function test_list_taxonomies(): void
@@ -157,7 +157,7 @@ class StructuresRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Handle is required for get action', $result['errors'][0]);
+        $this->assertStringContainsString('The get action needs handle', $result['errors'][0]);
     }
 
     public function test_collection_not_found(): void

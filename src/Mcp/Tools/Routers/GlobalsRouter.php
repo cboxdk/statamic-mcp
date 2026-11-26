@@ -37,9 +37,6 @@ class GlobalsRouter extends BaseRouter
     {
         return array_merge(parent::defineSchema($schema), [
 
-            'global_set' => JsonSchema::string()
-                ->description('Deprecated — use "handle" instead. Global set handle'),
-
             'handle' => JsonSchema::string()
                 ->description('Global set handle in snake_case. Required for get and update. Example: "site_settings", "seo"'),
 
@@ -56,7 +53,7 @@ class GlobalsRouter extends BaseRouter
                 ->description('Optimistic concurrency for update: the `version` from your last get/update of this global set in this site. If its stored values changed since (through MCP, the Control Panel or anything else), the update is refused with a version conflict and nothing is saved; get the global set again and redo the change. Omit to write unconditionally.'),
 
             'limit' => JsonSchema::integer()
-                ->description('Maximum results to return (default: 100, max: 500)'),
+                ->description('Maximum results to return (default: 50, max: 1000)'),
 
             'offset' => JsonSchema::integer()
                 ->description('Number of results to skip for pagination. Use with limit for paging'),
@@ -110,7 +107,7 @@ class GlobalsRouter extends BaseRouter
     /** @param  array<string, mixed>  $arguments */
     private function globalSetHandle(array $arguments): string
     {
-        $handle = $arguments['global_set'] ?? $arguments['handle'] ?? null;
+        $handle = $arguments['handle'] ?? null;
 
         return is_string($handle) ? $handle : '';
     }
@@ -164,19 +161,10 @@ class GlobalsRouter extends BaseRouter
     {
         // Global set handle required for get and update operations
         if (in_array($action, ['get', 'update'])) {
-            $rawHandle = $arguments['global_set'] ?? $arguments['handle'] ?? null;
-            if (! is_string($rawHandle) || empty($rawHandle)) {
-                return $this->createErrorResponse('Global set handle is required for global operations')->toArray();
-            }
-            $globalSetHandle = $rawHandle;
+            $globalSetHandle = $this->globalSetHandle($arguments);
             if (! GlobalSet::find($globalSetHandle)) {
                 return $this->createErrorResponse("Global set not found: {$globalSetHandle}")->toArray();
             }
-        }
-
-        // Data required for update actions
-        if ($action === 'update' && empty($arguments['data'])) {
-            return $this->createErrorResponse('Data is required for update action')->toArray();
         }
 
         // Site validation
@@ -196,7 +184,7 @@ class GlobalsRouter extends BaseRouter
     protected function getRequiredPermissions(string $action, array $arguments): array
     {
         // Statamic scopes global permissions per set: 'edit {handle} globals'
-        $rawHandle = $arguments['global_set'] ?? $arguments['handle'] ?? null;
+        $rawHandle = $arguments['handle'] ?? null;
         $handle = is_string($rawHandle) ? $rawHandle : '';
 
         return match ($action) {
@@ -267,8 +255,7 @@ class GlobalsRouter extends BaseRouter
      */
     private function getGlobal(array $arguments): array
     {
-        // Accept both 'global_set' and 'handle' parameters
-        $rawHandle = $arguments['global_set'] ?? $arguments['handle'] ?? null;
+        $rawHandle = $arguments['handle'] ?? null;
         if (! is_string($rawHandle)) {
             return $this->createErrorResponse('Global set handle must be a string')->toArray();
         }
@@ -317,8 +304,7 @@ class GlobalsRouter extends BaseRouter
      */
     private function updateGlobal(array $arguments): array
     {
-        // Accept both 'global_set' and 'handle' parameters
-        $rawHandle = $arguments['global_set'] ?? $arguments['handle'] ?? null;
+        $rawHandle = $arguments['handle'] ?? null;
         if (! is_string($rawHandle)) {
             return $this->createErrorResponse('Global set handle must be a string')->toArray();
         }
@@ -430,20 +416,12 @@ class GlobalsRouter extends BaseRouter
         }
     }
 
-    protected function facetArguments(): array
-    {
-        return [
-            'read' => ['limit', 'offset'],
-            'write' => ['data', 'expected_version'],
-        ];
-    }
-
     protected function actions(): array
     {
         return [
-            RouterAction::read('list', 'List global sets with their values. Optional: site, limit, offset.'),
-            RouterAction::read('get', 'Get one global set\'s values and version. Needs handle; optional: site.'),
-            RouterAction::edit('update', 'Update a global set\'s values in one site. Needs handle, data; optional: site, expected_version.'),
+            RouterAction::read('list', 'List global sets with their values', optional: ['site', 'limit', 'offset']),
+            RouterAction::read('get', 'Get one global set\'s values and version', needs: ['handle'], optional: ['site']),
+            RouterAction::edit('update', 'Update a global set\'s values in one site', needs: ['handle', 'data'], optional: ['site', 'expected_version']),
         ];
     }
 
@@ -453,16 +431,16 @@ class GlobalsRouter extends BaseRouter
     }
 
     /**
-     * The resource policy must see the same global set the action resolves,
-     * which is `global_set ?? handle`. The default resolver only reads `handle`,
-     * so a `global_set` alone slipped past the policy and a `global_set` paired
-     * with an allowed `handle` let the policy approve the wrong set.
+     * The resource policy must see the global set the action resolves, which
+     * is `handle` and nothing else. In v3 a `global_set` alias let the policy
+     * approve one set while the action changed another; pinning the key here
+     * keeps that from coming back through the default resolver's list.
      *
      * @param  array<string, mixed>  $arguments
      */
     protected function resolveResourceHandle(array $arguments): ?string
     {
-        $raw = $arguments['global_set'] ?? $arguments['handle'] ?? null;
+        $raw = $arguments['handle'] ?? null;
 
         return is_string($raw) && $raw !== '' ? $raw : null;
     }

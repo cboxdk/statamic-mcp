@@ -75,8 +75,11 @@ class TermsRouter extends BaseRouter
             'expected_version' => JsonSchema::string()
                 ->description('Optimistic concurrency for update and delete: the `version` from your last get/create/update. It covers the whole term, every site included. If the stored term changed since (through MCP, the Control Panel or anything else), the write is refused with a version conflict and nothing is saved; get the term again and redo the change. Omit to write unconditionally.'),
 
+            'include_counts' => JsonSchema::boolean()
+                ->description('Include how many entries use the term. Default: false'),
+
             'limit' => JsonSchema::integer()
-                ->description('Maximum results to return (default: 100, max: 500)'),
+                ->description('Maximum results to return (default: 50, max: 1000)'),
 
             'offset' => JsonSchema::integer()
                 ->description('Number of results to skip for pagination. Use with limit for paging'),
@@ -244,18 +247,6 @@ class TermsRouter extends BaseRouter
      */
     private function validateActionRequirements(string $action, array $arguments): ?array
     {
-        // ID or slug required for specific actions
-        if (in_array($action, ['get', 'update', 'delete'])) {
-            if (empty($arguments['id']) && empty($arguments['slug'])) {
-                return $this->createErrorResponse("Term ID or slug is required for {$action} action")->toArray();
-            }
-        }
-
-        // Data required for create actions
-        if ($action === 'create' && empty($arguments['data'])) {
-            return $this->createErrorResponse('Data is required for create action')->toArray();
-        }
-
         // Site validation
         $siteError = $this->validateSiteHandle($arguments);
         if ($siteError) {
@@ -739,22 +730,14 @@ class TermsRouter extends BaseRouter
         }
     }
 
-    protected function facetArguments(): array
-    {
-        return [
-            'read' => ['filters', 'limit', 'offset'],
-            'write' => ['data', 'expected_version'],
-        ];
-    }
-
     protected function actions(): array
     {
         return [
-            RouterAction::read('list', 'List a taxonomy\'s terms. Needs taxonomy; optional: filters, limit, offset, site.'),
-            RouterAction::read('get', 'Get one term with its data and version. Needs taxonomy, id or slug; optional: site.'),
-            RouterAction::edit('create', 'Create a term. Needs taxonomy, data; optional: slug, site.'),
-            RouterAction::edit('update', 'Update a term. Needs taxonomy, id or slug, data; optional: expected_version, site.'),
-            RouterAction::delete('delete', 'Delete a term. Needs taxonomy, id or slug.'),
+            RouterAction::read('list', 'List a taxonomy\'s terms', needs: ['taxonomy'], optional: ['site', 'filters', 'limit', 'offset']),
+            RouterAction::read('get', 'Get one term with its data and version', needs: ['taxonomy', 'id|slug'], optional: ['site', 'include_counts']),
+            RouterAction::edit('create', 'Create a term', needs: ['taxonomy', 'data'], optional: ['site', 'slug']),
+            RouterAction::edit('update', 'Update a term', needs: ['taxonomy', 'id|slug', 'data'], optional: ['site', 'expected_version']),
+            RouterAction::delete('delete', 'Delete a term', needs: ['taxonomy', 'id|slug'], optional: ['site', 'expected_version']),
         ];
     }
 

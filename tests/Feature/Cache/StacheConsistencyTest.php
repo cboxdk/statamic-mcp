@@ -170,7 +170,7 @@ class StacheConsistencyTest extends TestCase
             'blueprint field removed' => [fn (self $t) => (new BlueprintsRouter)->execute(['action' => 'update', 'namespace' => 'collections.blog', 'handle' => 'post', 'fields' => [
                 ['handle' => 'title', 'field' => ['type' => 'text']],
             ]])],
-            'user create with role' => [fn (self $t) => (new UsersRouter)->execute(['action' => 'create', 'resource_type' => 'user', 'email' => 'new@example.test', 'data' => ['email' => 'new@example.test', 'roles' => ['editor']]])],
+            'user create with role' => [fn (self $t) => (new UsersRouter)->execute(['action' => 'create', 'resource_type' => 'user', 'data' => ['email' => 'new@example.test', 'roles' => ['editor']]])],
         ];
     }
 

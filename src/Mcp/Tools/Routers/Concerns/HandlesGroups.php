@@ -119,10 +119,13 @@ trait HandlesGroups
 
         try {
             $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
-            $handle = is_string($data['handle'] ?? null) ? $data['handle'] : (is_string($arguments['handle'] ?? null) ? $arguments['handle'] : null);
+            $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : null;
 
             if (! $handle) {
                 return $this->createErrorResponse('Group handle is required')->toArray();
+            }
+            if (array_key_exists('handle', $data) && $data['handle'] !== $handle) {
+                return $this->createErrorResponse('The new group\'s handle is the handle argument; data.handle may only repeat it.')->toArray();
             }
 
             $existsError = $this->checkHandleNotExists(UserGroup::find($handle), 'Group', $handle);

@@ -142,7 +142,7 @@ class ReviewSecurityRegressionTest extends TestCase
         $target = $source->makeLocalization('de')->data(['title' => 'Deutsch']);
         $target->save();
         foreach (['get', 'update'] as $action) {
-            $result = (new EntriesRouter)->execute(['action' => $action, 'collection' => $handle, 'id' => $source->id(), 'site' => 'de', 'data' => ['title' => 'Forbidden']]);
+            $result = (new EntriesRouter)->execute(['action' => $action, 'collection' => $handle, 'id' => $source->id(), 'site' => 'de', ...($action === 'update' ? ['data' => ['title' => 'Forbidden']] : [])]);
             $this->assertFalse($result['success'], json_encode($result));
             $this->assertStringContainsString('Permission denied', implode(' ', $result['errors']));
         }

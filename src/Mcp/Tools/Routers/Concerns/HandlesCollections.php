@@ -71,7 +71,7 @@ trait HandlesCollections
     private function moveCollectionEntry(array $arguments): array
     {
         $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
-        if (array_diff(array_keys($data), ['entry', 'parent']) !== [] || isset($arguments['config']) || ! is_string($data['entry'] ?? null) || ! array_key_exists('parent', $data)) {
+        if (array_diff(array_keys($data), ['entry', 'parent']) !== [] || ! is_string($data['entry'] ?? null) || ! array_key_exists('parent', $data)) {
             return $this->createErrorResponse('A collection move accepts only data.entry and data.parent (id or null). Do not combine it with collection settings.')->toArray();
         }
         $entry = Entry::find($data['entry']);
@@ -219,10 +219,13 @@ trait HandlesCollections
 
         try {
             $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
-            $handle = is_string($data['handle'] ?? null) ? $data['handle'] : (is_string($arguments['handle'] ?? null) ? $arguments['handle'] : null);
+            $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : null;
 
             if (! $handle) {
                 return $this->createErrorResponse('Collection handle is required')->toArray();
+            }
+            if (array_key_exists('handle', $data) && $data['handle'] !== $handle) {
+                return $this->createErrorResponse('The new collection\'s handle is the handle argument; data.handle may only repeat it.')->toArray();
             }
 
             $existsError = $this->checkHandleNotExists(Collection::find($handle), 'Collection', $handle);
@@ -373,14 +376,12 @@ trait HandlesCollections
      */
     private function configureCollection(array $arguments): array
     {
-        foreach (['data', 'config'] as $key) {
-            if (is_array($arguments[$key] ?? null) && array_intersect(array_keys($arguments[$key]), ['tree', 'trees', 'parent', 'entry'])) {
-                return $this->createErrorResponse('Use collection update with data.entry and data.parent to move a page.')->toArray();
-            }
+        if (is_array($arguments['data'] ?? null) && array_intersect(array_keys($arguments['data']), ['tree', 'trees', 'parent', 'entry'])) {
+            return $this->createErrorResponse('Use collection update with data.entry and data.parent to move a page.')->toArray();
         }
         try {
             $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
-            $config = is_array($arguments['config'] ?? null) ? $arguments['config'] : [];
+            $config = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
 
             $collection = Collection::find($handle);
             if (! $collection) {

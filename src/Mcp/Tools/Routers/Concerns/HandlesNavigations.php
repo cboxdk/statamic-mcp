@@ -138,10 +138,13 @@ trait HandlesNavigations
 
         try {
             $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
-            $handle = is_string($data['handle'] ?? null) ? $data['handle'] : (is_string($arguments['handle'] ?? null) ? $arguments['handle'] : null);
+            $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : null;
 
             if (! $handle) {
                 return $this->createErrorResponse('Navigation handle is required')->toArray();
+            }
+            if (array_key_exists('handle', $data) && $data['handle'] !== $handle) {
+                return $this->createErrorResponse('The new navigation\'s handle is the handle argument; data.handle may only repeat it.')->toArray();
             }
 
             $existsError = $this->checkHandleNotExists(Nav::find($handle), 'Navigation', $handle);
@@ -251,9 +254,7 @@ trait HandlesNavigations
     {
         try {
             $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
-            $data = is_array($arguments['config'] ?? null)
-                ? $arguments['config']
-                : (is_array($arguments['data'] ?? null) ? $arguments['data'] : []);
+            $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
 
             $navigation = Nav::find($handle);
             if (! $navigation) {

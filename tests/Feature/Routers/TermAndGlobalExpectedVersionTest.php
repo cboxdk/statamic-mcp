@@ -67,7 +67,7 @@ it('refuses a stale term version on update and delete without saving', function 
     Term::find('vt_tags::one')->in('de')->set('title', 'Changed in the CP')->save();
 
     foreach (['update', 'delete'] as $action) {
-        $result = vtTerm(['action' => $action, 'slug' => 'one', 'expected_version' => $version, 'data' => ['title' => 'Overwrite']]);
+        $result = vtTerm(['action' => $action, 'slug' => 'one', 'expected_version' => $version, ...($action === 'update' ? ['data' => ['title' => 'Overwrite']] : [])]);
         expect($result['success'])->toBeFalse()
             ->and($result['data']['code'])->toBe('VERSION_CONFLICT')
             ->and(implode(' ', $result['errors']))->toContain('the term changed');

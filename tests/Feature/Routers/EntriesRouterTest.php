@@ -660,7 +660,7 @@ class EntriesRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Entry ID is required for update action', $result['errors'][0]);
+        $this->assertStringContainsString('The update action needs id', $result['errors'][0]);
     }
 
     public function test_missing_id_for_delete(): void
@@ -671,7 +671,7 @@ class EntriesRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Entry ID is required for delete action', $result['errors'][0]);
+        $this->assertStringContainsString('The delete action needs id', $result['errors'][0]);
     }
 
     public function test_missing_id_for_publish(): void
@@ -682,7 +682,7 @@ class EntriesRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Entry ID is required for publish action', $result['errors'][0]);
+        $this->assertStringContainsString('The publish action needs id', $result['errors'][0]);
     }
 
     public function test_missing_id_for_unpublish(): void
@@ -693,6 +693,6 @@ class EntriesRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Entry ID is required for unpublish action', $result['errors'][0]);
+        $this->assertStringContainsString('The unpublish action needs id', $result['errors'][0]);
     }
 }

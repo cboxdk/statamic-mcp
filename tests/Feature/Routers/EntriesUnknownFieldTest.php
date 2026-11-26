@@ -144,7 +144,7 @@ class EntriesUnknownFieldTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Unknown argument: published', $result['errors'][0]);
+        $this->assertStringContainsString('The create action does not take published', $result['errors'][0]);
         $this->assertStringContainsString('inside data', $result['errors'][0]);
         $this->assertNull(Entry::query()->where('collection', $this->collectionHandle)->where('slug', 'launch')->first());
     }

@@ -572,7 +572,7 @@ describe('GlobalsRouter Permission Definitions', function () {
         $perms = $method->invoke($router, 'get', ['handle' => 'settings']);
         expect($perms)->toBe(['edit settings globals']);
 
-        $perms = $method->invoke($router, 'update', ['global_set' => 'footer']);
+        $perms = $method->invoke($router, 'update', ['handle' => 'footer']);
         expect($perms)->toBe(['edit footer globals']);
     });
 

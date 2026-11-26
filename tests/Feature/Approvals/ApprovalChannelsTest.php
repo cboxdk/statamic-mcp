@@ -98,7 +98,9 @@ afterEach(function () {
 
 function chDelete(array $extra = []): array
 {
-    return (new EntriesRouter)->execute(['action' => 'delete', 'collection' => 'ch_pages', 'id' => 'ch-one', 'revision_message' => 'do-not-leak'] + $extra);
+    // The idempotency key stands in for any argument value: a notifier gets
+    // the description and the link, never what the call carried.
+    return (new EntriesRouter)->execute(['action' => 'delete', 'collection' => 'ch_pages', 'id' => 'ch-one', 'idempotency_key' => 'do-not-leak'] + $extra);
 }
 
 it('mails the owner through the site mailer by default, without the call arguments', function () {

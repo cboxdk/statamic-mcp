@@ -44,7 +44,7 @@ it('hides denied parent metadata on entry reads and content writes', function (s
     foreach (['get', 'update'] as $action) {
         $result = $router->execute([
             'action' => $action, 'collection' => 'tree_pages', 'id' => 'child',
-            'data' => ['title' => 'Updated'],
+            ...($action === 'update' ? ['data' => ['title' => 'Updated']] : []),
         ]);
         expect($result['success'])->toBeTrue()
             ->and($result['data']['entry'])->not->toHaveKey('parent');
@@ -239,7 +239,7 @@ it('moves a published entry without publishing or discarding its working copy', 
 
     $workingCopy = $router->execute([
         'action' => 'get', 'collection' => 'tree_pages', 'id' => 'child',
-        'version' => 'working_copy',
+        'revision_state' => 'working_copy',
     ]);
     expect($workingCopy['success'])->toBeTrue()
         ->and($workingCopy['data']['entry']['data']['title'])->toBe('Unpublished change')

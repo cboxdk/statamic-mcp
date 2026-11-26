@@ -89,7 +89,7 @@ class ResourceBindingTest extends TestCase
         $this->assertTrue($ok['success'], json_encode($ok['errors'] ?? []));
     }
 
-    public function test_globals_resource_policy_follows_the_global_set_alias(): void
+    public function test_globals_resource_policy_checks_the_handle_and_refuses_the_v3_alias(): void
     {
         foreach (['public', 'secret'] as $handle) {
             $set = GlobalSet::make($handle)->title(ucfirst($handle));
@@ -101,12 +101,17 @@ class ResourceBindingTest extends TestCase
         }
         config(['statamic.mcp.tools.globals.resources.read' => ['public']]);
 
-        // global_set alone used to skip the policy; it must now be refused.
+        // global_set alone used to skip the policy. v4 has no alias: it is
+        // refused by name, and handle is checked like any other target.
         $aliased = (new GlobalsRouter)->execute(['action' => 'get', 'global_set' => 'secret']);
         $this->assertFalse($aliased['success']);
-        $this->assertStringContainsString('resource policy', strtolower((string) ($aliased['errors'][0] ?? '')));
+        $this->assertStringContainsString('does not take global_set', (string) ($aliased['errors'][0] ?? ''));
 
-        $allowed = (new GlobalsRouter)->execute(['action' => 'get', 'global_set' => 'public']);
+        $denied = (new GlobalsRouter)->execute(['action' => 'get', 'handle' => 'secret']);
+        $this->assertFalse($denied['success']);
+        $this->assertStringContainsString('resource policy', strtolower((string) ($denied['errors'][0] ?? '')));
+
+        $allowed = (new GlobalsRouter)->execute(['action' => 'get', 'handle' => 'public']);
         $this->assertTrue($allowed['success'], json_encode($allowed['errors'] ?? []));
     }
 
@@ -126,7 +131,7 @@ class ResourceBindingTest extends TestCase
         ]);
         $this->assertFalse($denied['success']);
         // An undeclared argument cannot reach the policy at all any more.
-        $this->assertStringContainsString('Unknown argument: collection', (string) ($denied['errors'][0] ?? ''));
+        $this->assertStringContainsString('does not take collection', (string) ($denied['errors'][0] ?? ''));
         $this->assertNotNull(Collection::find('protected_one'));
 
         // Control: a bare allowed handle is not blocked by the policy.

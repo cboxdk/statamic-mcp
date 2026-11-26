@@ -35,26 +35,20 @@ class BlueprintsRouter extends BaseRouter
         return 'blueprints';
     }
 
-    protected function facetArguments(): array
-    {
-        return [
-            'read' => ['include_details', 'include_fields', 'field', 'include_config', 'include_format_spec', 'max_format_depth', 'output_format'],
-            'write' => ['fields', 'replace_fields', 'title'],
-        ];
-    }
-
     protected function actions(): array
     {
+        $where = ['namespace', 'collection', 'taxonomy'];
+
         return [
-            RouterAction::read('list', 'List blueprints. Optional: namespace, include_fields, include_details.'),
-            RouterAction::read('get', 'Get a blueprint\'s fields with each field\'s _format_spec, the wire format a write expects. Needs handle, namespace (plus collection_handle or taxonomy_handle in those namespaces); optional: field (a dot path to one field or set), include_config, include_format_spec, max_format_depth.'),
-            RouterAction::admin('create', 'Create a blueprint. Needs handle, namespace, fields (each with a handle and a field object carrying type); optional: title, collection_handle, taxonomy_handle.'),
-            RouterAction::admin('update', 'Update a blueprint\'s fields, merged by handle unless replace_fields is true. Needs handle, namespace, fields.'),
-            RouterAction::admin('delete', 'Delete a blueprint. Needs handle, namespace.'),
-            RouterAction::read('scan', 'Report how blueprints and fieldtypes are used. Optional: namespace.'),
-            RouterAction::admin('generate', 'Create a blueprint from field definitions you supply. Needs handle, namespace, fields; optional: title.'),
-            RouterAction::read('types', 'Generate TypeScript, PHP or JSON Schema types from blueprints. Needs output_format; optional: namespace, handle.'),
-            RouterAction::read('validate', 'Validate a blueprint\'s structure and field definitions. Needs handle, namespace.'),
+            RouterAction::read('list', 'List blueprints', optional: ['namespace', 'include_fields', 'include_details']),
+            RouterAction::read('get', 'Get a blueprint\'s fields with each field\'s _format_spec, the wire format a write expects. In the collections and taxonomies namespaces, name the collection or taxonomy; field is a dot path to one field or set', needs: ['handle'], optional: [...$where, 'field', 'include_config', 'include_format_spec', 'max_format_depth']),
+            RouterAction::admin('create', 'Create a blueprint; each field has a handle and a field object carrying type', needs: ['handle'], optional: [...$where, 'fields', 'title']),
+            RouterAction::admin('update', 'Update a blueprint\'s fields, merged by handle unless replace_fields is true', needs: ['handle'], optional: [...$where, 'fields', 'replace_fields', 'title']),
+            RouterAction::admin('delete', 'Delete a blueprint', needs: ['handle'], optional: $where),
+            RouterAction::read('scan', 'Report how blueprints and fieldtypes are used', optional: ['namespace', 'include_fields', 'include_details']),
+            RouterAction::admin('generate', 'Create a blueprint from field definitions you supply', needs: ['handle', 'fields'], optional: ['namespace', 'title']),
+            RouterAction::read('types', 'Generate TypeScript, PHP or JSON Schema types from blueprints; output_format defaults to typescript', optional: ['namespace', 'output_format']),
+            RouterAction::read('validate', 'Validate a blueprint\'s structure and field definitions', needs: ['handle'], optional: $where),
         ];
     }
 
@@ -71,9 +65,9 @@ class BlueprintsRouter extends BaseRouter
             'namespace' => JsonSchema::string()
                 ->description('Blueprint namespace determining storage location. Use "collections" for collection blueprints, "taxonomies" for taxonomy blueprints.')
                 ->enum(['collections', 'taxonomies', 'globals', 'forms', 'assets', 'users']),
-            'collection_handle' => JsonSchema::string()
+            'collection' => JsonSchema::string()
                 ->description('Collection handle. Required when namespace is "collections". Example: "blog"'),
-            'taxonomy_handle' => JsonSchema::string()
+            'taxonomy' => JsonSchema::string()
                 ->description('Taxonomy handle. Required when namespace is "taxonomies". Example: "tags"'),
             'title' => JsonSchema::string()
                 ->description('Human-readable blueprint title. Auto-generated from handle if not provided'),
@@ -125,11 +119,6 @@ class BlueprintsRouter extends BaseRouter
     protected function executeAction(array $arguments): array
     {
         $action = is_string($arguments['action'] ?? null) ? $arguments['action'] : '';
-
-        // Validate action-specific requirements
-        if (in_array($action, ['get', 'update', 'delete', 'validate']) && empty($arguments['handle'])) {
-            return $this->createErrorResponse("Handle is required for {$action} action")->toArray();
-        }
 
         return match ($action) {
             'list' => $this->listBlueprints($arguments),
@@ -382,8 +371,8 @@ class BlueprintsRouter extends BaseRouter
         try {
             $handle = is_string($arguments['handle']) ? $arguments['handle'] : '';
             $namespace = isset($arguments['namespace']) && is_string($arguments['namespace']) ? $arguments['namespace'] : null;
-            $collectionHandle = isset($arguments['collection_handle']) && is_string($arguments['collection_handle']) ? $arguments['collection_handle'] : null;
-            $taxonomyHandle = isset($arguments['taxonomy_handle']) && is_string($arguments['taxonomy_handle']) ? $arguments['taxonomy_handle'] : null;
+            $collectionHandle = isset($arguments['collection']) && is_string($arguments['collection']) ? $arguments['collection'] : null;
+            $taxonomyHandle = isset($arguments['taxonomy']) && is_string($arguments['taxonomy']) ? $arguments['taxonomy'] : null;
             $includeConfig = $this->getBooleanArgument($arguments, 'include_config', true);
             $includeFormatSpec = $this->getBooleanArgument($arguments, 'include_format_spec', true);
             $maxFormatDepth = $this->getIntegerArgument($arguments, 'max_format_depth', 2, 0, 5);
@@ -461,8 +450,8 @@ class BlueprintsRouter extends BaseRouter
         try {
             $handle = isset($arguments['handle']) && is_string($arguments['handle']) ? $arguments['handle'] : null;
             $namespace = isset($arguments['namespace']) && is_string($arguments['namespace']) ? $arguments['namespace'] : 'collections';
-            $collectionHandle = isset($arguments['collection_handle']) && is_string($arguments['collection_handle']) ? $arguments['collection_handle'] : null;
-            $taxonomyHandle = isset($arguments['taxonomy_handle']) && is_string($arguments['taxonomy_handle']) ? $arguments['taxonomy_handle'] : null;
+            $collectionHandle = isset($arguments['collection']) && is_string($arguments['collection']) ? $arguments['collection'] : null;
+            $taxonomyHandle = isset($arguments['taxonomy']) && is_string($arguments['taxonomy']) ? $arguments['taxonomy'] : null;
             $fields = isset($arguments['fields']) && is_array($arguments['fields']) ? $arguments['fields'] : [];
             $title = isset($arguments['title']) && is_string($arguments['title']) ? $arguments['title'] : Str::title(str_replace('_', ' ', (string) $handle));
 
@@ -476,23 +465,23 @@ class BlueprintsRouter extends BaseRouter
 
             // Validate namespace-specific requirements
             if ($namespace === 'collections' && ! $collectionHandle) {
-                return $this->createErrorResponse('collection_handle is required when namespace=collections. Example: collection_handle="brands", handle="brand"')->toArray();
+                return $this->createErrorResponse('collection is required when namespace=collections. Example: collection="brands", handle="brand"')->toArray();
             }
 
             if ($namespace === 'taxonomies' && ! $taxonomyHandle) {
-                return $this->createErrorResponse('taxonomy_handle is required when namespace=taxonomies. Example: taxonomy_handle="categories", handle="category"')->toArray();
+                return $this->createErrorResponse('taxonomy is required when namespace=taxonomies. Example: taxonomy="categories", handle="category"')->toArray();
             }
 
             // Validate collection/taxonomy exists
             if ($namespace === 'collections') {
-                // collection_handle is guaranteed to exist here due to validation above
+                // collection is guaranteed to exist here due to validation above
                 if (! Collection::find($collectionHandle)) {
                     return $this->createErrorResponse("Collection not found: {$collectionHandle}. Create the collection first with statamic-structures-admin.")->toArray();
                 }
             }
 
             if ($namespace === 'taxonomies') {
-                // taxonomy_handle is guaranteed to exist here due to validation above
+                // taxonomy is guaranteed to exist here due to validation above
                 if (! Taxonomy::find($taxonomyHandle)) {
                     return $this->createErrorResponse("Taxonomy not found: {$taxonomyHandle}. Create the taxonomy first with statamic-structures-admin.")->toArray();
                 }
@@ -596,7 +585,7 @@ class BlueprintsRouter extends BaseRouter
     private function findBlueprint(string $handle, ?string $namespace = null, ?string $collectionHandle = null, ?string $taxonomyHandle = null): ?BlueprintContract
     {
         if ($namespace) {
-            // For collections, use collection_handle to build correct namespace
+            // For collections, use the collection argument to build correct namespace
             if ($namespace === 'collections' && $collectionHandle) {
                 try {
                     $blueprint = collect(Blueprint::in("collections.{$collectionHandle}")->all())->firstWhere('handle', $handle);
@@ -608,7 +597,7 @@ class BlueprintsRouter extends BaseRouter
                 }
             }
 
-            // For taxonomies, use taxonomy_handle to build correct namespace
+            // For taxonomies, use the taxonomy argument to build correct namespace
             if ($namespace === 'taxonomies' && $taxonomyHandle) {
                 try {
                     $blueprint = collect(Blueprint::in("taxonomies.{$taxonomyHandle}")->all())->firstWhere('handle', $handle);
@@ -826,8 +815,8 @@ class BlueprintsRouter extends BaseRouter
             $title = isset($arguments['title']) && is_string($arguments['title']) ? $arguments['title'] : null;
 
             // Find the blueprint
-            $collectionHandle = isset($arguments['collection_handle']) && is_string($arguments['collection_handle']) ? $arguments['collection_handle'] : null;
-            $taxonomyHandle = isset($arguments['taxonomy_handle']) && is_string($arguments['taxonomy_handle']) ? $arguments['taxonomy_handle'] : null;
+            $collectionHandle = isset($arguments['collection']) && is_string($arguments['collection']) ? $arguments['collection'] : null;
+            $taxonomyHandle = isset($arguments['taxonomy']) && is_string($arguments['taxonomy']) ? $arguments['taxonomy'] : null;
 
             $blueprint = $this->findBlueprint($handle, $namespace, $collectionHandle, $taxonomyHandle);
 
@@ -900,8 +889,8 @@ class BlueprintsRouter extends BaseRouter
             $namespace = isset($arguments['namespace']) && is_string($arguments['namespace']) ? $arguments['namespace'] : null;
 
             // Find the blueprint
-            $collectionHandle = isset($arguments['collection_handle']) && is_string($arguments['collection_handle']) ? $arguments['collection_handle'] : null;
-            $taxonomyHandle = isset($arguments['taxonomy_handle']) && is_string($arguments['taxonomy_handle']) ? $arguments['taxonomy_handle'] : null;
+            $collectionHandle = isset($arguments['collection']) && is_string($arguments['collection']) ? $arguments['collection'] : null;
+            $taxonomyHandle = isset($arguments['taxonomy']) && is_string($arguments['taxonomy']) ? $arguments['taxonomy'] : null;
 
             $blueprint = $this->findBlueprint($handle, $namespace, $collectionHandle, $taxonomyHandle);
 
@@ -1092,8 +1081,8 @@ class BlueprintsRouter extends BaseRouter
             $handle = is_string($arguments['handle']) ? $arguments['handle'] : '';
             $namespace = isset($arguments['namespace']) && is_string($arguments['namespace']) ? $arguments['namespace'] : null;
 
-            $collectionHandle = isset($arguments['collection_handle']) && is_string($arguments['collection_handle']) ? $arguments['collection_handle'] : null;
-            $taxonomyHandle = isset($arguments['taxonomy_handle']) && is_string($arguments['taxonomy_handle']) ? $arguments['taxonomy_handle'] : null;
+            $collectionHandle = isset($arguments['collection']) && is_string($arguments['collection']) ? $arguments['collection'] : null;
+            $taxonomyHandle = isset($arguments['taxonomy']) && is_string($arguments['taxonomy']) ? $arguments['taxonomy'] : null;
 
             $blueprint = $this->findBlueprint($handle, $namespace, $collectionHandle, $taxonomyHandle);
 
@@ -1317,12 +1306,27 @@ class BlueprintsRouter extends BaseRouter
             return $this->createErrorResponse("Invalid namespace: {$namespace}. Valid: " . implode(', ', $validNamespaces))->toArray();
         }
 
-        foreach (['handle' => $handle, 'collection_handle' => $collectionHandle, 'taxonomy_handle' => $taxonomyHandle] as $label => $value) {
+        foreach (['handle' => $handle, 'collection' => $collectionHandle, 'taxonomy' => $taxonomyHandle] as $label => $value) {
             if ($value !== null && ! preg_match('/^[A-Za-z0-9_-]+$/', $value)) {
                 return $this->createErrorResponse("Invalid {$label}: only letters, digits, underscores and hyphens are allowed.")->toArray();
             }
         }
 
         return null;
+    }
+
+    /**
+     * The resource policy names blueprints by handle. The default resolver
+     * reads collection and taxonomy first, which here only say where the
+     * blueprint lives, so a policy allowing the collection would approve
+     * any of its blueprints.
+     *
+     * @param  array<string, mixed>  $arguments
+     */
+    protected function resolveResourceHandle(array $arguments): ?string
+    {
+        $handle = $arguments['handle'] ?? null;
+
+        return is_string($handle) && $handle !== '' ? $handle : null;
     }
 }

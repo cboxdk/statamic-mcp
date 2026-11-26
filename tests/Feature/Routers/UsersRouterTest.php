@@ -176,6 +176,6 @@ class UsersRouterTest extends TestCase
 
         // Wrong argument names are refused by name rather than reported as missing.
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Unknown arguments: user_id, role_handle', $result['errors'][0]);
+        $this->assertStringContainsString('The assign_role action does not take user_id, role_handle', $result['errors'][0]);
     }
 }

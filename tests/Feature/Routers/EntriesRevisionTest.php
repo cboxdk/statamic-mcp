@@ -260,7 +260,7 @@ class EntriesRevisionTest extends TestCase
             'action' => 'get',
             'collection' => $this->collectionHandle,
             'id' => $entry->id(),
-            'version' => 'working_copy',
+            'revision_state' => 'working_copy',
         ]);
 
         $this->assertTrue($result['success']);
@@ -296,7 +296,7 @@ class EntriesRevisionTest extends TestCase
             'action' => 'get',
             'collection' => $this->collectionHandle,
             'id' => $entry->id(),
-            'version' => 'working_copy',
+            'revision_state' => 'working_copy',
         ]);
 
         $this->assertTrue($result['success']);
@@ -319,7 +319,7 @@ class EntriesRevisionTest extends TestCase
             'action' => 'get',
             'collection' => $this->collectionHandle,
             'id' => $entry->id(),
-            'version' => 'working_copy',
+            'revision_state' => 'working_copy',
         ]);
 
         $this->assertFalse($result['success']);
@@ -349,7 +349,7 @@ class EntriesRevisionTest extends TestCase
             'action' => 'get',
             'collection' => $this->collectionHandle,
             'id' => $entry->id(),
-            'version' => 'latest',
+            'revision_state' => 'latest',
         ]);
 
         $this->assertTrue($result['success']);
@@ -371,7 +371,7 @@ class EntriesRevisionTest extends TestCase
             'action' => 'get',
             'collection' => $this->collectionHandle,
             'id' => $entry->id(),
-            'version' => 'latest',
+            'revision_state' => 'latest',
         ]);
 
         $this->assertTrue($result['success']);
@@ -774,7 +774,7 @@ class EntriesRevisionTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Entry ID is required for list_revisions action', $result['errors'][0]);
+        $this->assertStringContainsString('The list_revisions action needs id', $result['errors'][0]);
     }
 
     public function test_missing_id_for_get_revision(): void
@@ -786,7 +786,7 @@ class EntriesRevisionTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Entry ID is required for get_revision action', $result['errors'][0]);
+        $this->assertStringContainsString('The get_revision action needs id', $result['errors'][0]);
     }
 
     public function test_missing_revision_id_for_get_revision(): void
@@ -805,7 +805,7 @@ class EntriesRevisionTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Revision ID is required for get_revision action', $result['errors'][0]);
+        $this->assertStringContainsString('The get_revision action needs revision_id', $result['errors'][0]);
     }
 
     public function test_missing_revision_id_for_restore_revision(): void
@@ -824,7 +824,7 @@ class EntriesRevisionTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Revision ID is required for restore_revision action', $result['errors'][0]);
+        $this->assertStringContainsString('The restore_revision action needs revision_id', $result['errors'][0]);
     }
 
     public function test_missing_id_for_publish_working_copy(): void
@@ -835,7 +835,7 @@ class EntriesRevisionTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Entry ID is required for publish_working_copy action', $result['errors'][0]);
+        $this->assertStringContainsString('The publish_working_copy action needs id', $result['errors'][0]);
     }
 
     // ========================================================================

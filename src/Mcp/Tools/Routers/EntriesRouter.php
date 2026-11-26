@@ -141,8 +141,8 @@ class EntriesRouter extends BaseRouter
             'expected_version' => JsonSchema::string()
                 ->description('Optimistic concurrency for update, delete, publish, unpublish, restore_revision and publish_working_copy: the `version` from your last get/create/update. If the stored entry changed since (through MCP, the Control Panel or anything else), the write is refused with a version conflict and nothing is saved; get the entry again and redo the change. Omit to write unconditionally.'),
 
-            'version' => JsonSchema::string()
-                ->description('Which version of the entry to return for get action. "published" (default): live published data, "working_copy": current working copy data, "latest": working copy if exists else published')
+            'revision_state' => JsonSchema::string()
+                ->description('Which state of the entry get returns: "published" (default) the live data, "working_copy" the unpublished working copy, "latest" the working copy when there is one, else the published data')
                 ->enum(['published', 'working_copy', 'latest']),
 
             'merge_sets' => JsonSchema::boolean()
@@ -185,10 +185,9 @@ class EntriesRouter extends BaseRouter
             return $this->createErrorResponse("Collection not found: {$collectionHandle}")->toArray();
         }
 
-        // Validate action-specific requirements
-        $validationError = $this->validateActionRequirements($action, $arguments);
-        if ($validationError) {
-            return $validationError;
+        $siteError = $this->validateSiteHandle($arguments);
+        if ($siteError) {
+            return $siteError;
         }
 
         if (in_array($action, self::VERSIONED_ACTIONS, true) && isset($arguments['expected_version'])) {
@@ -311,43 +310,6 @@ class EntriesRouter extends BaseRouter
     }
 
     /**
-     * Validate action-specific requirements.
-     *
-     * @param  array<string, mixed>  $arguments
-     *
-     * @return array<string, mixed>|null
-     */
-    private function validateActionRequirements(string $action, array $arguments): ?array
-    {
-        // ID required for specific actions
-        if (in_array($action, ['get', 'update', 'delete', 'publish', 'unpublish', 'list_revisions', 'get_revision', 'restore_revision', 'publish_working_copy'])) {
-            if (empty($arguments['id'])) {
-                return $this->createErrorResponse("Entry ID is required for {$action} action")->toArray();
-            }
-        }
-
-        // Revision ID required for get_revision and restore_revision
-        if (in_array($action, ['get_revision', 'restore_revision'])) {
-            if (empty($arguments['revision_id'])) {
-                return $this->createErrorResponse("Revision ID is required for {$action} action")->toArray();
-            }
-        }
-
-        // Data required for create actions
-        if ($action === 'create' && empty($arguments['data'])) {
-            return $this->createErrorResponse('Data is required for create action')->toArray();
-        }
-
-        // Site validation
-        $siteError = $this->validateSiteHandle($arguments);
-        if ($siteError) {
-            return $siteError;
-        }
-
-        return null;
-    }
-
-    /**
      * @param  array<string, mixed>  $arguments
      *
      * @return array<string>
@@ -461,7 +423,7 @@ class EntriesRouter extends BaseRouter
     {
         $id = is_string($arguments['id']) ? $arguments['id'] : '';
         $site = $this->resolveSiteHandle($arguments);
-        $version = is_string($arguments['version'] ?? null) ? $arguments['version'] : 'published';
+        $version = is_string($arguments['revision_state'] ?? null) ? $arguments['revision_state'] : 'published';
 
         try {
             $entry = $this->resolveEntryInCollection($id, $arguments);
@@ -1497,29 +1459,21 @@ class EntriesRouter extends BaseRouter
         }
     }
 
-    protected function facetArguments(): array
-    {
-        return [
-            'read' => ['filters', 'include_unpublished', 'limit', 'offset', 'version'],
-            'write' => ['data', 'merge_sets', 'revision_message', 'expected_version', 'slug'],
-        ];
-    }
-
     protected function actions(): array
     {
         return [
-            RouterAction::read('list', 'List a collection\'s entries. Needs collection; optional: filters, include_unpublished, limit, offset, site.'),
-            RouterAction::read('get', 'Get one entry with its data and version. Needs collection, id; optional: version (published, working_copy or latest).'),
-            RouterAction::edit('create', 'Create an entry. Needs collection, data (field values in the shapes the collection\'s blueprint gives them); optional: site, slug.'),
-            RouterAction::edit('update', 'Update an entry; a published entry with revisions enabled gets a working copy. Needs collection, id, data; optional: expected_version, merge_sets, revision_message.'),
-            RouterAction::edit('localize', 'Create an entry\'s localization in another site; untranslated fields keep falling back to the origin. Needs collection, id, site; optional: data, revision_message.'),
-            RouterAction::delete('delete', 'Delete an entry. Needs collection, id.'),
-            RouterAction::publish('publish', 'Publish an entry, promoting its working copy. Needs collection, id; optional: revision_message. In a collection whose future dates are private, a future-dated entry becomes status "scheduled" and stays offline until its date; read status, not published, to know what visitors see.'),
-            RouterAction::publish('unpublish', 'Unpublish an entry. Needs collection, id; optional: revision_message.'),
-            RouterAction::read('list_revisions', 'List an entry\'s revisions (revisions must be enabled). Needs collection, id.'),
-            RouterAction::read('get_revision', 'Get one revision\'s data snapshot. Needs collection, id, revision_id.'),
-            RouterAction::edit('restore_revision', 'Restore an entry from a revision; a published entry gets it as a working copy. Needs collection, id, revision_id.'),
-            RouterAction::publish('publish_working_copy', 'Publish the entry\'s current working copy. Needs collection, id; optional: revision_message.'),
+            RouterAction::read('list', 'List a collection\'s entries', needs: ['collection'], optional: ['site', 'filters', 'include_unpublished', 'limit', 'offset']),
+            RouterAction::read('get', 'Get one entry with its data and version', needs: ['collection', 'id'], optional: ['site', 'revision_state']),
+            RouterAction::edit('create', 'Create an entry; data holds field values in the shapes the collection\'s blueprint gives them', needs: ['collection', 'data'], optional: ['site', 'slug', 'revision_message']),
+            RouterAction::edit('update', 'Update an entry; a published entry with revisions enabled gets a working copy', needs: ['collection', 'id', 'data'], optional: ['site', 'expected_version', 'merge_sets', 'revision_message']),
+            RouterAction::edit('localize', 'Create an entry\'s localization in another site; untranslated fields keep falling back to the origin', needs: ['collection', 'id', 'site'], optional: ['data', 'revision_message']),
+            RouterAction::delete('delete', 'Delete an entry', needs: ['collection', 'id'], optional: ['site', 'expected_version']),
+            RouterAction::publish('publish', 'Publish an entry, promoting its working copy. In a collection whose future dates are private, a future-dated entry becomes status "scheduled" and stays offline until its date; read status, not published, to know what visitors see', needs: ['collection', 'id'], optional: ['site', 'expected_version', 'revision_message']),
+            RouterAction::publish('unpublish', 'Unpublish an entry', needs: ['collection', 'id'], optional: ['site', 'expected_version', 'revision_message']),
+            RouterAction::read('list_revisions', 'List an entry\'s revisions (revisions must be enabled)', needs: ['collection', 'id'], optional: ['site']),
+            RouterAction::read('get_revision', 'Get one revision\'s data snapshot', needs: ['collection', 'id', 'revision_id'], optional: ['site']),
+            RouterAction::edit('restore_revision', 'Restore an entry from a revision; a published entry gets it as a working copy', needs: ['collection', 'id', 'revision_id'], optional: ['site', 'expected_version']),
+            RouterAction::publish('publish_working_copy', 'Publish the entry\'s current working copy', needs: ['collection', 'id'], optional: ['site', 'expected_version', 'revision_message']),
         ];
     }
 
