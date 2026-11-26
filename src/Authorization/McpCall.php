@@ -10,11 +10,12 @@ use Cboxdk\StatamicMcp\Auth\TokenScope;
 final class McpCall
 {
     /**
-     * @param  list<TokenScope>  $scopes  Every scope the token must hold.
+     * @param  list<TokenScope|string>  $scopes  Every scope the token must hold.
      * @param  array<int, string|array<int, string>>  $permissions  Statamic permissions; a nested list means any one of them.
      * @param  string|null  $handle  The resource the resource policy is keyed on, when known.
      * @param  'read'|'write'  $mode
      * @param  bool  $extraTool  A tool another package registered: missing scopes or permissions fail closed.
+     * @param  array{id: string, fingerprint: string}|null  $capability
      */
     public function __construct(
         public readonly string $domain,
@@ -24,5 +25,7 @@ final class McpCall
         public readonly ?string $handle,
         public readonly string $mode,
         public readonly bool $extraTool = false,
+        public readonly ?array $capability = null,
+        public readonly ?string $site = null,
     ) {}
 }

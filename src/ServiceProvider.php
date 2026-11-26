@@ -261,11 +261,13 @@ class ServiceProvider extends AddonServiceProvider
         $this->app->singleton(Actions\ScopeRegistry::class);
         $this->app->singleton(StacheRepair::class);
         $this->app->singleton(Actions\CapabilityRegistry::class);
+        $this->app->singleton(Integration\IntegrationRegistry::class);
         $this->app->booted(function (): void {
             // AddonServiceProvider defers bootAddon to Statamic's booted queue.
             // Append after all provider boot methods have registered their callbacks,
             // but before Statamic drains that queue. Addons can register normally.
             Statamic::booted(function (): void {
+                $this->app->make(Integration\IntegrationRegistry::class)->freeze();
                 $this->app->make(Actions\CapabilityRegistry::class)->freeze();
                 $this->app->make(Actions\ObserverRegistry::class)->freeze();
             });

@@ -20,7 +20,12 @@ know the ones an addon adds, and an unknown fieldtype gets two things wrong:
 with `Cannot access offset of type string on string` — an error that names
 neither the field nor the expected shape.
 
-`FieldtypeExtensions` lets you supply both halves.
+`FieldtypeExtensions` lets you supply both halves. Packages using the
+[integration API](tools.md#register-an-integration) register both callbacks with
+`StatamicMcp::integration('vendor/package')->fieldtype($handle, $spec, $sanitizer)`.
+That path records package ownership and rejects duplicate or late registration.
+The static API below remains available for site-local overrides; callbacks are
+isolated per application container, not shared across applications in one process.
 
 ## Registering
 

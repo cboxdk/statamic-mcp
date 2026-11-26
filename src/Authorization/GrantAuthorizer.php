@@ -39,13 +39,31 @@ final class GrantAuthorizer implements Authorizer
             throw new AuthorizationException('Action is not allowed by the installation profile.');
         }
 
+        $this->checkCapability($action->id(), $action->fingerprint(), $action->scopes, $context);
+    }
+
+    /** Router consent uses the same authoritative grant and actor checks.
+     * @param  list<string>  $scopes
+     */
+    public function authorizeCapability(string $id, string $fingerprint, array $scopes, ExecutionContext $context): void
+    {
+        $this->reads->run(function () use ($id, $fingerprint, $scopes, $context): void {
+            Blink::flush();
+            app(PermissionCache::class)->clear();
+            $this->checkCapability($id, $fingerprint, $scopes, $context);
+        });
+    }
+
+    /** @param list<string> $scopes */
+    private function checkCapability(string $id, string $fingerprint, array $scopes, ExecutionContext $context): void
+    {
         // Always reload: the request's token DTO is not proof that a grant still exists.
         $grant = $context->credentialId === null ? null : $this->tokens->find($context->credentialId);
         if ($grant === null || $grant->isExpired() || $grant->userId !== $context->actorId
             || $context->credentialRevision === null || ! hash_equals($grant->credentialRevision(), $context->credentialRevision)
             || $grant->capabilities === null || ! hash_equals($grant->capabilities->grantId, $context->grantId)
-            || ! $grant->capabilities->permits($action)
-            || array_diff($action->scopes, $grant->scopes) !== []) {
+            || ($grant->capabilities->actions[$id] ?? null) !== $fingerprint
+            || array_diff($scopes, $grant->scopes) !== []) {
             throw new AuthorizationException('Action requires a current, explicitly approved grant.');
         }
 
@@ -54,7 +72,7 @@ final class GrantAuthorizer implements Authorizer
         if ($actor === null || $actor->get('status') === 'inactive' || $site === null || ! $actor->can('view', $site)) {
             throw new AuthorizationException('Actor or site is unavailable.');
         }
-        foreach ($action->scopes as $scope) {
+        foreach ($scopes as $scope) {
             if (! isset($grant->capabilities->scopes[$scope])
                 || $grant->capabilities->scopes[$scope] !== $this->registry->fingerprint($scope)
                 || ! $this->scopes->allowsValue($actor, $scope)) {

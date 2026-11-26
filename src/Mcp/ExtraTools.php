@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp;
 
+use Cboxdk\StatamicMcp\Integration\IntegrationRegistry;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use InvalidArgumentException;
 
@@ -24,15 +25,6 @@ use InvalidArgumentException;
  */
 final class ExtraTools
 {
-    private static function registrations(): ExtraToolRegistrations
-    {
-        if (! app()->bound(ExtraToolRegistrations::class)) {
-            app()->singleton(ExtraToolRegistrations::class);
-        }
-
-        return app(ExtraToolRegistrations::class);
-    }
-
     /**
      * Register a tool.
      *
@@ -43,7 +35,7 @@ final class ExtraTools
      */
     public static function register(string $class, bool $searchable = true): void
     {
-        self::registrations()->register(self::canonical($class), $searchable);
+        self::registry()->registerLegacy(self::canonical($class), $searchable);
     }
 
     /**
@@ -75,7 +67,7 @@ final class ExtraTools
      */
     public static function all(): array
     {
-        return [...self::fromConfig(), ...self::registrations()->all()];
+        return [...self::fromConfig(), ...self::registry()->tools()];
     }
 
     /**
@@ -97,7 +89,16 @@ final class ExtraTools
      */
     public static function flush(): void
     {
-        self::registrations()->flush();
+        self::registry()->flushLegacy();
+    }
+
+    private static function registry(): IntegrationRegistry
+    {
+        if (! app()->bound(IntegrationRegistry::class)) {
+            app()->singleton(IntegrationRegistry::class);
+        }
+
+        return app(IntegrationRegistry::class);
     }
 
     /**

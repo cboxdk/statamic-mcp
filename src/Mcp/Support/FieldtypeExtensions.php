@@ -29,14 +29,23 @@ class FieldtypeExtensions
      *
      * @var array<string, callable(Field): (array<string, mixed>|null)>
      */
-    private static array $specs = [];
+    private array $specs = [];
 
     /**
      * Value sanitizers, keyed by fieldtype handle.
      *
      * @var array<string, callable(mixed, Field, string): mixed>
      */
-    private static array $sanitizers = [];
+    private array $sanitizers = [];
+
+    private static function registry(): self
+    {
+        if (! app()->bound(self::class)) {
+            app()->singleton(self::class);
+        }
+
+        return app(self::class);
+    }
 
     /**
      * Describe the wire format of a fieldtype the MCP does not know. The
@@ -46,7 +55,7 @@ class FieldtypeExtensions
      */
     public static function spec(string $fieldtype, callable $resolver): void
     {
-        self::$specs[$fieldtype] = $resolver;
+        self::registry()->specs[$fieldtype] = $resolver;
     }
 
     /**
@@ -57,7 +66,7 @@ class FieldtypeExtensions
      */
     public static function sanitizer(string $fieldtype, callable $sanitizer): void
     {
-        self::$sanitizers[$fieldtype] = $sanitizer;
+        self::registry()->sanitizers[$fieldtype] = $sanitizer;
     }
 
     /**
@@ -65,19 +74,19 @@ class FieldtypeExtensions
      */
     public static function resolveSpec(Field $field): ?array
     {
-        $resolver = self::$specs[$field->type()] ?? null;
+        $resolver = self::registry()->specs[$field->type()] ?? null;
 
         return $resolver === null ? null : $resolver($field);
     }
 
     public static function hasSanitizer(Field $field): bool
     {
-        return isset(self::$sanitizers[$field->type()]);
+        return isset(self::registry()->sanitizers[$field->type()]);
     }
 
     public static function applySanitizer(Field $field, mixed $value, string $path): mixed
     {
-        $sanitizer = self::$sanitizers[$field->type()] ?? null;
+        $sanitizer = self::registry()->sanitizers[$field->type()] ?? null;
 
         return $sanitizer === null ? $value : $sanitizer($value, $field, $path);
     }
@@ -88,15 +97,15 @@ class FieldtypeExtensions
     public static function registered(): array
     {
         return array_values(array_unique(array_merge(
-            array_keys(self::$specs),
-            array_keys(self::$sanitizers)
+            array_keys(self::registry()->specs),
+            array_keys(self::registry()->sanitizers)
         )));
     }
 
     /** Drop every registration. Intended for tests. */
     public static function flush(): void
     {
-        self::$specs = [];
-        self::$sanitizers = [];
+        self::registry()->specs = [];
+        self::registry()->sanitizers = [];
     }
 }

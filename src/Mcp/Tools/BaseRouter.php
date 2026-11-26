@@ -5,16 +5,22 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools;
 
 use Cboxdk\StatamicMcp\Actions\ActionEffect;
+use Cboxdk\StatamicMcp\Actions\Contracts\ActorScope;
 use Cboxdk\StatamicMcp\Actions\Events;
+use Cboxdk\StatamicMcp\Actions\ExecutionContext;
 use Cboxdk\StatamicMcp\Actions\LifecycleEvents;
 use Cboxdk\StatamicMcp\Actions\Operations\IdempotentWrite;
 use Cboxdk\StatamicMcp\Actions\Operations\OperationIntent;
+use Cboxdk\StatamicMcp\Actions\SchemaValidator;
+use Cboxdk\StatamicMcp\Actions\Transport\ContextFactory;
 use Cboxdk\StatamicMcp\Approvals\Approvals;
 use Cboxdk\StatamicMcp\Auth\ConfirmationActionGate;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
+use Cboxdk\StatamicMcp\Authorization\GrantAuthorizer;
 use Cboxdk\StatamicMcp\Authorization\InstallationProfile;
 use Cboxdk\StatamicMcp\Authorization\McpAuthorizer;
+use Cboxdk\StatamicMcp\Integration\IntegrationRegistry;
 use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
 use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorResponse;
 use Cboxdk\StatamicMcp\Mcp\ExtraTools;
@@ -25,10 +31,12 @@ use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\EnforcesResourcePolicy;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\LimitsReadResponses;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\RouterHelpers;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\JsonSchema\JsonSchemaTypeFactory;
 use Illuminate\Support\Str;
+use Statamic\Facades\Site;
 
 /**
  * Base router class providing action routing and audit logging.
@@ -46,6 +54,11 @@ abstract class BaseRouter extends BaseStatamicTool
      * @return string The domain name (e.g., 'content', 'structures', 'system')
      */
     abstract protected function getDomain(): string;
+
+    final public function domain(): string
+    {
+        return $this->getDomain();
+    }
 
     /**
      * Every action this router offers, with its effect. The one place an
@@ -187,7 +200,8 @@ abstract class BaseRouter extends BaseStatamicTool
             'actions' => $this->facetActionNames(),
             'resource_types' => array_values(array_filter($types, fn (string $type): bool => array_filter($this->facetActions(), fn (RouterAction $action): bool => $action->appliesTo($type)) !== [])),
             'arguments' => array_map('strval', array_keys($this->schema(new JsonSchemaTypeFactory))),
-            'provided_by' => ExtraTools::isRegistered(static::class) ? 'extension' : 'statamic-mcp',
+            'provided_by' => app(IntegrationRegistry::class)->package(static::class)
+                ?? (ExtraTools::isRegistered(static::class) ? 'extension' : 'statamic-mcp'),
         ];
     }
 
@@ -205,6 +219,28 @@ abstract class BaseRouter extends BaseStatamicTool
             // Editor can create drafts; this describes capability, not a call.
             $arguments = in_array($action->name, ['create', 'localize'], true) ? ['data' => ['published' => false]] : [];
             if (app(InstallationProfile::class)->denial($this->getDomain(), $action->name, $arguments, $action->writes()) !== null) {
+                return false;
+            }
+            $binding = app(IntegrationRegistry::class)->binding(static::class, $action->name);
+            if ($binding !== null) {
+                $sites = Site::all();
+                if (! is_iterable($sites)) {
+                    return false;
+                }
+                foreach ($sites as $site) {
+                    if (! $site instanceof \Statamic\Sites\Site) {
+                        continue;
+                    }
+                    try {
+                        app(GrantAuthorizer::class)->authorizeCapability($binding['id'], $binding['fingerprint'], $action->scopes,
+                            app(ContextFactory::class)->create($site->handle()));
+
+                        return true;
+                    } catch (AuthorizationException) {
+                        // Discovery may succeed on a non-default permitted site.
+                    }
+                }
+
                 return false;
             }
             if ($this->isCliContext()) {
@@ -292,15 +328,20 @@ abstract class BaseRouter extends BaseStatamicTool
 
     protected function successDataSchema(): array
     {
-        if (! in_array(static::class, [...StatamicMcpServer::CORE_TOOLS, ...StatamicMcpServer::SEARCHABLE_TOOLS], true)) {
+        $integration = app(IntegrationRegistry::class)->package(static::class) !== null;
+        if (! $integration && ! in_array(static::class, [...StatamicMcpServer::CORE_TOOLS, ...StatamicMcpServer::SEARCHABLE_TOOLS], true)) {
             return parent::successDataSchema();
         }
 
         $variants = [];
         foreach ($this->facetActions() as $action) {
-            $schema = ResultSchema::action($this->getDomain(), $action->name);
+            $schema = $integration ? ($action->outputSchema ?? []) : ResultSchema::action($this->getDomain(), $action->name);
+            if ($integration && $action->writes()) {
+                $properties = is_array($schema['properties'] ?? null) ? $schema['properties'] : [];
+                $schema['properties'] = $properties + ['idempotent_replay' => ['type' => 'boolean'], 'approval_replay' => ['type' => 'boolean']];
+            }
             $variants[json_encode($schema, JSON_THROW_ON_ERROR)] = $schema;
-            if ($action->name === 'get' && ! $action->writes()) {
+            if (! $integration && $action->name === 'get' && ! $action->writes()) {
                 $variants['projection'] = ResultSchema::object([
                     'projection' => ['const' => true],
                     'fields' => ['type' => 'array', 'items' => ResultSchema::object([
@@ -326,6 +367,9 @@ abstract class BaseRouter extends BaseStatamicTool
      */
     public function availableToCaller(): bool
     {
+        if (app(IntegrationRegistry::class)->package(static::class) !== null) {
+            return $this->discoverableActions() !== [];
+        }
         if ($this->facet === null) {
             return true;
         }
@@ -478,6 +522,27 @@ abstract class BaseRouter extends BaseStatamicTool
      */
     protected function executeInternal(array $arguments): array
     {
+        if (app(IntegrationRegistry::class)->package(static::class) === null) {
+            return $this->executeRouter($arguments);
+        }
+        $context = app(ContextFactory::class)->create(is_string($arguments['site'] ?? null) ? $arguments['site'] : null);
+
+        return app(ActorScope::class)->run($context, function () use ($arguments, $context): array {
+            $this->integrationContext = $context;
+            try {
+                return $this->executeRouter($arguments);
+            } finally {
+                $this->integrationContext = null;
+                $this->executingArguments = null;
+            }
+        });
+    }
+
+    /** @param array<string, mixed> $arguments
+     * @return array<string, mixed>
+     */
+    private function executeRouter(array $arguments): array
+    {
         if ($this->isWebContext() && ! $this->isWebToolEnabled()) {
             return $this->createErrorResponse(
                 'Permission denied: ' . ucfirst($this->getDomain()) . ' tool is disabled for web access',
@@ -543,6 +608,17 @@ abstract class BaseRouter extends BaseStatamicTool
             $this->emitExecution(Events\ExecutionDenied::class, $action, $this->freshOperationId(), 'none', hrtime(true));
 
             return $this->createErrorResponse($denial['message'], code: $denial['code'])->toArray();
+        }
+
+        $inputSchema = app(IntegrationRegistry::class)->inputSchema(static::class);
+        if ($inputSchema !== null) {
+            app(SchemaValidator::class)->validateInput($arguments, $inputSchema);
+        }
+        try {
+            $this->authorizeAction($arguments);
+        } catch (AuthorizationException $error) {
+            $this->emitExecution(Events\ExecutionDenied::class, $action, $this->freshOperationId(), 'none', hrtime(true));
+            throw $error;
         }
 
         // Filter denied fields from input
@@ -664,7 +740,8 @@ abstract class BaseRouter extends BaseStatamicTool
 
         [$actor, $grant] = $this->callIdentity();
         $intent = IdempotentWrite::intent($key, $actor, $grant, $this->getDomain(), $action, $this->actionEffect($action),
-            $this->resolveSiteHandle($arguments), $profile, $this->isCliContext() ? 'stdio' : 'http', $this->boundInput($arguments));
+            $this->resolveSiteHandle($arguments), $profile, $this->isCliContext() ? 'stdio' : 'http', $this->boundInput($arguments),
+            app(IntegrationRegistry::class)->binding(static::class, $action), app(IntegrationRegistry::class)->version(static::class));
         $outcome = app(IdempotentWrite::class)
             ->run($intent, fn (): array => $this->observedAction($action, $intent->operationId, $arguments), fn (): ?string => $this->writeEffectsSoFar());
 
@@ -711,7 +788,8 @@ abstract class BaseRouter extends BaseStatamicTool
 
         if ($id === null) {
             $intent = OperationIntent::forToolCall(bin2hex(random_bytes(32)), $actor, $grant, $this->getDomain(), $action,
-                $this->actionEffect($action), $this->resolveSiteHandle($arguments), $profile, 'http', $this->boundInput($arguments));
+                $this->actionEffect($action), $this->resolveSiteHandle($arguments), $profile, 'http', $this->boundInput($arguments),
+                app(IntegrationRegistry::class)->binding(static::class, $action), app(IntegrationRegistry::class)->version(static::class));
             $preview = [
                 'tool' => $this->name(), 'action' => $action, 'site' => $this->resolveSiteHandle($arguments),
                 'description' => $this->describeForApproval($action, $arguments),
@@ -731,7 +809,8 @@ abstract class BaseRouter extends BaseStatamicTool
             return $this->createErrorResponse('approval_id must be the string from the APPROVAL_REQUIRED answer.')->toArray();
         }
         $intent = OperationIntent::forToolCall(str_repeat('0', 64), $actor, $grant, $this->getDomain(), $action,
-            $this->actionEffect($action), $this->resolveSiteHandle($arguments), $profile, 'http', $this->boundInput($arguments));
+            $this->actionEffect($action), $this->resolveSiteHandle($arguments), $profile, 'http', $this->boundInput($arguments),
+            app(IntegrationRegistry::class)->binding(static::class, $action), app(IntegrationRegistry::class)->version(static::class));
         $outcome = $approvals->execute($id, $intent, $this->currentResourceVersion($arguments),
             fn (): array => $this->observedAction($action, $id, $arguments), fn (): ?string => $this->writeEffectsSoFar());
 
@@ -760,21 +839,77 @@ abstract class BaseRouter extends BaseStatamicTool
      */
     private function observedAction(string $action, string $operationId, array $arguments): array
     {
+        $this->executingArguments = $arguments;
         $start = hrtime(true);
         // One execution id ties started to its terminal event; observers pair them on it.
         $execution = (string) Str::uuid();
         $this->emitExecution(Events\ExecutionStarted::class, $action, $operationId, 'none', $start, $execution);
         try {
-            $result = $this->executeAction($arguments);
+            $result = $this->validateIntegrationResult($action, $this->executeAction($arguments));
         } catch (\Throwable $error) {
             $this->emitExecution(Events\ExecutionFailed::class, $action, $operationId, $this->writeEffectsSoFar() ?? 'none', $start, $execution);
             throw $error;
+        } finally {
+            $this->executingArguments = null;
         }
         $effects = $this->writeEffectsSoFar() ?? 'none';
         $this->emitExecution(($result['success'] ?? true) === false ? Events\ExecutionFailed::class : Events\ExecutionCompleted::class,
             $action, $operationId, $effects, $start, $execution);
 
         return $result;
+    }
+
+    /** @param array<string, mixed> $result
+     * @return array<string, mixed>
+     */
+    private function validateIntegrationResult(string $action, array $result, bool $replay = false): array
+    {
+        if (app(IntegrationRegistry::class)->package(static::class) === null || ($result['success'] ?? true) === false) {
+            return $result;
+        }
+        $result = $this->filterOutputFields($result);
+        $data = isset($result['success']) ? ($result['data'] ?? []) : $result;
+        if (! is_array($data)) {
+            throw new \LogicException('Integration results must be objects.');
+        }
+        // These flags belong to the framework, not the integration's payload.
+        if ($replay) {
+            unset($data['idempotent_replay'], $data['approval_replay']);
+        }
+        app(SchemaValidator::class)->validate(array_filter($data, is_string(...), ARRAY_FILTER_USE_KEY), $this->declaredAction($action)->outputSchema ?? []);
+
+        return $result;
+    }
+
+    /** @var array<string, mixed>|null */
+    private ?array $executingArguments = null;
+
+    private ?ExecutionContext $integrationContext = null;
+
+    /** Resolve and authorize the exact record and site, including before replay.
+     * Integration routers must implement this policy; it must not write.
+     *
+     * @param  array<string, mixed>  $arguments
+     */
+    protected function authorizeAction(array $arguments): void {}
+
+    protected function authorizePendingWrite(): void
+    {
+        if ($this->executingArguments === null || app(IntegrationRegistry::class)->package(static::class) === null) {
+            return;
+        }
+        $action = $this->executingArguments['action'] ?? '';
+        if (! is_string($action) || ! ($this->declaredAction($action)?->writes() ?? false)) {
+            throw new \LogicException('A read action cannot persist changes.');
+        }
+        if ($this->integrationContext !== null) {
+            app(ActorScope::class)->refresh($this->integrationContext);
+        }
+        $denial = app(McpAuthorizer::class)->denial($this->describeCall($action, $this->executingArguments));
+        if ($denial !== null) {
+            throw new AuthorizationException($denial['message']);
+        }
+        $this->authorizeAction($this->executingArguments);
     }
 
     /**
@@ -786,6 +921,16 @@ abstract class BaseRouter extends BaseStatamicTool
      */
     private function replayed(string $action, string $operationId, array $result): array
     {
+        // Both raw data and a standard envelope are valid router results.
+        if (isset($result['success'], $result['meta']) && is_array($result['data'] ?? null)) {
+            foreach (['idempotent_replay', 'approval_replay'] as $flag) {
+                if (isset($result[$flag])) {
+                    $result['data'][$flag] = $result[$flag];
+                    unset($result[$flag]);
+                }
+            }
+        }
+        $result = $this->validateIntegrationResult($action, $result, replay: true);
         $this->emitExecution(Events\ExecutionReplayed::class, $action, $operationId, 'none', hrtime(true));
 
         return $result;
@@ -803,7 +948,9 @@ abstract class BaseRouter extends BaseStatamicTool
             default => 'replayed',
         };
         try {
-            $instance = new $event((string) Str::uuid(), $operationId, 'statamic-mcp/' . $domain . '/' . ($action !== '' ? $action : 'unknown'), 1,
+            $instance = new $event((string) Str::uuid(), $operationId,
+                app(IntegrationRegistry::class)->binding(static::class, $action)['id'] ?? 'statamic-mcp/' . $domain . '/' . ($action !== '' ? $action : 'unknown'),
+                app(IntegrationRegistry::class)->version(static::class),
                 $this->isCliContext() ? 'stdio' : 'http', $outcome, $effects, (hrtime(true) - $start) / 1_000_000, gmdate('Y-m-d\TH:i:s\Z'),
                 executionId: $execution ?? (string) Str::uuid());
         } catch (\Throwable) {
@@ -820,6 +967,9 @@ abstract class BaseRouter extends BaseStatamicTool
     /** @return array{0: string, 1: string} actor and grant, never a credential */
     private function callIdentity(): array
     {
+        if ($this->integrationContext !== null) {
+            return ['user:' . $this->integrationContext->actorId, 'grant:' . $this->integrationContext->grantId];
+        }
         if ($this->isCliContext()) {
             return ['stdio', 'stdio'];
         }
@@ -845,6 +995,11 @@ abstract class BaseRouter extends BaseStatamicTool
     private function boundInput(array $arguments): array
     {
         unset($arguments['idempotency_key'], $arguments['approval_id']);
+        $action = $arguments['action'] ?? null;
+        $binding = is_string($action) ? app(IntegrationRegistry::class)->binding(static::class, $action) : null;
+        if ($binding !== null) {
+            $arguments['_capability'] = $binding;
+        }
 
         return $arguments;
     }

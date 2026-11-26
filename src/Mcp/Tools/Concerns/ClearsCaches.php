@@ -4,9 +4,13 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Concerns;
 
+use Cboxdk\StatamicMcp\Integration\Effects;
 use Cboxdk\StatamicMcp\Mcp\Support\StacheRepair;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Log;
+use Statamic\Facades\Search;
+use Statamic\Search\Index;
+use Statamic\StaticCaching\Cacher;
 use Statamic\StaticCaching\Invalidator;
 
 trait ClearsCaches
@@ -17,6 +21,12 @@ trait ClearsCaches
      * @var list<string>
      */
     private array $pendingCacheClears = [];
+
+    /** @var list<string> */
+    private array $pendingStaticUrls = [];
+
+    /** @var list<string> */
+    private array $pendingSearchIndexes = [];
 
     /** @var array<string, string> */
     private array $completedCacheClears = [];
@@ -51,12 +61,13 @@ trait ClearsCaches
      * @template T
      *
      * @param  callable(): T  $write
-     * @param  list<string>  $cacheTypes
+     * @param  list<string>|Effects  $cacheTypes
      *
      * @return T
      */
-    protected function persistStatamic(callable $write, array $cacheTypes = ['stache', 'static']): mixed
+    protected function persistStatamic(callable $write, array|Effects $cacheTypes = ['stache', 'static']): mixed
     {
+        $this->authorizePendingWrite();
         $this->clearCachesAfterWrite($cacheTypes);
         // An earlier write that landed stays reported: a failing later step
         // makes the whole call partial, not unknown.
@@ -70,6 +81,9 @@ trait ClearsCaches
 
         return $result;
     }
+
+    /** Routers with a capability grant recheck it at the persistence boundary. */
+    protected function authorizePendingWrite(): void {}
 
     /**
      * Ask for the caches a write affects to be brought up to date once the
@@ -92,10 +106,15 @@ trait ClearsCaches
      * invalidator only refreshes the written record's own URL
      * (RenderedCacheMatrixTest).
      *
-     * @param  array<int, string>  $types
+     * @param  array<int, string>|Effects  $types
      */
-    protected function clearCachesAfterWrite(array $types = ['stache', 'static']): void
+    protected function clearCachesAfterWrite(array|Effects $types = ['stache', 'static']): void
     {
+        if ($types instanceof Effects) {
+            $this->pendingStaticUrls = array_values(array_unique([...$this->pendingStaticUrls, ...$types->staticUrls]));
+            $this->pendingSearchIndexes = array_values(array_unique([...$this->pendingSearchIndexes, ...$types->searchIndexes]));
+            $types = [...($types->stache ? ['stache'] : []), ...($types->static ? ['static'] : []), ...($types->glide ? ['images'] : [])];
+        }
         $wanted = array_filter($types, fn (string $type): bool => match ($type) {
             'stache' => $this->stacheAfterWrite() !== 'none',
             'static' => (bool) config('statamic.mcp.cache.clear_static_after_write', true),
@@ -124,12 +143,16 @@ trait ClearsCaches
      */
     protected function flushPendingCacheClears(): array
     {
-        if ($this->pendingCacheClears === []) {
+        if ($this->pendingCacheClears === [] && $this->pendingStaticUrls === [] && $this->pendingSearchIndexes === []) {
             return [];
         }
 
         $types = $this->pendingCacheClears;
+        $urls = $this->pendingStaticUrls;
+        $indexes = $this->pendingSearchIndexes;
         $this->pendingCacheClears = [];
+        $this->pendingStaticUrls = [];
+        $this->pendingSearchIndexes = [];
 
         $results = [];
         if (in_array('stache', $types, true) && $this->stacheAfterWrite() === 'repair') {
@@ -146,6 +169,31 @@ trait ClearsCaches
         }
 
         $results = [...$results, ...$this->clearStatamicCaches($types)];
+        if ($urls !== [] && ! in_array($results['static'] ?? '', ['cleared', 'disabled'], true)) {
+            try {
+                app(Cacher::class)->invalidateUrls($urls);
+                $results['static_urls'] = 'invalidated';
+            } catch (\Throwable $error) {
+                $results['static_urls'] = 'failed';
+                report($error);
+            }
+        }
+        foreach ($indexes as $handle) {
+            try {
+                $configured = Search::indexes()->whereInstanceOf(Index::class)
+                    ->filter(fn (Index $index): bool => $index->handle() === $handle);
+                if ($configured->isEmpty()) {
+                    throw new \InvalidArgumentException('Unknown search index.');
+                }
+                foreach ($configured as $index) {
+                    $index->update();
+                }
+                $results['search:' . $handle] = 'updated';
+            } catch (\Throwable $error) {
+                $results['search:' . $handle] = 'failed';
+                report($error);
+            }
+        }
         $this->completedCacheClears = [...$this->completedCacheClears, ...$results];
 
         return $results;

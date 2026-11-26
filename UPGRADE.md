@@ -23,6 +23,20 @@ and CSS with `php artisan vendor:publish --tag=statamic-mcp --force` if your dep
 does not publish addon assets automatically, then reload the Control Panel.
 Forms Pro is not required. Token ownership, scopes and approval permissions are unchanged.
 
+## Addon integrations
+
+New integrations register through `StatamicMcp::integration('vendor/package')`.
+Declare owned scopes, a domain router, per-action argument and result contracts,
+and an exact-resource authorization policy. HTTP and stdio both require a current
+capability grant; configure `statamic.mcp.stdio.token` for integration calls over
+stdio. Built-in stdio behavior is unchanged.
+
+`StatamicMcpServer::registerTool()` and `extra_tools` remain compatibility paths
+for existing routers, but do not confer custom scopes or consent. Moving a router
+to the integration API requires fresh consent. Contract or version changes also
+require re-authorization rather than expanding an existing token. See
+[extending tools](docs/extending/tools.md) for the migration and deferred cache effects.
+
 ## What the token plan does
 
 | v3 token | v4 |

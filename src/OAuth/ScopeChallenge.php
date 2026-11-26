@@ -92,7 +92,7 @@ final class ScopeChallenge
                         return [];
                     }
 
-                    return array_map(fn (TokenScope $scope): string => $scope->value, $tool->describeCall($action->name, $arguments)->scopes);
+                    return array_map(fn (TokenScope|string $scope): string => $scope instanceof TokenScope ? $scope->value : $scope, $tool->describeCall($action->name, $arguments)->scopes);
                 }
             } catch (\Throwable $error) {
                 report($error);

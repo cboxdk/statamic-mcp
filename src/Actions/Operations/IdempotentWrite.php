@@ -35,12 +35,13 @@ final class IdempotentWrite
      * the first record and is refused instead of running.
      *
      * @param  array<string, mixed>  $input
+     * @param  array{id: string, fingerprint: string}|null  $capability
      */
     public static function intent(string $key, string $actorId, string $grantId, string $domain, string $action,
-        ActionEffect $effect, string $site, string $profile, string $transport, array $input): OperationIntent
+        ActionEffect $effect, string $site, string $profile, string $transport, array $input, ?array $capability = null, int $version = 1): OperationIntent
     {
         return OperationIntent::forToolCall(hash('sha256', "statamic-mcp:idempotency\0{$actorId}\0{$key}"),
-            $actorId, $grantId, $domain, $action, $effect, $site, $profile, $transport, $input);
+            $actorId, $grantId, $domain, $action, $effect, $site, $profile, $transport, $input, $capability, $version);
     }
 
     /**

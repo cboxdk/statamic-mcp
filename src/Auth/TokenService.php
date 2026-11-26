@@ -368,12 +368,12 @@ class TokenService
     /**
      * Check whether a token has a specific scope.
      */
-    public function hasScope(McpTokenData $token, TokenScope $scope): bool
+    public function hasScope(McpTokenData $token, TokenScope|string $scope): bool
     {
         // `*` is not a wildcard. A v3 token carrying it would otherwise
         // cover every scope added since, which nobody approved; v4 issues
         // full access as an explicit list (ScopeAvailability::expandFullAccess).
-        return in_array($scope->value, $token->scopes, true);
+        return in_array($scope instanceof TokenScope ? $scope->value : $scope, $token->scopes, true);
     }
 
     /**

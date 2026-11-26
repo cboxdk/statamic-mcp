@@ -58,17 +58,18 @@ final readonly class OperationIntent
      * call by the same actor through the same grant binds the same way.
      *
      * @param  array<string, mixed>  $input
+     * @param  array{id: string, fingerprint: string}|null  $capability
      */
     public static function forToolCall(string $operationId, string $actorId, string $grantId, string $domain, string $action,
-        ActionEffect $effect, string $site, string $profile, string $transport, array $input): self
+        ActionEffect $effect, string $site, string $profile, string $transport, array $input, ?array $capability = null, int $version = 1): self
     {
         $canonical = json_encode(self::canonical($input), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         $domain = trim((string) preg_replace('/[^a-z0-9-]+/', '-', strtolower($domain)), '-') ?: 'tool';
-        $actionId = 'statamic-mcp/' . $domain . '/' . $action;
+        $actionId = $capability['id'] ?? 'statamic-mcp/' . $domain . '/' . $action;
 
         return new self($operationId,
             hash('sha256', implode("\0", [$actorId, $grantId, $actionId, $site, $profile, $transport, $canonical])),
-            $actorId, $grantId, $actionId, 1, hash('sha256', $actionId), $effect, $site, $profile, $transport,
+            $actorId, $grantId, $actionId, $version, $capability['fingerprint'] ?? hash('sha256', $actionId), $effect, $site, $profile, $transport,
             hash('sha256', $canonical), now()->getTimestamp());
     }
 

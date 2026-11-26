@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Auth;
 
+use Cboxdk\StatamicMcp\Integration\IntegrationRegistry;
+
 /**
  * Resolves whether a (domain, action) pair needs a person's approval in the
  * Control Panel, based on `statamic.mcp.confirmation.actions`.
@@ -30,7 +32,8 @@ class ConfirmationActionGate
         /** @var array<string, array<int, string>> $map */
         $map = config('statamic.mcp.confirmation.actions', []);
 
-        $gated = $map[$domain] ?? array_merge($map['default'] ?? ['delete'], self::FLOOR[$domain] ?? []);
+        $gated = $map[$domain] ?? array_merge($map['default'] ?? ['delete'], self::FLOOR[$domain] ?? [],
+            app(IntegrationRegistry::class)->approvals($domain));
 
         return in_array('*', $gated, true) || in_array($action, $gated, true);
     }

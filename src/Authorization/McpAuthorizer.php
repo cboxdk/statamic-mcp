@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Authorization;
 
+use Cboxdk\StatamicMcp\Actions\Transport\ContextFactory;
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Cboxdk\StatamicMcp\Support\McpContext;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\Log;
 use Statamic\Contracts\Auth\User;
 
@@ -49,6 +51,16 @@ final class McpAuthorizer
     {
         if (($denial = $this->authenticationDenial()) !== null) {
             return $denial;
+        }
+
+        if ($call->capability !== null) {
+            try {
+                app(GrantAuthorizer::class)->authorizeCapability($call->capability['id'], $call->capability['fingerprint'],
+                    array_map(fn (TokenScope|string $scope): string => $scope instanceof TokenScope ? $scope->value : $scope, $call->scopes),
+                    app(ContextFactory::class)->create($call->site));
+            } catch (AuthorizationException) {
+                return ['code' => ErrorCode::Forbidden, 'message' => 'This integration action requires a current grant, permitted site and current Statamic permissions. Approve access again if the integration changed.'];
+            }
         }
 
         if (! McpContext::isCli()) {
@@ -96,15 +108,16 @@ final class McpAuthorizer
                 continue;
             }
 
+            $value = $scope instanceof TokenScope ? $scope->value : $scope;
             Log::warning('MCP permission denied: token missing scope', [
                 'domain' => $call->domain,
                 'action' => $call->action,
-                'required_scope' => $scope->value,
+                'required_scope' => $value,
                 'token_id' => $token->id,
                 'ip' => request()->ip(),
             ]);
 
-            return ['code' => ErrorCode::ScopeMissing, 'message' => "Token missing required scope: {$scope->value}" . $this->replacedScopeHint($token->scopes, $scope)];
+            return ['code' => ErrorCode::ScopeMissing, 'message' => "Token missing required scope: {$value}" . ($scope instanceof TokenScope ? $this->replacedScopeHint($token->scopes, $scope) : '')];
         }
 
         return null;
@@ -120,7 +133,7 @@ final class McpAuthorizer
         // A tool another package added that declares no Statamic permission
         // would otherwise be open to every Control Panel user. Fail closed:
         // only a super admin may reach it until it names the permission.
-        $permissions = $call->permissions === [] && $call->extraTool ? ['super'] : $call->permissions;
+        $permissions = $call->permissions === [] && $call->extraTool && $call->capability === null ? ['super'] : $call->permissions;
 
         foreach ($permissions as $permission) {
             // A nested list is satisfied by any one of its permissions.

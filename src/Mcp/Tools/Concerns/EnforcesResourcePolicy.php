@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Concerns;
 
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
+use Cboxdk\StatamicMcp\Integration\IntegrationRegistry;
 
 /**
  * Enforces resource-level access control and field filtering on router actions.
@@ -96,7 +97,8 @@ trait EnforcesResourcePolicy
 
         // Blueprint definitions expose configuration and format specs outside
         // record.data, including selected subtrees and list/scan results.
-        if ($domain === 'blueprints') {
+        if ($domain === 'blueprints' || (! isset($result['success'], $result['meta'])
+            && app(IntegrationRegistry::class)->package(static::class) !== null)) {
             return $policy->filterFields($domain, $result);
         }
 

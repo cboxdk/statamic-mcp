@@ -9,6 +9,25 @@ Branch: `sd/release/v4`. Worktree: `security-review-hardening/statamic-mcp`.
 Status: implementation in progress, not release-ready. No public release or tag.
 Draft PR: https://github.com/cboxdk/statamic-mcp/pull/88.
 
+## Phase 3.1 — integration foundation
+
+`StatamicMcp::integration()` registers package-owned router actions, scopes,
+approval defaults, fieldtypes and observers. Router actions share the existing
+approval, idempotency and lifecycle pipeline. Consent binds the action contract;
+HTTP and stdio run as the current grant's actor and recheck authorization at
+persistence. Deferred effects cover static URLs, search indexes, Stache and Glide.
+
+Independent review found a reserved-domain bypass, cross-container fieldtype
+callbacks, replay output-schema drift and inconsistent operation/event capability
+identities. Regression controls failed without each fix; follow-up review passed.
+Final local gate: **2161 passed, 33 environment-dependent skips, 11653 assertions**
+(467.87 seconds), PHPStan 9 and Pint passed. Composer audit had no advisories and
+all 183 locked dependency licenses passed. Real cache/search/filesystem assertions
+cover deferred effects after both a successful write and a throw-after-save.
+
+This is only 3.1. Forms 2, Forms Pro, SEO Pro, system search and the cache modes
+in 3.2–3.6 remain outstanding. No phase-3 merge, tag or release.
+
 ## Polish plan checkpoint — 2026-11-26
 
 The approved five-phase polish plan supersedes the historical V00–V10 progress

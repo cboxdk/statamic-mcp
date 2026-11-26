@@ -30,6 +30,8 @@ final readonly class RouterAction
      * @param  list<string>  $types  The resource types it applies to; empty means every type, or a router without types.
      * @param  list<string>|null  $needs
      * @param  list<string>|null  $optional
+     * @param  list<string>  $scopes  Integration scopes; core routers derive theirs from the domain.
+     * @param  array<string, mixed>|null  $outputSchema  Integration action's success data, without the envelope.
      */
     public function __construct(
         public string $name,
@@ -38,6 +40,8 @@ final readonly class RouterAction
         public array $types = [],
         public ?array $needs = null,
         public ?array $optional = null,
+        public array $scopes = [],
+        public ?array $outputSchema = null,
     ) {
         if (preg_match('/^[a-z][a-z0-9_]{0,63}$/D', $name) !== 1 || trim($description) === '') {
             throw new \InvalidArgumentException("Invalid router action '{$name}'.");
@@ -102,6 +106,15 @@ final readonly class RouterAction
     public function writes(): bool
     {
         return $this->effect !== ActionEffect::Read;
+    }
+
+    /** Bind an integration action to explicit scopes and its result contract.
+     * @param  list<string>  $scopes
+     * @param  array<string, mixed>  $outputSchema
+     */
+    public function withContract(array $scopes, array $outputSchema): self
+    {
+        return new self($this->name, $this->effect, $this->description, $this->types, $this->needs, $this->optional, $scopes, $outputSchema);
     }
 
     public function appliesTo(?string $type): bool

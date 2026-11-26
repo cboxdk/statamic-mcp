@@ -66,14 +66,10 @@ check in `checkWebPermissions()` still runs. `getRequiredPermissions()` may retu
 list, meaning "any one of these" (used by the blueprint read actions).
 
 ### Extra tools
-`src/Mcp/ExtraTools.php` holds tools other packages register (`StatamicMcpServer::registerTool()`
-or `statamic.mcp.extra_tools`). They must extend `BaseRouter`, and `RouterHelpers::checkWebPermissions()`
-fails closed for them twice: a domain with no `TokenScope` is refused for every token, and an empty
-`getRequiredPermissions()` requires a super admin. Built-in routers are not affected by
-either rule. `statamic-system-schema` describes extra tools from `BaseRouter::catalogEntry()`,
-and `statamic-system-discover` recommends one only when it declares `discoveryKeywords()`.
-Discovery calls that third-party code inside a `try/catch`, so one faulty tool is skipped
-instead of failing discovery for every client.
+- New package domains use `StatamicMcp::integration()` and `BaseRouter`; see `docs/extending/tools.md`. Use the router's existing approvals/idempotency pipeline rather than adding another executor. Every integration action declares owned scopes and an output schema, and the router implements `authorizeAction()` for exact-record and site authorization. Persist through `persistStatamic()` so the grant and actor are rechecked before saving.
+- `IntegrationRegistry` owns both integrations and legacy `ExtraTools` registrations. `registerTool()`/`extra_tools` remain compatibility paths: a domain with no core scope is refused, and an empty `getRequiredPermissions()` requires super. Integration calls instead require a current capability snapshot on both HTTP and stdio. Increment the integration version when semantics change without changing declarations; never retrofit existing consent.
+- Keep callback and tool registration state application-local. Two Testbench applications share a PHP process; process-static registrations leak ownership and consent between them. `guidance` is reserved because the installation profile exempts it; an integration must never inherit that exemption.
+- `statamic-discover` derives extra tools from `BaseRouter::catalogEntry()` and recommends them only with `discoveryKeywords()`. Third-party discovery runs inside a `try/catch` so a faulty tool cannot break discovery for every client.
 
 ### Middleware
 - `HandleMcpCors` — Origin validation against app.url and allowed_origins, plus CORS response headers
@@ -1158,7 +1154,7 @@ trees are additionally checked for menu items pointing at deleted entries.
 
 ## Extending fieldtypes
 
-`src/Mcp/Support/FieldtypeExtensions.php` is a static registry letting a site or addon
+`src/Mcp/Support/FieldtypeExtensions.php` is an application-local registry with a static API letting a site or addon
 teach the server about a fieldtype this package does not ship support for. An unknown
 fieldtype otherwise gets no wire-format guidance and no input coercion, so a client
 guesses at the shape and the guess reaches a `process()` written for Control Panel input.
@@ -1170,7 +1166,7 @@ guesses at the shape and the guess reaches a `process()` written for Control Pan
   `process()`. Throw `FieldFormatException` to reject, and include `$path` in the message.
 
 Both are keyed by fieldtype handle; a later registration replaces an earlier one. The
-registry is static, so tests that register must `flush()` in setUp and tearDown. Register
+integration builder additionally enforces unique ownership and freezes it at boot. Register
 from a service provider's `boot()`. Documented for users in `docs/extending/fieldtypes.md`.
 
 ## MCP Resources

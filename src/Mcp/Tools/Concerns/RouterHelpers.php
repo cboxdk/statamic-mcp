@@ -8,6 +8,7 @@ use Cboxdk\StatamicMcp\Actions\ActionEffect;
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Authorization\McpCall;
+use Cboxdk\StatamicMcp\Integration\IntegrationRegistry;
 use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
 use Cboxdk\StatamicMcp\Mcp\ExtraTools;
 use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
@@ -110,6 +111,10 @@ trait RouterHelpers
         }
 
         $scopes = array_values(array_unique([...$scopes, ...$this->additionalTokenScopes($action, $arguments)], SORT_REGULAR));
+        $binding = app(IntegrationRegistry::class)->binding(static::class, $action);
+        if ($binding !== null) {
+            $scopes = $this->declaredAction($action)->scopes ?? [];
+        }
 
         return new McpCall(
             domain: $this->getDomain(),
@@ -119,6 +124,8 @@ trait RouterHelpers
             handle: $this->resolveResourceHandle($arguments),
             mode: $this->isWriteAction($action) ? 'write' : 'read',
             extraTool: ExtraTools::isRegistered(static::class),
+            capability: $binding,
+            site: is_string($arguments['site'] ?? null) ? $arguments['site'] : null,
         );
     }
 
