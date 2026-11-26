@@ -50,6 +50,26 @@ journal never holds secrets or hashes. If it cannot be written, nothing changes.
   ids. Unknown terms are no longer created.
 - OAuth authorize errors before consent show an error page instead of
   redirecting to the client.
+- Every tool is split in two. Rename the tools in your client's permission rules
+  and saved prompts:
+
+  | v3 tool | v4 read tool | v4 tool that changes the site |
+  |---|---|---|
+  | `statamic-entries` | `statamic-entries-read` | `statamic-entries-write` |
+  | `statamic-terms` | `statamic-terms-read` | `statamic-terms-write` |
+  | `statamic-globals` | `statamic-globals-read` | `statamic-globals-write` |
+  | `statamic-assets` | `statamic-assets-read` | `statamic-assets-write` |
+  | `statamic-blueprints` | `statamic-blueprints-read` | `statamic-blueprints-admin` |
+  | `statamic-structures` | `statamic-structures-read` | `statamic-structures-admin` |
+  | `statamic-users` | `statamic-users-read` | `statamic-users-admin` |
+  | `statamic-system` | `statamic-system-read` | `statamic-system-admin` |
+  | `statamic-content-facade` | `statamic-content-facade-read` | – |
+
+  To let a client read without asking: `mcp__statamic__*-read` in Claude Code's
+  `permissions.allow`, `statamic:*-read` in Cursor's MCP allowlist. claude.ai and
+  ChatGPT do it from the tools' read-only hints.
+- `tools/list` shows only what the token can use, and `search_tools`/`execute_tools`
+  are gone unless `catalog.searchable` is turned on.
 - Stdio needs an explicit profile, and registered actions over stdio need a
   configured v4 token (`statamic.mcp.stdio.token`).
 

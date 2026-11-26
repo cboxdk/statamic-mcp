@@ -11,8 +11,6 @@ final class InstallationProfile
 {
     private const READ_DOMAINS = ['entries', 'terms', 'globals', 'assets', 'blueprints', 'structures'];
 
-    private const READ_ACTIONS = ['list', 'get', 'search', 'schema', 'revisions', 'get_revision', 'list_revisions'];
-
     public function name(): string
     {
         $transport = McpContext::isCli() ? 'stdio' : 'http';
@@ -21,8 +19,28 @@ final class InstallationProfile
         return is_string($profile) && in_array($profile, ['read_only', 'editor', 'operator'], true) ? $profile : 'disabled';
     }
 
-    /** @param array<string, mixed> $arguments */
-    public function denial(?string $domain, string $action, array $arguments = []): ?string
+    /**
+     * Whether the profile lets any action of this kind run in the domain, so
+     * whether a client should be shown the tool at all.
+     */
+    public function allowsAny(?string $domain, bool $writes): bool
+    {
+        $profile = $this->name();
+
+        return match (true) {
+            $profile === 'disabled' => false,
+            $profile === 'operator', $domain === 'guidance' => true,
+            ! in_array($domain, self::READ_DOMAINS, true) => false,
+            ! $writes => true,
+            default => $profile === 'editor' && $domain === 'entries',
+        };
+    }
+
+    /**
+     * @param  array<string, mixed>  $arguments
+     * @param  bool  $writes  whether the action changes anything, from its declaration; unknown counts as a write
+     */
+    public function denial(?string $domain, string $action, array $arguments = [], bool $writes = true): ?string
     {
         $profile = $this->name();
         if ($profile === 'disabled') {
@@ -37,7 +55,7 @@ final class InstallationProfile
         if (! in_array($domain, self::READ_DOMAINS, true)) {
             return 'This domain requires the operator installation profile.';
         }
-        if (in_array($action, self::READ_ACTIONS, true)) {
+        if (! $writes) {
             return null;
         }
         if ($profile !== 'editor' || $domain !== 'entries' || ! in_array($action, ['create', 'update'], true)) {

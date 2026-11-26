@@ -239,10 +239,12 @@ class StructuresConfigurePolicyTest extends TestCase
 
     public function test_schema_describes_the_config_argument_consumed_by_configure(): void
     {
-        $schema = (new StructuresRouter)->toArray()['inputSchema'];
+        $schema = (new StructuresRouter)->facet('write')->toArray()['inputSchema'];
 
         $this->assertSame('object', $schema['properties']['config']['type']);
-        $this->assertStringContainsString('configure (resource_type, handle, config)', $schema['properties']['action']['description']);
+        $this->assertStringContainsString('configure: Change a structure\'s settings. Needs resource_type, handle, config.', $schema['properties']['action']['description']);
+        // The read tool has no use for config, so it does not offer it.
+        $this->assertArrayNotHasKey('config', (new StructuresRouter)->facet('read')->toArray()['inputSchema']['properties']);
     }
 
     private function token(string $transport, TokenScope $scope = TokenScope::StructuresAdmin, bool $permitted = true): string
@@ -291,7 +293,7 @@ class StructuresConfigurePolicyTest extends TestCase
             'id' => 1,
             'method' => 'tools/call',
             'params' => [
-                'name' => 'statamic-structures',
+                'name' => 'statamic-structures-admin',
                 'arguments' => $arguments,
                 '_meta' => [
                     'io.modelcontextprotocol/protocolVersion' => '2026-07-28',
@@ -302,7 +304,7 @@ class StructuresConfigurePolicyTest extends TestCase
             ...($token === null ? [] : ['Authorization' => 'Bearer ' . $token]),
             'MCP-Protocol-Version' => '2026-07-28',
             'Mcp-Method' => 'tools/call',
-            'Mcp-Name' => 'statamic-structures',
+            'Mcp-Name' => 'statamic-structures-admin',
         ]);
     }
 }

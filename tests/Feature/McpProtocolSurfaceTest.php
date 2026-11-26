@@ -100,7 +100,7 @@ class McpProtocolSurfaceTest extends TestCase
             ->assertOk()
             ->assertStructuredContent(fn (AssertableJson $json) => $json
                 ->where('success', true)
-                ->where('meta.tool', 'statamic-entries')
+                ->where('meta.tool', 'statamic-entries-read')
                 ->has('data')
                 ->etc()
             );
@@ -123,7 +123,7 @@ class McpProtocolSurfaceTest extends TestCase
             ->assertHasErrors()
             ->assertStructuredContent(fn (AssertableJson $json) => $json
                 ->where('success', false)
-                ->where('meta.tool', 'statamic-content-facade')
+                ->where('meta.tool', 'statamic-content-facade-read')
                 ->has('errors', 1)
                 ->etc()
             );

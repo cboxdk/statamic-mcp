@@ -429,7 +429,7 @@ trait HandlesNavigations
         foreach ($data['trees'] as $key => $value) {
             if (is_int($key)) {
                 if (! is_array($value) || ! is_string($value['site'] ?? null)) {
-                    return "trees[{$key}] must be {site, items}, as statamic-structures get returns it.";
+                    return "trees[{$key}] must be {site, items}, as statamic-structures-read get returns it.";
                 }
                 $site = $value['site'];
                 $items = $value['items'] ?? null;

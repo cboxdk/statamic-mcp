@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Testing;
 
 use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
+use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Laravel\Mcp\Server\Contracts\Transport;
 use Laravel\Mcp\Server\Prompt;
 use Laravel\Mcp\Server\Resource;
@@ -29,12 +30,27 @@ trait InteractsWithMcp
     /**
      * Call a tool over the protocol.
      *
+     * A router is called as the tool clients see for the action: its read
+     * tool for a read, its write or admin tool for anything else. Pass a
+     * facet (`$router->facet('read')`) to call one side explicitly.
+     *
      * @param  class-string<Tool>|Tool  $tool
      * @param  array<string, mixed>  $arguments
      */
     protected function mcpTool(string|Tool $tool, array $arguments = []): TestResponse
     {
-        return StatamicMcpServer::tool($tool, $arguments);
+        $instance = is_string($tool) ? app($tool) : $tool;
+        if ($instance instanceof BaseRouter && $instance->presentedFacet() === null) {
+            $action = is_string($arguments['action'] ?? null) ? $arguments['action'] : '';
+            $declared = $instance->declaredAction($action);
+            $instance = $instance->facet(match (true) {
+                $declared !== null => $declared->writes() ? 'write' : 'read',
+                $instance->offersFacet('read') => 'read',
+                default => 'write',
+            });
+        }
+
+        return StatamicMcpServer::tool($instance instanceof Tool ? $instance : $tool, $arguments);
     }
 
     /**

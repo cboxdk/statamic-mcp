@@ -11,8 +11,11 @@ use Cboxdk\StatamicMcp\Actions\Operations\IdempotentWrite;
 use Cboxdk\StatamicMcp\Actions\Operations\OperationIntent;
 use Cboxdk\StatamicMcp\Approvals\Approvals;
 use Cboxdk\StatamicMcp\Auth\ConfirmationActionGate;
+use Cboxdk\StatamicMcp\Auth\TokenScope;
+use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\Authorization\InstallationProfile;
 use Cboxdk\StatamicMcp\Authorization\McpAuthorizer;
+use Cboxdk\StatamicMcp\Mcp\ExtraTools;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\BuildsPaginatedResponse;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\EnforcesResourcePolicy;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\RouterHelpers;
@@ -95,6 +98,11 @@ abstract class BaseRouter extends BaseStatamicTool
         return $actions;
     }
 
+    protected function actionWrites(string $action): bool
+    {
+        return $this->isWriteAction($action);
+    }
+
     /**
      * Whether the action writes. An undeclared action counts as a write, so
      * anything that slipped past the declaration check fails closed.
@@ -111,6 +119,12 @@ abstract class BaseRouter extends BaseStatamicTool
      */
     abstract protected function getTypes(): array;
 
+    /** @return list<string> */
+    public function resourceTypes(): array
+    {
+        return array_map('strval', array_keys($this->getTypes()));
+    }
+
     /**
      * Execute the actual action logic.
      *
@@ -121,17 +135,21 @@ abstract class BaseRouter extends BaseStatamicTool
     abstract protected function executeAction(array $arguments): array;
 
     /**
-     * What statamic-system-schema reports for a router it has no entry for,
-     * which is every tool another package registers.
+     * What statamic-system-schema reports for this tool: its domain, the
+     * actions and resource types it takes, every argument, and who ships it.
      *
-     * @return array{domain: string, actions: list<string>, provided_by: string}
+     * @return array{domain: string, actions: list<string>, resource_types: list<string>, arguments: list<string>, provided_by: string}
      */
     public function catalogEntry(): array
     {
+        $types = $this->resourceTypes();
+
         return [
             'domain' => $this->getDomain(),
-            'actions' => array_map('strval', array_keys($this->getActions())),
-            'provided_by' => 'extension',
+            'actions' => $this->facetActionNames(),
+            'resource_types' => array_values(array_filter($types, fn (string $type): bool => array_filter($this->facetActions(), fn (RouterAction $action): bool => $action->appliesTo($type)) !== [])),
+            'arguments' => array_map('strval', array_keys($this->schema(new JsonSchemaTypeFactory))),
+            'provided_by' => ExtraTools::isRegistered(static::class) ? 'extension' : 'statamic-mcp',
         ];
     }
 
@@ -172,19 +190,182 @@ abstract class BaseRouter extends BaseStatamicTool
         return $this->getDomain();
     }
 
+    /**
+     * How this router is presented: null for the whole router (stdio tests,
+     * internal callers), 'read' or 'write' for the tool clients see. A client
+     * gets each router as a read tool and a write tool, so read-only use can
+     * be allowed by name (`*-read`) and clients read the annotations right.
+     */
+    private ?string $facet = null;
+
+    /**
+     * This router presented as its read or its write tool.
+     *
+     * @param  'read'|'write'  $facet
+     */
+    public function facet(string $facet): static
+    {
+        $clone = clone $this;
+        $clone->facet = $facet;
+        $clone->declaredArguments = null;
+
+        return $clone;
+    }
+
+    public function presentedFacet(): ?string
+    {
+        return $this->facet;
+    }
+
+    /**
+     * Whether this caller could use the tool at all: the installation profile
+     * allows its kind of action here, and over HTTP the token holds its scope.
+     * tools/list shows only these; a call still reaches the rest and is refused
+     * with the reason.
+     */
+    public function availableToCaller(): bool
+    {
+        if ($this->facet === null) {
+            return true;
+        }
+        $writes = $this->facet === 'write';
+        if (! app(InstallationProfile::class)->allowsAny($this->getDomain(), $writes)) {
+            return false;
+        }
+        if ($this->isCliContext()) {
+            return true;
+        }
+        $token = request()->attributes->get('mcp_token');
+        if (! $token instanceof McpTokenData) {
+            return true;
+        }
+        $scope = $writes ? TokenScope::writeFor($this->getDomain()) : TokenScope::tryFrom($this->getDomain() . ':read');
+
+        return $scope !== null && app(TokenService::class)->hasScope($token, $scope);
+    }
+
+    /** Whether the facet has any action, so whether it is a tool at all. */
+    public function offersFacet(string $facet): bool
+    {
+        return array_filter($this->declaredActions(), fn (RouterAction $action): bool => $action->writes() === ($facet === 'write')) !== [];
+    }
+
+    /** The write tool is `-admin` when its writes administer the site, `-write` when they edit content. */
+    public function writeSuffix(): string
+    {
+        foreach ($this->declaredActions() as $action) {
+            if ($action->effect === ActionEffect::Admin) {
+                return 'admin';
+            }
+        }
+
+        return 'write';
+    }
+
+    public function name(): string
+    {
+        $base = parent::name();
+
+        return match ($this->facet) {
+            null => $base,
+            'read' => "{$base}-read",
+            default => "{$base}-{$this->writeSuffix()}",
+        };
+    }
+
+    public function title(): string
+    {
+        $base = parent::title();
+
+        return match ($this->facet) {
+            null => $base,
+            'read' => "{$base} (read)",
+            default => $this->writeSuffix() === 'admin' ? "{$base} (admin)" : "{$base} (write)",
+        };
+    }
+
+    public function description(): string
+    {
+        $base = parent::description();
+        if ($this->facet === null) {
+            return $base;
+        }
+        $lead = $this->facet === 'read'
+            ? 'Reads only; changes nothing.'
+            : 'Changes the site. Actions that need a person\'s approval answer APPROVAL_REQUIRED first.';
+
+        return trim($base . ' ' . $lead . ' Actions: ' . implode(', ', $this->facetActionNames()) . '.');
+    }
+
+    /**
+     * Behaviour hints, all four explicit. Without them a client must assume a
+     * tool is a destructive, open-world write and asks about every call.
+     *
+     * @return array<string, mixed>
+     */
+    public function annotations(): array
+    {
+        return match ($this->facet) {
+            null => parent::annotations(),
+            'read' => ['readOnlyHint' => true, 'destructiveHint' => false, 'idempotentHint' => true, 'openWorldHint' => false],
+            default => ['readOnlyHint' => false, 'destructiveHint' => true, 'idempotentHint' => false, 'openWorldHint' => $this->writesReachOutside()],
+        };
+    }
+
+    /** Whether a write can reach outside this site, such as fetching a URL the client names. */
+    protected function writesReachOutside(): bool
+    {
+        return false;
+    }
+
+    /**
+     * Arguments only one side uses, so the other tool's schema leaves them
+     * out. Everything else is offered to both.
+     *
+     * @return array{read?: list<string>, write?: list<string>}
+     */
+    protected function facetArguments(): array
+    {
+        return [];
+    }
+
+    /** @return list<RouterAction> */
+    private function facetActions(): array
+    {
+        return array_values(array_filter(
+            $this->declaredActions(),
+            fn (RouterAction $action): bool => $this->facet === null || $action->writes() === ($this->facet === 'write'),
+        ));
+    }
+
+    /** @return list<string> */
+    private function facetActionNames(): array
+    {
+        return array_map(fn (RouterAction $action): string => $action->name, $this->facetActions());
+    }
+
     protected function defineSchema(JsonSchemaContract $schema): array
     {
-        $actions = array_keys($this->getActions());
-        $types = array_keys($this->getTypes());
+        $actions = $this->facetActions();
+        $types = array_values(array_filter(
+            array_map('strval', array_keys($this->getTypes())),
+            fn (string $type): bool => array_filter($actions, fn (RouterAction $action): bool => $action->appliesTo($type)) !== [],
+        ));
 
-        return [
+        $properties = [
             'action' => JsonSchema::string()
-                ->description('Action to perform. See the specific tool description for available actions and their required parameters.')
-                ->enum($actions)
+                ->description(implode(' ', array_map(fn (RouterAction $action): string => "{$action->name}: {$action->description}", $actions)))
+                ->enum(array_map(fn (RouterAction $action): string => $action->name, $actions))
                 ->required(),
-            'resource_type' => JsonSchema::string()
-                ->description('Resource subtype for routers that manage multiple resource kinds. See the specific tool description for valid values and required combinations with actions.')
-                ->enum($types),
+        ];
+        if ($types !== []) {
+            $properties['resource_type'] = JsonSchema::string()
+                ->description('The kind of resource the action works on.')
+                ->enum($types)
+                ->required();
+        }
+
+        return $properties + [
             'approval_id' => JsonSchema::string()
                 ->description('For actions that need a person\'s approval: the approval_id from the APPROVAL_REQUIRED answer. After the person approved it in the Control Panel, repeat the same call with approval_id added. The approval covers exactly that call, once.'),
             'idempotency_key' => JsonSchema::string()
@@ -214,10 +395,17 @@ abstract class BaseRouter extends BaseStatamicTool
         $action = is_string($arguments['action'] ?? null) ? $arguments['action'] : '';
 
         $declared = $this->declaredAction($action);
+        if ($declared !== null && $this->facet !== null && $declared->writes() !== ($this->facet === 'write')) {
+            $other = $this->facet($this->facet === 'read' ? 'write' : 'read')->name();
+
+            return $this->createErrorResponse(
+                "The {$action} action is on the {$other} tool. This tool offers: " . implode(', ', $this->facetActionNames()) . '.'
+            )->toArray();
+        }
         if ($declared === null) {
             return $this->createErrorResponse(
                 ($action === '' ? 'action is required.' : "Unknown action '{$action}'.")
-                . ' Use one of: ' . implode(', ', $this->actionNames()) . '.'
+                . ' Use one of: ' . implode(', ', $this->facet === null ? $this->actionNames() : $this->facetActionNames()) . '.'
             )->toArray();
         }
         $type = is_string($arguments['resource_type'] ?? null) ? $arguments['resource_type'] : null;
@@ -277,9 +465,27 @@ abstract class BaseRouter extends BaseStatamicTool
     /** @var array<string, mixed>|null */
     private ?array $declaredArguments = null;
 
+    /**
+     * The schema clients see: the router's arguments, less those only the
+     * other tool of the pair uses.
+     *
+     * @return array<string, mixed>
+     */
+    public function schema(JsonSchemaContract $schema): array
+    {
+        $properties = $this->defineSchema($schema);
+        if ($this->facet === null) {
+            return $properties;
+        }
+        $other = $this->facet === 'read' ? 'write' : 'read';
+        $onlyOther = [...($this->facetArguments()[$other] ?? []), ...($other === 'write' ? ['approval_id', 'idempotency_key'] : [])];
+
+        return array_diff_key($properties, array_flip($onlyOther));
+    }
+
     private function acceptsArgument(string $key): bool
     {
-        $this->declaredArguments ??= $this->defineSchema(new JsonSchemaTypeFactory);
+        $this->declaredArguments ??= $this->schema(new JsonSchemaTypeFactory);
 
         return array_key_exists($key, $this->declaredArguments);
     }
@@ -334,7 +540,8 @@ abstract class BaseRouter extends BaseStatamicTool
     /** Gated actions need approval over HTTP; the local stdio operator is the person. */
     protected function needsApproval(string $action): bool
     {
-        return ! $this->isCliContext() && ConfirmationActionGate::enabled()
+        // A read changes nothing, so there is nothing for a person to approve.
+        return $this->isWriteAction($action) && ! $this->isCliContext() && ConfirmationActionGate::enabled()
             && ConfirmationActionGate::gates($this->getDomain(), $action);
     }
 

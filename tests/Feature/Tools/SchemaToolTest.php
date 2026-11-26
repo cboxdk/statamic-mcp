@@ -18,7 +18,7 @@ describe('SchemaTool', function () {
 
     it('returns schema for a known tool', function () {
         $tool = new SchemaTool;
-        $result = $tool->execute(['tool_name' => 'statamic-entries']);
+        $result = $tool->execute(['tool_name' => 'statamic-entries-write']);
 
         expect($result)->toHaveKey('success');
         expect($result['success'])->toBeTrue();
@@ -40,11 +40,11 @@ describe('SchemaTool', function () {
         $result = $tool->execute([]);
 
         $toolNames = array_keys($result['data']['tools']);
-        expect($toolNames)->toContain('statamic-entries');
-        expect($toolNames)->toContain('statamic-blueprints');
-        expect($toolNames)->toContain('statamic-structures');
-        expect($toolNames)->toContain('statamic-assets');
-        expect($toolNames)->toContain('statamic-users');
-        expect($toolNames)->toContain('statamic-system');
+        expect($toolNames)->toContain('statamic-entries-read', 'statamic-entries-write', 'statamic-blueprints-admin',
+            'statamic-structures-admin', 'statamic-assets-write', 'statamic-users-read', 'statamic-system-admin',
+            'statamic-content-facade-read', 'statamic-system-discover')
+            ->not->toContain('statamic-entries', 'statamic-content-facade-write');
+        // The read tool's entry lists only reads.
+        expect($result['data']['tools']['statamic-entries-read']['actions'])->toBe(['list', 'get', 'list_revisions', 'get_revision']);
     });
 });

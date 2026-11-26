@@ -377,19 +377,20 @@ return [
     |
     | How the tool list is presented to clients at connect time.
     |
-    | With 'searchable' on, only the tools a session usually opens with are
-    | listed — entries, blueprints and discovery. The rest are reached through
-    | search_tools and execute_tools. The full catalog is ~31 KB of schema that
-    | every client pays for on every connection before it has asked anything;
-    | withholding the rest cuts that by about 60%. They stay fully available and
-    | fully gated — only their schemas wait until a client asks for them.
+    | Every tool is listed by default, each area as a -read tool and a -write
+    | or -admin tool, and only the tools the caller's token can use. Claude
+    | Code, Cursor and claude.ai search large catalogs themselves, and a listed
+    | tool keeps its own name and annotations, which their permission rules use.
     |
-    | Turn it off if your MCP client handles search_tools poorly and you would
-    | rather it saw every tool listed directly.
+    | Turn 'searchable' on for a client that loads every schema up front and
+    | has no tool search of its own: only discovery, entries and blueprints are
+    | listed, and the rest are reached through search_tools and execute_tools.
+    | They stay fully gated, but a client then sees one execute_tools tool, so
+    | it cannot tell reads from writes.
     |
     */
     'catalog' => [
-        'searchable' => env('STATAMIC_MCP_SEARCHABLE_CATALOG', true),
+        'searchable' => (bool) env('STATAMIC_MCP_SEARCHABLE_CATALOG', false),
     ],
 
     /*

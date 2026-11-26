@@ -22,7 +22,7 @@ use Statamic\Facades\GlobalSet;
 
 #[Name('statamic-globals')]
 #[Title('Statamic Global Sets')]
-#[Description('Manage Statamic global sets and their values. Use statamic-blueprints get to see field structure before updating. Actions: list, get, update.')]
+#[Description('Statamic global set values: site-wide content such as footer text or contact details, per site. Field values follow the global set blueprint\'s _format_spec.')]
 class GlobalsRouter extends BaseRouter
 {
     use ChecksResourceVersions;
@@ -36,15 +36,6 @@ class GlobalsRouter extends BaseRouter
     protected function defineSchema(JsonSchemaContract $schema): array
     {
         return array_merge(parent::defineSchema($schema), [
-            'action' => JsonSchema::string()
-                ->description(
-                    'Action to perform. Required params per action: '
-                    . 'list (optional: limit, offset), '
-                    . 'get (handle), '
-                    . 'update (handle, data)'
-                )
-                ->enum($this->actionNames())
-                ->required(),
 
             'global_set' => JsonSchema::string()
                 ->description('Deprecated — use "handle" instead. Global set handle'),
@@ -58,7 +49,7 @@ class GlobalsRouter extends BaseRouter
             'data' => JsonSchema::object()
                 ->description(
                     'Global set field values. Structure must match the global set blueprint. '
-                    . 'Use statamic-blueprints action "get" to see field types before sending data.'
+                    . 'Each field\'s shape is in the global set blueprint\'s _format_spec (statamic-blueprints-read get).'
                 ),
 
             'expected_version' => JsonSchema::string()
@@ -439,21 +430,26 @@ class GlobalsRouter extends BaseRouter
         }
     }
 
+    protected function facetArguments(): array
+    {
+        return [
+            'read' => ['limit', 'offset'],
+            'write' => ['data', 'expected_version'],
+        ];
+    }
+
     protected function actions(): array
     {
         return [
-            RouterAction::read('list', 'List global sets with values and pagination'),
-            RouterAction::read('get', 'Get specific global set with values'),
-            RouterAction::edit('update', 'Update global set values'),
+            RouterAction::read('list', 'List global sets with their values. Optional: site, limit, offset.'),
+            RouterAction::read('get', 'Get one global set\'s values and version. Needs handle; optional: site.'),
+            RouterAction::edit('update', 'Update a global set\'s values in one site. Needs handle, data; optional: site, expected_version.'),
         ];
     }
 
     public function getTypes(): array
     {
-        return [
-            'GlobalSet' => 'Global set configuration object',
-            'GlobalValues' => 'Global set values for a specific site',
-        ];
+        return [];
     }
 
     /**

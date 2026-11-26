@@ -52,7 +52,7 @@ function extraToolsCatalog(): array
     $searchable = $tools[ToolSearch::class] ?? [];
     unset($tools[ToolSearch::class]);
 
-    $name = fn (string $class): string => app($class)->name();
+    $name = fn (string|Tool $tool): string => (is_string($tool) ? app($tool) : $tool)->name();
 
     return [
         'listed' => array_values(array_map($name, $tools)),
@@ -118,25 +118,28 @@ function callAsWebClient(string $class, array $scopes, ?array $permissions = nul
     return app($class)->execute(['action' => 'get']);
 }
 
-it('serves a registered tool through search_tools by default', function () {
+it('serves a registered tool through search_tools when the split catalog is on', function () {
+    config()->set('statamic.mcp.catalog.searchable', true);
     StatamicMcpServer::registerTool(UnscopedExtraRouter::class);
 
     $catalog = extraToolsCatalog();
 
-    expect($catalog['searchable'])->toContain('fixture-site-health')
-        ->and($catalog['listed'])->not->toContain('fixture-site-health');
+    expect($catalog['searchable'])->toContain('fixture-site-health-read')
+        ->and($catalog['listed'])->not->toContain('fixture-site-health-read');
 });
 
 it('lists a registered tool at connect time when it is not searchable', function () {
+    config()->set('statamic.mcp.catalog.searchable', true);
     StatamicMcpServer::registerTool(UnscopedExtraRouter::class, searchable: false);
 
     $catalog = extraToolsCatalog();
 
-    expect($catalog['listed'])->toContain('fixture-site-health')
-        ->and($catalog['searchable'])->not->toContain('fixture-site-health');
+    expect($catalog['listed'])->toContain('fixture-site-health-read')
+        ->and($catalog['searchable'])->not->toContain('fixture-site-health-read');
 });
 
 it('reads extra tools from config', function () {
+    config()->set('statamic.mcp.catalog.searchable', true);
     config()->set('statamic.mcp.extra_tools', [
         UnscopedExtraRouter::class,
         ['class' => SystemScopedExtraRouter::class, 'searchable' => false],
@@ -144,15 +147,15 @@ it('reads extra tools from config', function () {
 
     $catalog = extraToolsCatalog();
 
-    expect($catalog['searchable'])->toContain('fixture-site-health')
-        ->and($catalog['listed'])->toContain('fixture-system-health');
+    expect($catalog['searchable'])->toContain('fixture-site-health-read')
+        ->and($catalog['listed'])->toContain('fixture-system-health-read');
 });
 
 it('lists every tool directly when the searchable catalog is off', function () {
     config()->set('statamic.mcp.catalog.searchable', false);
     StatamicMcpServer::registerTool(UnscopedExtraRouter::class);
 
-    expect(extraToolsCatalog()['listed'])->toContain('fixture-site-health');
+    expect(extraToolsCatalog()['listed'])->toContain('fixture-site-health-read');
 });
 
 it('keeps the flat tool list complete', function () {
@@ -165,17 +168,19 @@ it('keeps the flat tool list complete', function () {
 });
 
 it('names searchable extra tools in the instructions', function () {
+    config()->set('statamic.mcp.catalog.searchable', true);
     StatamicMcpServer::registerTool(UnscopedExtraRouter::class);
 
-    expect(app(StatamicMcpServer::class)->createContext()->instructions)->toContain('fixture-site-health');
+    expect(app(StatamicMcpServer::class)->createContext()->instructions)->toContain('fixture-site-health-read');
 });
 
 it('tells the discovery tool about a listed extra tool', function () {
+    config()->set('statamic.mcp.catalog.searchable', true);
     StatamicMcpServer::registerTool(UnscopedExtraRouter::class, searchable: false);
 
     $names = (new ReflectionMethod(DiscoveryTool::class, 'catalogToolNames'))->invoke(app(DiscoveryTool::class));
 
-    expect($names)->toContain('fixture-site-health');
+    expect($names)->toContain('fixture-site-health-read');
 });
 
 /**
@@ -192,12 +197,13 @@ function discoverRecommends(string $intent): array
 }
 
 it('recommends an extra tool for an intent that matches its keywords', function () {
+    config()->set('statamic.mcp.catalog.searchable', true);
     StatamicMcpServer::registerTool(KeywordedExtraRouter::class);
 
     $recommended = discoverRecommends('Change the SEO title and meta description of a page');
 
     expect($recommended[0])->toBe([
-        'tool' => 'fixture-seo',
+        'tool' => 'fixture-seo-read',
         'reason' => 'Fixture: a page\'s SEO title and meta description.',
         'access' => 'via_execute_tools',
     ]);
@@ -210,38 +216,39 @@ it('ranks an extra tool by how many of its keywords the intent contains', functi
     // "seo" and "canonical" (declared in capitals) are two for the extra tool.
     $tools = array_column(discoverRecommends('fix the seo canonical of a page'), 'tool');
 
-    expect($tools[0])->toBe('fixture-seo')
-        ->and($tools)->toContain('statamic-entries', 'statamic-globals');
+    expect($tools[0])->toBe('fixture-seo-read')
+        ->and($tools)->toContain('statamic-entries-read', 'statamic-globals-read');
 
     // One point each: the built-in routers keep their place ahead of a tie.
     $tied = array_column(discoverRecommends('seo of a page'), 'tool');
 
-    expect($tied)->toBe(['statamic-entries', 'statamic-globals', 'fixture-seo']);
+    expect($tied)->toBe(['statamic-entries-read', 'statamic-globals-read', 'fixture-seo-read']);
 });
 
 it('says an extra tool listed at connect time is in the catalog', function () {
+    config()->set('statamic.mcp.catalog.searchable', true);
     StatamicMcpServer::registerTool(KeywordedExtraRouter::class, searchable: false);
 
-    expect(discoverRecommends('seo canonical')[0])->toMatchArray(['tool' => 'fixture-seo', 'access' => 'listed_in_catalog']);
+    expect(discoverRecommends('seo canonical')[0])->toMatchArray(['tool' => 'fixture-seo-read', 'access' => 'listed_in_catalog']);
 });
 
 it('never recommends an extra tool that is switched off', function () {
     StatamicMcpServer::registerTool(KeywordedExtraRouter::class);
     config()->set('statamic.mcp.tools.fixture-seo.enabled', false);
 
-    expect(array_column(discoverRecommends('seo canonical'), 'tool'))->not->toContain('fixture-seo');
+    expect(array_column(discoverRecommends('seo canonical'), 'tool'))->not->toContain('fixture-seo-read');
 });
 
 it('recommends no extra tool that declares no keywords', function () {
     StatamicMcpServer::registerTool(UnscopedExtraRouter::class);
 
-    expect(array_column(discoverRecommends('fixture site health get'), 'tool'))->not->toContain('fixture-site-health');
+    expect(array_column(discoverRecommends('fixture site health get'), 'tool'))->not->toContain('fixture-site-health-read');
 });
 
 it('ignores a blank keyword', function () {
     StatamicMcpServer::registerTool(KeywordedExtraRouter::class);
 
-    expect(array_column(discoverRecommends('manage blog entries'), 'tool'))->not->toContain('fixture-seo');
+    expect(array_column(discoverRecommends('manage blog entries'), 'tool'))->not->toContain('fixture-seo-read');
 });
 
 it('leaves out an extra tool whose keywords throw, and keeps recommending the rest', function () {
@@ -250,8 +257,8 @@ it('leaves out an extra tool whose keywords throw, and keeps recommending the re
 
     $tools = array_column(discoverRecommends('fix the seo canonical of a page'), 'tool');
 
-    expect($tools[0])->toBe('fixture-seo')
-        ->and($tools)->toContain('statamic-entries');
+    expect($tools[0])->toBe('fixture-seo-read')
+        ->and($tools)->toContain('statamic-entries-read');
 });
 
 it('gives the whole description as the reason when it has no sentence end', function () {
@@ -318,10 +325,11 @@ it('lets a user through once the extra tool names the permission it needs', func
 it('describes an extra tool in statamic-system-schema', function () {
     StatamicMcpServer::registerTool(UnscopedExtraRouter::class);
 
-    $result = app(SchemaTool::class)->execute(['tool_name' => 'fixture-site-health']);
+    $result = app(SchemaTool::class)->execute(['tool_name' => 'fixture-site-health-read']);
 
     expect($result['success'])->toBeTrue()
-        ->and($result['data']['tool'])->toBe(['domain' => 'site-health', 'actions' => ['get'], 'provided_by' => 'extension']);
+        ->and($result['data']['tool'])->toMatchArray(['domain' => 'site-health', 'actions' => ['get'], 'resource_types' => [], 'provided_by' => 'extension'])
+        ->and($result['data']['tool']['arguments'])->toContain('action')->not->toContain('approval_id', 'idempotency_key');
 });
 
 it('still fails closed when an extra tool is registered under a non-canonical class name', function (string $spelling) {

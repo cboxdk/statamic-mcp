@@ -41,7 +41,7 @@ use Statamic\Support\Str;
 
 #[Name('statamic-entries')]
 #[Title('Statamic Entries')]
-#[Description('Manage Statamic collection entries. Use statamic-blueprints get first to understand field structure before create/update. Actions: list, get, create, update, delete, publish, unpublish, list_revisions, get_revision, restore_revision, publish_working_copy.')]
+#[Description('Statamic collection entries: pages, posts and other content, with drafts, publishing, localizations and revisions. Field values follow the collection blueprint\'s _format_spec.')]
 class EntriesRouter extends BaseRouter
 {
     use ChecksResourceVersions;
@@ -102,24 +102,6 @@ class EntriesRouter extends BaseRouter
     protected function defineSchema(JsonSchemaContract $schema): array
     {
         return array_merge(parent::defineSchema($schema), [
-            'action' => JsonSchema::string()
-                ->description(
-                    'Action to perform. Required params per action: '
-                    . 'list (collection; optional: limit, offset, filters, include_unpublished), '
-                    . 'get (collection, id; optional: version), '
-                    . 'create (collection, data — use statamic-blueprints get to see field structure first), '
-                    . 'update (collection, id, data; optional: revision_message, merge_sets), '
-                    . 'localize (collection, id, site — creates the entry\'s localization in that site; optional: data, revision_message), '
-                    . 'delete (collection, id), '
-                    . 'publish (collection, id; optional: revision_message; on a dated collection whose future_date_behavior is private, a future-dated entry becomes status "scheduled", not live: its URL 404s until its date. To schedule, set data.date with update, then publish; read status, not published, to know what visitors see), '
-                    . 'unpublish (collection, id; optional: revision_message), '
-                    . 'list_revisions (collection, id), '
-                    . 'get_revision (collection, id, revision_id), '
-                    . 'restore_revision (collection, id, revision_id), '
-                    . 'publish_working_copy (collection, id; optional: revision_message)'
-                )
-                ->enum($this->actionNames())
-                ->required(),
 
             'collection' => JsonSchema::string()
                 ->description('Collection handle in snake_case. Required for all actions. Example: "blog", "products"')
@@ -137,7 +119,7 @@ class EntriesRouter extends BaseRouter
             'data' => JsonSchema::object()
                 ->description(
                     'Parent: data.parent is an entry id in this collection/site, or null for the top level. Create and update persist it in the collection tree; requires reorder permission plus entries:write and structures:admin. Parent cannot be combined with other changes on a published entry using revisions. Entry field values. Structure must match the collection blueprint including nested types '
-                    . '(bard, replicator, grid). Use statamic-blueprints action "get" with the collection\'s '
+                    . '(bard, replicator, grid). Use statamic-blueprints-read get with the collection\'s '
                     . 'blueprint handle to see required fields, types, and nesting before sending data.'
                 ),
 
@@ -1515,21 +1497,29 @@ class EntriesRouter extends BaseRouter
         }
     }
 
+    protected function facetArguments(): array
+    {
+        return [
+            'read' => ['filters', 'include_unpublished', 'limit', 'offset', 'version'],
+            'write' => ['data', 'merge_sets', 'revision_message', 'expected_version', 'slug'],
+        ];
+    }
+
     protected function actions(): array
     {
         return [
-            RouterAction::read('list', 'List entries with filtering and pagination'),
-            RouterAction::read('get', 'Get specific entry with full data (supports version param for revision-aware reads)'),
-            RouterAction::edit('create', 'Create new entry (uses store() with initial revision when revisions enabled)'),
-            RouterAction::edit('update', 'Update existing entry (creates working copy when revisions enabled and entry is published)'),
-            RouterAction::edit('localize', 'Create a localization of an entry in another site; untranslated fields fall back to the origin'),
-            RouterAction::delete('delete', 'Delete entry'),
-            RouterAction::publish('publish', 'Publish entry (promotes working copy when revisions enabled)'),
-            RouterAction::publish('unpublish', 'Unpublish entry (creates revision snapshot when revisions enabled)'),
-            RouterAction::read('list_revisions', 'List revision history for an entry (requires revisions enabled)'),
-            RouterAction::read('get_revision', 'Get a specific revision by timestamp ID with full data snapshot'),
-            RouterAction::edit('restore_revision', 'Restore entry from a specific revision (creates working copy for published, updates directly for unpublished)'),
-            RouterAction::publish('publish_working_copy', 'Publish the current working copy (requires existing working copy)'),
+            RouterAction::read('list', 'List a collection\'s entries. Needs collection; optional: filters, include_unpublished, limit, offset, site.'),
+            RouterAction::read('get', 'Get one entry with its data and version. Needs collection, id; optional: version (published, working_copy or latest).'),
+            RouterAction::edit('create', 'Create an entry. Needs collection, data (field values in the shapes the collection\'s blueprint gives them); optional: site, slug.'),
+            RouterAction::edit('update', 'Update an entry; a published entry with revisions enabled gets a working copy. Needs collection, id, data; optional: expected_version, merge_sets, revision_message.'),
+            RouterAction::edit('localize', 'Create an entry\'s localization in another site; untranslated fields keep falling back to the origin. Needs collection, id, site; optional: data, revision_message.'),
+            RouterAction::delete('delete', 'Delete an entry. Needs collection, id.'),
+            RouterAction::publish('publish', 'Publish an entry, promoting its working copy. Needs collection, id; optional: revision_message. In a collection whose future dates are private, a future-dated entry becomes status "scheduled" and stays offline until its date; read status, not published, to know what visitors see.'),
+            RouterAction::publish('unpublish', 'Unpublish an entry. Needs collection, id; optional: revision_message.'),
+            RouterAction::read('list_revisions', 'List an entry\'s revisions (revisions must be enabled). Needs collection, id.'),
+            RouterAction::read('get_revision', 'Get one revision\'s data snapshot. Needs collection, id, revision_id.'),
+            RouterAction::edit('restore_revision', 'Restore an entry from a revision; a published entry gets it as a working copy. Needs collection, id, revision_id.'),
+            RouterAction::publish('publish_working_copy', 'Publish the entry\'s current working copy. Needs collection, id; optional: revision_message.'),
         ];
     }
 
@@ -1538,9 +1528,7 @@ class EntriesRouter extends BaseRouter
      */
     public function getTypes(): array
     {
-        return [
-            'entry' => 'Collection-based content items',
-        ];
+        return [];
     }
 
     /** @return array<string, mixed>|null */

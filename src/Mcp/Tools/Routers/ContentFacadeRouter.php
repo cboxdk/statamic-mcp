@@ -35,7 +35,7 @@ use Statamic\Stache\Query\TermQueryBuilder;
 
 #[Name('statamic-content-facade')]
 #[Title('Statamic Content Analysis')]
-#[Description('High-level content analysis workflows spanning all content types. Workflows: content_audit reports content volume and coverage gaps; content_validate checks stored content against its blueprints and reports schema drift; cross_reference analyzes relationships and dependencies between content types.')]
+#[Description('Statamic content analysis across collections, taxonomies and globals: volume and coverage, stored content that no longer matches its blueprint, and references to records that no longer exist.')]
 class ContentFacadeRouter extends BaseRouter
 {
     use ValidatesContentRecords;
@@ -48,19 +48,15 @@ class ContentFacadeRouter extends BaseRouter
     protected function actions(): array
     {
         return [
-            RouterAction::read('content_audit', 'Scan all content for issues across collections, taxonomies, and globals'),
-            RouterAction::read('content_validate', 'Validate stored content against its blueprints and report schema drift'),
-            RouterAction::read('cross_reference', 'Analyze relationships and dependencies between content types'),
+            RouterAction::read('content_audit', 'Report content volume and coverage gaps across collections, taxonomies and globals. Optional: scope, collection, taxonomy, limit.'),
+            RouterAction::read('content_validate', 'Check stored content against its blueprints and report drift. Optional: scope, collection, taxonomy, severity, limit, offset, max_findings.'),
+            RouterAction::read('cross_reference', 'Map relationships between content types and find references to records that no longer exist. Optional: filters, limit.'),
         ];
     }
 
     public function getTypes(): array
     {
-        return [
-            'ContentAudit' => 'Result of content audit workflow',
-            'ContentValidation' => 'Result of content validation sweep',
-            'CrossReference' => 'Result of cross-reference analysis',
-        ];
+        return [];
     }
 
     protected function defineSchema(JsonSchemaContract $schema): array

@@ -35,7 +35,7 @@ class ToolUsageContractPrompt extends Prompt
      */
     public function handle(Request $request): Response
     {
-        $denial = app(InstallationProfile::class)->denial('guidance', 'get');
+        $denial = app(InstallationProfile::class)->denial('guidance', 'get', writes: false);
         if ($denial !== null) {
             return Response::error($denial);
         }

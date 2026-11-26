@@ -8,6 +8,7 @@ use Cboxdk\StatamicMcp\Actions\ActionEffect;
 use Cboxdk\StatamicMcp\Actions\CapabilityRegistry;
 use Cboxdk\StatamicMcp\Actions\Transport\RegisteredReadTool;
 use Cboxdk\StatamicMcp\Mcp\ExtraTools;
+use Cboxdk\StatamicMcp\Mcp\Methods\ListPermittedTools;
 use Cboxdk\StatamicMcp\Mcp\Prompts\AgentEducationPrompt;
 use Cboxdk\StatamicMcp\Mcp\Prompts\ToolUsageContractPrompt;
 use Cboxdk\StatamicMcp\Mcp\Resources\BlueprintIndexResource;
@@ -63,7 +64,7 @@ class StatamicMcpServer extends Server
         content, blueprints, assets, users, and system settings. They return real site data —
         never guess at a handle, a field name, or a value you could look up.
 
-        Before any create or update, read the target's blueprint first — statamic-blueprints get,
+        Before any create or update, read the target's blueprint first — statamic-blueprints-read get,
         or the statamic://blueprints resources. The write tools validate against it and will
         reject a payload shaped by guesswork.
         MARKDOWN;
@@ -134,6 +135,9 @@ class StatamicMcpServer extends Server
     public function __construct(Transport $transport)
     {
         parent::__construct($transport);
+
+        // tools/list shows only the tools this caller can use.
+        $this->methods['tools/list'] = ListPermittedTools::class;
 
         foreach (app(CapabilityRegistry::class)->definitions() as $action) {
             if ($action->effect === ActionEffect::Read) {
@@ -233,26 +237,63 @@ class StatamicMcpServer extends Server
 
         $this->instructions = self::BASE_INSTRUCTIONS . "\n\n" . ($searchable
             ? $this->searchableCatalogInstructions()
-            : 'Every tool is listed in this catalog; call them directly.');
-
-        if (! $searchable) {
-            return parent::createContext();
-        }
+            : self::PAIR_INSTRUCTIONS);
 
         // Reshape for the wire only, then put the property back: $tools is the
         // honest list of what this server offers, and callers read it.
         $all = $this->tools;
-        $this->tools = [
-            ...self::CORE_TOOLS,
-            ...ExtraTools::core(),
-            ToolSearch::class => [...self::SEARCHABLE_TOOLS, ...ExtraTools::searchable(), ...$this->registeredReads],
-        ];
+        $this->tools = $searchable
+            ? [
+                ...self::presented([...self::CORE_TOOLS, ...ExtraTools::core()]),
+                ToolSearch::class => [...self::presented([...self::SEARCHABLE_TOOLS, ...ExtraTools::searchable()]), ...$this->registeredReads],
+            ]
+            : [...self::presented($all), ...array_values(array_filter($all, fn ($tool): bool => $tool instanceof RegisteredReadTool))];
 
         try {
             return parent::createContext();
         } finally {
             $this->tools = $all;
         }
+    }
+
+    /**
+     * The tools as clients see them: each router as its read tool and its
+     * write (or admin) tool, every other tool as itself.
+     *
+     * A router mixing reads and writes reads as a destructive tool to every
+     * client, so a client asks about each read and cannot allow reading
+     * alone. Split, a read tool carries readOnlyHint and a `-read` name that
+     * one permission pattern (`*-read`) allows across the server.
+     *
+     * @param  array<int|string, mixed>  $tools
+     *
+     * @return list<Tool>
+     */
+    public static function presented(array $tools): array
+    {
+        $presented = [];
+
+        foreach ($tools as $tool) {
+            if ($tool instanceof RegisteredReadTool || ! (is_string($tool) || $tool instanceof Tool)) {
+                continue;
+            }
+            $instance = is_string($tool) ? app($tool) : $tool;
+            if (! $instance instanceof Tool) {
+                continue;
+            }
+            if (! $instance instanceof BaseRouter) {
+                $presented[] = $instance;
+
+                continue;
+            }
+            foreach (['read', 'write'] as $facet) {
+                if ($instance->offersFacet($facet)) {
+                    $presented[] = $instance->facet($facet);
+                }
+            }
+        }
+
+        return $presented;
     }
 
     /**
@@ -264,7 +305,7 @@ class StatamicMcpServer extends Server
      */
     private function searchableCatalogEnabled(): bool
     {
-        return (bool) config('statamic.mcp.catalog.searchable', true);
+        return (bool) config('statamic.mcp.catalog.searchable', false);
     }
 
     /**
@@ -276,8 +317,8 @@ class StatamicMcpServer extends Server
     private function searchableCatalogInstructions(): string
     {
         $searchable = implode(', ', array_map(
-            fn (string $class): string => app($class)->name(),
-            [...self::SEARCHABLE_TOOLS, ...ExtraTools::searchable()],
+            fn (Tool $tool): string => $tool->name(),
+            self::presented([...self::SEARCHABLE_TOOLS, ...ExtraTools::searchable()]),
         ));
 
         return <<<MARKDOWN
@@ -285,8 +326,13 @@ class StatamicMcpServer extends Server
             search_tools and run them with execute_tools: {$searchable}. They are fully
             available; only their schemas are withheld until you ask. statamic-system-discover
             names the tool for a given intent and tells you which of the two ways to reach it.
-            MARKDOWN;
+
+            MARKDOWN . self::PAIR_INSTRUCTIONS;
     }
+
+    /** How the tools are named, which every client is told. */
+    private const PAIR_INSTRUCTIONS = 'Each area has a -read tool that changes nothing and a -write or -admin tool that changes the site. '
+        . 'Only the tools your access allows are listed.';
 
     /**
      * Boot the MCP server with proper error handling.

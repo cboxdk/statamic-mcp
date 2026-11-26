@@ -24,7 +24,7 @@ use Statamic\Fields\Field;
  * One blueprint's field structure, addressable by namespace and handle.
  *
  * Lets a client read the schema it needs to shape a write without spending a
- * tool call — the same data statamic-blueprints get returns, behind the same
+ * tool call — the same data statamic-blueprints-read get returns, behind the same
  * authorization gates.
  *
  * Blueprints change when a developer changes them, not during a session, so a

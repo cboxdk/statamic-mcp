@@ -26,7 +26,7 @@ use Statamic\Sites\Site;
 
 #[Name('statamic-system')]
 #[Title('Statamic System')]
-#[Description('Statamic system operations: environment info, health checks, cache management, and configuration. Actions: info, health, cache_status, cache_clear, cache_warm, config_get, config_set.')]
+#[Description('Statamic system: versions, health checks, cache state and cache maintenance, and MCP configuration.')]
 class SystemRouter extends BaseRouter
 {
     protected function getDomain(): string
@@ -34,48 +34,35 @@ class SystemRouter extends BaseRouter
         return 'system';
     }
 
+    protected function facetArguments(): array
+    {
+        return [
+            'read' => ['include_details', 'include_performance'],
+            'write' => ['config_value'],
+        ];
+    }
+
     protected function actions(): array
     {
         return [
-            RouterAction::read('info', 'Get comprehensive system information and status'),
-            RouterAction::read('health', 'Perform system health checks and diagnostics'),
-            RouterAction::read('cache_status', 'Check cache status and statistics'),
-            RouterAction::admin('cache_clear', 'Clear system caches for optimization'),
-            RouterAction::admin('cache_warm', 'Warm system caches for performance'),
-            RouterAction::read('config_get', 'Get system configuration values'),
-            RouterAction::admin('config_set', 'Set system configuration values'),
+            RouterAction::read('info', 'System information: versions, sites, content counts and environment.'),
+            RouterAction::read('health', 'Run the health checks and report what they found.'),
+            RouterAction::read('cache_status', 'Report the state of each cache. Optional: cache_type, include_details.'),
+            RouterAction::admin('cache_clear', 'Clear a cache. Needs cache_type.'),
+            RouterAction::admin('cache_warm', 'Warm a cache. Needs cache_type.'),
+            RouterAction::read('config_get', 'Read an MCP configuration value. Needs config_key.'),
+            RouterAction::admin('config_set', 'Change MCP tool configuration for this process; local stdio only. Needs config_key, config_value.'),
         ];
     }
 
     public function getTypes(): array
     {
-        return [
-            'system' => 'Overall system information and status',
-            'cache' => 'System cache components and management',
-            'config' => 'System configuration and settings',
-            'health' => 'System health checks and diagnostics',
-        ];
+        return [];
     }
 
     protected function defineSchema(JsonSchemaContract $schema): array
     {
         return array_merge(parent::defineSchema($schema), [
-            'action' => JsonSchema::string()
-                ->description(
-                    'Action to perform. Required params per action: '
-                    . 'info (no params), '
-                    . 'health (no params), '
-                    . 'cache_status (optional: include_details), '
-                    . 'cache_clear (cache_type), '
-                    . 'cache_warm (cache_type), '
-                    . 'config_get (config_key), '
-                    . 'config_set (config_key, config_value)'
-                )
-                ->enum($this->actionNames())
-                ->required(),
-            'resource_type' => JsonSchema::string()
-                ->description('System component type. Optional — most actions do not require this.')
-                ->enum(['system', 'cache', 'config', 'health']),
             'cache_type' => JsonSchema::string()
                 ->description('Cache type to clear or warm. "all" clears everything, "stache" for content index, "static" for static page cache, "views" for compiled views')
                 ->enum(['all', 'stache', 'static', 'views', 'app', 'config', 'route']),

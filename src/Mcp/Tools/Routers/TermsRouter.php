@@ -29,7 +29,7 @@ use Statamic\Taxonomies\Term as StoredTerm;
 
 #[Name('statamic-terms')]
 #[Title('Statamic Taxonomy Terms')]
-#[Description('Manage Statamic taxonomy terms. Use statamic-blueprints get first to understand field structure before create/update. Actions: list, get, create, update, delete.')]
+#[Description('Statamic taxonomy terms: tags, categories and other classifications. Field values follow the taxonomy blueprint\'s _format_spec.')]
 class TermsRouter extends BaseRouter
 {
     use ChecksResourceVersions;
@@ -49,17 +49,6 @@ class TermsRouter extends BaseRouter
     protected function defineSchema(JsonSchemaContract $schema): array
     {
         return array_merge(parent::defineSchema($schema), [
-            'action' => JsonSchema::string()
-                ->description(
-                    'Action to perform. Required params per action: '
-                    . 'list (taxonomy; optional: limit, offset), '
-                    . 'get (taxonomy, id or slug), '
-                    . 'create (taxonomy, data), '
-                    . 'update (taxonomy, id or slug, data), '
-                    . 'delete (taxonomy, id or slug)'
-                )
-                ->enum($this->actionNames())
-                ->required(),
 
             'taxonomy' => JsonSchema::string()
                 ->description('Taxonomy handle in snake_case. Required for all actions. Example: "tags", "categories"')
@@ -77,7 +66,7 @@ class TermsRouter extends BaseRouter
             'data' => JsonSchema::object()
                 ->description(
                     'Term field values. Structure must match the taxonomy blueprint. '
-                    . 'Use statamic-blueprints action "get" to see field types and structure before sending data.'
+                    . 'Each field\'s shape is in the taxonomy blueprint\'s _format_spec (statamic-blueprints-read get).'
                 ),
 
             'filters' => JsonSchema::object()
@@ -750,21 +739,27 @@ class TermsRouter extends BaseRouter
         }
     }
 
+    protected function facetArguments(): array
+    {
+        return [
+            'read' => ['filters', 'limit', 'offset'],
+            'write' => ['data', 'expected_version'],
+        ];
+    }
+
     protected function actions(): array
     {
         return [
-            RouterAction::read('list', 'List terms with filtering and pagination'),
-            RouterAction::read('get', 'Get specific term with full data'),
-            RouterAction::edit('create', 'Create new term'),
-            RouterAction::edit('update', 'Update existing term'),
-            RouterAction::delete('delete', 'Delete term'),
+            RouterAction::read('list', 'List a taxonomy\'s terms. Needs taxonomy; optional: filters, limit, offset, site.'),
+            RouterAction::read('get', 'Get one term with its data and version. Needs taxonomy, id or slug; optional: site.'),
+            RouterAction::edit('create', 'Create a term. Needs taxonomy, data; optional: slug, site.'),
+            RouterAction::edit('update', 'Update a term. Needs taxonomy, id or slug, data; optional: expected_version, site.'),
+            RouterAction::delete('delete', 'Delete a term. Needs taxonomy, id or slug.'),
         ];
     }
 
     public function getTypes(): array
     {
-        return [
-            'term' => 'Taxonomy classification items',
-        ];
+        return [];
     }
 }

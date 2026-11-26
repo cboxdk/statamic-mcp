@@ -17,7 +17,7 @@ use Laravel\Mcp\Server\Attributes\Title;
 
 #[Name('statamic-users')]
 #[Title('Statamic Users & Roles')]
-#[Description('Manage Statamic users, roles, and user groups. Set resource_type first, then choose an action. Actions: list, get, search, create, update, delete, activate, deactivate, assign_role, remove_role.')]
+#[Description('Statamic users, roles and user groups, and who holds which role.')]
 class UsersRouter extends BaseRouter
 {
     use HandlesGroups;
@@ -29,19 +29,27 @@ class UsersRouter extends BaseRouter
         return 'users';
     }
 
+    protected function facetArguments(): array
+    {
+        return [
+            'read' => ['query', 'status', 'super', 'group', 'include_details', 'include_permissions', 'limit', 'offset', 'filters'],
+            'write' => ['data'],
+        ];
+    }
+
     protected function actions(): array
     {
         return [
-            RouterAction::read('list', 'List users, roles, or groups with filtering'),
-            RouterAction::read('get', 'Get specific user, role, or group details'),
-            RouterAction::admin('create', 'Create new user, role, or group'),
-            RouterAction::admin('update', 'Update existing user, role, or group'),
-            RouterAction::admin('delete', 'Delete user, role, or group'),
-            RouterAction::admin('activate', 'Activate user account', ['user']),
-            RouterAction::admin('deactivate', 'Deactivate user account', ['user']),
-            RouterAction::read('search', 'Search and filter users by name, email, role, group, or status', ['user']),
-            RouterAction::admin('assign_role', 'Assign role to user', ['user']),
-            RouterAction::admin('remove_role', 'Remove role from user', ['user']),
+            RouterAction::read('list', 'List users, roles or groups. Needs resource_type; optional: limit, offset, filters.'),
+            RouterAction::read('get', 'Get a user (id or email), a role or a group (handle).'),
+            RouterAction::admin('create', 'Create a user, role or group. Needs resource_type, data.'),
+            RouterAction::admin('update', 'Update a user (id or email), a role or a group (handle). Needs data; changing your own email or password over HTTP also needs data.current_password.'),
+            RouterAction::admin('delete', 'Delete a user (id or email), a role or a group (handle).'),
+            RouterAction::admin('activate', 'Activate a user account. Needs id or email.', ['user']),
+            RouterAction::admin('deactivate', 'Deactivate a user account and revoke its MCP tokens. Needs id or email.', ['user']),
+            RouterAction::read('search', 'Search users. Optional: query, role, group, super, status.', ['user']),
+            RouterAction::admin('assign_role', 'Give a user a role. Needs id or email, role.', ['user']),
+            RouterAction::admin('remove_role', 'Take a role from a user. Needs id or email, role.', ['user']),
         ];
     }
 
@@ -57,26 +65,6 @@ class UsersRouter extends BaseRouter
     protected function defineSchema(JsonSchemaContract $schema): array
     {
         return array_merge(parent::defineSchema($schema), [
-            'action' => JsonSchema::string()
-                ->description(
-                    'Action to perform. Required params per action: '
-                    . 'list (resource_type; optional: limit, offset), '
-                    . 'get (resource_type; id or email for users, handle for roles/groups), '
-                    . 'search (resource_type=user; optional: query, role, group, super, status), '
-                    . 'create (resource_type, data), '
-                    . 'update (resource_type; id/email for users, handle for roles/groups; data), '
-                    . 'delete (resource_type; id/email for users, handle for roles/groups), '
-                    . 'activate (resource_type=user, id or email), '
-                    . 'deactivate (resource_type=user, id or email), '
-                    . 'assign_role (resource_type=user, id or email, role), '
-                    . 'remove_role (resource_type=user, id or email, role)'
-                )
-                ->enum($this->actionNames())
-                ->required(),
-            'resource_type' => JsonSchema::string()
-                ->description('Type of user resource. "user" for accounts, "role" for permission roles, "group" for user groups')
-                ->enum(['user', 'role', 'group'])
-                ->required(),
             'id' => JsonSchema::string()
                 ->description('User UUID or resource identifier. Use email as alternative for user operations'),
             'email' => JsonSchema::string()

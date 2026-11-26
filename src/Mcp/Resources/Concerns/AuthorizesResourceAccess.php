@@ -38,7 +38,7 @@ trait AuthorizesResourceAccess
      */
     protected function denyReason(?string $handle = null): ?string
     {
-        $denial = app(InstallationProfile::class)->denial($this->domain(), 'get');
+        $denial = app(InstallationProfile::class)->denial($this->domain(), 'get', writes: false);
         if ($denial !== null) {
             return $denial;
         }

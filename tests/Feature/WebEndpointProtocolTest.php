@@ -57,70 +57,161 @@ class WebEndpointProtocolTest extends TestCase
         $this->assertStringContainsString('Statamic', $result['instructions']);
     }
 
-    public function test_catalog_lists_the_core_tools_and_the_search_pair(): void
+    public function test_the_catalog_lists_each_area_as_a_read_and_a_write_tool(): void
     {
+        $tools = collect($this->rpc('tools/list')->json('result.tools'))->keyBy('name');
+
+        foreach (['entries', 'terms', 'globals', 'assets'] as $area) {
+            $this->assertTrue($tools->has("statamic-{$area}-read"), "statamic-{$area}-read");
+            $this->assertTrue($tools->has("statamic-{$area}-write"), "statamic-{$area}-write");
+        }
+        foreach (['blueprints', 'structures', 'users', 'system'] as $area) {
+            $this->assertTrue($tools->has("statamic-{$area}-read"), "statamic-{$area}-read");
+            $this->assertTrue($tools->has("statamic-{$area}-admin"), "statamic-{$area}-admin");
+        }
+        $this->assertTrue($tools->has('statamic-content-facade-read'));
+        $this->assertFalse($tools->has('statamic-content-facade-write'), 'A tool with no write action gets no write tool.');
+        $this->assertFalse($tools->has('search_tools'));
+        $this->assertFalse($tools->has('statamic-entries'), 'The mixed v3 tool is not offered.');
+
+        // Every tool carries all four hints explicitly, read tools as reads.
+        foreach ($tools as $name => $tool) {
+            foreach (['readOnlyHint', 'destructiveHint', 'idempotentHint', 'openWorldHint'] as $hint) {
+                $this->assertIsBool($tool['annotations'][$hint] ?? null, "{$name}: {$hint}");
+            }
+            $this->assertNotSame('', $tool['title'] ?? '', "{$name}: title");
+        }
+        $this->assertTrue($tools['statamic-entries-read']['annotations']['readOnlyHint']);
+        $this->assertFalse($tools['statamic-entries-read']['annotations']['destructiveHint']);
+        $this->assertFalse($tools['statamic-entries-write']['annotations']['readOnlyHint']);
+        $this->assertTrue($tools['statamic-entries-write']['annotations']['destructiveHint']);
+        // An upload fetches the URL a client names.
+        $this->assertTrue($tools['statamic-assets-write']['annotations']['openWorldHint']);
+        $this->assertFalse($tools['statamic-terms-write']['annotations']['openWorldHint']);
+
+        // A read tool offers only reads and none of the write arguments.
+        $read = $tools['statamic-entries-read']['inputSchema']['properties'];
+        $this->assertSame(['list', 'get', 'list_revisions', 'get_revision'], $read['action']['enum']);
+        $this->assertArrayNotHasKey('data', $read);
+        $this->assertArrayNotHasKey('idempotency_key', $read);
+        $this->assertArrayNotHasKey('approval_id', $read);
+        $this->assertNotContains('list', $tools['statamic-entries-write']['inputSchema']['properties']['action']['enum']);
+    }
+
+    public function test_the_catalog_shows_only_the_tools_the_token_can_use(): void
+    {
+        $user = User::make()->email('reader@example.com')->makeSuper();
+        $user->save();
+        $this->token = app(TokenService::class)->createToken((string) $user->id(), 'reader', ['entries:read'])['token'];
+
         $names = $this->toolNames();
 
-        $this->assertContains('statamic-entries', $names);
-        $this->assertContains('statamic-blueprints', $names);
+        $this->assertContains('statamic-entries-read', $names);
+        $this->assertContains('statamic-system-discover', $names);
+        $this->assertNotContains('statamic-entries-write', $names);
+        $this->assertNotContains('statamic-terms-read', $names);
+
+        // A call to a tool left out is refused with the scope it needs, not
+        // \"tool not found\", so the client can ask for more access.
+        $refused = $this->rpc('tools/call', [
+            'name' => 'statamic-entries-write',
+            'arguments' => ['action' => 'create', 'collection' => 'pages', 'data' => ['title' => 'x']],
+        ]);
+        $refused->assertOk();
+        $this->assertTrue($refused->json('result.isError'));
+        $this->assertStringContainsString('entries:write', $this->textContent($refused));
+    }
+
+    public function test_a_read_only_installation_lists_no_write_tool_and_runs_every_read(): void
+    {
+        config()->set('statamic.mcp.profiles.http', 'read_only');
+
+        $names = $this->toolNames();
+
+        $this->assertContains('statamic-blueprints-read', $names);
+        $this->assertSame([], array_values(array_filter($names, fn (string $name): bool => str_ends_with($name, '-write') || str_ends_with($name, '-admin'))));
+
+        // Every declared read runs under read_only; the profile once kept its
+        // own list and refused blueprint scan, types and validate.
+        $scan = $this->rpc('tools/call', ['name' => 'statamic-blueprints-read', 'arguments' => ['action' => 'scan']]);
+        $scan->assertOk();
+        $this->assertFalse($scan->json('result.isError'), $this->textContent($scan));
+    }
+
+    public function test_a_read_tool_refuses_a_write_action_and_names_the_write_tool(): void
+    {
+        $response = $this->rpc('tools/call', [
+            'name' => 'statamic-entries-read',
+            'arguments' => ['action' => 'delete', 'collection' => 'pages', 'id' => 'x'],
+        ]);
+
+        $response->assertOk();
+        $this->assertTrue($response->json('result.isError'));
+        $this->assertStringContainsString('The delete action is on the statamic-entries-write tool.', $this->textContent($response));
+    }
+
+    public function test_the_split_catalog_lists_the_core_tools_and_the_search_pair(): void
+    {
+        config()->set('statamic.mcp.catalog.searchable', true);
+
+        $names = $this->toolNames();
+
+        $this->assertContains('statamic-entries-read', $names);
+        $this->assertContains('statamic-entries-write', $names);
+        $this->assertContains('statamic-blueprints-read', $names);
         $this->assertContains('statamic-system-discover', $names);
         $this->assertContains('search_tools', $names);
         $this->assertContains('execute_tools', $names);
-    }
 
-    public function test_searchable_tools_stay_out_of_the_catalog(): void
-    {
-        $names = $this->toolNames();
-
-        foreach (['statamic-assets', 'statamic-users', 'statamic-system', 'statamic-terms'] as $searchable) {
+        foreach (['statamic-assets-read', 'statamic-users-read', 'statamic-system-read', 'statamic-terms-write'] as $searchable) {
             $this->assertNotContains($searchable, $names, "[{$searchable}] should be reachable only through search_tools.");
         }
+
+        $recommended = $this->rpc('tools/call', [
+            'name' => 'statamic-system-discover',
+            'arguments' => ['intent' => 'upload image'],
+        ])->json('result.structuredContent.data.discovery.recommended_tools');
+        $this->assertSame('via_execute_tools', collect($recommended)->firstWhere('tool', 'statamic-assets-read')['access']);
+        $this->assertStringContainsString('search_tools', $this->rpc('server/discover')->json('result.instructions'));
     }
 
-    public function test_the_full_catalog_can_be_restored_by_config(): void
+    public function test_the_full_catalog_is_the_default_and_discovery_follows_it(): void
     {
-        config()->set('statamic.mcp.catalog.searchable', false);
-
-        $names = $this->toolNames();
-
-        $this->assertContains('statamic-assets', $names);
-        $this->assertContains('statamic-users', $names);
-        $this->assertNotContains('search_tools', $names);
-
-        // Discovery must follow the same switch: telling a client to reach
-        // statamic-assets via execute_tools here points it at a tool that is
-        // not registered.
         $recommended = $this->rpc('tools/call', [
             'name' => 'statamic-system-discover',
             'arguments' => ['intent' => 'upload image'],
         ])->json('result.structuredContent.data.discovery.recommended_tools');
 
-        $assets = collect($recommended)->firstWhere('tool', 'statamic-assets');
+        $assets = collect($recommended)->firstWhere('tool', 'statamic-assets-read');
 
+        $this->assertSame('statamic-assets-write', $assets['write_tool']);
         $this->assertSame('listed_in_catalog', $assets['access']);
 
-        // The instructions must not keep promising a search_tools route that
-        // no longer exists — an agent told to use it would simply fail.
+        // The instructions must not promise a search_tools route that does
+        // not exist; an agent told to use it would simply fail.
         $instructions = $this->rpc('server/discover')->json('result.instructions');
 
         $this->assertStringNotContainsString('search_tools', $instructions);
+        $this->assertStringContainsString('-read tool', $instructions);
     }
 
     public function test_a_searchable_tool_is_findable_and_runnable(): void
     {
+        config()->set('statamic.mcp.catalog.searchable', true);
+
         $found = $this->rpc('tools/call', [
             'name' => 'search_tools',
             'arguments' => ['query' => 'asset container'],
         ]);
 
         $found->assertOk();
-        $this->assertStringContainsString('statamic-assets', $this->textContent($found));
+        $this->assertStringContainsString('statamic-assets-read', $this->textContent($found));
 
         $ran = $this->rpc('tools/call', [
             'name' => 'execute_tools',
             'arguments' => [
                 'calls' => [[
-                    'name' => 'statamic-assets',
+                    'name' => 'statamic-assets-read',
                     'arguments' => ['action' => 'list', 'resource_type' => 'container'],
                 ]],
             ],
@@ -223,13 +314,13 @@ class WebEndpointProtocolTest extends TestCase
     public function test_a_mismatched_name_header_is_rejected(): void
     {
         $response = $this->postJson('/mcp/statamic', $this->body('tools/call', [
-            'name' => 'statamic-entries',
+            'name' => 'statamic-entries-read',
             'arguments' => ['action' => 'list', 'collection' => 'pages'],
         ]), [
             'Authorization' => 'Bearer ' . $this->token,
             'MCP-Protocol-Version' => self::PROTOCOL_VERSION,
             'Mcp-Method' => 'tools/call',
-            'Mcp-Name' => 'statamic-users',
+            'Mcp-Name' => 'statamic-users-read',
         ]);
 
         $response->assertStatus(400);

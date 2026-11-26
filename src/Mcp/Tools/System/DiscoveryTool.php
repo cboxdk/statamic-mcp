@@ -11,6 +11,15 @@ use Cboxdk\StatamicMcp\Mcp\ExtraTools;
 use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseStatamicTool;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\AssetsRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\BlueprintsRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\ContentFacadeRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\EntriesRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\GlobalsRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\StructuresRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\SystemRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\TermsRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\UsersRouter;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Cboxdk\StatamicMcp\Support\McpContext;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
@@ -18,6 +27,9 @@ use Illuminate\JsonSchema\JsonSchema;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Attributes\Title;
+use Laravel\Mcp\Server\Tools\Annotations\IsDestructive;
+use Laravel\Mcp\Server\Tools\Annotations\IsIdempotent;
+use Laravel\Mcp\Server\Tools\Annotations\IsOpenWorld;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 use Statamic\Contracts\Auth\User;
 use Statamic\Facades\AssetContainer;
@@ -34,6 +46,9 @@ use Statamic\Facades\Taxonomy;
  * overhead — the LLM handles reasoning, this tool provides data.
  */
 #[IsReadOnly]
+#[IsDestructive(false)]
+#[IsIdempotent]
+#[IsOpenWorld(false)]
 #[Name('statamic-system-discover')]
 #[Title('Statamic Tool Discovery')]
 #[Description('Discover Statamic MCP tools based on intent and get current system state for context-aware guidance.')]
@@ -41,6 +56,19 @@ class DiscoveryTool extends BaseStatamicTool
 {
     /** @var list<string>|null */
     private ?array $catalogToolNames = null;
+
+    /** The built-in routers by the name discovery matches intents to. */
+    private const ROUTERS = [
+        'statamic-entries' => EntriesRouter::class,
+        'statamic-terms' => TermsRouter::class,
+        'statamic-globals' => GlobalsRouter::class,
+        'statamic-blueprints' => BlueprintsRouter::class,
+        'statamic-structures' => StructuresRouter::class,
+        'statamic-assets' => AssetsRouter::class,
+        'statamic-users' => UsersRouter::class,
+        'statamic-system' => SystemRouter::class,
+        'statamic-content-facade' => ContentFacadeRouter::class,
+    ];
 
     protected function getToolDomain(): ?string
     {
@@ -97,7 +125,7 @@ class DiscoveryTool extends BaseStatamicTool
     /**
      * Match intent keywords to recommended tools, ordered by relevance.
      *
-     * @return list<array{tool: string, reason: string, access: string}>
+     * @return list<array<string, string>>
      */
     private function matchTools(string $intent): array
     {
@@ -135,12 +163,8 @@ class DiscoveryTool extends BaseStatamicTool
                 }
             }
             if ($score > 0) {
-                $matches[] = [
-                    'tool' => $tool,
-                    'reason' => $toolDescriptions[$tool],
-                    'access' => $this->accessPath($tool),
-                    '_score' => $score,
-                ];
+                $names = $this->presentedNames(app(self::ROUTERS[$tool]));
+                $matches[] = [...$names, 'reason' => $toolDescriptions[$tool], 'access' => $this->accessPath($names['tool']), '_score' => $score];
             }
         }
 
@@ -158,12 +182,8 @@ class DiscoveryTool extends BaseStatamicTool
                     }
                 }
                 if ($score > 0) {
-                    $matches[] = [
-                        'tool' => $tool->name(),
-                        'reason' => $tool->discoveryReason(),
-                        'access' => $this->accessPath($tool->name()),
-                        '_score' => $score,
-                    ];
+                    $names = $this->presentedNames($tool);
+                    $matches[] = [...$names, 'reason' => $tool->discoveryReason(), 'access' => $this->accessPath($names['tool']), '_score' => $score];
                 }
             } catch (\Throwable) {
                 continue;
@@ -174,11 +194,28 @@ class DiscoveryTool extends BaseStatamicTool
         usort($matches, fn (array $a, array $b): int => $b['_score'] <=> $a['_score']);
 
         // Remove internal score from output
-        return array_map(function (array $match): array {
-            unset($match['_score']);
+        return array_map(
+            fn (array $match): array => array_filter($match, fn (mixed $value, string $key): bool => $key !== '_score' && is_string($value), ARRAY_FILTER_USE_BOTH),
+            $matches,
+        );
+    }
 
-            return $match;
-        }, $matches);
+    /**
+     * The tools a client calls for a router: `tool` reads (or is the only
+     * tool), `write_tool` changes the site.
+     *
+     * @return array{tool: string, write_tool?: string}
+     */
+    private function presentedNames(BaseRouter $router): array
+    {
+        $read = $router->offersFacet('read') ? $router->facet('read')->name() : null;
+        $write = $router->offersFacet('write') ? $router->facet('write')->name() : null;
+
+        return match (true) {
+            $read !== null && $write !== null => ['tool' => $read, 'write_tool' => $write],
+            $read !== null => ['tool' => $read],
+            default => ['tool' => $write ?? $router->name()],
+        };
     }
 
     /**
@@ -261,7 +298,7 @@ class DiscoveryTool extends BaseStatamicTool
             return $this->catalogToolNames;
         }
 
-        $classes = config('statamic.mcp.catalog.searchable', true)
+        $classes = config('statamic.mcp.catalog.searchable', false)
             ? [...StatamicMcpServer::CORE_TOOLS, ...ExtraTools::core()]
             : [...StatamicMcpServer::CORE_TOOLS, ...StatamicMcpServer::SEARCHABLE_TOOLS, ...array_keys(ExtraTools::all())];
 
@@ -269,7 +306,9 @@ class DiscoveryTool extends BaseStatamicTool
 
         foreach ($classes as $class) {
             try {
-                $names[] = app($class)->name();
+                foreach (StatamicMcpServer::presented([$class]) as $tool) {
+                    $names[] = $tool->name();
+                }
             } catch (\Throwable) {
                 // A tool that cannot be resolved is not in the catalog either.
             }
@@ -362,50 +401,26 @@ class DiscoveryTool extends BaseStatamicTool
     }
 
     /**
-     * Dynamic tool summary via reflection on registered routers.
+     * Every tool a client can be given, by name, with its actions and
+     * resource types: each router's read and write tool, from their
+     * declarations.
      *
      * @return array<string, array{actions: list<string>, types: list<string>}>
      */
     private function getToolSummary(): array
     {
-        $routerClasses = [
-            'entries' => 'Cboxdk\\StatamicMcp\\Mcp\\Tools\\Routers\\EntriesRouter',
-            'terms' => 'Cboxdk\\StatamicMcp\\Mcp\\Tools\\Routers\\TermsRouter',
-            'globals' => 'Cboxdk\\StatamicMcp\\Mcp\\Tools\\Routers\\GlobalsRouter',
-            'blueprints' => 'Cboxdk\\StatamicMcp\\Mcp\\Tools\\Routers\\BlueprintsRouter',
-            'structures' => 'Cboxdk\\StatamicMcp\\Mcp\\Tools\\Routers\\StructuresRouter',
-            'assets' => 'Cboxdk\\StatamicMcp\\Mcp\\Tools\\Routers\\AssetsRouter',
-            'users' => 'Cboxdk\\StatamicMcp\\Mcp\\Tools\\Routers\\UsersRouter',
-            'system' => 'Cboxdk\\StatamicMcp\\Mcp\\Tools\\Routers\\SystemRouter',
-            'content-facade' => 'Cboxdk\\StatamicMcp\\Mcp\\Tools\\Routers\\ContentFacadeRouter',
-        ];
-
         $summary = [];
 
-        foreach ($routerClasses as $domain => $className) {
-            try {
-                if (! class_exists($className)) {
-                    continue;
-                }
-
-                /** @var object $instance */
-                $instance = app()->make($className);
-
-                /** @var array<string, string> $actionsResult */
-                $actionsResult = method_exists($instance, 'getActions') ? $instance->getActions() : [];
-                $actions = array_keys($actionsResult);
-
-                /** @var array<string, string> $typesResult */
-                $typesResult = method_exists($instance, 'getTypes') ? $instance->getTypes() : [];
-                $types = array_keys($typesResult);
-
-                $summary["statamic-{$domain}"] = [
-                    'actions' => $actions,
-                    'types' => $types,
-                ];
-            } catch (\Exception) {
-                // Skip tools that can't be introspected
+        foreach (StatamicMcpServer::presented(array_values(self::ROUTERS)) as $tool) {
+            if (! $tool instanceof BaseRouter) {
+                continue;
             }
+            $facet = $tool->presentedFacet();
+            $actions = array_values(array_filter($tool->declaredActions(), fn ($action): bool => $action->writes() === ($facet === 'write')));
+            $summary[$tool->name()] = [
+                'actions' => array_map(fn ($action): string => $action->name, $actions),
+                'types' => $tool->resourceTypes(),
+            ];
         }
 
         return $summary;

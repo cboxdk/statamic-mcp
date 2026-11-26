@@ -47,7 +47,9 @@ class InstallationProfileTest extends TestCase
     {
         config(['statamic.mcp.profiles.stdio' => 'read_only']);
         $profile = app(InstallationProfile::class);
-        $this->assertNull($profile->denial('entries', 'get'));
+        $this->assertNull($profile->denial('entries', 'get', writes: false));
+        // Without a declaration saying it only reads, an action is a write.
+        $this->assertNotNull($profile->denial('entries', 'get'));
         foreach (['delete', 'publish', 'new_extension_action', 'create'] as $action) {
             $this->assertNotNull($profile->denial('entries', $action));
         }

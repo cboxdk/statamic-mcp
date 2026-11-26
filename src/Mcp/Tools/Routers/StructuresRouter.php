@@ -21,7 +21,7 @@ use Laravel\Mcp\Server\Attributes\Title;
 
 #[Name('statamic-structures')]
 #[Title('Statamic Structures')]
-#[Description('Manage Statamic structural resources: collections, taxonomies, navigations, sites, and global sets. Use resource_type to select the kind, then action for the operation. Actions: list, get, create, update, delete, configure.')]
+#[Description('Statamic structures: collections, taxonomies, navigations, sites and global sets, their settings, and the page and menu trees.')]
 class StructuresRouter extends BaseRouter
 {
     use HandlesCollections;
@@ -49,15 +49,23 @@ class StructuresRouter extends BaseRouter
         return 'structures';
     }
 
+    protected function facetArguments(): array
+    {
+        return [
+            'read' => ['include_tree', 'include_details', 'filters'],
+            'write' => ['data', 'config'],
+        ];
+    }
+
     protected function actions(): array
     {
         return [
-            RouterAction::read('list', 'List structures by type with configuration details'),
-            RouterAction::read('get', 'Get specific structure configuration and details'),
-            RouterAction::admin('create', 'Create new structures with configuration', ['collection', 'taxonomy', 'navigation', 'globalset']),
-            RouterAction::admin('update', 'Update structure configuration and settings', ['collection', 'taxonomy', 'navigation', 'globalset']),
-            RouterAction::admin('delete', 'Delete structures with safety checks', ['collection', 'taxonomy', 'navigation', 'globalset']),
-            RouterAction::admin('configure', 'Configure structure-specific settings and options', ['collection', 'taxonomy', 'navigation', 'globalset']),
+            RouterAction::read('list', 'List collections, taxonomies, navigations, sites or global sets. Needs resource_type.'),
+            RouterAction::read('get', 'Get one structure\'s configuration. Needs resource_type, handle; optional: include_tree and site for a collection\'s page tree.'),
+            RouterAction::admin('create', 'Create a collection, taxonomy, navigation or global set. Needs resource_type, handle, data.', ['collection', 'taxonomy', 'navigation', 'globalset']),
+            RouterAction::admin('update', 'Update a structure\'s settings. Needs resource_type, handle, data. A navigation\'s data may carry its trees; a collection\'s data {entry, parent} moves one page.', ['collection', 'taxonomy', 'navigation', 'globalset']),
+            RouterAction::admin('delete', 'Delete a structure; its content must be deleted first. Needs resource_type, handle.', ['collection', 'taxonomy', 'navigation', 'globalset']),
+            RouterAction::admin('configure', 'Change a structure\'s settings. Needs resource_type, handle, config.', ['collection', 'taxonomy', 'navigation', 'globalset']),
         ];
     }
 
@@ -75,26 +83,10 @@ class StructuresRouter extends BaseRouter
     protected function defineSchema(JsonSchemaContract $schema): array
     {
         return array_merge(parent::defineSchema($schema), [
-            'action' => JsonSchema::string()
-                ->description(
-                    'Action to perform. Required params per action: '
-                    . 'list (resource_type), '
-                    . 'get (resource_type, handle), '
-                    . 'create (resource_type, handle, data), '
-                    . 'update (resource_type, handle, data), '
-                    . 'delete (resource_type, handle), '
-                    . 'configure (resource_type, handle, config)'
-                )
-                ->enum($this->actionNames())
-                ->required(),
-            'resource_type' => JsonSchema::string()
-                ->description('Type of structure to manage. Determines available actions and data format.')
-                ->enum(['collection', 'taxonomy', 'navigation', 'site', 'globalset'])
-                ->required(),
             'handle' => JsonSchema::string()
                 ->description('Structure identifier in snake_case. Required for get, create, update, delete, configure. Example: "blog" for collection, "tags" for taxonomy'),
             'data' => JsonSchema::object()
-                ->description('Structure data for create/update. Fields depend on resource_type. Use statamic-structures action "get" to see current configuration before updating. '
+                ->description('Structure data for create/update. Fields depend on resource_type. Action get on the read tool shows the current configuration. '
                     . 'Navigation: title, max_depth, collections, and the menu itself as trees — the same [{site, items}] list "get" returns, so edit it and send it back — '
                     . 'or tree (a list of items) with an optional site. Each item is {id?, entry? | url? | title?, data?, children?}; an item without an id gets one. '
                     . 'A tree replaces the whole menu for its site. Unknown keys are refused. Collection: update with data {entry: id, parent: id|null} moves one branch; requires reorder permission and both entries:write and structures:admin. Collection tree replacement is not supported.'),

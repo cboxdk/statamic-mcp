@@ -191,7 +191,7 @@ abstract class BaseStatamicTool extends Tool
     {
         $this->startFromAFreshRequestState();
         $action = is_string($arguments['action'] ?? null) ? $arguments['action'] : 'get';
-        $denial = app(InstallationProfile::class)->denial($this->getToolDomain(), $action, $arguments);
+        $denial = app(InstallationProfile::class)->denial($this->getToolDomain(), $action, $arguments, $this->actionWrites($action));
         if ($denial !== null) {
             return $this->createErrorResponse($denial)->toArray();
         }
@@ -499,6 +499,15 @@ abstract class BaseStatamicTool extends Tool
         $enabled = config("statamic.mcp.tools.{$domain}.enabled", true);
 
         return $enabled;
+    }
+
+    /**
+     * Whether the action changes anything. Tools that only read override it;
+     * routers answer from their declarations. Unknown counts as a write.
+     */
+    protected function actionWrites(string $action): bool
+    {
+        return true;
     }
 
     /**

@@ -5,13 +5,18 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\System;
 
 use Cboxdk\StatamicMcp\Mcp\ExtraTools;
+use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseStatamicTool;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
+use Illuminate\JsonSchema\JsonSchemaTypeFactory;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Attributes\Title;
+use Laravel\Mcp\Server\Tools\Annotations\IsDestructive;
+use Laravel\Mcp\Server\Tools\Annotations\IsIdempotent;
+use Laravel\Mcp\Server\Tools\Annotations\IsOpenWorld;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
 /**
@@ -22,6 +27,9 @@ use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
  * provides a human/LLM-friendly summary for quick orientation.
  */
 #[IsReadOnly]
+#[IsDestructive(false)]
+#[IsIdempotent]
+#[IsOpenWorld(false)]
 #[Name('statamic-system-schema')]
 #[Title('Statamic Tool Schemas')]
 #[Description('Quick reference of all Statamic MCP tools, their actions, and key parameters.')]
@@ -36,7 +44,7 @@ class SchemaTool extends BaseStatamicTool
     {
         return [
             'tool_name' => JsonSchema::string()
-                ->description('Filter to a specific tool (e.g., "statamic-entries")'),
+                ->description('Filter to a specific tool (e.g., "statamic-entries-write")'),
         ];
     }
 
@@ -49,105 +57,29 @@ class SchemaTool extends BaseStatamicTool
     {
         $toolName = is_string($arguments['tool_name'] ?? null) ? $arguments['tool_name'] : null;
 
-        $catalog = $this->getToolCatalog();
-
-        foreach (array_keys(ExtraTools::all()) as $class) {
-            /** @var BaseRouter $tool */
-            $tool = app($class);
-            $catalog[$tool->name()] ??= $tool->catalogEntry();
+        $catalog = [];
+        $server = (new \ReflectionClass(StatamicMcpServer::class))->getDefaultProperties()['tools'];
+        foreach (StatamicMcpServer::presented([...(is_array($server) ? $server : []), ...array_keys(ExtraTools::all())]) as $tool) {
+            if (! $tool->eligibleForRegistration()) {
+                continue;
+            }
+            $catalog[$tool->name()] = $tool instanceof BaseRouter
+                ? $tool->catalogEntry()
+                : ['domain' => 'guidance', 'actions' => [], 'resource_types' => [], 'arguments' => array_map('strval', array_keys($tool->schema(new JsonSchemaTypeFactory))), 'provided_by' => 'statamic-mcp'];
         }
 
-        if ($toolName) {
+        if ($toolName !== null) {
             if (! isset($catalog[$toolName])) {
                 return $this->createErrorResponse("Unknown tool: {$toolName}. Available: " . implode(', ', array_keys($catalog)))->toArray();
             }
 
-            return [
-                'tool' => $catalog[$toolName],
-            ];
+            return ['tool' => $catalog[$toolName]];
         }
 
         return [
             'tools' => $catalog,
             'total' => count($catalog),
-            'tip' => 'Full JSON schemas are available via the MCP protocol. Use tool_name to inspect a specific tool.',
-        ];
-    }
-
-    /**
-     * Concise tool catalog — one entry per registered tool.
-     *
-     * @return array<string, array<string, mixed>>
-     */
-    private function getToolCatalog(): array
-    {
-        return [
-            'statamic-entries' => [
-                'domain' => 'content',
-                'actions' => ['list', 'get', 'create', 'update', 'localize', 'delete', 'publish', 'unpublish', 'list_revisions', 'get_revision', 'restore_revision', 'publish_working_copy'],
-                'key_params' => ['collection (required)', 'id', 'data', 'site', 'merge_sets', 'revision_message', 'limit', 'offset'],
-                'write' => true,
-            ],
-            'statamic-terms' => [
-                'domain' => 'content',
-                'actions' => ['list', 'get', 'create', 'update', 'delete'],
-                'key_params' => ['taxonomy (required)', 'id', 'slug', 'data', 'site'],
-                'write' => true,
-            ],
-            'statamic-globals' => [
-                'domain' => 'content',
-                'actions' => ['list', 'get', 'update'],
-                'key_params' => ['handle', 'site', 'data'],
-                'write' => true,
-            ],
-            'statamic-blueprints' => [
-                'domain' => 'structure',
-                'actions' => ['list', 'get', 'create', 'update', 'delete', 'scan', 'generate', 'types', 'validate'],
-                'key_params' => ['handle', 'namespace', 'fields', 'include_details', 'include_fields'],
-                'write' => true,
-            ],
-            'statamic-structures' => [
-                'domain' => 'structure',
-                'actions' => ['list', 'get', 'create', 'update', 'delete', 'configure'],
-                'key_params' => ['type (collection|taxonomy|navigation|site|globalset)', 'handle', 'data'],
-                'write' => true,
-            ],
-            'statamic-assets' => [
-                'domain' => 'assets',
-                'actions' => ['list', 'get', 'create', 'update', 'delete', 'upload', 'move', 'copy'],
-                'key_params' => ['container', 'path', 'data'],
-                'write' => true,
-            ],
-            'statamic-users' => [
-                'domain' => 'users',
-                'actions' => ['list', 'get', 'search', 'create', 'update', 'delete', 'activate', 'deactivate', 'assign_role', 'remove_role'],
-                'key_params' => ['type (user|role|group)', 'id', 'data', 'role'],
-                'write' => true,
-            ],
-            'statamic-system' => [
-                'domain' => 'system',
-                'actions' => ['info', 'health', 'cache_status', 'cache_clear', 'cache_warm', 'config_get', 'config_set'],
-                'key_params' => ['key', 'value', 'include_details'],
-                'write' => true,
-            ],
-            'statamic-content-facade' => [
-                'domain' => 'workflow',
-                'actions' => ['content_audit', 'content_validate', 'cross_reference'],
-                'key_params' => ['filters', 'scope', 'collection', 'taxonomy', 'severity', 'limit', 'offset'],
-                'write' => false,
-            ],
-            'statamic-system-discover' => [
-                'domain' => 'education',
-                'actions' => ['discover (intent-based)'],
-                'key_params' => ['intent', 'context'],
-                'write' => false,
-            ],
-            'statamic-system-schema' => [
-                'domain' => 'education',
-                'actions' => ['catalog'],
-                'key_params' => ['tool_name'],
-                'write' => false,
-            ],
+            'tip' => 'Each tool\'s full JSON schema is in tools/list. Use tool_name to inspect one tool.',
         ];
     }
 }

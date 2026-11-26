@@ -51,7 +51,7 @@ class FieldFormatSpec
             return [
                 'wire_format' => 'truncated',
                 'shape' => 'truncated',
-                'rules' => ["Recursion truncated at depth {$this->maxDepth}. Re-fetch scoped to this field — statamic-blueprints get with the `field` path — rather than raising max_format_depth on the whole blueprint, which on a large one exceeds the response limit."],
+                'rules' => ["Recursion truncated at depth {$this->maxDepth}. Re-fetch scoped to this field — statamic-blueprints-read get with the `field` path — rather than raising max_format_depth on the whole blueprint, which on a large one exceeds the response limit."],
             ];
         }
 

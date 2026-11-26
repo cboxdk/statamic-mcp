@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed (breaking)
 
+- Each tool is now two: `statamic-{area}-read`, which only reads, and `statamic-{area}-write` (entries, terms, globals, assets) or `statamic-{area}-admin` (blueprints, structures, users, system), which changes the site. `statamic-content-facade-read` has no write tool. Every tool carries all four behaviour hints, so clients allow reads without asking, and one rule (`mcp__statamic__*-read` in Claude Code, `statamic:*-read` in Cursor) allows reading everything. A read tool lists only read actions and no write arguments; a write action sent to it is refused with the name of the right tool. Client permission rules naming the v3 tools must be updated.
+- `tools/list` shows only the tools the token's scopes and the installation profile let the caller use. A hidden tool can still be called and answers with the scope it needs.
+- The searchable catalog (`search_tools`/`execute_tools`) is off by default: every tool is listed. Turn it on with `STATAMIC_MCP_SEARCHABLE_CATALOG=true` for a client without its own tool search.
+- `resource_type` is required where a tool has several kinds of resource (assets, structures, users) and gone where it had none. `statamic-system-schema` describes the tools from their declarations: actions, resource types and arguments per tool.
 - Tools from other packages declare their actions in `actions()` as `RouterAction::read()`, `edit()`, `publish()`, `delete()` or `admin()` instead of `getActions()`. The declared effect decides scopes, write mode and approvals; an action's name no longer does, so a `purge` or `send` action is no longer checked as a read. An undeclared action, or a `resource_type` the action does not apply to, is refused with the valid choices.
 - `statamic-structures` no longer offers create, update, delete or configure for sites, which only ever answered "not supported"; `configure sites` alone no longer offers `structures:admin`.
 - Retire `content:read` and `content:write`. No tool ever asked for them, so they granted nothing in v3 either; they are no longer offered, advertised or part of the presets and the default OAuth scopes. `mcp:migrate-v4 --apply` drops them from personal tokens, and an OAuth refresh drops them from the grant without asking for consent again.
@@ -93,6 +97,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The `read_only` installation profile refused blueprint `scan`, `types` and `validate`, which only read.
 - Users who may edit roles or user groups are offered `users:read`, which the role and group reads need.
 - A write that landed but whose response was over `security.max_response_size` was reported as a failure, so a retry wrote it twice. It now answers success with the record's identifying fields and `response_truncated: true`.
 - The MCP Admin page answered 500 when `STATAMIC_MCP_RATE_LIMIT_MAX` (or another number) came from `.env` as a string in a config published before v4.

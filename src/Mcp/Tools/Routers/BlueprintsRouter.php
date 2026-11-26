@@ -27,7 +27,7 @@ use Statamic\Fieldtypes\Replicator;
 
 #[Name('statamic-blueprints')]
 #[Title('Statamic Blueprints')]
-#[Description('Manage Statamic blueprints — the schema definitions for all content types. Call get before creating/updating entries, terms, or globals to understand required fields AND the _format_spec for each field (wire format, allowed types, common mistakes). Actions: list, get, create, update, delete, scan, generate, types, validate.')]
+#[Description('Statamic blueprints: the fields of every entry, term, global set, asset and user, with each field\'s _format_spec, the exact wire format a write must send.')]
 class BlueprintsRouter extends BaseRouter
 {
     protected function getDomain(): string
@@ -35,50 +35,37 @@ class BlueprintsRouter extends BaseRouter
         return 'blueprints';
     }
 
+    protected function facetArguments(): array
+    {
+        return [
+            'read' => ['include_details', 'include_fields', 'field', 'include_config', 'include_format_spec', 'max_format_depth', 'output_format'],
+            'write' => ['fields', 'replace_fields', 'title'],
+        ];
+    }
+
     protected function actions(): array
     {
         return [
-            RouterAction::read('list', 'List blueprints in specific namespaces with optional details'),
-            RouterAction::read('get', 'Get specific blueprint with full field definitions'),
-            RouterAction::admin('create', 'Create new blueprint from field definitions'),
-            RouterAction::admin('update', 'Update existing blueprint fields and configuration'),
-            RouterAction::admin('delete', 'Delete blueprints with safety checks'),
-            RouterAction::read('scan', 'Scan and analyze blueprint usage patterns'),
-            RouterAction::admin('generate', 'Generate blueprints from user-provided field definitions'),
-            RouterAction::read('types', 'Generate TypeScript/PHP type definitions from blueprints'),
-            RouterAction::read('validate', 'Validate blueprint structure and field definitions'),
+            RouterAction::read('list', 'List blueprints. Optional: namespace, include_fields, include_details.'),
+            RouterAction::read('get', 'Get a blueprint\'s fields with each field\'s _format_spec, the wire format a write expects. Needs handle, namespace (plus collection_handle or taxonomy_handle in those namespaces); optional: field (a dot path to one field or set), include_config, include_format_spec, max_format_depth.'),
+            RouterAction::admin('create', 'Create a blueprint. Needs handle, namespace, fields (each with a handle and a field object carrying type); optional: title, collection_handle, taxonomy_handle.'),
+            RouterAction::admin('update', 'Update a blueprint\'s fields, merged by handle unless replace_fields is true. Needs handle, namespace, fields.'),
+            RouterAction::admin('delete', 'Delete a blueprint. Needs handle, namespace.'),
+            RouterAction::read('scan', 'Report how blueprints and fieldtypes are used. Optional: namespace.'),
+            RouterAction::admin('generate', 'Create a blueprint from field definitions you supply. Needs handle, namespace, fields; optional: title.'),
+            RouterAction::read('types', 'Generate TypeScript, PHP or JSON Schema types from blueprints. Needs output_format; optional: namespace, handle.'),
+            RouterAction::read('validate', 'Validate a blueprint\'s structure and field definitions. Needs handle, namespace.'),
         ];
     }
 
     public function getTypes(): array
     {
-        return [
-            'collections' => 'Blueprints for collection entries and content structure',
-            'taxonomies' => 'Blueprints for taxonomy terms and categorization',
-            'globals' => 'Blueprints for global settings and configuration',
-            'forms' => 'Blueprints for form fields and submissions',
-            'assets' => 'Blueprints for asset metadata and properties',
-            'users' => 'Blueprints for user profiles and authentication',
-        ];
+        return [];
     }
 
     protected function defineSchema(JsonSchemaContract $schema): array
     {
         return array_merge(parent::defineSchema($schema), [
-            'action' => JsonSchema::string()
-                ->description(
-                    'Action to perform. Required params per action: '
-                    . 'list (namespace; optional: include_fields), '
-                    . 'get (handle, namespace; requires collection_handle for collections namespace, taxonomy_handle for taxonomies namespace), '
-                    . 'create (handle, namespace, fields — each field needs "handle" and "field" object with "type"), '
-                    . 'update (handle, namespace, fields — merges with existing fields by default; set replace_fields=true to replace all), '
-                    . 'delete (handle, namespace), '
-                    . 'scan (namespace), '
-                    . 'types (namespace, output_format), '
-                    . 'validate (handle, namespace)'
-                )
-                ->enum($this->actionNames())
-                ->required(),
             'handle' => JsonSchema::string()
                 ->description('Blueprint identifier in snake_case. Example: "blog_post", "product"'),
             'namespace' => JsonSchema::string()
@@ -500,14 +487,14 @@ class BlueprintsRouter extends BaseRouter
             if ($namespace === 'collections') {
                 // collection_handle is guaranteed to exist here due to validation above
                 if (! Collection::find($collectionHandle)) {
-                    return $this->createErrorResponse("Collection not found: {$collectionHandle}. Create collection first with statamic-structures.")->toArray();
+                    return $this->createErrorResponse("Collection not found: {$collectionHandle}. Create the collection first with statamic-structures-admin.")->toArray();
                 }
             }
 
             if ($namespace === 'taxonomies') {
                 // taxonomy_handle is guaranteed to exist here due to validation above
                 if (! Taxonomy::find($taxonomyHandle)) {
-                    return $this->createErrorResponse("Taxonomy not found: {$taxonomyHandle}. Create taxonomy first with statamic-structures.")->toArray();
+                    return $this->createErrorResponse("Taxonomy not found: {$taxonomyHandle}. Create the taxonomy first with statamic-structures-admin.")->toArray();
                 }
             }
 
@@ -792,7 +779,7 @@ class BlueprintsRouter extends BaseRouter
                     if (is_string($taxHandle) && ! Taxonomy::find($taxHandle)) {
                         return $this->createErrorResponse(
                             "Field \"{$handle}\" references taxonomy \"{$taxHandle}\" which does not exist. "
-                            . 'Create the taxonomy first with statamic-structures action "create", resource_type "taxonomy".'
+                            . 'Create the taxonomy first with statamic-structures-admin action "create", resource_type "taxonomy".'
                         )->toArray();
                     }
                 }
@@ -803,7 +790,7 @@ class BlueprintsRouter extends BaseRouter
                     if (is_string($colHandle) && ! Collection::find($colHandle)) {
                         return $this->createErrorResponse(
                             "Field \"{$handle}\" references collection \"{$colHandle}\" which does not exist. "
-                            . 'Create the collection first with statamic-structures action "create", resource_type "collection".'
+                            . 'Create the collection first with statamic-structures-admin action "create", resource_type "collection".'
                         )->toArray();
                     }
                 }
@@ -1286,13 +1273,6 @@ class BlueprintsRouter extends BaseRouter
     }
 
     /**
-     * Read actions: the reads an agent needs before it can shape a write.
-     *
-     * @var array<int, string>
-     */
-    private const READ_ACTIONS = ['list', 'get', 'scan', 'types', 'validate'];
-
-    /**
      * Get required permissions for action.
      *
      * Writing a blueprint changes the content model, which is 'configure
@@ -1310,7 +1290,7 @@ class BlueprintsRouter extends BaseRouter
      */
     protected function getRequiredPermissions(string $action, array $arguments): array
     {
-        if (! in_array($action, self::READ_ACTIONS, true)) {
+        if ($this->isWriteAction($action)) {
             return ['configure fields'];
         }
 

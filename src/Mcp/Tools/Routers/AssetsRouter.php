@@ -29,7 +29,7 @@ use Statamic\Support\Str;
 
 #[Name('statamic-assets')]
 #[Title('Statamic Assets')]
-#[Description('Manage Statamic assets and asset containers. Set resource_type to "container" or "asset", then choose an action. Actions: list, get, create, update, delete, move, copy, upload.')]
+#[Description('Statamic assets and asset containers: files, their metadata, and where they are stored.')]
 class AssetsRouter extends BaseRouter
 {
     protected function getDomain(): string
@@ -37,17 +37,31 @@ class AssetsRouter extends BaseRouter
         return 'assets';
     }
 
+    /** An upload can fetch a URL the client names. */
+    protected function writesReachOutside(): bool
+    {
+        return true;
+    }
+
+    protected function facetArguments(): array
+    {
+        return [
+            'read' => ['include_details', 'include_counts', 'recursive', 'filters'],
+            'write' => ['data', 'destination', 'filename', 'content', 'source_url', 'file_path', 'encoding'],
+        ];
+    }
+
     protected function actions(): array
     {
         return [
-            RouterAction::read('list', 'List assets or containers with filtering options'),
-            RouterAction::read('get', 'Get specific asset or container details'),
-            RouterAction::edit('create', 'Create new asset containers or create assets from inline content (base64 or raw text)'),
-            RouterAction::edit('update', 'Update asset metadata or container configuration'),
-            RouterAction::delete('delete', 'Delete assets or containers'),
-            RouterAction::edit('move', 'Move assets to different locations', ['asset']),
-            RouterAction::edit('copy', 'Copy assets to different locations', ['asset']),
-            RouterAction::edit('upload', 'Upload a file to a container: from a URL the server fetches (source_url), from base64 content, or from a local file_path (CLI clients)', ['asset']),
+            RouterAction::read('list', 'List containers, or the assets in one. Needs resource_type; container for assets; optional: folder, recursive, filters.'),
+            RouterAction::read('get', 'Get a container (handle) or an asset (container, path).'),
+            RouterAction::edit('create', 'Create a container (handle, data) or an asset from inline content (container, filename, content, encoding).'),
+            RouterAction::edit('update', 'Update a container\'s settings (handle, data) or an asset\'s metadata (container, path, data).'),
+            RouterAction::delete('delete', 'Delete a container (handle) or an asset (container, path).'),
+            RouterAction::edit('move', 'Move or rename an asset. Needs container, path, destination.', ['asset']),
+            RouterAction::edit('copy', 'Copy an asset. Needs container, path, destination.', ['asset']),
+            RouterAction::edit('upload', 'Upload a file into a container. Needs container and one of: source_url (the server fetches it), content with encoding and filename, or file_path (local stdio only); optional: folder.', ['asset']),
         ];
     }
 
@@ -62,24 +76,6 @@ class AssetsRouter extends BaseRouter
     protected function defineSchema(JsonSchemaContract $schema): array
     {
         return array_merge(parent::defineSchema($schema), [
-            'action' => JsonSchema::string()
-                ->description(
-                    'Action to perform. Required params per action: '
-                    . 'list (resource_type; container for assets), '
-                    . 'get (resource_type; container + path for assets, handle for containers), '
-                    . 'create (resource_type; container + filename + content for assets, handle for containers), '
-                    . 'update (resource_type; container + path + data for assets, handle + data for containers), '
-                    . 'delete (resource_type; container + path for assets, handle for containers), '
-                    . 'move (resource_type=asset, container, path, destination), '
-                    . 'copy (resource_type=asset, container, path, destination), '
-                    . 'upload (resource_type=asset, container, optional folder; source_url to fetch from the web, OR content+encoding+filename, OR file_path for local CLI clients)'
-                )
-                ->enum($this->actionNames())
-                ->required(),
-            'resource_type' => JsonSchema::string()
-                ->description('Type of asset resource. "container" for storage containers, "asset" for individual files within containers.')
-                ->enum(['container', 'asset'])
-                ->required(),
             'container' => JsonSchema::string()
                 ->description('Asset container handle. Required for asset operations. Example: "images", "documents"'),
             'path' => JsonSchema::string()

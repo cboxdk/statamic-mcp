@@ -864,43 +864,60 @@ class StatamicExportStrategy extends BaseStatamicTool
 - `statamic-system-discover` - Intent-based tool discovery
 - `statamic-system-schema` - Tool schema inspection
 
-Note: only `statamic-system-discover`, `statamic-entries` and `statamic-blueprints` are
-listed in the catalog by default. See "The tool catalog is deliberately partial" below.
+Clients see each router as a `-read` and a `-write`/`-admin` tool. See "Each router is
+two tools" below.
 
 #### Workflow Facades
 - `statamic-content-facade` - Common content workflows
 
-### The tool catalog is deliberately partial
+### Each router is two tools: `-read` and `-write`/`-admin`
 
-`tools/list` costs every client ~31 KB of schema on every connection, before it has
-asked anything — the routers carry large schemas and there are eleven of them. So
-`StatamicMcpServer` splits them:
+A router mixing reads and writes reads as a destructive tool to every client (no
+`readOnlyHint` means destructive), so clients ask about every read and nobody can allow
+reading alone. `StatamicMcpServer::presented()` therefore serves each router as two
+facets of the same class (`BaseRouter::facet('read'|'write')`):
 
-- **`CORE_TOOLS`** stay in the catalog: `statamic-system-discover`, `statamic-entries`,
-  `statamic-blueprints`. They cover what a session actually opens with.
-- **`SEARCHABLE_TOOLS`** are handed to `Laravel\Mcp\Server\Tools\ToolSearch`, which
-  exposes them through `search_tools` and `execute_tools` instead. Catalog drops to
-  ~12.6 KB, a ~60% cut.
+- **Name**: `statamic-{domain}-read`, and `-admin` when any action is `RouterAction::admin()`,
+  else `-write`. A router with no write action has no write tool (content-facade).
+- **Annotations**: all four hints explicit. Read: read-only, not destructive, idempotent,
+  closed world. Write: destructive, not idempotent; `openWorldHint` from
+  `writesReachOutside()` (assets, because upload fetches `source_url`).
+- **Schema**: only that side's actions in the `action` enum (the description is built from
+  the declarations), only resource types an action of that side applies to, and minus
+  `facetArguments()` of the other side. `approval_id`/`idempotency_key` are write-only.
+- **Calls**: a read tool given a write action (or the reverse) is refused, naming the
+  other tool. The unfaceted router (`$router->execute()`) still runs every action; tests
+  use it, `InteractsWithMcp::mcpTool()` picks the facet from the action.
 
-**This does not weaken authorization.** ToolSearch honours `shouldRegister()`, so a
-disabled domain stays invisible, and `execute_tools` invokes the tool's own `handle()`
-— token scope, resource policy, Statamic permissions and the confirmation gate all
-apply exactly as on a direct call. A searchable tool is hidden, never ungated.
+`tools/list` goes through `Mcp\Methods\ListPermittedTools`: a router facet is listed
+only when the installation profile allows its kind of action
+(`InstallationProfile::allowsAny()`) and, over HTTP, the token holds `{domain}:read` or
+the domain's write scope. A hidden tool can still be called and is refused with the
+missing scope, never "tool not found".
 
-Two consequences worth knowing:
+The profile reads whether an action writes from the declaration (`denial(..., writes:)`).
+It used to keep its own read list and refused blueprint `scan`/`types`/`validate` under
+`read_only`.
+
+### The searchable catalog is opt-in
+
+`catalog.searchable` (default **false**) moves every tool but `CORE_TOOLS`
+(`statamic-system-discover` and the entries and blueprints pairs) behind
+`Laravel\Mcp\Server\Tools\ToolSearch` (`search_tools`/`execute_tools`). Off by default
+because a client then sees one `execute_tools` tool with no annotations, so it cannot tell
+reads from writes, and `Mcp-Name` names `execute_tools` instead of the tool. Claude Code,
+Cursor and claude.ai search large catalogs themselves.
+
+It is still fully gated: ToolSearch honours `shouldRegister()`, and `execute_tools`
+invokes the tool's own `handle()`. When it is on:
 
 - `execute_tools` yields progress notifications before its result, so the endpoint
-  answers as an **SSE stream**, not a single JSON body. Tests must read
-  `streamedContent()` and parse `data:` frames.
-- The split is config-driven (`catalog.searchable`, default true) because some
-  clients handle `search_tools` badly. `createContext()` — not `boot()`, not a property
-  initializer — resolves both the catalog and the instructions describing it, so the
-  two can never disagree. **If you change the split, the instructions must change with
-  it**: an agent told to use `search_tools` when it is off will simply fail.
+  answers as an **SSE stream**. Tests read `streamedContent()` and parse `data:` frames.
+- `createContext()` resolves the catalog and the instructions describing it together.
+  **If you change the split, the instructions must change with it.**
 
-`DiscoveryTool` reads `StatamicMcpServer::CORE_TOOLS` to tell clients whether a
-recommended tool is `listed_in_catalog` or reachable `via_execute_tools`. Do not restate
-the split there — it must stay derived, or the two drift.
+`DiscoveryTool` derives `listed_in_catalog`/`via_execute_tools` and each router's `tool`
+and `write_tool` names from `StatamicMcpServer::presented()`. Do not restate them there.
 
 ### CORS and the preflight route
 
