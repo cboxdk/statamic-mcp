@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
+use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
 use Cboxdk\StatamicMcp\Mcp\Exceptions\ToolFailure;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
@@ -32,6 +33,15 @@ class StructuresRouter extends BaseRouter
     use HandlesNavigations;
     use HandlesSites;
     use HandlesTaxonomies;
+
+    protected function additionalTokenScopes(string $action, array $arguments): array
+    {
+        if ($action === 'get' && ($arguments['resource_type'] ?? '') === 'collection' && ! empty($arguments['include_tree'])) {
+            return [TokenScope::EntriesRead];
+        }
+
+        return $action === 'move' ? [TokenScope::EntriesWrite] : [];
+    }
 
     protected function filterInputFields(array $arguments): array
     {

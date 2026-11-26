@@ -92,7 +92,6 @@ class BlueprintsRouter extends BaseRouter
                 ->items(JsonSchema::object())
                 ->description(
                     'Array of field definition objects. Each MUST have "handle" (string) and "field" (object with at minimum a "type" key). '
-                    . 'Use statamic-schema tool to see available field types. '
                     . 'For update action: fields are MERGED with existing fields by default (existing fields are preserved, matching handles are updated). '
                     . 'Set replace_fields=true to replace ALL fields instead. '
                     . 'Example: [{"handle": "title", "field": {"type": "text", "display": "Title"}}]'

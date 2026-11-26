@@ -66,6 +66,7 @@
             <input type="hidden" name="code_challenge" value="{{ $oauthParams['code_challenge'] }}">
             <input type="hidden" name="code_challenge_method" value="{{ $oauthParams['code_challenge_method'] }}">
             <input type="hidden" name="scope" value="{{ $oauthParams['scope'] }}">
+            <input type="hidden" name="resource" value="{{ $oauthParams['resource'] }}">
 
             <p class="scopes-label">Choose permissions to grant:</p>
             <div class="scopes">

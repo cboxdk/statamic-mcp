@@ -7,7 +7,6 @@ use Cboxdk\StatamicMcp\Auth\McpToken;
 use Cboxdk\StatamicMcp\Mcp\ExtraTools;
 use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
 use Cboxdk\StatamicMcp\Mcp\Tools\System\DiscoveryTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\System\SchemaTool;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Cboxdk\StatamicMcp\Tests\Fixtures\ExtraTools\BrokenKeywordsExtraRouter;
 use Cboxdk\StatamicMcp\Tests\Fixtures\ExtraTools\KeywordedExtraRouter;
@@ -167,18 +166,19 @@ it('keeps the flat tool list complete', function () {
         ->and($tools)->toContain(...StatamicMcpServer::CORE_TOOLS);
 });
 
-it('names searchable extra tools in the instructions', function () {
+it('does not advertise extension names in universal instructions', function () {
     config()->set('statamic.mcp.catalog.searchable', true);
     StatamicMcpServer::registerTool(UnscopedExtraRouter::class);
 
-    expect(app(StatamicMcpServer::class)->createContext()->instructions)->toContain('fixture-site-health-read');
+    expect(app(StatamicMcpServer::class)->createContext()->instructions)->not->toContain('fixture-site-health-read');
 });
 
 it('tells the discovery tool about a listed extra tool', function () {
     config()->set('statamic.mcp.catalog.searchable', true);
     StatamicMcpServer::registerTool(UnscopedExtraRouter::class, searchable: false);
 
-    $names = (new ReflectionMethod(DiscoveryTool::class, 'catalogToolNames'))->invoke(app(DiscoveryTool::class));
+    $result = app(DiscoveryTool::class)->execute([]);
+    $names = array_keys($result['data']['discovery']['available_tools']);
 
     expect($names)->toContain('fixture-site-health-read');
 });
@@ -322,10 +322,10 @@ it('lets a user through once the extra tool names the permission it needs', func
         ->and(callAsWebClient(PermissionedExtraRouter::class, ['system:read'], [])['success'])->toBeFalse();
 });
 
-it('describes an extra tool in statamic-system-schema', function () {
+it('describes an extra tool in statamic-discover', function () {
     StatamicMcpServer::registerTool(UnscopedExtraRouter::class);
 
-    $result = app(SchemaTool::class)->execute(['tool_name' => 'fixture-site-health-read']);
+    $result = app(DiscoveryTool::class)->execute(['tool_name' => 'fixture-site-health-read']);
 
     expect($result['success'])->toBeTrue()
         ->and($result['data']['tool'])->toMatchArray(['domain' => 'site-health', 'actions' => ['get'], 'resource_types' => [], 'provided_by' => 'extension'])

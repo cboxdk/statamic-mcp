@@ -62,6 +62,116 @@ class WebEndpointProtocolTest extends TestCase
         $this->assertStringContainsString('Statamic', $result['instructions']);
     }
 
+    public function test_scope_challenges_cover_whole_batches_prompts_and_resources_before_dispatch(): void
+    {
+        config(['statamic.mcp.catalog.searchable' => true, 'statamic.mcp.web.allowed_origins' => ['https://client.test']]);
+        $collection = Collection::make('challenge_pages')->title('Unchanged');
+        $collection->save();
+        $user = User::make()->email('challenge@example.test')->makeSuper();
+        $user->save();
+        $this->token = app(TokenService::class)->createToken((string) $user->id(), 'challenge', ['structures:admin', 'structures:read'])['token'];
+        $batch = ['name' => 'execute_tools', 'arguments' => ['calls' => [
+            ['name' => 'statamic-structures-admin', 'arguments' => ['action' => 'update', 'resource_type' => 'collection', 'handle' => 'challenge_pages', 'data' => ['title' => 'Changed']]],
+            ['name' => 'statamic-structures-read', 'arguments' => ['action' => 'get', 'resource_type' => 'collection', 'handle' => 'challenge_pages', 'include_tree' => true]],
+        ]]];
+        foreach (['application/json', 'text/plain'] as $contentType) {
+            $this->call('POST', '/mcp/statamic', [], [], [], [
+                'CONTENT_TYPE' => $contentType, 'HTTP_ACCEPT' => 'application/json',
+                'HTTP_AUTHORIZATION' => 'Bearer ' . $this->token, 'HTTP_ORIGIN' => 'https://client.test',
+                'HTTP_MCP_PROTOCOL_VERSION' => self::PROTOCOL_VERSION, 'HTTP_MCP_METHOD' => 'tools/call', 'HTTP_MCP_NAME' => 'execute_tools',
+            ], json_encode($this->body('tools/call', $batch), JSON_THROW_ON_ERROR))
+                ->assertForbidden()->assertJsonPath('scope', 'structures:admin structures:read entries:read')
+                ->assertHeader('Access-Control-Expose-Headers', 'WWW-Authenticate');
+            $this->assertSame('Unchanged', Collection::find('challenge_pages')->title());
+        }
+        $this->rpc('prompts/get', ['name' => 'translate_entry', 'arguments' => ['id' => 'private-entry']])
+            ->assertForbidden()->assertJsonPath('scope', 'blueprints:read entries:read');
+        $this->rpc('prompts/get', ['name' => 'model_content', 'arguments' => []])
+            ->assertForbidden()->assertJsonPath('scope', 'blueprints:read');
+        $this->rpc('resources/read', ['uri' => 'statamic://blueprints'])
+            ->assertForbidden()->assertJsonPath('scope', 'blueprints:read');
+    }
+
+    public function test_unauthenticated_scope_challenges_do_not_reveal_entry_state(): void
+    {
+        Collection::make('private_pages')->save();
+        Entry::make()->id('private-published')->collection('private_pages')->slug('page')->published(true)->save();
+        $challenges = [];
+        foreach (['private-published', 'missing'] as $id) {
+            foreach ([true, false] as $published) {
+                $response = $this->postJson('/mcp/statamic', $this->body('tools/call', [
+                    'name' => 'statamic-entries-write', 'arguments' => ['action' => 'update', 'collection' => 'private_pages', 'id' => $id, 'data' => ['published' => $published]],
+                ]), ['MCP-Protocol-Version' => self::PROTOCOL_VERSION, 'Mcp-Method' => 'tools/call', 'Mcp-Name' => 'statamic-entries-write'])->assertUnauthorized();
+                $challenges[] = $response->headers->get('WWW-Authenticate');
+            }
+        }
+        $this->assertCount(1, array_unique($challenges));
+        $this->assertStringContainsString('scope="entries:write entries:publish"', $challenges[0]);
+    }
+
+    public function test_workflow_prompts_are_registered_and_only_name_real_tools(): void
+    {
+        Collection::make('prompt_pages')->save();
+        Blueprint::make('page')->setNamespace('collections.prompt_pages')->setContents(['fields' => [
+            ['handle' => 'sections', 'field' => ['type' => 'replicator']],
+        ]])->save();
+        Entry::make()->id('prompt-entry')->collection('prompt_pages')->slug('page')->data(['sections' => []])->save();
+        $names = ['write_entry', 'translate_entry', 'edit_page_builder', 'model_content'];
+        $this->assertEqualsCanonicalizing($names, array_column($this->rpc('prompts/list')->assertOk()->json('result.prompts'), 'name'));
+        $tools = $this->toolNames();
+        foreach ($names as $name) {
+            $arguments = ['collection' => 'prompt_pages', 'blueprint' => 'page', 'task' => 'Improve copy'];
+            if ($name !== 'model_content') {
+                $arguments['id'] = 'prompt-entry';
+            }
+            if ($name === 'translate_entry') {
+                $arguments['target_site'] = 'danish';
+            }
+            if ($name === 'edit_page_builder') {
+                $arguments['field'] = 'sections';
+            }
+            $response = $this->rpc('prompts/get', ['name' => $name, 'arguments' => $arguments])->assertOk();
+            $text = $response->json('result.messages.0.content.text');
+            $this->assertIsString($text, $response->getContent());
+            $this->assertStringContainsString('_format_spec', $text);
+            preg_match_all('/statamic-[a-z-]+/', $text, $matches);
+            foreach (array_unique($matches[0]) as $tool) {
+                $this->assertContains($tool, $tools);
+            }
+        }
+    }
+
+    public function test_prompt_context_and_completions_cannot_bypass_scopes_or_resource_policy(): void
+    {
+        foreach (['prompt_public', 'prompt_private'] as $handle) {
+            Collection::make($handle)->save();
+            Blueprint::make('page')->setNamespace('collections.' . $handle)->setContents(['fields' => [
+                ['handle' => 'body', 'field' => ['type' => 'markdown']],
+            ]])->save();
+        }
+        $complete = fn (string $argument, array $context = []): TestResponse => $this->rpc('completion/complete', [
+            'ref' => ['type' => 'ref/prompt', 'name' => 'write_entry'],
+            'argument' => ['name' => $argument, 'value' => $argument === 'collection' ? 'prompt_' : 'pa'],
+            'context' => ['arguments' => $context],
+        ]);
+        $this->assertArrayHasKey('completions', $this->rpc('server/discover')->assertOk()->json('result.capabilities'));
+        config(['statamic.mcp.tools.structures.resources.read' => ['prompt_public']]);
+        $complete('collection')->assertOk()->assertJsonPath('result.completion.values', ['prompt_public']);
+        $complete('blueprint', ['collection' => 'prompt_public'])->assertOk()->assertJsonPath('result.completion.values', ['page']);
+
+        $args = ['collection' => 'prompt_public', 'blueprint' => 'page', 'task' => 'Write a draft'];
+        $this->rpc('prompts/get', ['name' => 'write_entry', 'arguments' => $args])->assertOk()->assertJsonStructure(['result' => ['messages']]);
+        config(['statamic.mcp.tools.blueprints.resources.read' => []]);
+        $complete('blueprint', ['collection' => 'prompt_public'])->assertOk()->assertJsonPath('result.completion.values', []);
+        $this->rpc('prompts/get', ['name' => 'write_entry', 'arguments' => $args])->assertStatus(400)->assertJsonStructure(['error'])->assertDontSee('_format_spec');
+        config(['statamic.mcp.tools.blueprints.resources.read' => ['*']]);
+        $user = User::make()->email('prompt-limited@example.com')->makeSuper();
+        $user->save();
+        $this->token = app(TokenService::class)->createToken((string) $user->id(), 'entries-only', [TokenScope::EntriesRead])['token'];
+        $complete('blueprint', ['collection' => 'prompt_public'])->assertOk()->assertJsonPath('result.completion.values', []);
+        $this->rpc('prompts/get', ['name' => 'write_entry', 'arguments' => $args])->assertForbidden()->assertJsonPath('scope', 'blueprints:read')->assertDontSee('_format_spec');
+    }
+
     public function test_framework_versions_are_opt_in_and_only_reported_by_server_discover(): void
     {
         foreach ([false, true] as $expose) {
@@ -194,9 +304,9 @@ class WebEndpointProtocolTest extends TestCase
         $user = User::make()->email('wrong-scope@example.test')->makeSuper();
         $user->save();
         $this->token = app(TokenService::class)->createToken((string) $user->id(), 'wrong-scope', ['terms:read'])['token'];
-        $this->rpc('tools/call', $call)->assertOk()
-            ->assertJsonPath('result.isError', true)
-            ->assertJsonPath('result.structuredContent.error.code', 'SCOPE_MISSING');
+        $this->rpc('tools/call', $call)->assertForbidden()
+            ->assertJsonPath('error', 'insufficient_scope')
+            ->assertJsonPath('scope', 'entries:read');
     }
 
     public function test_removed_actions_are_not_advertised_or_executable(): void
@@ -267,7 +377,7 @@ class WebEndpointProtocolTest extends TestCase
         $names = $this->toolNames();
 
         $this->assertContains('statamic-entries-read', $names);
-        $this->assertContains('statamic-system-discover', $names);
+        $this->assertContains('statamic-discover', $names);
         $this->assertNotContains('statamic-entries-write', $names);
         $this->assertNotContains('statamic-terms-read', $names);
 
@@ -277,9 +387,8 @@ class WebEndpointProtocolTest extends TestCase
             'name' => 'statamic-entries-write',
             'arguments' => ['action' => 'create', 'collection' => 'pages', 'data' => ['title' => 'x']],
         ]);
-        $refused->assertOk();
-        $this->assertTrue($refused->json('result.isError'));
-        $this->assertStringContainsString('entries:write', $this->textContent($refused));
+        $refused->assertForbidden()->assertJsonPath('error', 'insufficient_scope');
+        $this->assertStringContainsString('entries:write', $refused->headers->get('WWW-Authenticate'));
     }
 
     public function test_a_read_only_installation_lists_no_write_tool_and_runs_every_read(): void
@@ -296,6 +405,53 @@ class WebEndpointProtocolTest extends TestCase
         $scan = $this->rpc('tools/call', ['name' => 'statamic-blueprints-read', 'arguments' => ['action' => 'scan']]);
         $scan->assertOk();
         $this->assertFalse($scan->json('result.isError'), $this->textContent($scan));
+    }
+
+    public function test_discovery_filters_tools_and_actions_and_bounds_instructions(): void
+    {
+        $user = User::make()->email('discovery-reader@example.com')->makeSuper();
+        $user->save();
+        foreach ([['entries:read'], ['entries:read', 'entries:write']] as $scopes) {
+            $this->token = app(TokenService::class)->createToken($user->id(), 'discovery', $scopes)['token'];
+            $call = fn (array $arguments) => $this->rpc('tools/call', ['name' => 'statamic-discover', 'arguments' => $arguments]);
+            $catalog = $call(['intent' => 'publish entry'])->assertOk()->json('result.structuredContent.data.discovery');
+            $this->assertArrayNotHasKey('system_state', $catalog);
+            $this->assertArrayNotHasKey('statamic-assets-read', $catalog['available_tools']);
+            $this->assertArrayHasKey('statamic-entries-read', $catalog['available_tools']);
+            if (count($scopes) === 1) {
+                $this->assertArrayNotHasKey('statamic-entries-write', $catalog['available_tools']);
+                $this->assertArrayNotHasKey('write_tool', $catalog['recommended_tools'][0]);
+            } else {
+                $schema = $call(['tool_name' => 'statamic-entries-write'])->assertOk()->json('result.structuredContent.data.tool');
+                $this->assertContains('update', $schema['actions']);
+                $this->assertNotContains('delete', $schema['actions']);
+                $this->assertNotContains('publish', $schema['actions']);
+                $this->assertSame($schema['actions'], $schema['inputSchema']['properties']['action']['enum']);
+            }
+            foreach ([false, true] as $searchable) {
+                config(['statamic.mcp.catalog.searchable' => $searchable]);
+                $instructions = $this->rpc('server/discover')->assertOk()->json('result.instructions');
+                $this->assertLessThan(4096, strlen($instructions));
+                $this->assertStringNotContainsString('statamic-assets', $instructions);
+            }
+        }
+        config(['statamic.mcp.tools.entries.enabled' => false]);
+        $catalog = $call([])->assertOk()->json('result.structuredContent.data.discovery.available_tools');
+        $this->assertArrayNotHasKey('statamic-entries-read', $catalog);
+        $call(['tool_name' => 'statamic-entries-write'])->assertOk()->assertJsonPath('result.structuredContent.error.code', 'NOT_FOUND');
+    }
+
+    public function test_discovery_requires_both_scopes_for_tree_moves(): void
+    {
+        $user = User::make()->email('tree-discovery@example.com')->makeSuper();
+        $user->save();
+        foreach ([['structures:admin'], ['structures:admin', 'entries:write']] as $scopes) {
+            $this->token = app(TokenService::class)->createToken($user->id(), 'tree-discovery', $scopes)['token'];
+            $schema = $this->rpc('tools/call', ['name' => 'statamic-discover', 'arguments' => ['tool_name' => 'statamic-structures-admin']])
+                ->assertOk()->json('result.structuredContent.data.tool');
+            $this->assertSame(count($scopes) === 2, in_array('move', $schema['actions'], true));
+            $this->assertSame($schema['actions'], $schema['inputSchema']['properties']['action']['enum']);
+        }
     }
 
     public function test_a_read_tool_refuses_a_write_action_and_names_the_write_tool(): void
@@ -319,7 +475,7 @@ class WebEndpointProtocolTest extends TestCase
         $this->assertContains('statamic-entries-read', $names);
         $this->assertContains('statamic-entries-write', $names);
         $this->assertContains('statamic-blueprints-read', $names);
-        $this->assertContains('statamic-system-discover', $names);
+        $this->assertContains('statamic-discover', $names);
         $this->assertContains('search_tools', $names);
         $this->assertContains('execute_tools', $names);
 
@@ -328,7 +484,7 @@ class WebEndpointProtocolTest extends TestCase
         }
 
         $recommended = $this->rpc('tools/call', [
-            'name' => 'statamic-system-discover',
+            'name' => 'statamic-discover',
             'arguments' => ['intent' => 'upload image'],
         ])->json('result.structuredContent.data.discovery.recommended_tools');
         $this->assertSame('via_execute_tools', collect($recommended)->firstWhere('tool', 'statamic-assets-read')['access']);
@@ -338,7 +494,7 @@ class WebEndpointProtocolTest extends TestCase
     public function test_the_full_catalog_is_the_default_and_discovery_follows_it(): void
     {
         $recommended = $this->rpc('tools/call', [
-            'name' => 'statamic-system-discover',
+            'name' => 'statamic-discover',
             'arguments' => ['intent' => 'upload image'],
         ])->json('result.structuredContent.data.discovery.recommended_tools');
 
@@ -420,7 +576,7 @@ class WebEndpointProtocolTest extends TestCase
         // A tool call reads live content, so it must never be reusable. The
         // protocol forbids it outright; this asserts we did not hint otherwise.
         $call = $this->rpc('tools/call', [
-            'name' => 'statamic-system-discover',
+            'name' => 'statamic-discover',
             'arguments' => ['intent' => 'manage entries'],
         ]);
 

@@ -93,7 +93,7 @@ trait RouterHelpers
      *
      * @param  array<string, mixed>  $arguments
      */
-    protected function describeCall(string $action, array $arguments): McpCall
+    public function describeCall(string $action, array $arguments): McpCall
     {
         $scope = $this->getRequiredTokenScope($action);
         $scopes = $scope === null ? [] : [$scope];
@@ -109,6 +109,8 @@ trait RouterHelpers
             $scopes[] = $extra;
         }
 
+        $scopes = array_values(array_unique([...$scopes, ...$this->additionalTokenScopes($action, $arguments)], SORT_REGULAR));
+
         return new McpCall(
             domain: $this->getDomain(),
             action: $action,
@@ -118,6 +120,14 @@ trait RouterHelpers
             mode: $this->isWriteAction($action) ? 'write' : 'read',
             extraTool: ExtraTools::isRegistered(static::class),
         );
+    }
+
+    /** @param array<string, mixed> $arguments
+     * @return list<TokenScope>
+     */
+    protected function additionalTokenScopes(string $action, array $arguments): array
+    {
+        return [];
     }
 
     /**

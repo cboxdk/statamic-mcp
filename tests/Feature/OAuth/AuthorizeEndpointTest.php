@@ -38,6 +38,7 @@ class AuthorizeEndpointTest extends TestCase
     {
         return array_merge([
             'response_type' => 'code',
+            'resource' => 'http://localhost/mcp/statamic',
             'client_id' => $this->testClient->clientId,
             'redirect_uri' => $this->validRedirectUri,
             'code_challenge' => 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
@@ -45,6 +46,27 @@ class AuthorizeEndpointTest extends TestCase
             'state' => 'test-state-123',
             'scope' => 'entries:read',
         ], $overrides);
+    }
+
+    public function test_authorization_requires_resource_and_returns_issuer_on_success_and_denial(): void
+    {
+        $this->validRedirectUri = 'https://example.com/callback?tenant=example';
+        $this->testClient = app(OAuthDriver::class)->registerClient('Query client', [$this->validRedirectUri]);
+        $user = User::make()->id('issuer-user')->email('issuer@example.test')->makeSuper();
+        $user->save();
+        $this->actingAs($user, 'web');
+        $params = $this->validParams(['state' => '0']);
+        unset($params['resource']);
+        $this->get($this->authorizeUrl(http_build_query($params)))->assertStatus(400)->assertSee('invalid_target')->assertHeaderMissing('Location');
+        foreach (['approve', 'deny'] as $decision) {
+            $form = $this->withConsentOffer($this->authorizeUrl(), $params + ['scopes' => ['entries:read'], 'decision' => $decision]);
+            $response = $this->post($this->authorizeUrl(), $form)->assertRedirect();
+            parse_str(parse_url($response->headers->get('Location'), PHP_URL_QUERY), $query);
+            $this->assertSame('http://localhost', $query['iss']);
+            $this->assertSame('0', $query['state']);
+            $this->assertSame('example', $query['tenant']);
+            $this->assertArrayHasKey($decision === 'approve' ? 'code' : 'error', $query);
+        }
     }
 
     /**
@@ -77,7 +99,7 @@ class AuthorizeEndpointTest extends TestCase
         $response = $this->actingAs($user, 'web')
             ->get($this->authorizeUrl(http_build_query($this->validParams())));
 
-        $response->assertOk();
+        $response->assertOk()->assertSee('<input type="hidden" name="resource" value="http://localhost/mcp/statamic">', escape: false);
     }
 
     public function test_get_authorize_with_invalid_client_id_returns_error(): void
@@ -190,6 +212,7 @@ class AuthorizeEndpointTest extends TestCase
                 'client_id' => $this->testClient->clientId,
                 'redirect_uri' => $this->validRedirectUri,
                 'state' => 'test-state-789',
+                'resource' => 'http://localhost/mcp/statamic',
                 'code_challenge' => 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
                 'code_challenge_method' => 'S256',
                 'scopes' => ['entries:read'],
@@ -237,7 +260,7 @@ class AuthorizeEndpointTest extends TestCase
 
     public function test_hidden_scope_and_pkce_fields_cannot_be_changed_after_display(): void
     {
-        foreach (['scope' => '*', 'code_challenge' => str_repeat('a', 43), 'state' => 'changed'] as $field => $value) {
+        foreach (['scope' => '*', 'code_challenge' => str_repeat('a', 43), 'state' => 'changed', 'resource' => 'http://localhost:80/mcp/statamic'] as $field => $value) {
             $form = $this->approvedForm();
             $form[$field] = $value;
             $this->post($this->authorizeUrl(), $form)->assertStatus(400);

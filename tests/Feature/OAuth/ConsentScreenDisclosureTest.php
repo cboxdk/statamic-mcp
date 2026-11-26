@@ -42,6 +42,7 @@ class ConsentScreenDisclosureTest extends TestCase
 
         return $this->get("/{$cpRoute}/mcp/oauth/authorize?" . http_build_query([
             'response_type' => 'code',
+            'resource' => 'http://localhost/mcp/statamic',
             'client_id' => $this->client->clientId,
             'redirect_uri' => $this->redirectUri,
             'code_challenge' => self::CODE_CHALLENGE,

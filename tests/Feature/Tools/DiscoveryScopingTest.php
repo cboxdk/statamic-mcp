@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Tests\Feature\Tools;
 
+use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\Mcp\Tools\System\DiscoveryTool;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Statamic\Facades\Collection;
@@ -40,6 +41,8 @@ class DiscoveryScopingTest extends TestCase
         $user->assignRole($handle);
         $user->save();
         $this->actingAs($user);
+        $issued = app(TokenService::class)->createToken($user->id(), 'discovery', ['system:read', 'structures:read']);
+        request()->attributes->set('mcp_token', app(TokenService::class)->validateToken($issued['token']));
     }
 
     private function systemState(): array
@@ -54,8 +57,7 @@ class DiscoveryScopingTest extends TestCase
         $this->actAs([]);
 
         $state = $this->systemState();
-        expect($state['collections'] ?? [])->toBe([])
-            ->and($state)->not->toHaveKey('collections');
+        expect($state['collections']['items'] ?? [])->toBe([]);
     }
 
     public function test_configure_collections_sees_only_policy_permitted_collections(): void
@@ -63,7 +65,7 @@ class DiscoveryScopingTest extends TestCase
         config(['statamic.mcp.tools.structures.resources.read' => ['blog']]);
         $this->actAs(['configure collections']);
 
-        $handles = array_column($this->systemState()['collections'] ?? [], 'handle');
+        $handles = array_column($this->systemState()['collections']['items'] ?? [], 'handle');
         expect($handles)->toContain('blog')->and($handles)->not->toContain('secret');
     }
 }

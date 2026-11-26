@@ -82,6 +82,10 @@ class RegisteredReadTransportTest extends TestCase
         $this->assertNotNull($tool);
         $this->assertSame($this->definition()->inputSchema, $tool['inputSchema']['properties']['input']);
         $this->assertTrue($tool['annotations']['readOnlyHint']);
+        $discovered = $this->rpc('tools/call', ['name' => 'statamic-discover', 'arguments' => ['tool_name' => $name]])
+            ->assertOk()->json('result.structuredContent.data.tool');
+        $this->assertSame($tool['inputSchema'], $discovered['inputSchema']);
+        $this->assertSame('fixture/transport', $discovered['provided_by']);
         $result = $this->rpc('tools/call', ['name' => $name, 'arguments' => ['input' => ['id' => $this->entryId]]])->assertOk();
         $this->assertSame('Private draft', $result->json('result.structuredContent.title'));
         $events = app(FakeLifecycleObserver::class)->events;
@@ -168,6 +172,8 @@ class RegisteredReadTransportTest extends TestCase
         Role::find('danish-reader')->permissions([])->save();
         $catalog = $this->rpc('tools/list')->assertOk()->json('result.tools');
         $this->assertNotContains($name, array_column($catalog, 'name'));
+        $this->rpc('tools/call', ['name' => 'statamic-discover', 'arguments' => ['tool_name' => $name]])
+            ->assertOk()->assertJsonPath('result.structuredContent.error.code', 'NOT_FOUND');
     }
 
     public function test_stdio_requires_explicit_current_consent_and_restores_anonymous_identity(): void

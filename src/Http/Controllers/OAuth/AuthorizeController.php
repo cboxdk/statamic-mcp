@@ -17,6 +17,7 @@ use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
 use Cboxdk\StatamicMcp\OAuth\Exceptions\OAuthException;
 use Cboxdk\StatamicMcp\OAuth\OAuthClient;
 use Cboxdk\StatamicMcp\OAuth\RedirectUriMatcher;
+use Cboxdk\StatamicMcp\OAuth\ResourceIndicator;
 use Cboxdk\StatamicMcp\Support\UserIds;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -177,29 +178,10 @@ class AuthorizeController extends Controller
             );
         }
 
-        // Resource parameter (RFC 8707) — validate if present using request URL, not config
-        // This ensures proxies/tunnels (ngrok, cloudflare) work correctly
-        /** @var string $resource */
-        $resource = $request->query('resource', '');
-
-        if ($resource !== '') {
-            /** @var string $mcpPath */
-            $mcpPath = config('statamic.mcp.web.path', '/mcp/statamic');
-            // Same origin the protected-resource metadata advertises: the
-            // port is part of it unless it is the scheme's default.
-            $expectedResource = $request->getSchemeAndHttpHost() . $mcpPath;
-
-            // Also accept config-based URL as fallback
-            /** @var string $appUrl */
-            $appUrl = config('app.url', 'http://localhost');
-            $configResource = rtrim($appUrl, '/') . $mcpPath;
-
-            if ($resource !== $expectedResource && $resource !== $configResource) {
-                return $this->errorPage(
-                    'invalid_request',
-                    'Invalid resource parameter.',
-                );
-            }
+        try {
+            ResourceIndicator::fromRequest($request);
+        } catch (OAuthException $error) {
+            return $this->errorPage($error->errorCode, $error->getMessage());
         }
 
         /** @var string $state */
@@ -225,6 +207,7 @@ class AuthorizeController extends Controller
                 'code_challenge' => $codeChallenge,
                 'code_challenge_method' => 'S256',
                 'scope' => $scope,
+                'resource' => $request->input('resource'),
             ],
         ]);
 
@@ -276,21 +259,29 @@ class AuthorizeController extends Controller
             abort(400, 'Invalid redirect_uri.');
         }
 
+        try {
+            $resource = ResourceIndicator::fromRequest($request);
+        } catch (OAuthException $error) {
+            abort(400, $error->getMessage());
+        }
+
         if ($decision !== 'approve') {
-            return redirect($redirectUri . '?' . http_build_query(array_filter([
+            return redirect($redirectUri . (str_contains($redirectUri, '?') ? '&' : '?') . http_build_query([
                 'error' => 'access_denied',
                 'state' => $state,
-            ])));
+                'iss' => $request->getSchemeAndHttpHost(),
+            ]));
         }
 
         $user = User::current();
 
         if ($user === null) {
-            return redirect($redirectUri . '?' . http_build_query(array_filter([
+            return redirect($redirectUri . (str_contains($redirectUri, '?') ? '&' : '?') . http_build_query([
                 'error' => 'access_denied',
                 'error_description' => 'No authenticated user.',
                 'state' => $state,
-            ])));
+                'iss' => $request->getSchemeAndHttpHost(),
+            ]));
         }
 
         $userId = UserIds::normalize($user->id());
@@ -299,11 +290,12 @@ class AuthorizeController extends Controller
         $allowedScopes = app(ScopeAvailability::class)->grantable($user, $offer['scopes']);
 
         if ($allowedScopes === []) {
-            return redirect($redirectUri . '?' . http_build_query(array_filter([
+            return redirect($redirectUri . (str_contains($redirectUri, '?') ? '&' : '?') . http_build_query([
                 'error' => 'invalid_scope',
                 'error_description' => 'None of the requested scopes are available to this user.',
                 'state' => $state,
-            ])));
+                'iss' => $request->getSchemeAndHttpHost(),
+            ]));
         }
 
         // Get user-selected scopes from checkboxes
@@ -314,10 +306,11 @@ class AuthorizeController extends Controller
         // Only allow scopes that were in the original request (prevent scope escalation)
         $scopes = array_values(array_intersect($selectedScopes, $allowedScopes));
         if (empty($scopes)) {
-            return redirect($redirectUri . '?' . http_build_query([
+            return redirect($redirectUri . (str_contains($redirectUri, '?') ? '&' : '?') . http_build_query([
                 'error' => 'invalid_scope',
                 'error_description' => 'Select at least one permission.',
                 'state' => $state,
+                'iss' => $request->getSchemeAndHttpHost(),
             ]));
         }
 
@@ -337,13 +330,14 @@ class AuthorizeController extends Controller
             new CapabilitySnapshot(array_intersect_assoc(
                 $offer['capabilities']->actions,
                 app(CapabilityRegistry::class)->forScopes($scopes)->actions,
-            ), $offer['capabilities']->grantId, array_intersect_key($offer['capabilities']->scopes, array_flip($scopes))),
+            ), $offer['capabilities']->grantId, array_intersect_key($offer['capabilities']->scopes, array_flip($scopes)), $resource),
         );
 
-        return redirect($redirectUri . '?' . http_build_query(array_filter([
+        return redirect($redirectUri . (str_contains($redirectUri, '?') ? '&' : '?') . http_build_query([
             'code' => $code,
             'state' => $state,
-        ])));
+            'iss' => $request->getSchemeAndHttpHost(),
+        ]));
     }
 
     /**

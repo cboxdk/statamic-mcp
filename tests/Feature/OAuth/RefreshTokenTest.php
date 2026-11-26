@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Tests\Feature\OAuth;
 
 use Carbon\Carbon;
+use Cboxdk\StatamicMcp\Actions\CapabilitySnapshot;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
 use Cboxdk\StatamicMcp\OAuth\Drivers\BuiltInOAuthDriver;
 use Cboxdk\StatamicMcp\OAuth\Exceptions\OAuthException;
@@ -67,10 +68,12 @@ class RefreshTokenTest extends TestCase
             codeChallenge: $codeChallenge,
             codeChallengeMethod: 'S256',
             redirectUri: 'https://example.com/callback',
+            capabilities: new CapabilitySnapshot([], resource: 'http://localhost/mcp/statamic'),
         );
 
         // Exchange auth code via HTTP endpoint — should return refresh_token
         $response = $this->post('/mcp/oauth/token', [
+            'resource' => 'http://localhost/mcp/statamic',
             'grant_type' => 'authorization_code',
             'code' => $code,
             'redirect_uri' => 'https://example.com/callback',
@@ -88,6 +91,7 @@ class RefreshTokenTest extends TestCase
 
         // Use refresh token to get new tokens
         $refreshResponse = $this->post('/mcp/oauth/token', [
+            'resource' => 'http://localhost/mcp/statamic',
             'grant_type' => 'refresh_token',
             'refresh_token' => $data['refresh_token'],
             'client_id' => $client->clientId,
@@ -115,12 +119,12 @@ class RefreshTokenTest extends TestCase
         /** @var OAuthDriver $appDriver */
         $appDriver = $this->app->make(OAuthDriver::class);
         $client = $appDriver->registerClient('Test Client', ['https://example.com/callback']);
-        $refresh = $appDriver->createRefreshToken('editor-1', $client->clientId, ['entries:read', 'entries:write']);
+        $refresh = $appDriver->createRefreshToken('editor-1', $client->clientId, ['entries:read', 'entries:write'], new CapabilitySnapshot([], resource: 'http://localhost/mcp/statamic'));
 
         // The editor can no longer edit; reading is still theirs.
         Role::find('rt_editor')->permissions(['access cp', 'view rt_posts entries'])->save();
 
-        $response = $this->post('/mcp/oauth/token', ['grant_type' => 'refresh_token', 'refresh_token' => $refresh, 'client_id' => $client->clientId]);
+        $response = $this->post('/mcp/oauth/token', ['resource' => 'http://localhost/mcp/statamic', 'grant_type' => 'refresh_token', 'refresh_token' => $refresh, 'client_id' => $client->clientId]);
 
         $response->assertOk();
         $this->assertSame('entries:read', $response->json('scope'));

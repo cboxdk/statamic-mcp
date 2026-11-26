@@ -45,7 +45,7 @@ class OAuthFlowTest extends TestCase
         $this->actingAs($user, 'web')->get($authorize . http_build_query($query + ['resource' => $resource]))->assertOk();
         // Another port is still another resource.
         $this->actingAs($user, 'web')->get($authorize . http_build_query($query + ['resource' => 'http://mcp.test:9090/mcp/statamic']))
-            ->assertStatus(400)->assertSee('invalid_request');
+            ->assertStatus(400)->assertSee('invalid_target');
     }
 
     public function test_complete_oauth_flow(): void
@@ -94,6 +94,7 @@ class OAuthFlowTest extends TestCase
 
         // ── Step 6: GET Authorize (Consent Page) ──
         $authorizeParams = http_build_query([
+            'resource' => $prData['resource'],
             'response_type' => 'code',
             'client_id' => $clientId,
             'redirect_uri' => $redirectUri,
@@ -115,6 +116,7 @@ class OAuthFlowTest extends TestCase
         // ── Step 7: POST Authorize (Approve) ──
         $approveResponse = $this->actingAs($user, 'web')
             ->post($authorizeUrl, [
+                'resource' => $prData['resource'],
                 'consent_offer' => $this->consentOfferFrom($consentResponse),
                 'decision' => 'approve',
                 'client_id' => $clientId,
@@ -138,10 +140,12 @@ class OAuthFlowTest extends TestCase
         $this->assertIsString($parsedUrl['query'] ?? null, 'Redirect URL must contain a query string');
         parse_str($parsedUrl['query'], $queryParams);
         $this->assertArrayHasKey('code', $queryParams);
+        $this->assertSame($asData['issuer'], $queryParams['iss']);
         $authorizationCode = $queryParams['code'];
 
         // ── Step 8: Token Exchange ──
         $tokenResponse = $this->post('/mcp/oauth/token', [
+            'resource' => $prData['resource'],
             'grant_type' => 'authorization_code',
             'code' => $authorizationCode,
             'redirect_uri' => $redirectUri,

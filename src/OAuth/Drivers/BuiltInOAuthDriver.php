@@ -14,6 +14,7 @@ use Cboxdk\StatamicMcp\OAuth\Contracts\RevokesUserGrants;
 use Cboxdk\StatamicMcp\OAuth\Exceptions\OAuthException;
 use Cboxdk\StatamicMcp\OAuth\OAuthAuthCode;
 use Cboxdk\StatamicMcp\OAuth\OAuthClient;
+use Cboxdk\StatamicMcp\OAuth\ResourceIndicator;
 use Cboxdk\StatamicMcp\Support\McpConfig;
 use Symfony\Component\Yaml\Yaml;
 
@@ -211,6 +212,7 @@ class BuiltInOAuthDriver implements OAuthDriver, RevokesUserGrants
         string $codeVerifier,
         string $clientId,
         string $redirectUri,
+        ?string $resource = null,
     ): OAuthAuthCode {
         $codeHash = hash('sha256', $code);
         $filePath = $this->codesDir . '/' . $this->sanitizeFilename($codeHash) . '.json';
@@ -271,6 +273,8 @@ class BuiltInOAuthDriver implements OAuthDriver, RevokesUserGrants
             if (($data['redirect_uri'] ?? '') !== $redirectUri) {
                 throw new OAuthException('invalid_request', 'Redirect URI mismatch');
             }
+
+            ResourceIndicator::requireAudience(CapabilitySnapshot::fromStored($data['capabilities'] ?? null), $resource);
 
             // PKCE verification — only S256 is supported
             $method = $data['code_challenge_method'] ?? '';
@@ -341,7 +345,7 @@ class BuiltInOAuthDriver implements OAuthDriver, RevokesUserGrants
         return $token;
     }
 
-    public function exchangeRefreshToken(string $refreshToken, string $clientId): OAuthAuthCode
+    public function exchangeRefreshToken(string $refreshToken, string $clientId, ?string $resource = null): OAuthAuthCode
     {
         $tokenHash = hash('sha256', $refreshToken);
         $filePath = $this->refreshDir . '/' . $this->sanitizeFilename($tokenHash) . '.json';
@@ -385,6 +389,7 @@ class BuiltInOAuthDriver implements OAuthDriver, RevokesUserGrants
             if (($data['client_id'] ?? '') !== $clientId) {
                 throw new OAuthException('invalid_client', 'Client ID mismatch');
             }
+            ResourceIndicator::requireAudience(CapabilitySnapshot::fromStored($data['capabilities'] ?? null), $resource);
             $userId = is_string($data['user_id'] ?? null) ? $data['user_id'] : '';
             $expiresAt = is_string($data['expires_at'] ?? null) ? $data['expires_at'] : '';
             if ($expiresAt === '' || Carbon::parse($expiresAt)->isPast()) {

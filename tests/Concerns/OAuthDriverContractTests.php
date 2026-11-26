@@ -21,6 +21,37 @@ trait OAuthDriverContractTests
 {
     abstract protected function createDriver(): OAuthDriver;
 
+    public function test_audience_mismatch_does_not_consume_codes_or_refresh_tokens(): void
+    {
+        $driver = $this->createDriver();
+        $client = $driver->registerClient('Audience', ['https://example.com/callback']);
+        $resource = 'https://cms.example.com:8443/mcp/statamic';
+        $snapshot = new CapabilitySnapshot([], resource: $resource);
+        $verifier = bin2hex(random_bytes(32));
+        $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+        $code = $driver->createAuthCode($client->clientId, 'user-1', ['entries:read'], $challenge, 'S256', 'https://example.com/callback', $snapshot);
+        $refresh = $driver->createRefreshToken('user-1', $client->clientId, ['entries:read'], $snapshot);
+        foreach ([null, 'https://cms.example.com/mcp/statamic', 'https://other.example.com:8443/mcp/statamic'] as $wrong) {
+            foreach ([
+                fn () => $driver->exchangeCode($code, $verifier, $client->clientId, 'https://example.com/callback', $wrong),
+                fn () => $driver->exchangeRefreshToken($refresh, $client->clientId, $wrong),
+            ] as $exchange) {
+                try {
+                    $exchange();
+                    $this->fail('An audience mismatch must be refused.');
+                } catch (OAuthException $error) {
+                    $this->assertSame('invalid_target', $error->errorCode);
+                }
+            }
+        }
+        $this->assertSame($resource, $driver->exchangeCode($code, $verifier, $client->clientId, 'https://example.com/callback', $resource)->capabilities->resource);
+        for ($i = 0; $i < 2; $i++) {
+            $rotated = $driver->exchangeRefreshToken($refresh, $client->clientId, $resource);
+            $this->assertSame($snapshot->toStored(), $rotated->capabilities->toStored());
+            $refresh = $rotated->refreshToken;
+        }
+    }
+
     public function test_consent_snapshot_survives_code_exchange_and_every_refresh_rotation(): void
     {
         $driver = $this->createDriver();

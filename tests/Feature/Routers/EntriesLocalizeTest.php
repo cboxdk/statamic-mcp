@@ -102,6 +102,21 @@ class EntriesLocalizeTest extends TestCase
         $this->assertSame('Thuis', $localized->value('title'));
     }
 
+    public function test_a_published_source_can_be_localized_as_a_draft(): void
+    {
+        config(['statamic.revisions.enabled' => false]);
+        Entry::find('home')->published(true)->save();
+        $result = $this->router->execute([
+            'action' => 'localize', 'collection' => $this->collectionHandle,
+            'id' => 'home', 'site' => 'en', 'data' => ['published' => false],
+        ]);
+
+        $this->assertTrue($result['success'], json_encode($result));
+        $this->assertFalse(Entry::find('home')->in('en')->published());
+        $this->assertTrue(Entry::find('home')->published());
+        $this->assertSame('Thuis', Entry::find('home')->in('en')->value('title'));
+    }
+
     public function test_refuses_when_a_localization_already_exists(): void
     {
         $this->router->execute([

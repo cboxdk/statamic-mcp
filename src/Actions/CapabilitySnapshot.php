@@ -19,7 +19,7 @@ final readonly class CapabilitySnapshot
     /** @param array<string, string> $actions
      * @param  array<string, string>  $scopes
      */
-    public function __construct(array $actions, ?string $grantId = null, array $scopes = [])
+    public function __construct(array $actions, ?string $grantId = null, array $scopes = [], public ?string $resource = null)
     {
         $grantId ??= bin2hex(random_bytes(32));
         if (! preg_match('/^[a-f0-9]{64}$/D', $grantId)) {
@@ -54,10 +54,10 @@ final readonly class CapabilitySnapshot
         return $approved !== null && hash_equals($approved, $action->fingerprint());
     }
 
-    /** @return array{grant_id: string, actions: array<string, string>, scopes: array<string, string>} */
+    /** @return array{grant_id: string, actions: array<string, string>, scopes: array<string, string>, resource: string|null} */
     public function toStored(): array
     {
-        return ['grant_id' => $this->grantId, 'actions' => $this->actions, 'scopes' => $this->scopes];
+        return ['grant_id' => $this->grantId, 'actions' => $this->actions, 'scopes' => $this->scopes, 'resource' => $this->resource];
     }
 
     public static function fromStored(mixed $value): ?self
@@ -84,6 +84,10 @@ final readonly class CapabilitySnapshot
             $scopes[$scope] = $fingerprint;
         }
 
-        return new self($actions, $value['grant_id'], $scopes);
+        if (isset($value['resource']) && ! is_string($value['resource'])) {
+            throw new \UnexpectedValueException('Invalid stored resource audience.');
+        }
+
+        return new self($actions, $value['grant_id'], $scopes, $value['resource'] ?? null);
     }
 }

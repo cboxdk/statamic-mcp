@@ -9,7 +9,6 @@ use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\UsersRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\System\DiscoveryTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\System\SchemaTool;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
@@ -76,6 +75,7 @@ class ActionCoverageInventoryTest extends TestCase
                     $this->assertSame($write ? 'write' : 'read', $call->mode, "{$label}: resource policy mode");
                     $expected = match (true) {
                         ! $write => ["{$domain}:read"],
+                        $domain === 'structures' && $action === 'move' => ['structures:admin', 'entries:write'],
                         in_array($domain, self::ADMIN_DOMAINS, true) => ["{$domain}:admin"],
                         default => array_values(array_filter(["{$domain}:write", self::EXTRA_SCOPES[$domain][$action] ?? null])),
                     };
@@ -144,7 +144,7 @@ class ActionCoverageInventoryTest extends TestCase
             fn (string $tool): bool => ! is_subclass_of($tool, BaseRouter::class),
         ));
 
-        $this->assertSame([DiscoveryTool::class, SchemaTool::class], $others);
+        $this->assertSame([DiscoveryTool::class], $others);
         foreach ($others as $tool) {
             $this->assertNotSame([], (new \ReflectionClass($tool))->getAttributes(IsReadOnly::class), "{$tool} must be read-only");
         }

@@ -16,7 +16,6 @@ use Cboxdk\StatamicMcp\Mcp\Tools\Routers\SystemRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\TermsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\UsersRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\System\DiscoveryTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\System\SchemaTool;
 use Cboxdk\StatamicMcp\Testing\InteractsWithMcp;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Illuminate\Testing\Fluent\AssertableJson;
@@ -83,7 +82,7 @@ class McpProtocolSurfaceTest extends TestCase
             'system' => [SystemRouter::class, ['action' => 'info']],
             'content facade' => [ContentFacadeRouter::class, ['action' => 'content_audit']],
             'discovery' => [DiscoveryTool::class, ['intent' => 'list entries']],
-            'schema' => [SchemaTool::class, []],
+            'schema' => [DiscoveryTool::class, ['tool_name' => 'statamic-entries-read']],
         ];
     }
 
@@ -291,11 +290,26 @@ class McpProtocolSurfaceTest extends TestCase
             });
     }
 
+    public function test_filtered_blueprint_metadata_matches_its_output_schema(): void
+    {
+        Blueprint::make('page')->setNamespace('collections.' . self::COLLECTION)->setContents([
+            'fields' => [['handle' => 'title', 'field' => ['type' => 'text']]],
+        ])->save();
+        config(['statamic.mcp.tools.blueprints.denied_fields' => ['version']]);
+        $tool = (new BlueprintsRouter)->facet('read');
+        $schema = json_decode(json_encode($tool->toArray()['outputSchema'], JSON_THROW_ON_ERROR));
+        $this->mcpTool($tool, ['action' => 'get', 'namespace' => 'collections', 'collection' => self::COLLECTION, 'handle' => 'page'])
+            ->assertHasNoErrors()->assertStructuredContent(function (AssertableJson $json) use ($schema): void {
+                $json->missing('data.blueprint.version')->where('data.blueprint.handle', 'page')->etc();
+                $this->assertTrue((new Validator)->validate(json_decode(json_encode($json->toArray())), $schema)->isValid());
+            });
+    }
+
     public function test_tool_names_are_unique(): void
     {
         $names = array_map(
             fn (string $tool): string => app($tool)->name(),
-            array_column(self::readOnlyCalls(), 0)
+            [...StatamicMcpServer::CORE_TOOLS, ...StatamicMcpServer::SEARCHABLE_TOOLS]
         );
 
         $this->assertContains('statamic-entries', $names);

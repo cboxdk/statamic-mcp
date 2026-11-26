@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Console;
 
+use Cboxdk\StatamicMcp\Auth\V4ClientPermissions;
 use Cboxdk\StatamicMcp\Auth\V4TokenMigration;
 use Illuminate\Console\Command;
 
-/** Shows, and with --apply carries out, the token changes an upgrade to v4 (or a rollback to v3) needs. */
+/** Plans and applies v4 token/client changes, or token revocations before a rollback to v3. */
 final class MigrateV4Command extends Command
 {
     protected $signature = 'mcp:migrate-v4
@@ -15,7 +16,7 @@ final class MigrateV4Command extends Command
         {--rollback : Plan the revocations needed before downgrading to v3}
         {--json : Print the plan and result as JSON}';
 
-    protected $description = 'Plan (dry run by default) and apply the token changes for upgrading to v4 or rolling back to v3';
+    protected $description = 'Plan and apply v4 token and client-permission changes, or token revocations before rollback (dry run by default)';
 
     public function handle(V4TokenMigration $migration): int
     {
@@ -28,7 +29,23 @@ final class MigrateV4Command extends Command
             return $this->finish(['error' => 'The token store could not be read; nothing was changed. Details are omitted to protect credentials.'], self::FAILURE);
         }
 
-        $report = ['schema' => 1, 'mode' => $mode, 'dry_run' => ! $apply, 'steps' => $steps];
+        $clients = $mode === V4TokenMigration::UPGRADE ? app(V4ClientPermissions::class)->run($apply) : [];
+        $report = ['schema' => 1, 'mode' => $mode, 'dry_run' => ! $apply, 'steps' => $steps, 'clients' => $clients];
+        if (! $this->option('json')) {
+            foreach ($clients as $client) {
+                $this->line($client['path'] . ($client['applied'] ? ' (migrated; .pre-mcp-v4 backup saved)' : ' (not changed)'));
+                foreach ($client['changes'] as $change) {
+                    $this->line('  ' . $change);
+                }
+                if ($client['error'] !== null) {
+                    $this->error($client['error']);
+                }
+            }
+            $this->line('Client permissions: exact project-local rules for server statamic only. Review global settings, wildcards and renamed servers manually. No write allow rule is added; rollback never restores permissions automatically.');
+        }
+        if (array_filter($clients, fn (array $client): bool => $client['error'] !== null) !== []) {
+            return $this->finish($report + ['error' => 'Client migration incomplete; tokens were not changed. See clients for any files already migrated.'], self::FAILURE);
+        }
 
         if (! $this->option('json')) {
             $this->info($mode === V4TokenMigration::ROLLBACK ? 'Tokens to revoke before downgrading to v3' : 'Token changes for v4');
@@ -46,8 +63,8 @@ final class MigrateV4Command extends Command
 
         $changing = array_filter($steps, static fn (array $step): bool => $step['action'] !== 'keep');
         if (! $apply || $changing === []) {
-            if (! $this->option('json') && $changing !== []) {
-                $this->line('Dry run: nothing was changed. Run again with --apply to carry out the revoke and narrow steps.');
+            if (! $this->option('json') && ! $apply && ($changing !== [] || $clients !== [])) {
+                $this->line('Dry run: nothing was changed. Run again with --apply to migrate client rules and carry out the revoke and narrow steps.');
             }
 
             return $this->finish($report, self::SUCCESS);
@@ -56,7 +73,7 @@ final class MigrateV4Command extends Command
         try {
             $result = $migration->apply($mode, $steps);
         } catch (\Throwable) {
-            return $this->finish($report + ['error' => 'The migration journal could not be written, so nothing was changed. Check the storage path.'], self::FAILURE);
+            return $this->finish($report + ['error' => 'The migration journal could not be written; tokens were not changed. Check the storage path. See clients for any files already migrated.'], self::FAILURE);
         }
 
         $report += $result;

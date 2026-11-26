@@ -77,6 +77,7 @@ class LoopbackRedirectPortTest extends TestCase
     private function authorizeParams(string $clientId, string $redirectUri, string $challenge): array
     {
         return [
+            'resource' => 'http://localhost/mcp/statamic',
             'response_type' => 'code',
             'client_id' => $clientId,
             'redirect_uri' => $redirectUri,
@@ -93,6 +94,7 @@ class LoopbackRedirectPortTest extends TestCase
     private function approveParams(string $clientId, string $redirectUri, string $challenge): array
     {
         return [
+            'resource' => 'http://localhost/mcp/statamic',
             'client_id' => $clientId,
             'redirect_uri' => $redirectUri,
             'state' => 'loopback-state',
@@ -131,6 +133,7 @@ class LoopbackRedirectPortTest extends TestCase
 
         $this->post('/mcp/oauth/token', [
             'grant_type' => 'authorization_code',
+            'resource' => 'http://localhost/mcp/statamic',
             'code' => $query['code'],
             'redirect_uri' => $this->requestedRedirectUri,
             'client_id' => $this->cimdClientId,

@@ -94,6 +94,12 @@ trait EnforcesResourcePolicy
             return $result;
         }
 
+        // Blueprint definitions expose configuration and format specs outside
+        // record.data, including selected subtrees and list/scan results.
+        if ($domain === 'blueprints') {
+            return $policy->filterFields($domain, $result);
+        }
+
         // Filter the 'data' key in the result (single-item responses)
         if (isset($result['data']) && is_array($result['data'])) {
             /** @var array<string, mixed> $resultData */

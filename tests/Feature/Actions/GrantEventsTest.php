@@ -20,11 +20,11 @@ it('reports actual grant creation and replay without treating rotation as revoca
     $user->save();
     $driver = app(OAuthDriver::class);
     $client = $driver->registerClient('Private client name', ['https://private.example/callback']);
-    $snapshot = new CapabilitySnapshot([]);
+    $snapshot = new CapabilitySnapshot([], resource: 'http://localhost/mcp/statamic');
     $created = app(TokenService::class)->createToken($user->id(), 'Private token name', ['entries:read'],
         oauthClientId: $client->clientId, capabilities: $snapshot);
     $refresh = $driver->createRefreshToken($user->id(), $client->clientId, ['entries:read'], $snapshot);
-    $body = ['grant_type' => 'refresh_token', 'client_id' => $client->clientId, 'refresh_token' => $refresh];
+    $body = ['grant_type' => 'refresh_token', 'client_id' => $client->clientId, 'refresh_token' => $refresh, 'resource' => 'http://localhost/mcp/statamic'];
     $rotated = $this->postJson('/mcp/oauth/token', $body)->assertOk();
     expect($fake->events)->toHaveCount(1);
     expect($fake->events[0]->eventName())->toBe('grant.issued');

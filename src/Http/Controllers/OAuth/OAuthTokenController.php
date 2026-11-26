@@ -17,6 +17,7 @@ use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
 use Cboxdk\StatamicMcp\OAuth\Exceptions\OAuthException;
 use Cboxdk\StatamicMcp\OAuth\OAuthClient;
 use Cboxdk\StatamicMcp\OAuth\OAuthMutationLock;
+use Cboxdk\StatamicMcp\OAuth\ResourceIndicator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -76,7 +77,7 @@ class OAuthTokenController extends Controller
         }
 
         try {
-            $authCode = $this->oauthDriver->exchangeCode($code, $codeVerifier, $clientId, $redirectUri);
+            $authCode = $this->oauthDriver->exchangeCode($code, $codeVerifier, $clientId, $redirectUri, ResourceIndicator::fromRequest($request));
         } catch (OAuthException $e) {
             return response()->json($e->toOAuthResponse(), $e->httpStatus);
         }
@@ -116,7 +117,7 @@ class OAuthTokenController extends Controller
         }
 
         try {
-            $authCode = $this->oauthDriver->exchangeRefreshToken($refreshToken, $clientId);
+            $authCode = $this->oauthDriver->exchangeRefreshToken($refreshToken, $clientId, ResourceIndicator::fromRequest($request));
         } catch (OAuthException $e) {
             return response()->json($e->toOAuthResponse(), $e->httpStatus);
         }

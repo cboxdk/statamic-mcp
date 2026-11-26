@@ -5,13 +5,12 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Tests\Feature;
 
 use Cboxdk\StatamicMcp\Authorization\InstallationProfile;
-use Cboxdk\StatamicMcp\Mcp\Prompts\AgentEducationPrompt;
+use Cboxdk\StatamicMcp\Mcp\Prompts\ContentWorkflowPrompt;
 use Cboxdk\StatamicMcp\Mcp\Resources\BlueprintIndexResource;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\EntriesRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\UsersRouter;
 use Cboxdk\StatamicMcp\Testing\InteractsWithMcp;
 use Cboxdk\StatamicMcp\Tests\TestCase;
-use Laravel\Mcp\Request;
 use Statamic\Facades\Collection;
 use Statamic\Facades\Entry;
 
@@ -22,7 +21,7 @@ class InstallationProfileTest extends TestCase
     public function test_disabled_profile_blocks_resources_and_prompts(): void
     {
         config(['statamic.mcp.profiles.stdio' => null]);
-        $this->assertTrue((new AgentEducationPrompt)->handle(new Request([]))->isError());
+        $this->mcpPrompt(new ContentWorkflowPrompt, [])->assertHasErrors()->assertSee('explicitly configured installation profile');
         $this->mcpResource(BlueprintIndexResource::class)->assertSee('explicitly configured installation profile');
     }
 

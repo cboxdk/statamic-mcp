@@ -61,9 +61,32 @@ class EntriesRouter extends BaseRouter
     use ParsesDateValues;
     use SanitizesFieldData;
 
+    protected function additionalTokenScopes(string $action, array $arguments): array
+    {
+        $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
+        $scopes = in_array($action, ['create', 'update'], true) && array_key_exists('parent', $data) ? [TokenScope::StructuresAdmin] : [];
+        if (in_array($action, ['create', 'localize'], true) && ! empty($data['published'])) {
+            $scopes[] = TokenScope::EntriesPublish;
+        }
+        // Scope discovery also runs before authentication. Never inspect a
+        // protected record to decide which grants a request needs.
+        if ($action === 'update' && array_key_exists('published', $data)) {
+            $scopes[] = TokenScope::EntriesPublish;
+        }
+
+        return $scopes;
+    }
+
     protected function filterOutputFields(array $result): array
     {
         $result = parent::filterOutputFields($result);
+
+        foreach (['blueprint', 'origin'] as $field) {
+            if (in_array($field, app(ResourcePolicy::class)->getDeniedFields('entries'), true)
+                && isset($result['entry']) && is_array($result['entry'])) {
+                unset($result['entry'][$field]);
+            }
+        }
 
         // Parent is metadata beside entry.data, which the base filter handles.
         foreach (['entries', 'structures'] as $domain) {
@@ -300,6 +323,8 @@ class EntriesRouter extends BaseRouter
             'id' => $entry->id(),
             'collection' => $entry->collectionHandle(),
             'parent' => app(CollectionTreeEditor::class)->parent($entry),
+            'blueprint' => $entry->blueprint()?->handle(),
+            'origin' => $entry->origin() ? ['id' => $entry->origin()->id(), 'site' => $entry->origin()->site()->handle()] : null,
             'site' => $entry->site()->handle(),
             'slug' => $entry->slug(),
             'published' => $entry->published(),
@@ -857,6 +882,13 @@ class EntriesRouter extends BaseRouter
             return $policyError;
         }
         $localization = $entry->makeLocalization($site);
+        if (array_key_exists('published', $data)) {
+            if (! is_bool($data['published'])) {
+                return $this->createErrorResponse('data.published must be a boolean.', field: 'data.published')->toArray();
+            }
+            $localization->published($data['published']);
+            unset($data['published']);
+        }
         $blueprint = $localization->blueprint();
         if (! $blueprint) {
             return $this->createErrorResponse('Cannot localize entry: Blueprint not found. A blueprint is required for data validation.', code: ErrorCode::NotFound)->toArray();

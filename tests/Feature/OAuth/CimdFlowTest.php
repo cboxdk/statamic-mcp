@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Tests\Feature\OAuth;
 
+use Cboxdk\StatamicMcp\Actions\CapabilitySnapshot;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
 use Cboxdk\StatamicMcp\Tests\Concerns\InteractsWithOAuthConsent;
@@ -142,6 +143,7 @@ class CimdFlowTest extends TestCase
 
         // Step 2: Exchange auth code for tokens
         $tokenResponse = $this->post('/mcp/oauth/token', [
+            'resource' => 'http://localhost/mcp/statamic',
             'grant_type' => 'authorization_code',
             'code' => $code,
             'redirect_uri' => $this->cimdRedirectUri,
@@ -168,6 +170,7 @@ class CimdFlowTest extends TestCase
 
         // Step 4: Refresh token to get new tokens
         $refreshResponse = $this->post('/mcp/oauth/token', [
+            'resource' => 'http://localhost/mcp/statamic',
             'grant_type' => 'refresh_token',
             'refresh_token' => $tokenData['refresh_token'],
             'client_id' => $this->cimdClientId,
@@ -205,6 +208,7 @@ class CimdFlowTest extends TestCase
 
         // Exchange auth code
         $tokenResponse = $this->post('/mcp/oauth/token', [
+            'resource' => 'http://localhost/mcp/statamic',
             'grant_type' => 'authorization_code',
             'code' => $code,
             'redirect_uri' => $this->cimdRedirectUri,
@@ -217,6 +221,7 @@ class CimdFlowTest extends TestCase
 
         // Refresh
         $refreshResponse = $this->post('/mcp/oauth/token', [
+            'resource' => 'http://localhost/mcp/statamic',
             'grant_type' => 'refresh_token',
             'refresh_token' => $tokenData['refresh_token'],
             'client_id' => $this->cimdClientId,
@@ -240,6 +245,7 @@ class CimdFlowTest extends TestCase
         $code = $this->approveAndGetCode($user, $pkce['challenge']);
 
         $tokenResponse = $this->post('/mcp/oauth/token', [
+            'resource' => 'http://localhost/mcp/statamic',
             'grant_type' => 'authorization_code',
             'code' => $code,
             'redirect_uri' => $this->cimdRedirectUri,
@@ -274,6 +280,7 @@ class CimdFlowTest extends TestCase
         $code = $this->approveAndGetCode($user, $pkce['challenge']);
 
         $tokenResponse = $this->post('/mcp/oauth/token', [
+            'resource' => 'http://localhost/mcp/statamic',
             'grant_type' => 'authorization_code',
             'code' => $code,
             'redirect_uri' => $this->cimdRedirectUri,
@@ -293,6 +300,7 @@ class CimdFlowTest extends TestCase
 
         // Attempting to use the revoked refresh token should fail
         $refreshResponse = $this->post('/mcp/oauth/token', [
+            'resource' => 'http://localhost/mcp/statamic',
             'grant_type' => 'refresh_token',
             'refresh_token' => $tokenData['refresh_token'],
             'client_id' => $this->cimdClientId,
@@ -325,12 +333,14 @@ class CimdFlowTest extends TestCase
             codeChallenge: $pkce['challenge'],
             codeChallengeMethod: 'S256',
             redirectUri: 'https://example.com/callback',
+            capabilities: new CapabilitySnapshot([], resource: 'http://localhost/mcp/statamic'),
         );
 
         // Token exchange — the client_id is not a valid CIMD URL (non-HTTPS),
         // CimdClientId::tryFrom() returns null, so findClient() fails and
         // falls through to 'OAuth Client' fallback (not an error for non-URL IDs)
         $response = $this->post('/mcp/oauth/token', [
+            'resource' => 'http://localhost/mcp/statamic',
             'grant_type' => 'authorization_code',
             'code' => $code,
             'redirect_uri' => 'https://example.com/callback',
@@ -396,6 +406,7 @@ class CimdFlowTest extends TestCase
         ]);
 
         $response = $this->post('/mcp/oauth/token', [
+            'resource' => 'http://localhost/mcp/statamic',
             'grant_type' => 'authorization_code',
             'code' => $code,
             'redirect_uri' => $redirectUri,
@@ -429,9 +440,11 @@ class CimdFlowTest extends TestCase
             codeChallenge: $pkce['challenge'],
             codeChallengeMethod: 'S256',
             redirectUri: $this->cimdRedirectUri,
+            capabilities: new CapabilitySnapshot([], resource: 'http://localhost/mcp/statamic'),
         );
 
         $response = $this->post('/mcp/oauth/token', [
+            'resource' => 'http://localhost/mcp/statamic',
             'grant_type' => 'authorization_code',
             'code' => $code,
             'redirect_uri' => $this->cimdRedirectUri,
@@ -456,6 +469,7 @@ class CimdFlowTest extends TestCase
         $code = $this->approveAndGetCode($user, $pkce['challenge']);
 
         $tokenResponse = $this->post('/mcp/oauth/token', [
+            'resource' => 'http://localhost/mcp/statamic',
             'grant_type' => 'authorization_code',
             'code' => $code,
             'redirect_uri' => $this->cimdRedirectUri,
@@ -495,9 +509,11 @@ class CimdFlowTest extends TestCase
             codeChallenge: $pkce['challenge'],
             codeChallengeMethod: 'S256',
             redirectUri: 'https://dcr.example.com/callback',
+            capabilities: new CapabilitySnapshot([], resource: 'http://localhost/mcp/statamic'),
         );
 
         $response = $this->post('/mcp/oauth/token', [
+            'resource' => 'http://localhost/mcp/statamic',
             'grant_type' => 'authorization_code',
             'code' => $code,
             'redirect_uri' => 'https://dcr.example.com/callback',
@@ -534,6 +550,7 @@ class CimdFlowTest extends TestCase
 
         // Exchange auth code successfully
         $tokenResponse = $this->post('/mcp/oauth/token', [
+            'resource' => 'http://localhost/mcp/statamic',
             'grant_type' => 'authorization_code',
             'code' => $code,
             'redirect_uri' => $this->cimdRedirectUri,
@@ -553,6 +570,7 @@ class CimdFlowTest extends TestCase
 
         // Refresh should fail because CIMD metadata can't be resolved
         $refreshResponse = $this->post('/mcp/oauth/token', [
+            'resource' => 'http://localhost/mcp/statamic',
             'grant_type' => 'refresh_token',
             'refresh_token' => $tokenData['refresh_token'],
             'client_id' => $this->cimdClientId,

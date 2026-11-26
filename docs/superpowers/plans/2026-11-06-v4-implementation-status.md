@@ -56,8 +56,49 @@ and their replays remain successful when their receipts need shortening. Review
 found cursor bindings diverging after denied filters were removed, and late timing
 metadata overflowing a full page; both were reproduced and fixed.
 Final regression: **2119 passed, 33 skipped, 11274 assertions** (412.47 s).
-PHPStan 9 and Pint passed. Phase 2.7 remote CI is pending.
-No merge, release or deployment. Phase 2.8–2.11 and the phase-boundary independent review remain.
+PHPStan 9 and Pint passed. Phase 2.7 is pushed as `148a404`; all 19 CI checks passed.
+
+Phase 2.8–2.9 implements four task prompts with authorized context and
+paginated completions, and the combined `statamic-discover` with scope/profile-filtered
+actions and schemas. Review found translation publication, source/destination version
+confusion, blueprint mismatch, unset/inherited page builders, combined response size,
+first-page-only completions and blueprint default filtering. Targeted regressions
+cover the fixes: **132 passed, 908 assertions**.
+
+Phase 2.10 binds the OAuth resource audience through authorization, code exchange,
+refresh and access tokens, includes the issuer in callbacks, and challenges with
+the full required scope set before executing a call or an `execute_tools` batch.
+Challenges cover prompts and blueprint resources too; raw JSON parsing matches the
+MCP transport, including a non-JSON Content-Type. DCR accepts web/native metadata
+without weakening redirect validation. Consent preserves the resource in its form
+and server-side binding. Personal tokens are unaffected; audience-less OAuth grants
+must authorize again. Real-client step-up remains a phase 5 gate.
+
+Phase 2.11 migrates exact project-local Claude Code and Cursor CLI rules, dry-run
+by default. Old allows become read-only; ask/deny rules cover both facets. Merged
+discovery receives no automatic allow. Changes get exclusive private backups and
+atomic replacement; global settings, wildcards and renamed servers remain manual.
+The installer asks separately before changing permissions. Review's partial-failure
+reporting bug was reproduced and fixed: a token-journal failure reports client files
+already migrated instead of saying nothing changed. Tests cover all three files,
+accept/decline, malformed JSON, symlinks, backup refusal, repeat runs and rollback.
+
+The combined run exposed the scope picker's missing entry grants for collection
+tree callers. The picker now offers those grants through the structures path even
+when only the entries tool is disabled, while retaining both resource-policy gates.
+This affects what can be requested, not per-call authorization. Both reported cases
+failed before their fixes; scope-picker and CP tests pass **32 tests, 196 assertions**.
+The action/permission mirror now checks collection get with and without include_tree
+and collection move with its actual arguments.
+
+Final 2.8–2.11 local regression: **2144 passed, 33 skipped, 11521 assertions**
+(447.94 s). PHPStan 9, Pint, Composer audit, all 183 dependency licenses and
+CycloneDX 1.5 generation passed. As required by the library CI policy, the committed
+SBOM remains the release snapshot; the untracked lockfile is not published.
+The 33 local skips need optional integrations or database environments; the draft
+PR records the remote matrix results. Real-client compatibility, PostgreSQL,
+Forms Pro and release performance budgets remain phase 5 gates.
+No merge, release or deployment.
 The Statamic UI-kit work follows phase 2, before phase 3.
 
 ## V00 compatibility inventory

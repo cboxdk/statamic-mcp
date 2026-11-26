@@ -113,7 +113,7 @@ it('follows the terms, globals, assets and structures routers', function () {
     expect(scopeValues($this->availability->forUser(userHolding(['view main nav']))))->toBe(['structures:read']);
     expect(scopeValues($this->availability->forUser(userHolding(['edit main nav']))))->toBe(['structures:admin']);
     expect(scopeValues($this->availability->forUser(userHolding(['configure collections']))))
-        ->toBe(['structures:read', 'structures:admin', 'blueprints:read']);
+        ->toBe(['structures:read', 'structures:admin', 'blueprints:read', 'entries:read', 'entries:write']);
 });
 
 it('follows the users, system and blueprints routers', function () {
@@ -245,6 +245,39 @@ it('offers structure writes to collection reorderers without navigation permissi
     expect($this->availability->allows($editor, TokenScope::StructuresAdmin))->toBeFalse();
 });
 
+it('offers the entry scopes a collection configurator needs for trees only while structures are enabled', function () {
+    $configurator = userHolding(['configure collections']);
+    expect($this->availability->allows($configurator, TokenScope::EntriesRead))->toBeTrue()
+        ->and($this->availability->allows($configurator, TokenScope::EntriesWrite))->toBeTrue();
+    Config::set('statamic.mcp.tools.structures.enabled', false);
+    expect($this->availability->allows($configurator, TokenScope::EntriesRead))->toBeFalse()
+        ->and($this->availability->allows($configurator, TokenScope::EntriesWrite))->toBeFalse();
+});
+
+it('keeps tree scopes when the entries tool is disabled but respects both resource policies', function () {
+    Config::set('statamic.mcp.tools.entries.enabled', false);
+    $configurator = userHolding(['configure collections']);
+    $viewer = userHolding(['view blog entries']);
+    $editor = userHolding(['edit blog entries']);
+
+    expect($this->availability->allows($configurator, TokenScope::EntriesRead))->toBeTrue()
+        ->and($this->availability->allows($configurator, TokenScope::EntriesWrite))->toBeTrue()
+        ->and($this->availability->allows($viewer, TokenScope::EntriesRead))->toBeTrue()
+        ->and($this->availability->allows($viewer, TokenScope::EntriesWrite))->toBeFalse()
+        ->and($this->availability->allows($editor, TokenScope::EntriesWrite))->toBeFalse();
+
+    Config::set('statamic.mcp.tools.entries.resources.write', []);
+    Config::set('statamic.mcp.tools.structures.resources.read', []);
+    expect($this->availability->allows($configurator, TokenScope::EntriesRead))->toBeFalse()
+        ->and($this->availability->allows($configurator, TokenScope::EntriesWrite))->toBeFalse();
+
+    Config::set('statamic.mcp.tools.entries.resources.write', ['*']);
+    Config::set('statamic.mcp.tools.structures.resources.read', ['*']);
+    Config::set('statamic.mcp.tools.structures.enabled', false);
+    expect($this->availability->allows($configurator, TokenScope::EntriesRead))->toBeFalse()
+        ->and($this->availability->allows($configurator, TokenScope::EntriesWrite))->toBeFalse();
+});
+
 /*
  * ScopeAvailability mirrors every router's getRequiredPermissions() by hand.
  * This keeps the mirror honest with the routers themselves as the oracle:
@@ -270,10 +303,15 @@ it('offers exactly the scopes the routers let a permission set use', function ()
                     continue;
                 }
                 foreach (['blog', 'tags', 'footer', 'images', 'main', ''] as $handle) {
-                    foreach ([[], ['entry' => 'some-entry', 'parent' => null]] as $data) {
+                    $variants = match (true) {
+                        $declared->name === 'move' && $type === 'collection' => [['data' => ['entry' => 'some-entry', 'parent' => null]]],
+                        $declared->name === 'get' && $type === 'collection' => [[], ['include_tree' => true]],
+                        default => [[]],
+                    };
+                    foreach ($variants as $extra) {
                         $call = $describe($router, $declared->name, array_filter([
                             'action' => $declared->name, 'resource_type' => $type, 'handle' => $handle,
-                            'collection' => 'blog', 'taxonomy' => 'tags', 'container' => 'images', 'data' => $data,
+                            'collection' => 'blog', 'taxonomy' => 'tags', 'container' => 'images', ...$extra,
                         ], fn ($value) => $value !== null && $value !== '' && $value !== []));
                         if ($call->permissions === []) {
                             continue; // Filtered per item, or open by site config: proves nothing about a permission.

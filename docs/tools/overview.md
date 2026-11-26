@@ -1,12 +1,29 @@
 ---
 title: "Tool Overview"
-description: "Complete reference for all 11 MCP tools, their actions, parameters, and response formats"
+description: "Reference for MCP domain tools, actions, parameters, and response formats"
 weight: 1
 ---
 
 # Tool Overview
 
 Every tool follows the same pattern: send an `action` parameter to specify what operation to perform, along with action-specific parameters. All tools return a standardized response.
+
+## Content workflow prompts
+
+`prompts/list` exposes four read-only preparations, not additional tools:
+
+| Prompt | Task-specific arguments |
+|---|---|
+| `write_entry` | Optional `id` for an update; omit it to prepare a draft |
+| `translate_entry` | Required source `id` and `target_site` |
+| `edit_page_builder` | Required `id` and top-level `field` |
+| `model_content` | Optional `kind`: `blueprint` (default) or `fieldset` |
+
+All take `collection`, an existing `blueprint` handle and `task`. Entry workflows also accept the source `site`. The prompt embeds current blueprint `_format_spec` data and, for an existing entry, its current content and version. Page-builder prompts read only the selected field. They enforce the same scopes, Statamic permissions, profile and denied-field rules as tool reads. If a selected record cannot be read, `prompts/get` returns a protocol error rather than an incomplete workflow.
+
+`completion/complete` offers readable collection, blueprint (with `context.arguments.collection`) and site handles, and the two modeling kinds. Suggestions scan authorized catalog pages and return up to 100 matches; `hasMore` signals omitted candidates. A fieldset result is a proposed definition for review: fieldset CRUD is not yet exposed. Calling any prompt does not save, publish or approve anything.
+
+Existing entries must match the supplied blueprint. An unset page-builder field is reported explicitly; an inherited field is read through the origin's authorization checks. The complete prompt is subject to `security.max_response_size`. Translation instructions create drafts with `data.published=false` and use the destination site's version for subsequent updates.
 
 ## Response Format
 
@@ -102,7 +119,9 @@ opts into the smaller catalog and exposes the other tools through `search_tools`
 and `execute_tools`. This changes discovery, not token scopes, resource policy,
 Statamic permissions or approvals. See [tool catalog configuration](../configuration/reference.md#tool-catalog).
 
-`statamic-system-discover` maps an intent to a tool and reports how to reach it.
+`statamic-discover` maps an intent to authorized tools and actions, or accepts
+`tool_name` to return a tool's live input/output schemas. With no arguments it
+returns the available catalog. Discovery is not a grant of access to every record.
 
 ## Domain Routers
 
@@ -450,15 +469,11 @@ Non-blueprint keys at the top level of an entry (`template`, `layout`, `parent`,
 are legitimate and never reported; the `unknown_field` check applies only inside
 sets and grid rows.
 
-### `statamic-system-discover`
+### `statamic-discover`
 
-Intent-based tool discovery. Describe what you want to do and the tool suggests which MCP tool and action to use.
-Tools that other packages register are recommended too, when they declare discovery
-keywords; see [Extending: tools](../extending/tools.md#be-recommended-by-discovery).
+Omit arguments for `data.discovery.available_tools`, supply `intent` for recommendations, or `tool_name` for one tool's input/output schemas and annotations. This replaces both `statamic-system-discover` and `statamic-system-schema`.
 
-### `statamic-system-schema`
-
-Inspect the full JSON schema of any registered tool. Useful for AI agents to understand available parameters.
+The catalog and schemas include only actions allowed by the token's scopes and installation profile. Each actual call still checks its concrete resource, site and Statamic permissions. A system inventory is included only with `system:read` (or locally) and each inventory section is read through its own domain router, with pagination and authorization intact. Extensions can declare discovery keywords; see [Extending: tools](../extending/tools.md#be-recommended-by-discovery).
 
 ## Resources
 

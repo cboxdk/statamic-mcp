@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Http\Middleware;
 
 use Cboxdk\StatamicMcp\Auth\TokenService;
+use Cboxdk\StatamicMcp\OAuth\ResourceIndicator;
+use Cboxdk\StatamicMcp\OAuth\ScopeChallenge;
 use Cboxdk\StatamicMcp\Support\McpContext;
 use Closure;
 use Illuminate\Http\Request;
@@ -47,7 +49,7 @@ class AuthenticateForMcp
         if ($plainToken) {
             $mcpToken = $this->tokenService->validateToken($plainToken);
 
-            if ($mcpToken) {
+            if ($mcpToken && ($mcpToken->oauthClientId === null || $mcpToken->capabilities?->resource === ResourceIndicator::identifier($request))) {
                 $statamicUser = User::find($mcpToken->userId);
 
                 if ($statamicUser && ! $this->isDeactivated($statamicUser)) {
@@ -67,10 +69,8 @@ class AuthenticateForMcp
             }
         }
 
-        $wwwAuth = 'Bearer realm="Statamic MCP"';
-        if (config('statamic.mcp.oauth.enabled', true)) {
-            $wwwAuth = 'Bearer resource_metadata="' . url('/.well-known/oauth-protected-resource') . '"';
-        }
+        $challenge = app(ScopeChallenge::class);
+        $wwwAuth = $challenge->header($request, $challenge->forRequest($request) ?: ScopeChallenge::initialScopes());
 
         return response()->json([
             'error' => 'Authentication required',

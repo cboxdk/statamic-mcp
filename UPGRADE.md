@@ -10,10 +10,10 @@ touched by any step below.
 2. `composer require cboxdk/statamic-mcp:^4.0`
 3. `php artisan mcp:statamic:install --upgrade` keeps your config, asks for the
    stdio profile (`read_only`, `editor` or `operator`), runs migrations and shows
-   the token plan below.
+   the token plan below. It separately asks before migrating project-local client permissions.
 4. `php artisan mcp:doctor` checks HTTPS, origins, debug mode, trusted proxies,
    profiles, storage contracts and how many tokens v4 affects. It changes nothing.
-5. `php artisan mcp:migrate-v4` shows the token plan as a dry run. Run it again
+5. `php artisan mcp:migrate-v4` shows token and client-permission changes as a dry run. Run it again
    with `--apply` to carry it out. `--json` prints the plan for scripts.
 
 ## What the token plan does
@@ -30,12 +30,50 @@ No scope is ever added. The plan acts only on a token that still looks the way
 it did when planned, and a second run finds only what is left. Before changing
 anything it writes a journal (mode `0600`) to `storage/statamic-mcp/migrations/`
 (`storage.migrations_path`) with each token's scopes before and after. The
-journal never holds secrets or hashes. If it cannot be written, nothing changes.
+journal never holds secrets or hashes. If it cannot be written, no tokens change.
+
+## Client permission migration
+
+The command and installer inspect `.claude/settings.json`, `.claude/settings.local.json`
+and `.cursor/cli.json` in the site's project root. Only exact tool rules for the
+server named `statamic` are migrated:
+
+- An old mixed router in `permissions.allow` becomes its read tool only. Writes need a new decision in the client.
+- Rules in `permissions.ask` and `permissions.deny` cover both new tools, preserving the restriction on writing.
+- Allows for the old discovery/schema tools are removed, rather than silently granting the combined `statamic-discover`. Ask/deny rules move to the combined tool.
+
+Every changed file gets an exclusive `.pre-mcp-v4` backup with mode `0600`. Other
+settings are preserved. Invalid JSON, symlinks and existing backups stop that file's
+migration. The command reports which files changed and stops before token changes
+if a client file failed. If the token journal fails later, already migrated client
+files stay migrated. Re-running after success changes nothing.
+
+Global settings, wildcard permissions and servers with other names need manual
+review. In particular, an existing server-wide allow still allows writes; the
+migration does not claim to narrow it. Never restore a backup automatically on
+rollback: review its grants against the version you are returning to. Backups may
+contain other client configuration secrets; keep them out of version control.
 
 ## Clients
 
+- Replace `statamic-system-discover` and `statamic-system-schema` with `statamic-discover`. Omit arguments for `data.discovery.available_tools`, use `intent` for recommendations, or `tool_name` for input/output schemas. Discovery reflects scopes and installation profiles; it does not grant record access.
+- Replace saved uses of `statamic_agent` and `statamic_contract` with a task prompt: `write_entry`, `translate_entry`, `edit_page_builder` or `model_content`. Supply `collection`, an existing `blueprint` handle and `task`. Translation also needs `id` and `target_site`; page-builder edits need `id` and the top-level `field`. Prompts read live context through the normal authorization checks; they do not grant write access or run writes.
 - Tool failures now use `error: {code, message, field?, valid_values?, hint?}` alongside MCP `isError: true`. Replace reads of `errors[0]`, a string `error`, or `data.code` with `error.message` and `error.code`. Recovery data such as `approval_id` and `current_version` stays in `data`; unexpected exceptions include `meta.correlation_id`. See [error codes](docs/tools/overview.md#error-codes). Internal PHP `execute()` callers still receive the legacy `errors` list, but the protocol does not.
 - Basic Auth is gone. Use a Bearer token or OAuth.
+- OAuth authorization and both token exchanges (code and refresh) require `resource`,
+  the exact endpoint identifier from protected-resource metadata, including any
+  non-default port. The audience is bound through code, refresh and access tokens;
+  a token for another endpoint is refused. OAuth grants issued without that binding
+  must authorize again; personal tokens are unaffected. Authorization responses include
+  `iss`, matching discovery's `issuer`.
+- HTTP 401 challenges include initial or action-specific scopes. HTTP 403
+  `insufficient_scope` includes all required scopes in `WWW-Authenticate`, before
+  execution (including every call in `execute_tools`). Reauthorize with those scopes
+  and retry only after consent. Protected-resource discovery lists minimal initial
+  read scopes; authorization-server discovery lists the available scopes. A resource
+  policy or Statamic permission refusal is not fixed by requesting more token scopes.
+- Dynamic client registration accepts `application_type: "web"` or `"native"`.
+  Both use the same safe redirect validation; this does not enable OIDC or bypass PKCE.
 - The HTTP endpoint must be enabled explicitly (`STATAMIC_MCP_WEB_ENABLED=true`).
 - `confirmation_token` is ignored. A gated action answers `APPROVAL_REQUIRED`
   with an `approval_id`; the person approves it in Tools → MCP → Approvals and
@@ -67,8 +105,9 @@ journal never holds secrets or hashes. If it cannot be written, nothing changes.
   | `statamic-content-facade` | `statamic-content-facade-read` | – |
 
   To let a client read without asking: `mcp__statamic__*-read` in Claude Code's
-  `permissions.allow`, `statamic:*-read` in Cursor's MCP allowlist. claude.ai and
-  ChatGPT do it from the tools' read-only hints.
+  `permissions.allow`, `Mcp(statamic:*-read)` in Cursor CLI's `permissions.allow`.
+  These patterns exclude `statamic-discover`; approve that tool separately.
+  Other clients may use the tools' read-only hints; their approval policy remains theirs.
 - Arguments have one name each, and an action refuses an argument it does not
   take (v3 ignored it) and names what it does take. Rename these in saved
   prompts and scripts:

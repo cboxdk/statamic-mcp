@@ -35,6 +35,12 @@ final class RegisteredReadTool extends Tool
         return $this->action->description;
     }
 
+    /** @return array{domain: string, actions: list<string>, resource_types: list<string>, provided_by: string} */
+    public function catalogEntry(): array
+    {
+        return ['domain' => $this->action->package, 'actions' => [$this->action->name], 'resource_types' => [], 'provided_by' => $this->action->package];
+    }
+
     public function shouldRegister(): bool
     {
         // Discovery must not hide a tool merely because the actor's permitted

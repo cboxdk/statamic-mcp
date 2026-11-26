@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Tests\Feature;
 
+use Cboxdk\StatamicMcp\Actions\CapabilitySnapshot;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\Http\Middleware\AuthenticateForMcp;
@@ -72,10 +73,10 @@ class ReviewSecurityRegressionTest extends TestCase
         $driver = app(OAuthDriver::class);
         $service = app(TokenService::class);
         $client = $driver->registerClient('review', ['https://example.test/callback']);
-        $refresh = $driver->createRefreshToken('review-user', $client->clientId, ['entries:read']);
+        $refresh = $driver->createRefreshToken('review-user', $client->clientId, ['entries:read'], new CapabilitySnapshot([], resource: 'http://localhost/mcp/statamic'));
         $access = $service->createToken('review-user', 'before', [TokenScope::EntriesRead], null, $client->clientId)['model'];
         $service->updateToken($access->id, name: 'after', scopes: [TokenScope::EntriesRead]);
-        $args = ['grant_type' => 'refresh_token', 'client_id' => $client->clientId, 'refresh_token' => $refresh];
+        $args = ['grant_type' => 'refresh_token', 'client_id' => $client->clientId, 'refresh_token' => $refresh, 'resource' => 'http://localhost/mcp/statamic'];
         $first = $this->postJson('/mcp/oauth/token', $args)->assertOk();
         $args['refresh_token'] = $first->json('refresh_token');
         $this->postJson('/mcp/oauth/token', $args)->assertOk();
@@ -85,9 +86,9 @@ class ReviewSecurityRegressionTest extends TestCase
     {
         $driver = app(OAuthDriver::class);
         $client = $driver->registerClient('review', ['https://example.test/callback']);
-        $refresh = $driver->createRefreshToken('review-user', $client->clientId, ['entries:read']);
+        $refresh = $driver->createRefreshToken('review-user', $client->clientId, ['entries:read'], new CapabilitySnapshot([], resource: 'http://localhost/mcp/statamic'));
         app(TokenService::class)->revokeAllForUser('review-user');
-        $this->postJson('/mcp/oauth/token', ['grant_type' => 'refresh_token', 'client_id' => $client->clientId, 'refresh_token' => $refresh])->assertStatus(400);
+        $this->postJson('/mcp/oauth/token', ['grant_type' => 'refresh_token', 'client_id' => $client->clientId, 'refresh_token' => $refresh, 'resource' => 'http://localhost/mcp/statamic'])->assertStatus(400)->assertJsonPath('error', 'invalid_grant');
     }
 
     public function test_basic_auth_is_removed_even_when_legacy_config_enables_it(): void
@@ -105,10 +106,10 @@ class ReviewSecurityRegressionTest extends TestCase
     {
         $driver = app(OAuthDriver::class);
         $client = $driver->registerClient('review', ['https://example.test/callback']);
-        $refresh = $driver->createRefreshToken('review-user', $client->clientId, ['entries:read']);
+        $refresh = $driver->createRefreshToken('review-user', $client->clientId, ['entries:read'], new CapabilitySnapshot([], resource: 'http://localhost/mcp/statamic'));
         User::find('review-user')->set('status', 'inactive')->save();
-        $args = ['grant_type' => 'refresh_token', 'client_id' => $client->clientId, 'refresh_token' => $refresh];
-        $this->postJson('/mcp/oauth/token', $args)->assertStatus(400);
+        $args = ['grant_type' => 'refresh_token', 'client_id' => $client->clientId, 'refresh_token' => $refresh, 'resource' => 'http://localhost/mcp/statamic'];
+        $this->postJson('/mcp/oauth/token', $args)->assertStatus(400)->assertJsonPath('error', 'invalid_grant');
         User::find('review-user')->set('status', 'active')->save();
         $this->postJson('/mcp/oauth/token', $args)->assertStatus(400);
     }
@@ -168,11 +169,11 @@ class ReviewSecurityRegressionTest extends TestCase
         $d = app(OAuthDriver::class);
         $t = app(TokenService::class);
         $c = $d->registerClient('review', ['https://example.test/callback']);
-        $r = $d->createRefreshToken('review-user', $c->clientId, ['entries:read', 'entries:write']);
+        $r = $d->createRefreshToken('review-user', $c->clientId, ['entries:read', 'entries:write'], new CapabilitySnapshot([], resource: 'http://localhost/mcp/statamic'));
         $a = $t->createToken('review-user', 'review', [TokenScope::EntriesRead, TokenScope::EntriesWrite], null, $c->clientId)['model'];
         $t->updateToken($a->id, scopes: [TokenScope::EntriesRead]);
-        $response = $this->postJson('/mcp/oauth/token', ['grant_type' => 'refresh_token', 'client_id' => $c->clientId, 'refresh_token' => $r]);
-        $response->assertStatus(400);
+        $response = $this->postJson('/mcp/oauth/token', ['grant_type' => 'refresh_token', 'client_id' => $c->clientId, 'refresh_token' => $r, 'resource' => 'http://localhost/mcp/statamic']);
+        $response->assertStatus(400)->assertJsonPath('error', 'invalid_grant');
         $this->assertSame(['entries:read'], $t->listTokensForUser('review-user')->first()?->scopes);
     }
 
@@ -181,18 +182,18 @@ class ReviewSecurityRegressionTest extends TestCase
         $d = app(OAuthDriver::class);
         $t = app(TokenService::class);
         $c = $d->registerClient('review', ['https://example.test/callback']);
-        $r = $d->createRefreshToken('review-user', $c->clientId, ['entries:read']);
+        $r = $d->createRefreshToken('review-user', $c->clientId, ['entries:read'], new CapabilitySnapshot([], resource: 'http://localhost/mcp/statamic'));
         $t->createToken('review-user', 'review', [TokenScope::EntriesRead], null, $c->clientId);
         $t->revokeAllForUser('review-user');
-        $this->postJson('/mcp/oauth/token', ['grant_type' => 'refresh_token', 'client_id' => $c->clientId, 'refresh_token' => $r])->assertStatus(400);
+        $this->postJson('/mcp/oauth/token', ['grant_type' => 'refresh_token', 'client_id' => $c->clientId, 'refresh_token' => $r, 'resource' => 'http://localhost/mcp/statamic'])->assertStatus(400)->assertJsonPath('error', 'invalid_grant');
     }
 
     public function test_replayed_refresh_revokes_its_successor(): void
     {
         $d = app(OAuthDriver::class);
         $c = $d->registerClient('review', ['https://example.test/callback']);
-        $r = $d->createRefreshToken('review-user', $c->clientId, ['entries:read']);
-        $args = ['grant_type' => 'refresh_token', 'client_id' => $c->clientId, 'refresh_token' => $r];
+        $r = $d->createRefreshToken('review-user', $c->clientId, ['entries:read'], new CapabilitySnapshot([], resource: 'http://localhost/mcp/statamic'));
+        $args = ['grant_type' => 'refresh_token', 'client_id' => $c->clientId, 'refresh_token' => $r, 'resource' => 'http://localhost/mcp/statamic'];
         $first = $this->postJson('/mcp/oauth/token', $args)->assertOk();
         $this->postJson('/mcp/oauth/token', $args)->assertStatus(400);
         $args['refresh_token'] = $first->json('refresh_token');

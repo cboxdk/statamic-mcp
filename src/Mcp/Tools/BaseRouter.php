@@ -192,6 +192,42 @@ abstract class BaseRouter extends BaseStatamicTool
     }
 
     /**
+     * Actions the token and installation profile permit in principle. A call
+     * still checks its concrete resource, site, data and Statamic permissions.
+     *
+     * @return list<RouterAction>
+     */
+    public function discoverableActions(): array
+    {
+        $token = request()->attributes->get('mcp_token');
+
+        return array_values(array_filter($this->facetActions(), function (RouterAction $action) use ($token): bool {
+            // Editor can create drafts; this describes capability, not a call.
+            $arguments = in_array($action->name, ['create', 'localize'], true) ? ['data' => ['published' => false]] : [];
+            if (app(InstallationProfile::class)->denial($this->getDomain(), $action->name, $arguments, $action->writes()) !== null) {
+                return false;
+            }
+            if ($this->isCliContext()) {
+                return true;
+            }
+            if (! $token instanceof McpTokenData) {
+                return false;
+            }
+            $scopes = $this->describeCall($action->name, $arguments)->scopes;
+            if ($scopes === []) {
+                return false;
+            }
+            foreach ($scopes as $scope) {
+                if (! app(TokenService::class)->hasScope($token, $scope)) {
+                    return false;
+                }
+            }
+
+            return true;
+        }));
+    }
+
+    /**
      * Words in an intent that make statamic-system-discover recommend this tool.
      *
      * Matched like the built-in routers' keywords: each one found in the

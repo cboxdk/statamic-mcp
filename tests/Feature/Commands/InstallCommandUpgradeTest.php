@@ -5,8 +5,16 @@ declare(strict_types=1);
 use Cboxdk\StatamicMcp\Contracts\TokenStore;
 use Illuminate\Support\Facades\File;
 
+beforeEach(function () {
+    $this->originalBase = base_path();
+    $this->clientBase = sys_get_temp_dir() . '/mcp-install-v4-' . bin2hex(random_bytes(4));
+    File::ensureDirectoryExists($this->clientBase . '/.claude');
+    app()->setBasePath($this->clientBase);
+});
+
 afterEach(function () {
-    File::delete(base_path('.ai/guidelines/statamic-mcp.md'));
+    app()->setBasePath($this->originalBase);
+    File::deleteDirectory($this->clientBase);
 });
 
 function seedV3Token(string $name, array $scopes): string
@@ -47,4 +55,33 @@ it('keeps every token when the operator declines', function () {
         ->assertExitCode(0);
 
     expect(app(TokenStore::class)->find($wildcard))->not->toBeNull();
+});
+
+it('asks before migrating client rules and writes v4 agent guidance', function (bool $approve) {
+    $path = base_path('.claude/settings.json');
+    $before = '{"permissions":{"allow":["mcp__statamic__statamic-entries"]}}';
+    File::put($path, $before);
+
+    $this->artisan('mcp:statamic:install', ['--upgrade' => true, '--profile' => 'read_only', '--skip-migrations' => true])
+        ->expectsConfirmation('Migrate these project-local client permission rules? Only reads stay auto-approved; a .pre-mcp-v4 backup is saved.', $approve ? 'yes' : 'no')
+        ->assertExitCode(0);
+
+    if ($approve) {
+        expect(json_decode(File::get($path), true)['permissions']['allow'])->toBe(['mcp__statamic__statamic-entries-read'])
+            ->and(File::get($path . '.pre-mcp-v4'))->toBe($before);
+    } else {
+        expect(File::get($path))->toBe($before)
+            ->and(file_exists($path . '.pre-mcp-v4'))->toBeFalse();
+    }
+    expect(File::get(base_path('.ai/guidelines/statamic-mcp.md')))
+        ->toContain('statamic-discover', 'write_entry', 'expected_version')
+        ->not->toContain('statamic-system-schema', 'statamic_agent', '140+');
+})->with([true, false]);
+
+it('fails an upgrade when client settings cannot be migrated', function () {
+    File::put(base_path('.claude/settings.json'), 'invalid-json');
+    $this->artisan('mcp:statamic:install', ['--upgrade' => true, '--profile' => 'read_only', '--skip-migrations' => true])
+        ->expectsOutputToContain('Not migrated.')
+        ->assertExitCode(1);
+    expect(File::get(base_path('.claude/settings.json')))->toBe('invalid-json');
 });

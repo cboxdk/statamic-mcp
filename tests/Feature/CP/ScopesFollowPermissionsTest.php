@@ -74,6 +74,7 @@ class ScopesFollowPermissionsTest extends TestCase
     {
         return [
             'response_type' => 'code',
+            'resource' => 'http://localhost/mcp/statamic',
             'client_id' => $this->client->clientId,
             'redirect_uri' => $this->redirectUri,
             'code_challenge' => self::CODE_CHALLENGE,
@@ -189,6 +190,7 @@ class ScopesFollowPermissionsTest extends TestCase
 
         $exchange = $this->post('/mcp/oauth/token', [
             'grant_type' => 'authorization_code',
+            'resource' => 'http://localhost/mcp/statamic',
             'code' => $query['code'],
             'redirect_uri' => $this->redirectUri,
             'client_id' => $this->client->clientId,
@@ -264,6 +266,7 @@ class ScopesFollowPermissionsTest extends TestCase
 
         $exchange = $this->post('/mcp/oauth/token', [
             'grant_type' => 'authorization_code',
+            'resource' => 'http://localhost/mcp/statamic',
             'code' => $query['code'],
             'redirect_uri' => $this->redirectUri,
             'client_id' => $this->client->clientId,

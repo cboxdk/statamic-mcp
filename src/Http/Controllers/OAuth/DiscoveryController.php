@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Http\Controllers\OAuth;
 
 use Cboxdk\StatamicMcp\Auth\ScopeAvailability;
+use Cboxdk\StatamicMcp\OAuth\ScopeChallenge;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Routing\Controller;
 
@@ -22,12 +23,10 @@ class DiscoveryController extends Controller
         /** @var string $mcpPath */
         $mcpPath = config('statamic.mcp.web.path', '/mcp/statamic');
 
-        $scopes = app(ScopeAvailability::class)->advertised();
-
         return response()->json([
             'resource' => $baseUrl . $mcpPath,
             'authorization_servers' => [$baseUrl],
-            'scopes_supported' => $scopes,
+            'scopes_supported' => ScopeChallenge::initialScopes(),
             'bearer_methods_supported' => ['header'],
         ]);
     }
@@ -45,6 +44,7 @@ class DiscoveryController extends Controller
 
         $metadata = [
             'issuer' => $baseUrl,
+            'authorization_response_iss_parameter_supported' => true,
             'authorization_endpoint' => $baseUrl . '/' . trim($this->cpRoute(), '/') . '/mcp/oauth/authorize',
             'token_endpoint' => $baseUrl . '/mcp/oauth/token',
             'registration_endpoint' => $baseUrl . '/mcp/oauth/register',

@@ -14,7 +14,7 @@ use Illuminate\Support\Str;
 /** Server-authenticated, short-lived consent; never reconstruct an offer from POST scopes. */
 final class ConsentOffer
 {
-    private const FIELDS = ['client_id', 'redirect_uri', 'state', 'code_challenge', 'code_challenge_method', 'scope'];
+    private const FIELDS = ['client_id', 'redirect_uri', 'state', 'code_challenge', 'code_challenge_method', 'scope', 'resource'];
 
     public function __construct(private readonly CapabilityRegistry $registry) {}
 

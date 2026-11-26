@@ -91,6 +91,7 @@ class GrantIntegrationTest extends TestCase
         $exchange = $this->post('/mcp/oauth/token', [
             'grant_type' => 'authorization_code', 'code' => $query['code'], 'client_id' => $client->clientId,
             'redirect_uri' => 'https://example.test/callback', 'code_verifier' => $verifier,
+            'resource' => 'http://localhost/mcp/statamic',
         ])->assertOk();
         $token = app(TokenService::class)->validateToken($exchange->json('access_token'));
         $this->assertSame(['fixture:status'], $token->scopes);
@@ -109,6 +110,7 @@ class GrantIntegrationTest extends TestCase
 
         $refresh = $this->post('/mcp/oauth/token', [
             'grant_type' => 'refresh_token', 'refresh_token' => $exchange->json('refresh_token'), 'client_id' => $client->clientId,
+            'resource' => 'http://localhost/mcp/statamic',
         ])->assertOk();
         $renewed = app(TokenService::class)->validateToken($refresh->json('access_token'));
         $this->assertSame($token->capabilities->toStored(), $renewed->capabilities->toStored());
@@ -298,6 +300,7 @@ class GrantIntegrationTest extends TestCase
         $response = $this->get(cp_route('statamic-mcp.oauth.authorize') . '?' . http_build_query([
             'client_id' => $client->clientId, 'redirect_uri' => 'https://example.com/callback',
             'response_type' => 'code', 'code_challenge' => str_repeat('a', 43), 'code_challenge_method' => 'S256',
+            'resource' => 'http://localhost/mcp/statamic',
         ]));
         $response->assertOk()->assertSee('fixture:status');
     }

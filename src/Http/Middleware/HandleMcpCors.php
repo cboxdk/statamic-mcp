@@ -126,6 +126,8 @@ class HandleMcpCors
         if ($origin !== '' && self::isOriginAllowed($origin, $allowedOrigins)) {
             $response->headers->set('Access-Control-Allow-Origin', $origin);
             $response->headers->set('Vary', 'Origin');
+            $exposed = array_filter(array_map('trim', explode(',', $response->headers->get('Access-Control-Expose-Headers') ?? '')));
+            $response->headers->set('Access-Control-Expose-Headers', implode(', ', array_unique([...$exposed, 'WWW-Authenticate'])));
         }
 
         return $response;

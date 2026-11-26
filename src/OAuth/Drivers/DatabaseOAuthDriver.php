@@ -17,6 +17,7 @@ use Cboxdk\StatamicMcp\OAuth\Models\OAuthCodeModel;
 use Cboxdk\StatamicMcp\OAuth\Models\OAuthRefreshTokenModel;
 use Cboxdk\StatamicMcp\OAuth\OAuthAuthCode;
 use Cboxdk\StatamicMcp\OAuth\OAuthClient;
+use Cboxdk\StatamicMcp\OAuth\ResourceIndicator;
 use Cboxdk\StatamicMcp\Support\CommittedDatabase;
 use Cboxdk\StatamicMcp\Support\McpConfig;
 
@@ -149,9 +150,16 @@ class DatabaseOAuthDriver implements OAuthDriver, RevokesUserGrants
         string $codeVerifier,
         string $clientId,
         string $redirectUri,
+        ?string $resource = null,
     ): OAuthAuthCode {
-        return CommittedDatabase::run((new OAuthClientModel)->getConnection(), function () use ($code, $codeVerifier, $clientId, $redirectUri): OAuthAuthCode {
+        return CommittedDatabase::run((new OAuthClientModel)->getConnection(), function () use ($code, $codeVerifier, $clientId, $redirectUri, $resource): OAuthAuthCode {
             $codeHash = hash('sha256', $code);
+
+            // The immutable audience is checked before the atomic consume.
+            $grant = OAuthCodeModel::query()->useWritePdo()->where('code', $codeHash)->where('client_id', $clientId)->first();
+            if ($grant instanceof OAuthCodeModel) {
+                ResourceIndicator::requireAudience(CapabilitySnapshot::fromStored($grant->capabilities), $resource);
+            }
 
             // Atomic mark-as-used: only consume the code if client_id, redirect_uri,
             // and expiry all match — preventing an attacker from burning a code they
@@ -247,10 +255,15 @@ class DatabaseOAuthDriver implements OAuthDriver, RevokesUserGrants
         return $token;
     }
 
-    public function exchangeRefreshToken(string $refreshToken, string $clientId): OAuthAuthCode
+    public function exchangeRefreshToken(string $refreshToken, string $clientId, ?string $resource = null): OAuthAuthCode
     {
-        return CommittedDatabase::run((new OAuthClientModel)->getConnection(), function () use ($refreshToken, $clientId): OAuthAuthCode {
+        return CommittedDatabase::run((new OAuthClientModel)->getConnection(), function () use ($refreshToken, $clientId, $resource): OAuthAuthCode {
             $tokenHash = hash('sha256', $refreshToken);
+
+            $grant = OAuthRefreshTokenModel::query()->useWritePdo()->where('token_hash', $tokenHash)->where('client_id', $clientId)->first();
+            if ($grant instanceof OAuthRefreshTokenModel) {
+                ResourceIndicator::requireAudience(CapabilitySnapshot::fromStored($grant->capabilities), $resource);
+            }
 
             // Atomic mark-as-used: only consume the token if client_id and expiry
             // match — preventing a token from being burned by the wrong client.

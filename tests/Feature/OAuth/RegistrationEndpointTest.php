@@ -5,9 +5,23 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Tests\Feature\OAuth;
 
 use Cboxdk\StatamicMcp\Tests\TestCase;
+use Illuminate\Routing\Middleware\ThrottleRequests;
 
 class RegistrationEndpointTest extends TestCase
 {
+    public function test_application_type_is_metadata_not_a_redirect_safety_bypass(): void
+    {
+        $this->withoutMiddleware(ThrottleRequests::class);
+        foreach (['web', 'native'] as $type) {
+            $this->postJson('/mcp/oauth/register', ['client_name' => 'Typed client', 'application_type' => $type, 'redirect_uris' => ['http://localhost:8000/callback']])
+                ->assertCreated()->assertJsonPath('application_type', $type);
+            $this->postJson('/mcp/oauth/register', ['client_name' => 'Unsafe', 'application_type' => $type, 'redirect_uris' => ['http://example.com/callback']])
+                ->assertStatus(400);
+        }
+        $this->postJson('/mcp/oauth/register', ['client_name' => 'Invalid', 'application_type' => 'other', 'redirect_uris' => ['https://example.com/callback']])
+            ->assertStatus(400)->assertJsonPath('error', 'invalid_client_metadata');
+    }
+
     public function test_successful_client_registration(): void
     {
         $response = $this->postJson('/mcp/oauth/register', [

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Tests\Feature\Routers;
 
+use Cboxdk\StatamicMcp\Actions\CapabilitySnapshot;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\StructuresRouter;
@@ -206,6 +207,9 @@ class StructuresUpdatePolicyTest extends TestCase
 
         if ($scope === null) {
             $response->assertUnauthorized();
+        } elseif ($scope === TokenScope::StructuresRead) {
+            $response->assertForbidden()->assertJsonPath('error', 'insufficient_scope')
+                ->assertJsonPath('scope', 'structures:admin');
         } else {
             $response->assertOk()
                 ->assertJsonPath('result.isError', true)
@@ -260,10 +264,12 @@ class StructuresUpdatePolicyTest extends TestCase
             codeChallenge: $challenge,
             codeChallengeMethod: 'S256',
             redirectUri: 'https://example.test/callback',
+            capabilities: new CapabilitySnapshot([], resource: 'http://localhost/mcp/statamic'),
         );
 
         return $this->post('/mcp/oauth/token', [
             'grant_type' => 'authorization_code',
+            'resource' => 'http://localhost/mcp/statamic',
             'code' => $code,
             'redirect_uri' => 'https://example.test/callback',
             'client_id' => $client->clientId,

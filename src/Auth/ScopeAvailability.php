@@ -178,8 +178,23 @@ class ScopeAvailability
             return true;
         }
 
-        // The site rules first: a switched-off tool and an empty resource
-        // allowlist refuse every call, super admins included.
+        // Collection trees belong to structures, but also require entry scopes.
+        // Disabling the entries tool does not disable this path; closing either
+        // resource policy does. Per-record and site policies still run on calls.
+        if (in_array($scope, [TokenScope::EntriesRead, TokenScope::EntriesWrite], true)) {
+            $write = $scope === TokenScope::EntriesWrite;
+            $mode = $write ? 'write' : 'read';
+            $permission = $write ? 'reorder' : 'view';
+            if (config("statamic.mcp.tools.entries.resources.{$mode}") !== []
+                && ! $this->ruledOutBySite($write ? TokenScope::StructuresAdmin : TokenScope::StructuresRead)
+                && ($user->isSuper() || $user->hasPermission('configure collections')
+                    || $this->holdsForAny($user, $this->collectionHandles(), fn (string $h): array => ["{$permission} {$h} entries"]))) {
+                return true;
+            }
+        }
+
+        // For the scope's own domain, check site rules before permissions:
+        // disabled tools and empty allowlists refuse super admins too.
         if ($this->ruledOutBySite($scope)) {
             return false;
         }

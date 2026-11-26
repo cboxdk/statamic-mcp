@@ -14,6 +14,7 @@ trait InteractsWithOAuthConsent
      */
     protected function withConsentOffer(string $url, array $params): array
     {
+        $params += ['resource' => 'http://localhost/mcp/statamic'];
         $response = $this->get($url . '?' . http_build_query(array_merge($params, ['response_type' => 'code'])));
         $response->assertOk();
 

@@ -46,6 +46,7 @@ class CimdAuthorizeTest extends TestCase
     {
         return array_merge([
             'response_type' => 'code',
+            'resource' => 'http://localhost/mcp/statamic',
             'client_id' => $this->cimdClientId,
             'redirect_uri' => $this->cimdRedirectUri,
             'code_challenge' => 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
@@ -206,6 +207,7 @@ class CimdAuthorizeTest extends TestCase
                 'client_id' => $this->cimdClientId,
                 'redirect_uri' => $this->cimdRedirectUri,
                 'state' => 'cimd-state-deny',
+                'resource' => 'http://localhost/mcp/statamic',
                 'code_challenge' => 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
                 'code_challenge_method' => 'S256',
                 'scope' => 'entries:read',
@@ -348,6 +350,7 @@ class CimdAuthorizeTest extends TestCase
 
         $params = [
             'response_type' => 'code',
+            'resource' => 'http://localhost/mcp/statamic',
             'client_id' => $dcrClient->clientId,
             'redirect_uri' => 'https://dcr.example.com/callback',
             'code_challenge' => 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',

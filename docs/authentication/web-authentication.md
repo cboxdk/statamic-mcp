@@ -34,16 +34,26 @@ For MCP clients that support the OAuth 2.1 specification, the addon provides a f
 ### Authorization Code Flow with PKCE
 
 1. **Dynamic Client Registration**: The client registers via `POST /mcp/oauth/register` (RFC 7591), providing a `client_name` and `redirect_uris`. The server returns a public `client_id`; these clients use PKCE, not a client secret. CIMD clients can instead use their HTTPS metadata URL as the client ID.
-2. **Authorization Request**: The client redirects to `GET /{cp}/mcp/oauth/authorize` with `code_challenge` (S256) and requested scopes.
+2. **Authorization Request**: The client redirects to `GET /{cp}/mcp/oauth/authorize` with `code_challenge` (S256), requested scopes and `resource` from protected-resource metadata.
 3. **Consent Screen**: The user sees the consent screen in the Statamic CP and approves or denies the request. Only the requested scopes the user can exercise are shown; a request for `*` from a user who is not a super admin is narrowed to the scopes they can hold. A client asking for nothing the user can hold is sent back with `invalid_scope`. See [`security.scopes_follow_permissions`](../configuration/reference.md#scopes_follow_permissions).
-4. **Token Exchange**: The client exchanges the authorization code at `POST /mcp/oauth/token` with the `code_verifier`.
-5. **Refresh**: The client can refresh tokens via `POST /mcp/oauth/token` with `grant_type=refresh_token`.
+4. **Token Exchange**: The client exchanges the authorization code at `POST /mcp/oauth/token` with the `code_verifier` and the same `resource`.
+5. **Refresh**: The client can refresh tokens via `POST /mcp/oauth/token` with `grant_type=refresh_token` and the same `resource`.
+
+`resource` identifies this MCP endpoint, including its path and any non-default port.
+It is bound to the authorization code, refresh grant and access token. Missing or
+mismatched values return `invalid_target`; a token bound to another endpoint is
+refused. Legacy OAuth grants without a bound audience require new consent. Personal
+tokens do not use this OAuth audience binding. Authorization callbacks include `iss`,
+which the client checks against discovery's `issuer`.
+
+Registration accepts optional `application_type: "web"` or `"native"`. This is
+client metadata, not an OIDC mode or an exemption from redirect and PKCE checks.
 
 Refresh tokens rotate on every exchange. Their successors share the original grant expiry, so refresh does not keep a grant alive indefinitely. Reusing an already-consumed refresh token revokes the refresh and access tokens for that user/client. Changing an OAuth token's scopes or expiry also ends refresh access and requires new consent. Renaming a token without changing those values preserves refresh access.
 
 Issuance, scope changes and revocation share an atomic cache lock. Configure `oauth.lock_store` with a lock-capable cache store shared by every application node (for example Redis or the database cache store). Do not use the `array` store outside tests. A single-server site can use the file cache store. The database OAuth driver alone does not make a node-local cache lock distributed.
 
-All v4 OAuth drivers must implement `revokeGrantsForUser` through the `OAuthDriver` contract. Revocation includes refresh grants and pending authorization codes whose access tokens have expired or been pruned. Update custom drivers before upgrading; the incomplete legacy fallback has been removed.
+All v4 OAuth drivers must implement `revokeGrantsForUser` through the `OAuthDriver` contract. Revocation includes refresh grants and pending authorization codes whose access tokens have expired or been pruned. Custom drivers must also accept the `resource` argument on both exchange methods, preserve `CapabilitySnapshot.resource` through rotation, and reject an audience mismatch before consuming the grant. Update custom drivers before upgrading; the incomplete legacy fallback has been removed.
 
 ### Redirect URI matching
 
@@ -65,6 +75,25 @@ OAuth metadata is available at:
 - `/.well-known/oauth-authorization-server` — RFC 8414 metadata
 - `/.well-known/oauth-protected-resource` — RFC 9728 protected resource metadata
 
+The protected-resource document is also available at
+`/.well-known/oauth-protected-resource/mcp/statamic` (substitute your configured MCP
+path). This is the URL sent in `WWW-Authenticate`. It advertises minimal initial
+read scopes; authorization-server metadata advertises all available scopes.
+
+### Requesting additional access
+
+An unauthenticated request returns HTTP 401 with a Bearer challenge containing
+`resource_metadata` and initial or action-specific `scope`. A valid token missing
+scopes returns HTTP 403 with `error="insufficient_scope"` and the complete required
+scope set. For a batch sent through `execute_tools`, all required scopes are checked
+before any member executes. Prompts and blueprint resources receive scope challenges
+too. CORS exposes `WWW-Authenticate` to allowed browser clients.
+
+The client asks the person to authorize those scopes, then retries after consent.
+A profile, resource-policy or Statamic permission refusal still needs the site's
+operator; more token scopes do not override it. Challenges never read protected
+records to infer their state.
+
 ### Configuration
 
 OAuth is enabled by default. See the [Configuration Reference](../configuration/reference.md) for all OAuth settings including TTLs, default scopes, and max clients.
@@ -75,11 +104,11 @@ OAuth is enabled by default. See the [Configuration Reference](../configuration/
 2. `HandleMcpCors` rejects untrusted Origin headers against `app.url` and `allowed_origins`, then handles CORS preflight and response headers
 3. `EnsureSecureTransport` rejects plain HTTP in production (if `require_https` enabled)
 4. `AuthenticateForMcp` middleware extracts the `Authorization` header
-5. If `Bearer` prefix: validate token hash, check expiry, load scopes
-6. If `Basic` prefix and explicitly enabled: authenticate against Statamic users, verify CP access and refuse enabled or required 2FA
-7. If neither: return `401 Authentication required`
-8. Rate limiter applies per-token or per-IP throttling
-9. `RequireMcpPermission` middleware checks token scopes against the requested tool
+5. If `Bearer` prefix: validate token hash, expiry, active user and OAuth audience, then load scopes
+6. Otherwise return `401 Authentication required`; Basic Auth is not accepted
+7. Rate limiter applies per-token or per-IP throttling
+8. `RequireMcpPermission` checks the complete request's scopes before dispatch
+9. The tool or resource checks profile, resource policy, Statamic permissions and any approval requirement
 
 ## Security Best Practices
 

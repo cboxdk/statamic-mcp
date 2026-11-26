@@ -137,6 +137,7 @@ final class ResultSchema
             'collection', 'taxonomy', 'navigation', 'globalset', 'site' => 'structures',
             'asset', 'container' => 'assets',
             'role', 'group' => 'users',
+            'blueprint' => 'blueprints',
             default => null,
         };
         if ($policyDomain !== null) {

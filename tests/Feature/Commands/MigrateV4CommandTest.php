@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Cboxdk\StatamicMcp\Actions\CapabilitySnapshot;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\Auth\V4TokenMigration;
 use Cboxdk\StatamicMcp\Contracts\TokenStore;
@@ -39,6 +40,110 @@ function migrateV4(array $options = []): array
 
     return [$code, json_decode(Artisan::output(), true, flags: JSON_THROW_ON_ERROR)];
 }
+
+describe('project-local client permissions', function () {
+    beforeEach(function () {
+        $this->originalBase = base_path();
+        $this->clientBase = $this->journals . '/site';
+        File::ensureDirectoryExists($this->clientBase . '/.claude');
+        File::ensureDirectoryExists($this->clientBase . '/.cursor');
+        app()->setBasePath($this->clientBase);
+    });
+
+    afterEach(function () {
+        app()->setBasePath($this->originalBase);
+        File::deleteDirectory($this->clientBase);
+    });
+
+    it('previews exact rules, preserves unrelated settings and never adds automatic writes', function (string $path, string $old, string $read, string $write, string $discovery) {
+        $settings = json_encode([
+            'permissions' => [
+                'allow' => [$old, $discovery, 'unrelated-rule'],
+                'ask' => [$old],
+                'deny' => [$old],
+            ],
+            'env' => (object) [],
+            'theme' => 'dark',
+        ], JSON_THROW_ON_ERROR);
+        File::put(base_path($path), $settings);
+        [$code, $preview] = migrateV4();
+        expect($code)->toBe(0)
+            ->and($preview['clients'][0]['path'])->toBe($path)
+            ->and($preview['clients'][0]['applied'])->toBeFalse()
+            ->and(File::get(base_path($path)))->toBe($settings)
+            ->and(file_exists(base_path($path . '.pre-mcp-v4')))->toBeFalse();
+
+        [$code, $applied] = migrateV4(['--apply' => true]);
+        $result = json_decode(File::get(base_path($path)), flags: JSON_THROW_ON_ERROR);
+        expect($code)->toBe(0)->and($applied['clients'][0]['applied'])->toBeTrue()
+            ->and($result->permissions->allow)->toBe([$read, 'unrelated-rule'])
+            ->and($result->permissions->ask)->toBe([$read, $write])
+            ->and($result->permissions->deny)->toBe([$read, $write])
+            ->and($result->env)->toBeInstanceOf(stdClass::class)
+            ->and($result->theme)->toBe('dark')
+            ->and(File::get(base_path($path . '.pre-mcp-v4')))->toBe($settings)
+            ->and(fileperms(base_path($path . '.pre-mcp-v4')) & 0777)->toBe(0600);
+
+        [$code, $again] = migrateV4(['--apply' => true]);
+        expect($code)->toBe(0)->and($again['clients'])->toBe([]);
+        [$code] = migrateV4(['--rollback' => true, '--apply' => true]);
+        expect($code)->toBe(0)
+            ->and(json_decode(File::get(base_path($path))))->toEqual($result);
+    })->with([
+        ['.claude/settings.json', 'mcp__statamic__statamic-entries', 'mcp__statamic__statamic-entries-read', 'mcp__statamic__statamic-entries-write', 'mcp__statamic__statamic-system-discover'],
+        ['.claude/settings.local.json', 'mcp__statamic__statamic-users', 'mcp__statamic__statamic-users-read', 'mcp__statamic__statamic-users-admin', 'mcp__statamic__statamic-system-schema'],
+        ['.cursor/cli.json', 'Mcp(statamic:statamic-blueprints)', 'Mcp(statamic:statamic-blueprints-read)', 'Mcp(statamic:statamic-blueprints-admin)', 'Mcp(statamic:statamic-system-schema)'],
+    ]);
+
+    it('leaves wildcard rules, renamed servers and current tools for manual review', function () {
+        $settings = '{"permissions":{"allow":["mcp__statamic__*","mcp__other__statamic-entries","mcp__statamic__statamic-entries-write"]}}';
+        File::put(base_path('.claude/settings.json'), $settings);
+        [$code, $report] = migrateV4(['--apply' => true]);
+        expect($code)->toBe(0)->and($report['clients'])->toBe([])
+            ->and(File::get(base_path('.claude/settings.json')))->toBe($settings);
+    });
+
+    it('reports migrated clients when the token journal subsequently fails', function () {
+        File::put(base_path('.claude/settings.json'), '{"permissions":{"allow":["mcp__statamic__statamic-entries"]}}');
+        File::put(base_path('not-a-directory'), 'blocker');
+        config(['statamic.mcp.storage.migrations_path' => base_path('not-a-directory/journal')]);
+        $token = v3Token('Full', ['*']);
+        [$code, $report] = migrateV4(['--apply' => true]);
+        expect($code)->toBe(1)
+            ->and($report['clients'][0]['applied'])->toBeTrue()
+            ->and($report['error'])->toContain('tokens were not changed')->not->toContain('nothing was changed')
+            ->and(json_decode(File::get(base_path('.claude/settings.json')), true)['permissions']['allow'])->toBe(['mcp__statamic__statamic-entries-read'])
+            ->and(app(TokenStore::class)->find($token)?->scopes)->toBe(['*']);
+    });
+
+    it('refuses unsafe settings without changing tokens or exposing config contents', function (string $failure) {
+        $token = v3Token('Old token', ['*']);
+        $path = base_path('.claude/settings.json');
+        $settings = '{"permissions":{"allow":["mcp__statamic__statamic-entries"]},"secret":"private-marker"}';
+        File::put($path, $settings);
+        if ($failure === 'invalid-json') {
+            File::put($path, 'private-marker invalid JSON');
+        } elseif ($failure === 'existing-backup') {
+            File::put($path . '.pre-mcp-v4', 'keep-backup');
+        } elseif ($failure === 'symlink') {
+            File::move($path, base_path('outside.json'));
+            symlink(base_path('outside.json'), $path);
+        } else {
+            File::move(base_path('.claude'), base_path('linked-directory'));
+            symlink(base_path('linked-directory'), base_path('.claude'));
+        }
+        $before = File::get($path);
+        [$code, $report] = migrateV4(['--apply' => true]);
+        expect($code)->toBe(1)
+            ->and($report['clients'][0]['error'])->not->toBeNull()
+            ->and(json_encode($report))->not->toContain('private-marker')
+            ->and(File::get($path))->toBe($before)
+            ->and(app(TokenStore::class)->find($token)?->scopes)->toBe(['*']);
+        if ($failure === 'existing-backup') {
+            expect(File::get($path . '.pre-mcp-v4'))->toBe('keep-backup');
+        }
+    })->with(['invalid-json', 'existing-backup', 'symlink', 'parent-symlink']);
+});
 
 it('changes nothing on a dry run and never prints token hashes', function () {
     $ids = ['full' => v3Token('Full', ['*']), 'admin' => v3Token('Admin', ['users:read', 'users:write'])];
@@ -115,7 +220,7 @@ it('drops the content umbrellas, which never granted anything, without ending an
         'only' => v3Token('Only content', ['content:read']),
         'oauth' => v3Token('Client (OAuth)', ['content:read', 'entries:read'], $client->clientId),
     ];
-    $refresh = $oauth->createRefreshToken('owner-1', $client->clientId, ['content:read', 'entries:read']);
+    $refresh = $oauth->createRefreshToken('owner-1', $client->clientId, ['content:read', 'entries:read'], new CapabilitySnapshot([], resource: 'http://localhost/mcp/statamic'));
 
     [$code, $report] = migrateV4(['--apply' => true]);
 
@@ -128,7 +233,7 @@ it('drops the content umbrellas, which never granted anything, without ending an
 
     // The client keeps its grant; refreshing it drops the umbrella.
     User::make()->id('owner-1')->email('owner@example.com')->makeSuper()->save();
-    $refreshed = $this->post('/mcp/oauth/token', ['grant_type' => 'refresh_token', 'refresh_token' => $refresh, 'client_id' => $client->clientId]);
+    $refreshed = $this->post('/mcp/oauth/token', ['grant_type' => 'refresh_token', 'refresh_token' => $refresh, 'client_id' => $client->clientId, 'resource' => 'http://localhost/mcp/statamic']);
     expect($refreshed->status())->toBe(200, (string) $refreshed->getContent());
     expect($refreshed->json('scope'))->toBe('entries:read');
 });
@@ -161,7 +266,7 @@ it('changes nothing when the journal cannot be written', function () {
         File::delete($blocker);
     }
 
-    expect($code)->toBe(1)->and($report['error'])->toContain('nothing was changed')
+    expect($code)->toBe(1)->and($report['error'])->toContain('tokens were not changed')
         ->and(app(TokenStore::class)->find($id))->not->toBeNull();
 });
 

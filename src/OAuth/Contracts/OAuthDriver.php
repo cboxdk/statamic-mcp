@@ -40,6 +40,7 @@ interface OAuthDriver extends RevokesUserGrants
         string $codeVerifier,
         string $clientId,
         string $redirectUri,
+        ?string $resource = null,
     ): OAuthAuthCode;
 
     /**
@@ -56,7 +57,7 @@ interface OAuthDriver extends RevokesUserGrants
      *
      * @throws OAuthException
      */
-    public function exchangeRefreshToken(string $refreshToken, string $clientId): OAuthAuthCode;
+    public function exchangeRefreshToken(string $refreshToken, string $clientId, ?string $resource = null): OAuthAuthCode;
 
     /**
      * Revoke a refresh token. Returns true if found and revoked.
