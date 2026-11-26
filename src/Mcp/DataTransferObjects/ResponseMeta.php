@@ -11,8 +11,6 @@ readonly class ResponseMeta implements JsonSerializable
     public function __construct(
         public string $tool,
         public string $timestamp,
-        public ?string $statamic_version = null,
-        public ?string $laravel_version = null,
     ) {}
 
     /**
@@ -20,11 +18,9 @@ readonly class ResponseMeta implements JsonSerializable
      */
     public function jsonSerialize(): array
     {
-        return array_filter([
+        return [
             'tool' => $this->tool,
             'timestamp' => $this->timestamp,
-            'statamic_version' => $this->statamic_version,
-            'laravel_version' => $this->laravel_version,
-        ], fn (mixed $value): bool => $value !== null);
+        ];
     }
 }

@@ -18,6 +18,7 @@ use Illuminate\Validation\ValidationException;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Attributes\Title;
+use Statamic\Facades\Blink;
 use Statamic\Facades\Site;
 use Statamic\Facades\Taxonomy;
 use Statamic\Facades\Term;
@@ -82,8 +83,8 @@ class TermsRouter extends BaseRouter
             'limit' => JsonSchema::integer()
                 ->description('Maximum results to return (default: 50, max: 1000)'),
 
-            'offset' => JsonSchema::integer()
-                ->description('Number of results to skip for pagination. Use with limit for paging'),
+            'cursor' => JsonSchema::string()
+                ->description('next_cursor from the previous page. Keep the other arguments unchanged. Omit to start again.'),
         ]);
     }
 
@@ -222,9 +223,14 @@ class TermsRouter extends BaseRouter
             return $result;
         }
 
+        Blink::flush();
         $term = Term::find($result['term']['id']);
         if ($term !== null) {
             $result['term']['version'] = $this->termVersion($term);
+            if ($action !== 'get' && is_string($result['term']['site'] ?? null)) {
+                $localized = $term->in($result['term']['site']);
+                $result['term']['data'] = $localized?->data()->all() ?? [];
+            }
         }
 
         return $result;
@@ -307,7 +313,7 @@ class TermsRouter extends BaseRouter
             $query->where((string) $field, $value);
         }
         $total = $query->count();
-        $terms = $query->offset($offset)->limit($limit)->get();
+        $terms = $query->orderBy('id')->offset($offset)->limit($limit)->get();
         $data = $terms->map(function ($term) {
             return [
                 'id' => $term->id(),
@@ -320,8 +326,7 @@ class TermsRouter extends BaseRouter
         })->all();
 
         return [
-            'terms' => $data,
-            'pagination' => $this->buildPaginationMeta($total, $limit, $offset),
+            ...$this->buildPage($data, $total, $offset, $arguments),
             'taxonomy' => $taxonomy,
             'site' => $site,
         ];
@@ -661,6 +666,9 @@ class TermsRouter extends BaseRouter
             'slug' => $term->slug(),
             'taxonomy' => $term->taxonomyHandle(),
             'site' => $term->site()->handle(),
+            'url' => $term->url(),
+            'data' => $term->data()->all(),
+            'version' => $this->termVersion($term),
         ];
         // Check for entries using this term
         $entriesCount = $term->queryEntries()->count();
@@ -680,7 +688,7 @@ class TermsRouter extends BaseRouter
     protected function actions(): array
     {
         return [
-            RouterAction::read('list', 'List a taxonomy\'s terms', needs: ['taxonomy'], optional: ['site', 'filters', 'limit', 'offset']),
+            RouterAction::read('list', 'List a taxonomy\'s terms', needs: ['taxonomy'], optional: ['site', 'filters', 'limit', 'cursor']),
             RouterAction::read('get', 'Get one term with its data and version', needs: ['taxonomy', 'id|slug'], optional: ['site', 'include_counts']),
             RouterAction::edit('create', 'Create a term', needs: ['taxonomy', 'data'], optional: ['site', 'slug']),
             RouterAction::edit('update', 'Update a term', needs: ['taxonomy', 'id|slug', 'data'], optional: ['site', 'expected_version']),

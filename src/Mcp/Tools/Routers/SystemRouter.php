@@ -27,7 +27,7 @@ use Statamic\Sites\Site;
 
 #[Name('statamic-system')]
 #[Title('Statamic System')]
-#[Description('Statamic system: versions, health checks, cache state and cache maintenance, and MCP configuration.')]
+#[Description('Statamic system: site information, health checks, cache state and cache maintenance, and MCP configuration.')]
 class SystemRouter extends BaseRouter
 {
     protected function getDomain(): string
@@ -38,7 +38,7 @@ class SystemRouter extends BaseRouter
     protected function actions(): array
     {
         return [
-            RouterAction::read('info', 'System information: versions, sites, content counts and environment', optional: ['include_details', 'include_performance']),
+            RouterAction::read('info', 'System information: sites, content counts and environment', optional: ['include_details', 'include_performance']),
             RouterAction::read('health', 'Run the health checks and report what they found', optional: []),
             RouterAction::read('cache_status', 'Report the state of each cache, or of one', optional: ['cache_type']),
             RouterAction::admin('cache_clear', 'Clear a cache; cache_type defaults to all', optional: ['cache_type']),
@@ -99,9 +99,6 @@ class SystemRouter extends BaseRouter
         $includeDetails = $this->getBooleanArgument($arguments, 'include_details', false);
         $includePerformance = $this->getBooleanArgument($arguments, 'include_performance', false);
         $info = [
-            'statamic_version' => $this->getStatamicVersion(),
-            'laravel_version' => app()->version(),
-            'php_version' => PHP_VERSION,
             'environment' => app()->environment(),
             'debug_mode' => config('app.debug'),
             'timezone' => config('app.timezone'),

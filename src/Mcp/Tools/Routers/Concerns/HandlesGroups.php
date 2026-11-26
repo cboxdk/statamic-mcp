@@ -53,10 +53,7 @@ trait HandlesGroups
             ];
         })->all();
 
-        return [
-            'groups' => $groups,
-            'total' => count($groups),
-        ];
+        return $this->paginateItems($groups, $arguments);
     }
 
     /**
@@ -78,9 +75,7 @@ trait HandlesGroups
             return $this->missingResource('User group', $handle, candidates: UserGroup::all()->map->handle()->all(), arguments: $arguments)->toArray();
         }
         $data = [
-            'handle' => $group->handle(),
-            'title' => $group->title(),
-            'roles' => $group->roles()->map->handle()->all(),
+            ...$this->groupRecord($group),
             'users' => $group->queryUsers()->get()->map(function ($user) {
                 /** @var User $user */
                 return [
@@ -139,8 +134,7 @@ trait HandlesGroups
 
         return [
             'group' => [
-                'handle' => $group->handle(),
-                'title' => $group->title(),
+                ...$this->groupRecord($group),
                 'created' => true,
             ],
         ];
@@ -187,8 +181,7 @@ trait HandlesGroups
 
         return [
             'group' => [
-                'handle' => $group->handle(),
-                'title' => $group->title(),
+                ...$this->groupRecord($group),
                 'updated' => true,
             ],
         ];
@@ -212,15 +205,28 @@ trait HandlesGroups
         if (! $group) {
             return $this->missingResource('User group', $handle, candidates: UserGroup::all()->map->handle()->all(), arguments: $arguments)->toArray();
         }
+        $snapshot = $this->groupRecord($group);
         $this->persistStatamic(fn () => $group->delete(), ['stache']);
         // Clear caches
         $this->clearCachesAfterWrite(['stache']);
 
         return [
             'group' => [
-                'handle' => $handle,
+                ...$snapshot,
                 'deleted' => true,
             ],
         ];
+    }
+
+    /** @return array<string, mixed> */
+    private function groupRecord(\Statamic\Contracts\Auth\UserGroup $group): array
+    {
+        $data = [
+            'handle' => $group->handle(),
+            'title' => $group->title(),
+            'roles' => $group->roles()->map->handle()->values()->all(),
+        ];
+
+        return [...$data, 'version' => self::resourceVersion($data)];
     }
 }

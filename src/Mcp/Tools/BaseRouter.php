@@ -18,6 +18,8 @@ use Cboxdk\StatamicMcp\Authorization\McpAuthorizer;
 use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
 use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorResponse;
 use Cboxdk\StatamicMcp\Mcp\ExtraTools;
+use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
+use Cboxdk\StatamicMcp\Mcp\Support\ResultSchema;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\BuildsPaginatedResponse;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\EnforcesResourcePolicy;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\RouterHelpers;
@@ -248,6 +250,26 @@ abstract class BaseRouter extends BaseStatamicTool
     public function presentedFacet(): ?string
     {
         return $this->facet;
+    }
+
+    protected function successDataSchema(): array
+    {
+        if (! in_array(static::class, [...StatamicMcpServer::CORE_TOOLS, ...StatamicMcpServer::SEARCHABLE_TOOLS], true)) {
+            return parent::successDataSchema();
+        }
+
+        $variants = [];
+        foreach ($this->facetActions() as $action) {
+            $schema = ResultSchema::action($this->getDomain(), $action->name);
+            $variants[json_encode($schema, JSON_THROW_ON_ERROR)] = $schema;
+        }
+        if ($this->facet !== 'read') {
+            $variants['truncated'] = ResultSchema::object([
+                'response_truncated' => ['const' => true], 'note' => ['type' => 'string'],
+            ], ['response_truncated', 'note']);
+        }
+
+        return ['anyOf' => array_values($variants)];
     }
 
     /**

@@ -142,7 +142,7 @@ return [
             'block_private_ips' => env('STATAMIC_MCP_URL_IMPORT_BLOCK_PRIVATE_IPS', true),
         ],
 
-        // Include version information in API responses (enable for debugging, disable in production)
+        // Include framework versions in server/discover only (off in production).
         'expose_versions' => env('STATAMIC_MCP_EXPOSE_VERSIONS', false),
 
         // Maximum token lifetime in days (null = unlimited)

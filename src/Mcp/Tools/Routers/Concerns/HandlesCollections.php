@@ -72,9 +72,27 @@ trait HandlesCollections
      */
     private function collectionTreeDetails(CollectionContract $collection, array $arguments): array
     {
-        return ($arguments['include_tree'] ?? false)
-            ? app(CollectionTreeEditor::class)->read($collection, $this->resolveSiteHandle($arguments))
-            : [];
+        if (! ($arguments['include_tree'] ?? false)) {
+            return [];
+        }
+        $tree = app(CollectionTreeEditor::class)->read($collection, $this->resolveSiteHandle($arguments));
+
+        return $this->versionedCollectionTree($collection, $tree);
+    }
+
+    /**
+     * @param  array<string, mixed>  $tree
+     *
+     * @return array<string, mixed>
+     */
+    private function versionedCollectionTree(CollectionContract $collection, array $tree): array
+    {
+        $policy = app(ResourcePolicy::class);
+        $tree = $policy->filterFields('structures', $policy->filterFields('entries', $tree));
+
+        return [...$tree, 'version' => self::resourceVersion([
+            'collection' => $this->collectionRecord($collection, $this->canConfigureCollections()), 'tree' => $tree,
+        ])];
     }
 
     /**
@@ -94,7 +112,14 @@ trait HandlesCollections
         }
         $parent = $this->persistStatamic(fn () => app(CollectionTreeEditor::class)->move($entry, $data['parent']));
 
-        return ['collection' => ['handle' => $entry->collectionHandle()], 'entry' => $entry->id(), 'parent' => $parent, 'updated' => true];
+        // move() already authorized this collection/site for writing and read
+        // back the saved tree. Do not require an additional read grant after
+        // saving, or expose configuration to an editor allowed only to reorder.
+        $collection = $entry->collection();
+        $record = $this->collectionRecord($collection, $this->canConfigureCollections());
+        $tree = ['site' => $entry->locale(), 'tree' => $collection->structure()->in($entry->locale())->tree()];
+
+        return ['collection' => [...$record, ...$this->versionedCollectionTree($collection, $tree)], 'entry' => $entry->id(), 'parent' => $parent, 'updated' => true];
     }
 
     /**
@@ -115,7 +140,7 @@ trait HandlesCollections
                 && $this->canViewCollection($collection)
         );
         $total = $allCollections->count();
-        $collections = $allCollections->skip($offset)->take($limit)->map(function ($collection) use ($includeDetails) {
+        $collections = $allCollections->sortBy(fn (CollectionContract $collection): string => $collection->handle())->skip($offset)->take($limit)->map(function ($collection) use ($includeDetails) {
             /** @var CollectionContract $collection */
             $data = [
                 'handle' => $collection->handle(),
@@ -138,11 +163,7 @@ trait HandlesCollections
             return app(ResourcePolicy::class)->filterFields('structures', $data);
         })->values()->all();
 
-        return [
-            'collections' => $collections,
-            'total' => $total,
-            'pagination' => $this->buildPaginationMeta($total, $limit, $offset),
-        ];
+        return $this->buildPage($collections, $total, $offset, $arguments);
     }
 
     /**
@@ -167,7 +188,23 @@ trait HandlesCollections
                 return $this->createErrorResponse('Permission denied: your account may not view this collection (site restriction)', code: ErrorCode::Forbidden)->toArray();
             }
 
-            $viewerData = [
+            $viewerData = $this->collectionRecord($collection, false);
+
+            return ['collection' => app(ResourcePolicy::class)->filterFields('structures', array_merge($viewerData, $this->collectionTreeDetails($collection, $arguments)))];
+        }
+        $data = $this->collectionRecord($collection);
+        $data['entry_count'] = $this->getBooleanArgument($arguments, 'include_counts', true)
+            ? $collection->queryEntries()->count()
+            : null;
+
+        return ['collection' => app(ResourcePolicy::class)->filterFields('structures', array_merge($data, $this->collectionTreeDetails($collection, $arguments)))];
+    }
+
+    /** @return array<string, mixed> */
+    private function collectionRecord(CollectionContract $collection, bool $canConfigure = true): array
+    {
+        if (! $canConfigure) {
+            $data = [
                 'handle' => $collection->handle(),
                 'title' => $collection->title(),
                 'blueprints' => $collection->entryBlueprints()->map->handle()->all(),
@@ -178,7 +215,7 @@ trait HandlesCollections
                 'default_status' => $collection->defaultPublishState(),
             ];
 
-            return ['collection' => app(ResourcePolicy::class)->filterFields('structures', array_merge($viewerData, $this->collectionTreeDetails($collection, $arguments)))];
+            return [...$data, 'version' => self::resourceVersion($data)];
         }
         $data = [
             'handle' => $collection->handle(),
@@ -198,12 +235,9 @@ trait HandlesCollections
             'sites' => $collection->sites()->all(),
             'revisions' => $collection->revisionsEnabled(),
             'default_status' => $collection->defaultPublishState(),
-            'entry_count' => $this->getBooleanArgument($arguments, 'include_counts', true)
-                ? $collection->queryEntries()->count()
-                : null,
         ];
 
-        return ['collection' => app(ResourcePolicy::class)->filterFields('structures', array_merge($data, $this->collectionTreeDetails($collection, $arguments)))];
+        return [...$data, 'version' => self::resourceVersion($collection->fileData())];
     }
 
     /**
@@ -243,8 +277,7 @@ trait HandlesCollections
 
         return [
             'collection' => [
-                'handle' => $collection->handle(),
-                'title' => $collection->title(),
+                ...$this->collectionRecord($collection),
                 'created' => true,
             ],
         ];
@@ -287,8 +320,7 @@ trait HandlesCollections
 
         return [
             'collection' => [
-                'handle' => $collection->handle(),
-                'title' => $collection->title(),
+                ...$this->collectionRecord($collection),
                 'updated' => true,
             ],
         ];
@@ -319,6 +351,7 @@ trait HandlesCollections
         // Resolve blueprints before removing their parent, but preserve them
         // when the native parent deletion is vetoed or throws.
         $blueprints = $collection->entryBlueprints();
+        $snapshot = $this->collectionRecord($collection);
         $this->persistStatamic(fn () => $collection->delete());
         foreach ($blueprints as $blueprint) {
             $this->persistStatamic(fn () => $blueprint->delete());
@@ -328,7 +361,7 @@ trait HandlesCollections
 
         return [
             'collection' => [
-                'handle' => $handle,
+                ...$snapshot,
                 'deleted' => true,
             ],
         ];

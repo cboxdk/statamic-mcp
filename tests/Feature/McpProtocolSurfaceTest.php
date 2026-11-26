@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Tests\Feature;
 
 use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
+use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\AssetsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\BlueprintsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\ContentFacadeRouter;
@@ -15,17 +16,22 @@ use Cboxdk\StatamicMcp\Mcp\Tools\Routers\SystemRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\TermsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\UsersRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\System\DiscoveryTool;
+use Cboxdk\StatamicMcp\Mcp\Tools\System\SchemaTool;
 use Cboxdk\StatamicMcp\Testing\InteractsWithMcp;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Illuminate\Testing\Fluent\AssertableJson;
 use Opis\JsonSchema\Errors\ErrorFormatter;
 use Opis\JsonSchema\Validator;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Statamic\Facades\Blueprint;
 use Statamic\Facades\Collection;
 use Statamic\Facades\Entry;
 use Statamic\Facades\GlobalSet;
+use Statamic\Facades\Role;
 use Statamic\Facades\Site;
 use Statamic\Facades\Taxonomy;
+use Statamic\Facades\User;
+use Statamic\Facades\UserGroup;
 
 /**
  * Exercises tools through the real MCP protocol rather than calling execute()
@@ -77,6 +83,7 @@ class McpProtocolSurfaceTest extends TestCase
             'system' => [SystemRouter::class, ['action' => 'info']],
             'content facade' => [ContentFacadeRouter::class, ['action' => 'content_audit']],
             'discovery' => [DiscoveryTool::class, ['intent' => 'list entries']],
+            'schema' => [SchemaTool::class, []],
         ];
     }
 
@@ -147,7 +154,11 @@ class McpProtocolSurfaceTest extends TestCase
     #[DataProvider('readOnlyCalls')]
     public function test_success_and_failure_envelopes_match_the_advertised_output_schema(string $tool, array $arguments): void
     {
-        $schema = json_decode((string) json_encode(app($tool)->toArray()['outputSchema']));
+        $instance = app($tool);
+        if ($instance instanceof BaseRouter) {
+            $instance = $instance->facet('read');
+        }
+        $schema = json_decode((string) json_encode($instance->toArray()['outputSchema']));
         $validator = new Validator;
 
         foreach ([$arguments, ['action' => 'no_such_action'] + $arguments] as $call) {
@@ -162,6 +173,122 @@ class McpProtocolSurfaceTest extends TestCase
             $this->assertTrue($result->isValid(), $error === null ? ''
                 : json_encode((new ErrorFormatter)->format($error)) . ' for ' . json_encode($call));
         }
+
+        // The former envelope-only schema accepted missing or wrong-domain data.
+        $invalid = (object) ['success' => true, 'data' => (object) ['unrelated' => true], 'meta' => (object) []];
+        $this->assertFalse($validator->validate($invalid, $schema)->isValid());
+        $invalid->success = false;
+        $this->assertFalse($validator->validate($invalid, $schema)->isValid(), 'A failed call must carry its error.');
+    }
+
+    /** @return array<string, array{class-string<BaseRouter>, array<string, mixed>}> */
+    public static function writeCalls(): array
+    {
+        return [
+            'entry' => [EntriesRouter::class, ['action' => 'create', 'collection' => self::COLLECTION, 'data' => ['title' => 'Protocol entry']]],
+            'term' => [TermsRouter::class, ['action' => 'create', 'taxonomy' => self::TAXONOMY, 'data' => ['title' => 'Protocol term']]],
+            'global' => [GlobalsRouter::class, ['action' => 'update', 'handle' => 'protocol_globals', 'data' => ['footer' => 'Changed footer']]],
+            'blueprint' => [BlueprintsRouter::class, ['action' => 'create', 'namespace' => 'globals', 'handle' => 'protocol_schema']],
+            'structure' => [StructuresRouter::class, ['action' => 'create', 'resource_type' => 'collection', 'handle' => 'protocol_new']],
+            'asset container' => [AssetsRouter::class, ['action' => 'create', 'resource_type' => 'container', 'container' => 'protocol_assets', 'data' => ['disk' => 'local']]],
+            'user' => [UsersRouter::class, ['action' => 'create', 'resource_type' => 'user', 'data' => ['email' => 'protocol@example.com', 'name' => 'Protocol user']]],
+            'system' => [SystemRouter::class, ['action' => 'cache_clear', 'cache_type' => 'views']],
+        ];
+    }
+
+    /**
+     * @param  class-string<BaseRouter>  $tool
+     * @param  array<string, mixed>  $arguments
+     */
+    #[DataProvider('writeCalls')]
+    public function test_write_tools_validate_full_records_errors_and_truncated_successes(string $tool, array $arguments): void
+    {
+        Blueprint::make('protocol_globals')->setNamespace('globals')->setContents([
+            'fields' => [['handle' => 'footer', 'field' => ['type' => 'text']]],
+        ])->save();
+        $set = GlobalSet::make('protocol_globals')->title('Protocol globals');
+        $set->save();
+        $set->makeLocalization('default')->save();
+        $instance = app($tool)->facet('write');
+        $schema = json_decode(json_encode($instance->toArray()['outputSchema'], JSON_THROW_ON_ERROR));
+        foreach ([$arguments, ['action' => 'absent']] as $index => $call) {
+            $content = null;
+            $response = $this->mcpTool($instance, $call)->assertStructuredContent(function (AssertableJson $json) use (&$content): void {
+                $content = $json->toArray();
+                $json->etc();
+            });
+            if ($index === 0) {
+                $response->assertHasNoErrors();
+                if ($tool === EntriesRouter::class) {
+                    foreach (['id', 'data', 'version'] as $required) {
+                        $invalid = $content;
+                        unset($invalid['data']['entry'][$required]);
+                        $this->assertFalse((new Validator)->validate(json_decode(json_encode($invalid)), $schema)->isValid());
+                    }
+                    foreach (['published' => 'yes', 'collection' => 42] as $field => $wrongType) {
+                        $invalid = $content;
+                        $invalid['data']['entry'][$field] = $wrongType;
+                        $this->assertFalse((new Validator)->validate(json_decode(json_encode($invalid)), $schema)->isValid());
+                    }
+                }
+            } else {
+                $response->assertHasErrors();
+            }
+            $result = (new Validator)->validate(json_decode(json_encode($content, JSON_THROW_ON_ERROR)), $schema);
+            $error = $result->error();
+            $this->assertTrue($result->isValid(), $error === null ? '' : json_encode((new ErrorFormatter)->format($error)));
+        }
+
+        if ($tool === EntriesRouter::class) {
+            config()->set('statamic.mcp.security.max_response_size', 800);
+            $this->mcpTool($instance, ['action' => 'create', 'collection' => self::COLLECTION, 'slug' => 'large-record', 'data' => ['title' => str_repeat('Large title ', 200)]])
+                ->assertHasNoErrors()
+                ->assertStructuredContent(function (AssertableJson $json) use ($schema): void {
+                    $json->where('data.response_truncated', true)->etc();
+                    $this->assertTrue((new Validator)->validate(json_decode(json_encode($json->toArray(), JSON_THROW_ON_ERROR)), $schema)->isValid());
+                });
+        }
+    }
+
+    public function test_eloquent_user_ids_are_strings_on_the_wire(): void
+    {
+        Role::make()->handle('editor')->title('Editor')->permissions(['access cp'])->save();
+        UserGroup::make()->handle('editors')->title('Editors')->roles(['editor'])->save();
+        $user = new \Statamic\Auth\Eloquent\User;
+        $user->model((new \Illuminate\Foundation\Auth\User)->setRawAttributes([
+            'id' => 42, 'email' => 'integer@example.test', 'name' => 'Integer id', 'super' => true,
+        ]));
+        $user->explicitRoles(['editor'])->groups(['editors']);
+        User::partialMock()->shouldReceive('find')->with('42')->andReturn($user);
+        $tool = (new UsersRouter)->facet('read');
+        $schema = json_decode(json_encode($tool->toArray()['outputSchema'], JSON_THROW_ON_ERROR));
+        $this->mcpTool($tool, ['action' => 'get', 'resource_type' => 'user', 'id' => '42', 'include_details' => false])
+            ->assertHasNoErrors()
+            ->assertStructuredContent(function (AssertableJson $json) use ($schema): void {
+                $json->where('data.user.id', '42')->where('data.user.roles', ['editor'])->where('data.user.groups', ['editors'])->etc();
+                $this->assertTrue((new Validator)->validate(json_decode(json_encode($json->toArray())), $schema)->isValid());
+            });
+    }
+
+    public function test_group_membership_lists_and_fully_filtered_snapshots_match_the_schema(): void
+    {
+        Role::make()->handle('editor')->title('Editor')->permissions(['access cp'])->save();
+        $tool = (new UsersRouter)->facet('write');
+        $schema = json_decode(json_encode($tool->toArray()['outputSchema'], JSON_THROW_ON_ERROR));
+        $this->mcpTool($tool, [
+            'action' => 'create', 'resource_type' => 'group', 'handle' => 'editors',
+            'data' => ['title' => 'Editors', 'roles' => ['editor']],
+        ])->assertHasNoErrors()->assertStructuredContent(function (AssertableJson $json) use ($schema): void {
+            $json->where('data.group.roles', ['editor'])->etc();
+            $this->assertTrue((new Validator)->validate(json_decode(json_encode($json->toArray())), $schema)->isValid());
+        });
+        config(['statamic.mcp.tools.users.denied_fields' => ['handle', 'title', 'roles', 'version', 'deleted']]);
+        $schema = json_decode(json_encode($tool->toArray()['outputSchema'], JSON_THROW_ON_ERROR));
+        $this->mcpTool($tool, ['action' => 'delete', 'resource_type' => 'group', 'handle' => 'editors'])
+            ->assertHasNoErrors()->assertStructuredContent(function (AssertableJson $json) use ($schema): void {
+                $json->where('data.group', [])->etc();
+                $this->assertTrue((new Validator)->validate(json_decode(json_encode($json->toArray())), $schema)->isValid());
+            });
     }
 
     public function test_tool_names_are_unique(): void

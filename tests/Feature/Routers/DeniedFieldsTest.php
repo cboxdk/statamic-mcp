@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Tests\Feature\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\EntriesRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\StructuresRouter;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Statamic\Facades\Blueprint;
 use Statamic\Facades\Collection;
@@ -36,7 +37,24 @@ class DeniedFieldsTest extends TestCase
 
     private function total(array $result): int
     {
-        return (int) ($result['data']['pagination']['total'] ?? count($result['data']['entries'] ?? []));
+        return $result['data']['total'];
+    }
+
+    public function test_collection_write_snapshots_obey_the_same_field_policy_as_reads(): void
+    {
+        Collection::find('vault')->template('hidden-template')->save();
+        config(['statamic.mcp.tools.structures.denied_fields' => ['template']]);
+        $router = new StructuresRouter;
+        foreach (['get', 'update', 'delete'] as $action) {
+            $arguments = ['action' => $action, 'resource_type' => 'collection', 'handle' => 'vault'];
+            if ($action === 'update') {
+                $arguments['data'] = ['title' => 'Public title'];
+            }
+            $result = $router->execute($arguments);
+            $this->assertTrue($result['success'], json_encode($result));
+            $this->assertArrayNotHasKey('template', $result['data']['collection']);
+            $this->assertArrayHasKey('version', $result['data']['collection']);
+        }
     }
 
     public function test_a_denied_field_filter_no_longer_works_as_an_oracle(): void
@@ -77,7 +95,7 @@ class DeniedFieldsTest extends TestCase
 
         $revisions = (new EntriesRouter)->execute(['action' => 'list_revisions', 'collection' => 'vault', 'id' => $id]);
         $this->assertTrue($revisions['success'], json_encode($revisions['errors'] ?? []));
-        $revisionId = $revisions['data']['revisions'][0]['id'] ?? $revisions['data']['revisions'][0]['date'] ?? null;
+        $revisionId = $revisions['data']['items'][0]['id'];
         $this->assertNotNull($revisionId, 'expected a revision to exist: ' . json_encode($revisions['data']));
 
         $revision = (new EntriesRouter)->execute([

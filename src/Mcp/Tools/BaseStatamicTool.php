@@ -30,7 +30,6 @@ use Statamic\Auth\PermissionCache;
 use Statamic\Exceptions\BlueprintNotFoundException;
 use Statamic\Exceptions\FieldtypeNotFoundException;
 use Statamic\Facades\Blink;
-use Statamic\Statamic;
 
 abstract class BaseStatamicTool extends Tool
 {
@@ -100,6 +99,30 @@ abstract class BaseStatamicTool extends Tool
     }
 
     /**
+     * @return array{name: string, title?: string|null, description?: string|null, inputSchema?: array<string, mixed>, outputSchema?: array<string, mixed>, annotations?: array<string, mixed>, _meta?: array<string, mixed>}
+     */
+    public function toArray(): array
+    {
+        $tool = parent::toArray();
+        $schema = $tool['outputSchema'] ?? [];
+        $schema['required'] = ['success', 'data', 'meta'];
+        $schema['if'] = ['properties' => ['success' => ['const' => true]]];
+        $schema['then'] = ['properties' => ['data' => $this->successDataSchema()], 'not' => ['required' => ['error']]];
+        $schema['else'] = ['required' => ['error']];
+        $tool['outputSchema'] = $schema;
+
+        return $tool;
+    }
+
+    /** Extension tools may override this to describe their own result data.
+     * @return array<string, mixed>
+     */
+    protected function successDataSchema(): array
+    {
+        return ['type' => ['object', 'array']];
+    }
+
+    /**
      * Define the output schema for this tool's results.
      *
      * Returns the standard MCP response envelope used by all tools.
@@ -113,7 +136,7 @@ abstract class BaseStatamicTool extends Tool
             // A failure carries data: null, and a list result is a JSON array.
             // SDK clients validate failures too and discard what does not match.
             'data' => JsonSchema::union(['object', 'array', 'null'])->description('Operation result data; null on most failures'),
-            'meta' => JsonSchema::object()->description('Response metadata (tool, timestamp, versions)'),
+            'meta' => JsonSchema::object()->description('Response metadata (tool, timestamp)'),
             'error' => JsonSchema::object([
                 'code' => JsonSchema::string()->enum(array_column(ErrorCode::cases(), 'value'))->required(),
                 'message' => JsonSchema::string()->required(),
@@ -505,24 +528,6 @@ abstract class BaseStatamicTool extends Tool
         return $value;
     }
 
-    /** @var array{statamic: string, laravel: string}|null */
-    private ?array $versionCache = null;
-
-    /**
-     * @return array{statamic: string, laravel: string}
-     */
-    private function getCachedVersions(): array
-    {
-        if ($this->versionCache === null) {
-            $this->versionCache = [
-                'statamic' => Statamic::version() ?? 'unknown',
-                'laravel' => app()->version(),
-            ];
-        }
-
-        return $this->versionCache;
-    }
-
     /**
      * Determine if this tool should be registered.
      *
@@ -568,31 +573,10 @@ abstract class BaseStatamicTool extends Tool
      */
     private function createResponseMeta(): ResponseMeta
     {
-        $exposeVersions = (bool) config('statamic.mcp.security.expose_versions', false);
-
-        if ($exposeVersions) {
-            $versions = $this->getCachedVersions();
-
-            return new ResponseMeta(
-                tool: $this->name(),
-                timestamp: now()->toISOString() ?? date('c'),
-                statamic_version: $versions['statamic'],
-                laravel_version: $versions['laravel'],
-            );
-        }
-
         return new ResponseMeta(
             tool: $this->name(),
             timestamp: now()->toISOString() ?? date('c'),
         );
-    }
-
-    /**
-     * Get Statamic version.
-     */
-    protected function getStatamicVersion(): string
-    {
-        return $this->getCachedVersions()['statamic'];
     }
 
     /**

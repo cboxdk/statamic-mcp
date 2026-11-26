@@ -199,7 +199,7 @@ class ScopeEnforcementTest extends TestCase
         ]);
 
         $this->assertTrue($result['success']);
-        $this->assertArrayHasKey('entries', $result['data']);
+        $this->assertArrayHasKey('items', $result['data']);
     }
 
     /**

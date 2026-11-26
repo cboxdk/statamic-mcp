@@ -70,9 +70,9 @@ class TermsRouterTest extends TestCase
         ]);
 
         $this->assertTrue($result['success']);
-        $this->assertEmpty($result['data']['terms']);
-        $this->assertEquals(0, $result['data']['pagination']['total']);
-        $this->assertFalse($result['data']['pagination']['has_more']);
+        $this->assertEmpty($result['data']['items']);
+        $this->assertEquals(0, $result['data']['total']);
+        $this->assertNull($result['data']['next_cursor']);
     }
 
     public function test_list_terms_with_pagination(): void
@@ -89,18 +89,17 @@ class TermsRouterTest extends TestCase
             'action' => 'list',
             'taxonomy' => $this->taxonomyHandle,
             'limit' => 2,
-            'offset' => 0,
         ]);
 
         $this->assertTrue($result['success']);
-        $this->assertCount(2, $result['data']['terms']);
-        $this->assertEquals(5, $result['data']['pagination']['total']);
-        $this->assertTrue($result['data']['pagination']['has_more']);
+        $this->assertCount(2, $result['data']['items']);
+        $this->assertEquals(5, $result['data']['total']);
+        $this->assertIsString($result['data']['next_cursor']);
     }
 
-    public function test_list_terms_with_offset(): void
+    public function test_list_terms_with_cursor(): void
     {
-        for ($i = 1; $i <= 5; $i++) {
+        foreach ([5, 2, 4, 1, 3] as $i) {
             Term::make()
                 ->taxonomy($this->taxonomyHandle)
                 ->slug("offset-{$i}-{$this->testId}")
@@ -108,16 +107,22 @@ class TermsRouterTest extends TestCase
                 ->save();
         }
 
-        $result = $this->router->execute([
+        $arguments = [
             'action' => 'list',
             'taxonomy' => $this->taxonomyHandle,
             'limit' => 2,
-            'offset' => 4,
-        ]);
+        ];
+        $titles = [];
+        do {
+            $result = $this->router->execute($arguments);
+            $this->assertTrue($result['success'], json_encode($result));
+            $titles = [...$titles, ...array_column($result['data']['items'], 'title')];
+            $arguments['cursor'] = $result['data']['next_cursor'];
+            $this->assertLessThanOrEqual(5, count($titles));
+        } while ($arguments['cursor'] !== null);
 
-        $this->assertTrue($result['success']);
-        $this->assertCount(1, $result['data']['terms']);
-        $this->assertFalse($result['data']['pagination']['has_more']);
+        $this->assertSame(['Offset Term 1', 'Offset Term 2', 'Offset Term 3', 'Offset Term 4', 'Offset Term 5'], $titles);
+        $this->assertCount(1, $result['data']['items']);
     }
 
     public function test_list_terms_returns_correct_structure(): void
@@ -134,12 +139,12 @@ class TermsRouterTest extends TestCase
         ]);
 
         $this->assertTrue($result['success']);
-        $this->assertArrayHasKey('terms', $result['data']);
-        $this->assertArrayHasKey('pagination', $result['data']);
+        $this->assertArrayHasKey('items', $result['data']);
+        $this->assertArrayHasKey('next_cursor', $result['data']);
         $this->assertArrayHasKey('taxonomy', $result['data']);
         $this->assertArrayHasKey('site', $result['data']);
 
-        $term = $result['data']['terms'][0];
+        $term = $result['data']['items'][0];
         $this->assertArrayHasKey('id', $term);
         $this->assertArrayHasKey('slug', $term);
         $this->assertArrayHasKey('title', $term);

@@ -26,7 +26,44 @@ class UsersRouterTest extends TestCase
 
         // Users list should work
         $this->assertTrue($result['success']);
-        $this->assertArrayHasKey('users', $result['data']);
+        $this->assertArrayHasKey('items', $result['data']);
+    }
+
+    public function test_writes_return_safe_records_with_versions_matching_a_fresh_read(): void
+    {
+        foreach (['role', 'group', 'user'] as $type) {
+            $identifier = $type === 'user' ? ['email' => 'record@example.com'] : ['handle' => 'record'];
+            $data = match ($type) {
+                'role' => ['title' => 'Original role', 'permissions' => ['access cp']],
+                'group' => ['title' => 'Original group', 'roles' => ['record']],
+                'user' => ['email' => 'record@example.com', 'name' => 'Original user', 'password' => 'not-a-real-password', 'roles' => ['record']],
+            };
+            $created = $this->router->execute(['action' => 'create', 'resource_type' => $type, ...($type === 'user' ? [] : $identifier), 'data' => $data]);
+            $this->assertTrue($created['success'], json_encode($created));
+            $record = $created['data'][$type];
+            $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $record['version']);
+            $read = $this->router->execute(['action' => 'get', 'resource_type' => $type, ...$identifier]);
+            $this->assertTrue($read['success'], json_encode($read));
+            $this->assertSame($read['data'][$type]['version'], $record['version']);
+            $this->assertSame($type === 'user' ? 'Original user' : 'Original ' . $type, $record[$type === 'user' ? 'name' : 'title']);
+            $updated = $this->router->execute(['action' => 'update', 'resource_type' => $type, ...$identifier, 'data' => [$type === 'user' ? 'name' : 'title' => 'Changed']]);
+            $this->assertTrue($updated['success'], json_encode($updated));
+            $this->assertNotSame($record['version'], $updated['data'][$type]['version']);
+            $this->assertSame('Changed', $updated['data'][$type][$type === 'user' ? 'name' : 'title']);
+            $read = $this->router->execute(['action' => 'get', 'resource_type' => $type, ...$identifier]);
+            $this->assertSame($read['data'][$type]['version'], $updated['data'][$type]['version']);
+            $this->assertStringNotContainsString('not-a-real-password', json_encode($created));
+            $this->assertArrayNotHasKey('password', $record['data'] ?? []);
+        }
+
+        foreach (['user', 'group', 'role'] as $type) {
+            $identifier = $type === 'user' ? ['email' => 'record@example.com'] : ['handle' => 'record'];
+            $read = $this->router->execute(['action' => 'get', 'resource_type' => $type, ...$identifier]);
+            $deleted = $this->router->execute(['action' => 'delete', 'resource_type' => $type, ...$identifier]);
+            $this->assertTrue($deleted['success'], json_encode($deleted));
+            $this->assertSame($read['data'][$type]['version'], $deleted['data'][$type]['version']);
+            $this->assertSame('Changed', $deleted['data'][$type][$type === 'user' ? 'name' : 'title']);
+        }
     }
 
     public function test_get_user_by_email(): void

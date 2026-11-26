@@ -297,8 +297,8 @@ class EloquentDriverTest extends TestCase
 
         $list = $call(['action' => 'list_revisions']);
         $this->assertTrue($list['success'], json_encode($list) ?: '');
-        $this->assertNotEmpty($list['data']['revisions']);
-        $restore = $call(['action' => 'restore_revision', 'revision_id' => $list['data']['revisions'][0]['id']]);
+        $this->assertNotEmpty($list['data']['items']);
+        $restore = $call(['action' => 'restore_revision', 'revision_id' => $list['data']['items'][0]['id']]);
         $this->assertTrue($restore['success'], json_encode($restore) ?: '');
         $this->assertSame(1, DB::table('revisions')->where('action', 'working')->count());
     }

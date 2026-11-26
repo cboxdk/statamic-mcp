@@ -11,8 +11,10 @@ use Cboxdk\StatamicMcp\ServiceProvider;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Illuminate\Testing\TestResponse;
 use Statamic\Facades\Collection;
+use Statamic\Facades\Entry;
 use Statamic\Facades\Role;
 use Statamic\Facades\User;
+use Statamic\Statamic;
 
 /**
  * The web endpoint driven the way a real MCP client drives it.
@@ -57,6 +59,68 @@ class WebEndpointProtocolTest extends TestCase
         $this->assertSame([self::PROTOCOL_VERSION], $result['supportedVersions']);
         $this->assertArrayHasKey('tools', $result['capabilities']);
         $this->assertStringContainsString('Statamic', $result['instructions']);
+    }
+
+    public function test_framework_versions_are_opt_in_and_only_reported_by_server_discover(): void
+    {
+        foreach ([false, true] as $expose) {
+            config(['statamic.mcp.security.expose_versions' => $expose]);
+            $meta = $this->rpc('server/discover')->assertOk()->json('result._meta');
+            if ($expose) {
+                $this->assertSame([
+                    'statamic' => Statamic::version(),
+                    'laravel' => app()->version(),
+                    'php' => PHP_VERSION,
+                ], $meta['statamic-mcp/versions']);
+            } else {
+                $this->assertArrayNotHasKey('statamic-mcp/versions', $meta);
+            }
+
+            foreach (['info', 'unknown'] as $action) {
+                $content = $this->rpc('tools/call', [
+                    'name' => 'statamic-system-read', 'arguments' => ['action' => $action],
+                ])->assertOk()->json('result.structuredContent');
+                foreach (['statamic_version', 'laravel_version', 'php_version'] as $key) {
+                    $this->assertArrayNotHasKey($key, $content['meta']);
+                    $this->assertArrayNotHasKey($key, $content['data']['system_info'] ?? []);
+                }
+            }
+        }
+    }
+
+    public function test_cursor_pages_are_ordered_query_bound_and_authorized_on_every_request(): void
+    {
+        Collection::make('cursor_posts')->save();
+        Collection::make('other_posts')->save();
+        foreach (['zebra', 'ant', 'mouse'] as $id) {
+            Entry::make()->id($id)->collection('cursor_posts')->slug($id)->published(true)->data(['title' => $id])->save();
+        }
+        $arguments = ['action' => 'list', 'collection' => 'cursor_posts', 'limit' => 2];
+        $call = fn (array $args): TestResponse => $this->rpc('tools/call', ['name' => 'statamic-entries-read', 'arguments' => $args]);
+        $first = $call($arguments)->assertOk()->assertJsonPath('result.structuredContent.success', true);
+        $this->assertSame(['ant', 'mouse'], array_column($first->json('result.structuredContent.data.items'), 'id'));
+        $cursor = $first->json('result.structuredContent.data.next_cursor');
+        $this->assertIsString($cursor);
+        $last = $call([...$arguments, 'cursor' => $cursor])->assertOk()
+            ->assertJsonPath('result.structuredContent.data.total', 3)
+            ->assertJsonPath('result.structuredContent.data.next_cursor', null);
+        $this->assertSame(['zebra'], array_column($last->json('result.structuredContent.data.items'), 'id'));
+
+        foreach ([
+            [...$arguments, 'cursor' => 'not-a-cursor'],
+            [...$arguments, 'cursor' => str_repeat('x', 5000)],
+            [...$arguments, 'cursor' => $cursor, 'collection' => 'other_posts'],
+            [...$arguments, 'cursor' => $cursor, 'filters' => ['slug' => 'ant']],
+        ] as $invalid) {
+            $call($invalid)->assertOk()->assertJsonPath('result.isError', true)
+                ->assertJsonPath('result.structuredContent.error.code', 'VALIDATION')
+                ->assertJsonPath('result.structuredContent.error.field', 'cursor');
+        }
+
+        config(['statamic.mcp.tools.entries.resources.read' => ['other_posts']]);
+        $call([...$arguments, 'cursor' => $cursor])->assertOk()
+            ->assertJsonPath('result.isError', true)
+            ->assertJsonPath('result.structuredContent.error.code', 'FORBIDDEN');
     }
 
     public function test_not_found_suggestions_only_include_readable_handles(): void

@@ -8,6 +8,7 @@ use Cboxdk\StatamicMcp\Actions\ActionEffect;
 use Cboxdk\StatamicMcp\Actions\CapabilityRegistry;
 use Cboxdk\StatamicMcp\Actions\Transport\RegisteredReadTool;
 use Cboxdk\StatamicMcp\Mcp\ExtraTools;
+use Cboxdk\StatamicMcp\Mcp\Methods\DiscoverSite;
 use Cboxdk\StatamicMcp\Mcp\Methods\ListPermittedTools;
 use Cboxdk\StatamicMcp\Mcp\Prompts\AgentEducationPrompt;
 use Cboxdk\StatamicMcp\Mcp\Prompts\ToolUsageContractPrompt;
@@ -138,6 +139,7 @@ class StatamicMcpServer extends Server
 
         // tools/list shows only the tools this caller can use.
         $this->methods['tools/list'] = ListPermittedTools::class;
+        $this->methods['server/discover'] = DiscoverSite::class;
 
         foreach (app(CapabilityRegistry::class)->definitions() as $action) {
             if ($action->effect === ActionEffect::Read) {

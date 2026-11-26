@@ -79,6 +79,12 @@ class CollectionParentMoveTest extends TestCase
         $this->assertTrue($result['success'], json_encode($result) ?: '');
         $this->assertSame('default', $result['data']['collection']['site']);
         $this->assertNotEmpty($result['data']['collection']['tree']);
+        $beforeVersion = $result['data']['collection']['version'];
+        $token = request()->attributes->get('mcp_token');
+        request()->attributes->set('mcp_token', new McpTokenData(
+            'write-only', $user->id(), 'Write only', '',
+            ['entries:write', 'structures:admin'], null, null, now(),
+        ));
         $result = $structures->execute([
             'action' => 'move', 'resource_type' => 'collection', 'handle' => $handle,
             'site' => 'default', 'data' => ['entry' => $child, 'parent' => null],
@@ -86,5 +92,15 @@ class CollectionParentMoveTest extends TestCase
         $this->assertTrue($result['success'], json_encode($result) ?: '');
         $this->assertNull($writer->parent(Entry::find($child)));
         $this->assertSame($child, $writer->parent(Entry::find($leaf)));
+        $snapshot = $result['data']['collection'];
+        $this->assertArrayNotHasKey('template', $snapshot);
+        $this->assertNotSame($beforeVersion, $snapshot['version']);
+        $this->assertNotEmpty($snapshot['tree']);
+        request()->attributes->set('mcp_token', $token);
+        $read = $structures->execute([
+            'action' => 'get', 'resource_type' => 'collection', 'handle' => $handle,
+            'site' => 'default', 'include_tree' => true,
+        ]);
+        $this->assertEquals($read['data']['collection'], $snapshot);
     }
 }

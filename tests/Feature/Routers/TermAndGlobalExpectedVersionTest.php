@@ -56,6 +56,8 @@ it('reports a term version that changes with a write, whichever way the term is 
 
     expect($updated['success'])->toBeTrue(json_encode($updated))
         ->and($updated['data']['term']['version'])->toBeString()->not->toBe($bySlug)
+        ->and($updated['data']['term']['data']['title'])->toBe('Edited')
+        ->and($updated['data']['term']['site'])->toBe('en')
         ->and(vtStoredTitle('en'))->toBe('Edited');
 });
 
@@ -97,6 +99,7 @@ it('checks a global set version per site', function () {
     $updated = vtGlobal(['action' => 'update', 'expected_version' => $en, 'data' => ['title' => 'First']]);
 
     expect($updated['success'])->toBeTrue(json_encode($updated))
+        ->and($updated['data']['global']['data']['title'])->toBe('First')
         ->and($updated['data']['global']['version'])->toBeString()->not->toBe($en);
 
     $stale = vtGlobal(['action' => 'update', 'expected_version' => $en, 'data' => ['title' => 'Second']]);

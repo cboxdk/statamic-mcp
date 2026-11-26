@@ -119,6 +119,18 @@ it('enforces both scopes and policies on the explicit collection move', function
     'structures field policy' => [['entries:write', 'structures:admin'], '', 'structures', 'Tree changes are denied', 'FORBIDDEN'],
 ]);
 
+it('returns the same permitted tree and version after a move and a read', function (string $domain, string $field) {
+    collectionTreeRegressionFixture();
+    config(["statamic.mcp.tools.{$domain}.denied_fields" => [$field]]);
+    $router = new StructuresRouter;
+    $where = ['resource_type' => 'collection', 'handle' => 'tree_pages'];
+    $move = $router->execute(['action' => 'move', ...$where, 'data' => ['entry' => 'child', 'parent' => 'b']]);
+    $read = $router->execute(['action' => 'get', ...$where, 'include_tree' => true, 'include_counts' => false]);
+    expect($move['success'])->toBeTrue(json_encode($move))->and($read['success'])->toBeTrue(json_encode($read))
+        ->and($move['data']['collection'])->toEqual(array_diff_key($read['data']['collection'], ['entry_count' => true]));
+    expect($move['data']['collection'])->not->toHaveKey('site');
+})->with([['entries', 'site'], ['structures', 'site']]);
+
 it('hides denied parent metadata on entry reads and content writes', function (string $domain) {
     collectionTreeRegressionFixture();
     config(["statamic.mcp.tools.{$domain}.denied_fields" => ['parent']]);

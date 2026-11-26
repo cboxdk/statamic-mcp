@@ -28,11 +28,33 @@ class StructuresRouterTest extends TestCase
             'resource_type' => 'collection',
         ]);
 
-        // Expect either success or specific failure
-        if (! $result['success']) {
-            $this->assertStringContainsString('Failed to list collections:', $result['errors'][0]);
-        } else {
-            $this->assertArrayHasKey('collections', $result['data']);
+        $this->assertTrue($result['success'], json_encode($result));
+        $this->assertArrayHasKey('items', $result['data']);
+    }
+
+    public function test_structure_writes_return_the_record_and_its_persisted_version(): void
+    {
+        foreach (['collection', 'taxonomy', 'navigation', 'globalset'] as $type) {
+            $where = ['resource_type' => $type, 'handle' => 'record_' . $type];
+            $created = $this->router->execute(['action' => 'create', ...$where, 'data' => ['title' => 'Original']]);
+            $this->assertTrue($created['success'], json_encode($created));
+            $record = $created['data'][$type];
+            $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $record['version']);
+            $this->assertArrayHasKey('sites', $record);
+            $read = $this->router->execute(['action' => 'get', ...$where]);
+            $this->assertTrue($read['success'], json_encode($read));
+            $this->assertSame($read['data'][$type]['version'], $record['version']);
+
+            $updated = $this->router->execute(['action' => 'update', ...$where, 'data' => ['title' => 'Changed']]);
+            $this->assertTrue($updated['success'], json_encode($updated));
+            $this->assertSame('Changed', $updated['data'][$type]['title']);
+            $this->assertNotSame($record['version'], $updated['data'][$type]['version']);
+            $read = $this->router->execute(['action' => 'get', ...$where]);
+            $this->assertSame($read['data'][$type]['version'], $updated['data'][$type]['version']);
+            $deleted = $this->router->execute(['action' => 'delete', ...$where]);
+            $this->assertTrue($deleted['success'], json_encode($deleted));
+            $this->assertSame($read['data'][$type]['version'], $deleted['data'][$type]['version']);
+            $this->assertSame('Changed', $deleted['data'][$type]['title']);
         }
     }
 
@@ -68,12 +90,8 @@ class StructuresRouterTest extends TestCase
             'resource_type' => 'taxonomy',
         ]);
 
-        // Expect either success or specific failure
-        if (! $result['success']) {
-            $this->assertStringContainsString('Failed to list taxonomies:', $result['errors'][0]);
-        } else {
-            $this->assertArrayHasKey('taxonomies', $result['data']);
-        }
+        $this->assertTrue($result['success'], json_encode($result));
+        $this->assertArrayHasKey('items', $result['data']);
     }
 
     public function test_get_taxonomy(): void
@@ -89,7 +107,7 @@ class StructuresRouterTest extends TestCase
         $this->assertStringContainsString('Taxonomy not found: nonexistent', $result['errors'][0]);
     }
 
-    public function test_navigation_not_implemented(): void
+    public function test_list_navigations(): void
     {
         $result = $this->router->execute([
             'action' => 'list',
@@ -98,7 +116,7 @@ class StructuresRouterTest extends TestCase
 
         // Navigation actually succeeds - it's implemented in the router
         $this->assertTrue($result['success']);
-        $this->assertArrayHasKey('navigations', $result['data']);
+        $this->assertArrayHasKey('items', $result['data']);
     }
 
     public function test_list_sites(): void
@@ -110,7 +128,7 @@ class StructuresRouterTest extends TestCase
 
         // Sites should work
         $this->assertTrue($result['success']);
-        $this->assertArrayHasKey('sites', $result['data']);
+        $this->assertArrayHasKey('items', $result['data']);
     }
 
     public function test_get_site(): void

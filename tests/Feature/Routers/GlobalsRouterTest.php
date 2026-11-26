@@ -80,10 +80,10 @@ class GlobalsRouterTest extends TestCase
         ]);
 
         $this->assertTrue($result['success']);
-        $this->assertArrayHasKey('globals', $result['data']);
-        $this->assertArrayHasKey('pagination', $result['data']);
+        $this->assertArrayHasKey('items', $result['data']);
+        $this->assertArrayHasKey('next_cursor', $result['data']);
 
-        $handles = collect($result['data']['globals'])->pluck('handle')->toArray();
+        $handles = collect($result['data']['items'])->pluck('handle')->toArray();
         $this->assertContains($this->globalHandle, $handles);
     }
 
@@ -92,12 +92,11 @@ class GlobalsRouterTest extends TestCase
         $result = $this->router->execute([
             'action' => 'list',
             'limit' => 1,
-            'offset' => 0,
         ]);
 
         $this->assertTrue($result['success']);
-        $this->assertCount(1, $result['data']['globals']);
-        $this->assertArrayHasKey('total', $result['data']['pagination']);
+        $this->assertCount(1, $result['data']['items']);
+        $this->assertArrayHasKey('total', $result['data']);
     }
 
     public function test_get_global_includes_blueprint_info(): void
@@ -215,7 +214,7 @@ class GlobalsRouterTest extends TestCase
 
         $this->assertTrue($result['success']);
 
-        $global = collect($result['data']['globals'])->firstWhere('handle', $this->globalHandle);
+        $global = collect($result['data']['items'])->firstWhere('handle', $this->globalHandle);
         $this->assertNotNull($global);
         $this->assertArrayHasKey('localized', $global);
         $this->assertArrayHasKey('sites', $global);

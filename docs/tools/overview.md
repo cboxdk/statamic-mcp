@@ -15,15 +15,13 @@ Every tool follows the same pattern: send an `action` parameter to specify what 
     "success": true,
     "data": { },
     "meta": {
-        "tool": "statamic-blueprints",
-        "timestamp": "2026-03-12T12:00:00Z",
-        "statamic_version": "6.0.0",
-        "laravel_version": "12.0.0"
+        "tool": "statamic-blueprints-read",
+        "timestamp": "2026-11-26T12:00:00Z"
     }
 }
 ```
 
-The `statamic_version` and `laravel_version` fields in `meta` are only included when `security.expose_versions` is enabled (defaults to `false`).
+Framework versions are not repeated in tool responses. When `security.expose_versions` is enabled (default `false`), `server/discover` reports Statamic, Laravel and PHP versions in `result._meta["statamic-mcp/versions"]`. Record `version` tokens are unrelated: they describe stored state for optimistic concurrency.
 
 On failure, MCP sets `isError: true`. Both `structuredContent` and the JSON text content carry the same envelope:
 
@@ -63,23 +61,32 @@ On failure, MCP sets `isError: true`. Both `structuredContent` and the JSON text
 
 Approval ids, current versions and other recovery information stay in `data`. Unknown codes in legacy extension results map to `INTERNAL`; arbitrary strings never become new wire codes. Unexpected exceptions hide diagnostic details in production and carry `meta.correlation_id` for investigation in server logs.
 
+### List pages
+
+Lists return `data.items`, `data.next_cursor` and `data.total`. Send `next_cursor` as `cursor` on the next call, keeping the query arguments unchanged. Stop when it is `null`. You may change `limit` between pages. Invalid, modified or different-query cursors return `VALIDATION` rather than silently restarting.
+
+Entries, terms, users and assets are ordered by id; configuration catalogs by handle; blueprints by namespace and handle; revisions newest first. Totals count only accessible records. Cursors are positions, not snapshots: concurrent writes can shift records between pages. Every call checks current permissions again.
+
+### Saved records and output schemas
+
+Record writes return the saved record, including its opaque `version`, under the same key as `get` (`entry`, `term`, `global`, etc.). Deletes return the final snapshot. An asset copy returns the new record under `copy`. A collection move returns its saved tree and only the configuration the caller may see; a reorder-only editor does not gain administrative settings. Denied-field policies apply to write responses too, and user credentials are never included.
+
+Versions fingerprint record state; they are not framework versions. Only entries, terms and globals accept `expected_version` for optimistic concurrency. Collection responses with `include_tree` also version the selected site's tree; those without it version the collection settings. User IDs are strings on both storage backends. System operations, such as cache clearing, do not have record versions.
+
+Every built-in tool publishes an `outputSchema` for its envelope and result variants. Clients can validate `structuredContent` directly. Failed calls require `error`; successful calls carry the tool's records or list page. A completed write whose full response exceeds the configured limit remains successful with `response_truncated: true` and identifying metadata; do not repeat the write to retrieve its content.
+
 ## Finding the tools
 
-Only three tools are listed in the catalog a client loads at connect time:
-`statamic-entries`, `statamic-blueprints` and `statamic-system-discover`. Everything else
-documented below is reached through two built-in tools:
+By default, the catalog lists the read and write/admin tools the caller's scopes
+and installation profile allow. Each domain retains one router implementation.
+The read tools advertise only read actions; a write sent to a read tool is refused.
 
-- **`search_tools`** — describe what you want; get back matching tools and their schemas.
-- **`execute_tools`** — run one or more of them by name.
+For clients without their own tool search, `STATAMIC_MCP_SEARCHABLE_CATALOG=true`
+opts into the smaller catalog and exposes the other tools through `search_tools`
+and `execute_tools`. This changes discovery, not token scopes, resource policy,
+Statamic permissions or approvals. See [tool catalog configuration](../configuration/reference.md#tool-catalog).
 
-This keeps roughly 18 KB of JSON schema out of the client's context on every connection.
-The hidden tools are not restricted in any way: same token scopes, same resource policy,
-same permissions, same confirmation gate. If your client handles `search_tools` poorly,
-set `STATAMIC_MCP_SEARCHABLE_CATALOG=false` to have all of them listed directly — see
-[the configuration reference](../configuration/reference.md#tool-catalog).
-
-`statamic-system-discover` maps an intent to the right tool and tells you which of the two
-ways to reach it.
+`statamic-system-discover` maps an intent to a tool and reports how to reach it.
 
 ## Domain Routers
 
@@ -105,7 +112,7 @@ Dedicated entry operations with advanced filtering, search, and pagination.
 
 | Action | Description | Key Parameters |
 |--------|-------------|----------------|
-| `list` | List with filtering; `filters` takes field handles or `status` (published, scheduled, expired, draft) | `collection`, `filters`, `include_unpublished`, `limit`, `offset` |
+| `list` | List with filtering; `filters` takes field handles or `status` (published, scheduled, expired, draft) | `collection`, `filters`, `include_unpublished`, `limit`, `cursor` |
 | `get` | Get entry | `collection`, `id`, `version` |
 | `create` | Create entry | `collection`, `slug`, `data` |
 | `update` | Update entry | `collection`, `id`, `data`, `merge_sets`, `revision_message`, `expected_version` |
@@ -385,7 +392,7 @@ High-level analysis workflows that orchestrate multiple router calls.
 | Action | Description | Key Parameters |
 |--------|-------------|----------------|
 | `content_audit` | Report content volume and coverage gaps across collections, taxonomies, and globals | `filters` |
-| `content_validate` | Validate stored content against its blueprints and report schema drift | `scope`, `collection`, `taxonomy`, `severity`, `limit`, `offset`, `max_findings` |
+| `content_validate` | Validate stored content against its blueprints and report schema drift | `scope`, `collection`, `taxonomy`, `severity`, `limit`, `cursor`, `max_findings` |
 | `cross_reference` | Analyze relationships and dependencies between content types | `filters` |
 
 Schema accepts `action` (required, enum: `content_audit`, `content_validate`, `cross_reference`) and the parameters listed above.
@@ -415,10 +422,11 @@ Parameters:
 - `scope` — `all` (default), `entries`, `terms`, `globals`, or `navigations`
 - `collection` / `taxonomy` — restrict the entry or term sweep to one handle
 - `severity` — return only `error` or only `warning` findings
-- `limit` / `offset` — records scanned per call (default 100, max 500). Records are
-  walked in a fixed order (entries → terms → globals → navigations) and the offset
-  addresses that combined stream, so paging a large site means repeating the call
-  with a rising offset until `pagination.has_more` is false.
+- `limit` / `cursor` — records scanned per call (default 100, max 500). Records are
+  walked in a fixed order (entries → terms → globals → navigations). Repeat the
+  query with the returned `next_cursor` until it is `null`. The cursor and `total`
+  address that combined record stream, not the findings; a page with no findings
+  can still have a next page.
 - `max_findings` — cap on findings returned per call (default 200, max 2000).
   `summary.findings` stays accurate when the list is truncated.
 

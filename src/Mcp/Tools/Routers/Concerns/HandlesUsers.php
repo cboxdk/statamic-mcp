@@ -53,17 +53,14 @@ trait HandlesUsers
         $pagination = $this->getPaginationArgs($arguments, defaultLimit: 100);
         $limit = $pagination['limit'];
         $offset = $pagination['offset'];
-        $allUsers = User::all();
+        $allUsers = collect(User::all()->all());
         $total = $allUsers->count();
-        $users = $allUsers->slice($offset, $limit)->map(function ($user) use ($includeDetails) {
+        $users = $allUsers->sortBy->id()->slice($offset, $limit)->map(function ($user) use ($includeDetails): array {
             /** @var \Statamic\Contracts\Auth\User $user */
             return $this->serializeUser($user, $includeDetails);
         })->values()->all();
 
-        return [
-            'users' => $users,
-            'pagination' => $this->buildPaginationMeta($total, $limit, $offset),
-        ];
+        return $this->buildPage($users, $total, $offset, $arguments);
     }
 
     /**
@@ -87,7 +84,7 @@ trait HandlesUsers
         $pagination = $this->getPaginationArgs($arguments, defaultLimit: 100);
         $limit = $pagination['limit'];
         $offset = $pagination['offset'];
-        $users = User::all()->filter(function ($user) use ($query, $roleFilter, $groupFilter, $superFilter, $statusFilter) {
+        $users = collect(User::all()->all())->filter(function ($user) use ($query, $roleFilter, $groupFilter, $superFilter, $statusFilter) {
             /** @var \Statamic\Contracts\Auth\User $user */
 
             // Query filter - match name or email
@@ -131,7 +128,7 @@ trait HandlesUsers
             return true;
         });
         $total = $users->count();
-        $results = $users->slice($offset, $limit)->map(function ($user) use ($includeDetails) {
+        $results = $users->sortBy->id()->slice($offset, $limit)->map(function ($user) use ($includeDetails): array {
             /** @var \Statamic\Contracts\Auth\User $user */
             return $this->serializeUser($user, $includeDetails);
         })->values()->all();
@@ -145,8 +142,7 @@ trait HandlesUsers
         ], fn ($v) => $v !== null);
 
         return [
-            'users' => $results,
-            'pagination' => $this->buildPaginationMeta($total, $limit, $offset),
+            ...$this->buildPage($results, $total, $offset, $arguments),
             'filters_applied' => $appliedFilters,
         ];
     }
@@ -244,9 +240,7 @@ trait HandlesUsers
 
         return [
             'user' => [
-                'id' => $user->id(),
-                'email' => $user->email(),
-                'name' => $user->name(),
+                ...$this->serializeUser($user, true),
                 'created' => true,
             ],
         ];
@@ -324,9 +318,7 @@ trait HandlesUsers
 
         return [
             'user' => [
-                'id' => $user->id(),
-                'email' => $user->email(),
-                'name' => $user->name(),
+                ...$this->serializeUser($user, true),
                 'updated' => true,
             ],
         ];
@@ -362,16 +354,14 @@ trait HandlesUsers
                 return $this->createErrorResponse('Cannot delete the last super user')->toArray();
             }
         }
-        $userId = $user->id();
-        $userEmail = $user->email();
+        $snapshot = $this->serializeUser($user, true);
         $this->persistStatamic(fn () => $user->delete(), ['stache']);
         // Clear caches
         $this->clearCachesAfterWrite(['stache']);
 
         return [
             'user' => [
-                'id' => $userId,
-                'email' => $userEmail,
+                ...$snapshot,
                 'deleted' => true,
             ],
         ];
@@ -406,9 +396,7 @@ trait HandlesUsers
 
         return [
             'user' => [
-                'id' => $user->id(),
-                'email' => $user->email(),
-                'name' => $user->get('name'),
+                ...$this->serializeUser($user, true),
                 'status' => $user->get('status', 'active'),
             ],
             'activated' => true,
@@ -454,9 +442,7 @@ trait HandlesUsers
 
         return [
             'user' => [
-                'id' => $user->id(),
-                'email' => $user->email(),
-                'name' => $user->get('name'),
+                ...$this->serializeUser($user, true),
                 'status' => $user->get('status'),
                 'deactivation_reason' => $reason,
             ],
@@ -496,8 +482,7 @@ trait HandlesUsers
 
         return [
             'user' => [
-                'id' => $user->id(),
-                'email' => $user->email(),
+                ...$this->serializeUser($user, true),
                 'role_assigned' => $roleHandle,
             ],
         ];
@@ -535,8 +520,7 @@ trait HandlesUsers
 
         return [
             'user' => [
-                'id' => $user->id(),
-                'email' => $user->email(),
+                ...$this->serializeUser($user, true),
                 'role_removed' => $roleHandle,
             ],
         ];
@@ -550,7 +534,7 @@ trait HandlesUsers
     private function serializeUser(\Statamic\Contracts\Auth\User $user, bool $includeDetails = false): array
     {
         $data = [
-            'id' => $user->id(),
+            'id' => (string) $user->id(),
             'email' => $user->email(),
             'name' => $user->name(),
             'super' => $user->isSuper(),
@@ -558,8 +542,8 @@ trait HandlesUsers
 
         if ($includeDetails) {
             $data = array_merge($data, [
-                'roles' => $user->roles()->map->handle()->all(),
-                'groups' => $user->groups()->map->handle()->all(),
+                'roles' => $user->roles()->map->handle()->values()->all(),
+                'groups' => $user->groups()->map->handle()->values()->all(),
                 'preferences' => $user->preferences(),
                 'last_login' => $user->lastLogin()?->timestamp,
                 'avatar' => $user->avatar(),
@@ -572,6 +556,11 @@ trait HandlesUsers
                     'two_factor_confirmed_at', 'passkeys', 'webauthn', 'recovery_codes',
                 ])->all(),
             ]);
+            // Version the public record, never produce a public digest of
+            // credentials (including an unsaved plaintext password).
+            $data['version'] = self::resourceVersion(array_intersect_key($data, array_flip([
+                'id', 'email', 'name', 'super', 'data', 'roles', 'groups', 'preferences',
+            ])));
         }
 
         return $data;

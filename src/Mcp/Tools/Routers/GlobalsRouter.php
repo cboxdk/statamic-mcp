@@ -19,6 +19,7 @@ use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Attributes\Title;
 use Statamic\Contracts\Globals\Variables;
+use Statamic\Facades\Blink;
 use Statamic\Facades\GlobalSet;
 
 #[Name('statamic-globals')]
@@ -56,8 +57,8 @@ class GlobalsRouter extends BaseRouter
             'limit' => JsonSchema::integer()
                 ->description('Maximum results to return (default: 50, max: 1000)'),
 
-            'offset' => JsonSchema::integer()
-                ->description('Number of results to skip for pagination. Use with limit for paging'),
+            'cursor' => JsonSchema::string()
+                ->description('next_cursor from the previous page. Keep the other arguments unchanged. Omit to start again.'),
         ]);
     }
 
@@ -143,8 +144,15 @@ class GlobalsRouter extends BaseRouter
             return $result;
         }
 
-        $variables = GlobalSet::find($handle)?->in($site);
+        Blink::flush();
+        $globalSet = GlobalSet::find($handle);
+        $variables = $globalSet?->in($site);
         if ($variables !== null) {
+            $result['global']['localized'] = $globalSet->sites()->count() > 1;
+            $result['global']['sites'] = $globalSet->sites()->all();
+            $blueprint = $globalSet->blueprint();
+            $result['global']['blueprint'] = $blueprint === null ? null : ['handle' => $blueprint->handle(), 'title' => $blueprint->title()];
+            $result['global']['data'] = $variables->data()->all();
             $result['global']['version'] = $this->globalVersion($variables);
         }
 
@@ -213,7 +221,7 @@ class GlobalsRouter extends BaseRouter
         $pagination = $this->getPaginationArgs($arguments, 50, 1000);
         $limit = $pagination['limit'];
         $offset = $pagination['offset'];
-        $globalSets = GlobalSet::all()->filter(function ($set) use ($site) {
+        $globalSets = collect(GlobalSet::all()->all())->filter(function ($set) use ($site) {
             if (! $set instanceof \Statamic\Contracts\Globals\GlobalSet) {
                 return false;
             }
@@ -222,8 +230,8 @@ class GlobalsRouter extends BaseRouter
                 && (! $this->isWebContext() || ($set->in($site) !== null && Gate::forUser(auth()->user())->allows('edit', $set->in($site))));
         });
         $total = $globalSets->count();
-        $paginatedSets = $globalSets->skip($offset)->take($limit);
-        $data = $paginatedSets->map(function ($globalSet) use ($site) {
+        $paginatedSets = $globalSets->sortBy->handle()->skip($offset)->take($limit);
+        $data = $paginatedSets->map(function ($globalSet) use ($site): array {
             /** @var \Statamic\Contracts\Globals\GlobalSet $globalSet */
             $variables = $globalSet->in($site);
 
@@ -238,8 +246,7 @@ class GlobalsRouter extends BaseRouter
         })->all();
 
         return [
-            'globals' => $data,
-            'pagination' => $this->buildPaginationMeta($total, $limit, $offset),
+            ...$this->buildPage($data, $total, $offset, $arguments),
             'site' => $site,
         ];
     }
@@ -394,7 +401,7 @@ class GlobalsRouter extends BaseRouter
     protected function actions(): array
     {
         return [
-            RouterAction::read('list', 'List global sets with their values', optional: ['site', 'limit', 'offset']),
+            RouterAction::read('list', 'List global sets with their values', optional: ['site', 'limit', 'cursor']),
             RouterAction::read('get', 'Get one global set\'s values and version', needs: ['handle'], optional: ['site']),
             RouterAction::edit('update', 'Update a global set\'s values in one site', needs: ['handle', 'data'], optional: ['site', 'expected_version']),
         ];

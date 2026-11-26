@@ -101,7 +101,8 @@ class CollectionViewerPermissionTest extends TestCase
             'past_date_behavior' => 'public',
             'future_date_behavior' => 'private',
             'default_status' => true,
-        ], $result['data']['collection']);
+        ], array_diff_key($result['data']['collection'], ['version' => true]));
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $result['data']['collection']['version']);
     }
 
     public function test_collection_admin_and_super_keep_the_full_response(): void
@@ -149,12 +150,12 @@ class CollectionViewerPermissionTest extends TestCase
         $result = $this->router->execute(['action' => 'list', 'resource_type' => 'collection', 'limit' => 1]);
         $this->assertTrue($result['success'], json_encode($result) ?: '');
         $this->assertSame(1, $result['data']['total']);
-        $this->assertSame($this->handle, $result['data']['collections'][0]['handle']);
-        $this->assertSame(['handle', 'title', 'blueprint'], array_keys($result['data']['collections'][0]));
+        $this->assertSame($this->handle, $result['data']['items'][0]['handle']);
+        $this->assertSame(['handle', 'title', 'blueprint'], array_keys($result['data']['items'][0]));
         config(['statamic.mcp.tools.structures.resources.read' => ['hidden_collection']]);
         $result = $this->router->execute(['action' => 'list', 'resource_type' => 'collection']);
         $this->assertSame(0, $result['data']['total']);
-        $this->assertSame([], $result['data']['collections']);
+        $this->assertSame([], $result['data']['items']);
     }
 
     public function test_entry_viewer_still_cannot_write_collection_settings(): void

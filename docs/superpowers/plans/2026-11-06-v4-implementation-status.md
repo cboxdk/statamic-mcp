@@ -33,8 +33,22 @@ updating those packages and their http-foundation dependency to 8.1.12 cleared t
 audit. The full suite passed again with the same counts on those patched versions,
 including the optional Cbox clients. No published dependency constraint changed.
 
-No merge, release or deployment. Phase 2.6–2.11 and the phase-boundary independent
-review remain. The Statamic UI-kit work follows phase 2, before phase 3.
+Phase 2.5 is pushed as `b804f0e`, with all 19 CI checks green.
+
+Phase 2.6 implements cursor pages, saved-record snapshots and versions, framework
+versions only in `server/discover`, and per-tool result schemas. Independent review
+found missing denied-field filtering on asset copies and collection write snapshots;
+both were reproduced by failing tests and fixed. Follow-up review found keyed role
+lists, fully filtered empty records, and inconsistent tree versions under field
+policies; protocol and tree regression tests now cover these. The full-record mock
+failure in `McpParentRevisionTest` was removed with that redundant private-method
+test: `CollectionTreeRegressionTest` already checks both behaviors against real
+files through `execute()`, preserving the published file, draft and tree.
+
+Full phase 2.6 regression: **2112 passed, 33 skipped, 11160 assertions** (378.60 s).
+PHPStan 9, Pint, Composer audit and the license check passed. Remote CI is pending.
+No merge, release or deployment. Phase 2.7–2.11 and the phase-boundary independent review remain.
+The Statamic UI-kit work follows phase 2, before phase 3.
 
 ## V00 compatibility inventory
 

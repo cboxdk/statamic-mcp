@@ -70,11 +70,11 @@ class ListFiltersTest extends TestCase
     {
         $byField = (new EntriesRouter)->execute(['action' => 'list', 'collection' => 'lf_posts', 'filters' => ['colour' => 'blue']]);
         $this->assertTrue($byField['success'], json_encode($byField));
-        $this->assertSame(['lf-blue'], array_column($byField['data']['entries'], 'id'));
+        $this->assertSame(['lf-blue'], array_column($byField['data']['items'], 'id'));
 
         $bySlug = (new EntriesRouter)->execute(['action' => 'list', 'collection' => 'lf_posts', 'filters' => ['slug' => 'red', 'status' => 'published']]);
         $this->assertTrue($bySlug['success'], json_encode($bySlug));
-        $this->assertSame(['lf-red'], array_column($bySlug['data']['entries'], 'id'));
+        $this->assertSame(['lf-red'], array_column($bySlug['data']['items'], 'id'));
     }
 
     public function test_a_filter_value_must_be_scalar(): void
@@ -94,6 +94,6 @@ class ListFiltersTest extends TestCase
 
         $byField = (new TermsRouter)->execute(['action' => 'list', 'taxonomy' => 'lf_tags', 'filters' => ['tone' => 'hard']]);
         $this->assertTrue($byField['success'], json_encode($byField));
-        $this->assertSame(['loud'], array_column($byField['data']['terms'], 'slug'));
+        $this->assertSame(['loud'], array_column($byField['data']['items'], 'slug'));
     }
 }

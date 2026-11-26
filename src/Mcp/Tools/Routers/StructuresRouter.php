@@ -8,6 +8,7 @@ use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
 use Cboxdk\StatamicMcp\Mcp\Exceptions\ToolFailure;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ChecksResourceVersions;
 use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesCollections;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesGlobalSets;
@@ -25,6 +26,7 @@ use Laravel\Mcp\Server\Attributes\Title;
 #[Description('Statamic structures: collections, taxonomies, navigations, sites and global sets, their settings, and the page and menu trees.')]
 class StructuresRouter extends BaseRouter
 {
+    use ChecksResourceVersions;
     use HandlesCollections;
     use HandlesGlobalSets;
     use HandlesNavigations;
@@ -55,7 +57,7 @@ class StructuresRouter extends BaseRouter
         $writable = ['collection', 'taxonomy', 'navigation', 'globalset'];
 
         return [
-            RouterAction::read('list', 'List collections, taxonomies, navigations, sites or global sets; collections and taxonomies page with limit and offset', optional: ['include_details', 'limit', 'offset']),
+            RouterAction::read('list', 'List collections, taxonomies, navigations, sites or global sets', optional: ['include_details', 'limit', 'cursor']),
             RouterAction::read('get', 'Get one structure\'s configuration; for a collection, include_tree and site read its page tree', needs: ['handle'], optional: ['include_tree', 'include_counts', 'site']),
             RouterAction::admin('create', 'Create a collection, taxonomy, navigation or global set; data holds its settings', $writable, needs: ['handle'], optional: ['data']),
             RouterAction::admin('update', 'Update a structure\'s settings. A navigation\'s data may carry its trees; collection trees are changed with move', $writable, needs: ['handle', 'data']),
@@ -91,8 +93,8 @@ class StructuresRouter extends BaseRouter
                 ->description('On collection get, include how many entries it holds. Default: false'),
             'limit' => JsonSchema::integer()
                 ->description('Maximum results to return (default: 50, max: 500)'),
-            'offset' => JsonSchema::integer()
-                ->description('Number of results to skip for pagination. Use with limit for paging'),
+            'cursor' => JsonSchema::string()
+                ->description('next_cursor from the previous page. Keep the other arguments unchanged. Omit to start again.'),
             'include_details' => JsonSchema::boolean()
                 ->description('Include detailed configuration and statistics in response'),
         ]);

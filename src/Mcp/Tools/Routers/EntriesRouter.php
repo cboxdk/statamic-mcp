@@ -135,10 +135,10 @@ class EntriesRouter extends BaseRouter
                 ->description('Include draft/unpublished entries in list results. Default: false, which still lists scheduled and expired entries because they are published; read each entry\'s status, or filter by it'),
 
             'limit' => JsonSchema::integer()
-                ->description('Maximum results to return (default: 100, max: 500)'),
+                ->description('Maximum results to return (default: 50, max: 1000)'),
 
-            'offset' => JsonSchema::integer()
-                ->description('Number of results to skip for pagination. Use with limit for paging'),
+            'cursor' => JsonSchema::string()
+                ->description('next_cursor from the previous page. Keep the other arguments unchanged. Omit to start again.'),
 
             'expected_version' => JsonSchema::string()
                 ->description('Optimistic concurrency for update, delete, publish, unpublish, restore_revision and publish_working_copy: the `version` from your last get/create/update. If the stored entry changed since (through MCP, the Control Panel or anything else), the write is refused with a version conflict and nothing is saved; get the entry again and redo the change. Omit to write unconditionally.'),
@@ -277,10 +277,38 @@ class EntriesRouter extends BaseRouter
         Blink::flush();
         $entry = Entry::find($result['entry']['id']);
         if ($entry !== null) {
+            if ($this->isWriteAction($action)) {
+                $effective = $entry;
+                if (($result['working_copy'] ?? false) || ($result['restored_as_working_copy'] ?? false)) {
+                    $workingCopy = $entry->workingCopy();
+                    if ($workingCopy !== null) {
+                        $effective = $entry->makeFromRevision($workingCopy);
+                    }
+                }
+                $result['entry'] = array_replace($result['entry'], $this->entryRecord($effective));
+            }
             $result['entry']['version'] = $this->entryVersion($entry);
         }
 
         return $result;
+    }
+
+    /** @return array<string, mixed> */
+    private function entryRecord(EntryContract $entry): array
+    {
+        return [
+            'id' => $entry->id(),
+            'collection' => $entry->collectionHandle(),
+            'parent' => app(CollectionTreeEditor::class)->parent($entry),
+            'site' => $entry->site()->handle(),
+            'slug' => $entry->slug(),
+            'published' => $entry->published(),
+            'status' => $entry->status(),
+            'date' => $entry->date()?->toISOString(),
+            'last_modified' => $entry->lastModified()?->toISOString(),
+            'url' => $entry->url(),
+            'data' => $entry->data()->all(),
+        ];
     }
 
     /**
@@ -383,7 +411,7 @@ class EntriesRouter extends BaseRouter
             $query->where((string) $field, $value);
         }
         $total = $query->count();
-        $entries = $query->offset($offset)->limit($limit)->get();
+        $entries = $query->orderBy('id')->offset($offset)->limit($limit)->get();
         $data = $entries->map(function ($entry) {
             return [
                 'id' => $entry->id(),
@@ -398,8 +426,7 @@ class EntriesRouter extends BaseRouter
         })->all();
 
         return [
-            'entries' => $data,
-            'pagination' => $this->buildPaginationMeta($total, $limit, $offset),
+            ...$this->buildPage($data, $total, $offset, $arguments),
             'collection' => $collection,
             'site' => $site,
         ];
@@ -445,19 +472,7 @@ class EntriesRouter extends BaseRouter
             }
         }
         $response = [
-            'entry' => [
-                'id' => $entryVersion->id(),
-                'collection' => $entryVersion->collectionHandle(),
-                'parent' => app(CollectionTreeEditor::class)->parent($entryVersion),
-                'site' => $entryVersion->site()->handle(),
-                'slug' => $entryVersion->slug(),
-                'published' => $entryVersion->published(),
-                'status' => $entryVersion->status(),
-                'date' => $entryVersion->date()?->toISOString(),
-                'last_modified' => $entryVersion->lastModified()?->toISOString(),
-                'url' => $entryVersion->url(),
-                'data' => $entryVersion->data()->all(),
-            ],
+            'entry' => $this->entryRecord($entryVersion),
         ];
         // Include revision status metadata when revisions are enabled
         if ($this->entryRevisionsEnabled($entry)) {
@@ -1213,13 +1228,7 @@ class EntriesRouter extends BaseRouter
         if ($policyError = $this->authorizeResolvedEntry(__FUNCTION__, $entry)) {
             return $policyError;
         }
-        $entryData = [
-            'id' => $entry->id(),
-            'slug' => $entry->slug(),
-            'collection' => $entry->collectionHandle(),
-            'parent' => app(CollectionTreeEditor::class)->parent($entry),
-            'site' => $entry->site()->handle(),
-        ];
+        $entryData = [...$this->entryRecord($entry), 'version' => $this->entryVersion($entry)];
         $this->persistStatamic(fn () => $entry->delete());
         // Clear relevant caches
         $this->clearCachesAfterWrite(['stache', 'static']);
@@ -1327,7 +1336,7 @@ class EntriesRouter extends BaseRouter
     protected function actions(): array
     {
         return [
-            RouterAction::read('list', 'List a collection\'s entries', needs: ['collection'], optional: ['site', 'filters', 'include_unpublished', 'limit', 'offset']),
+            RouterAction::read('list', 'List a collection\'s entries', needs: ['collection'], optional: ['site', 'filters', 'include_unpublished', 'limit', 'cursor']),
             RouterAction::read('get', 'Get one entry with its data and version', needs: ['collection', 'id'], optional: ['site', 'revision_state']),
             RouterAction::edit('create', 'Create an entry; data holds field values in the shapes the collection\'s blueprint gives them', needs: ['collection', 'data'], optional: ['site', 'slug', 'revision_message']),
             RouterAction::edit('update', 'Update an entry; a published entry with revisions enabled gets a working copy', needs: ['collection', 'id', 'data'], optional: ['site', 'expected_version', 'merge_sets', 'revision_message']),
@@ -1335,7 +1344,7 @@ class EntriesRouter extends BaseRouter
             RouterAction::delete('delete', 'Delete an entry', needs: ['collection', 'id'], optional: ['site', 'expected_version']),
             RouterAction::publish('publish', 'Publish an entry, promoting its working copy. In a collection whose future dates are private, a future-dated entry becomes status "scheduled" and stays offline until its date; read status, not published, to know what visitors see', needs: ['collection', 'id'], optional: ['site', 'expected_version', 'revision_message']),
             RouterAction::publish('unpublish', 'Unpublish an entry', needs: ['collection', 'id'], optional: ['site', 'expected_version', 'revision_message']),
-            RouterAction::read('list_revisions', 'List an entry\'s revisions (revisions must be enabled)', needs: ['collection', 'id'], optional: ['site']),
+            RouterAction::read('list_revisions', 'List an entry\'s revisions, newest first (revisions must be enabled)', needs: ['collection', 'id'], optional: ['site', 'limit', 'cursor']),
             RouterAction::read('get_revision', 'Get one revision\'s data snapshot', needs: ['collection', 'id', 'revision_id'], optional: ['site']),
             RouterAction::edit('restore_revision', 'Restore an entry from a revision; a published entry gets it as a working copy', needs: ['collection', 'id', 'revision_id'], optional: ['site', 'expected_version']),
             RouterAction::publish('publish_working_copy', 'Publish the entry\'s current working copy', needs: ['collection', 'id'], optional: ['site', 'expected_version', 'revision_message']),

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ChecksResourceVersions;
 use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesGroups;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesRoles;
@@ -20,6 +21,7 @@ use Laravel\Mcp\Server\Attributes\Title;
 #[Description('Statamic users, roles and user groups, and who holds which role.')]
 class UsersRouter extends BaseRouter
 {
+    use ChecksResourceVersions;
     use HandlesGroups;
     use HandlesRoles;
     use HandlesUsers;
@@ -34,14 +36,14 @@ class UsersRouter extends BaseRouter
         $who = ['id|email'];
 
         return [
-            RouterAction::read('list', 'List users, roles or groups', optional: ['include_details', 'include_permissions', 'limit', 'offset']),
+            RouterAction::read('list', 'List users, roles or groups', optional: ['include_details', 'include_permissions', 'limit', 'cursor']),
             RouterAction::read('get', 'Get a user by id or email, or a role or group by handle', optional: ['id', 'email', 'handle', 'include_details', 'include_permissions']),
             RouterAction::admin('create', 'Create a user (email, name and password in data), or a role or group (handle; title, permissions or roles in data)', needs: ['data'], optional: ['handle']),
             RouterAction::admin('update', 'Update a user (id or email), or a role or group (handle). Changing your own email or password over HTTP also needs data.current_password', needs: ['data'], optional: ['id', 'email', 'handle']),
             RouterAction::admin('delete', 'Delete a user (id or email), or a role or group (handle)', optional: ['id', 'email', 'handle']),
             RouterAction::admin('activate', 'Activate a user account', ['user'], needs: $who),
             RouterAction::admin('deactivate', 'Deactivate a user account and revoke its MCP tokens', ['user'], needs: $who, optional: ['reason']),
-            RouterAction::read('search', 'Search users by name or email and filter them', ['user'], optional: ['query', 'role', 'group', 'super', 'status', 'include_details', 'limit', 'offset']),
+            RouterAction::read('search', 'Search users by name or email and filter them', ['user'], optional: ['query', 'role', 'group', 'super', 'status', 'include_details', 'limit', 'cursor']),
             RouterAction::admin('assign_role', 'Give a user a role', ['user'], needs: [...$who, 'role']),
             RouterAction::admin('remove_role', 'Take a role from a user', ['user'], needs: [...$who, 'role']),
         ];
@@ -90,8 +92,8 @@ class UsersRouter extends BaseRouter
                 ->description('Include resolved permission list for roles'),
             'limit' => JsonSchema::integer()
                 ->description('Maximum number of results to return (default: 100, max: 500)'),
-            'offset' => JsonSchema::integer()
-                ->description('Number of results to skip for pagination'),
+            'cursor' => JsonSchema::string()
+                ->description('next_cursor from the previous page. Keep the other arguments unchanged. Omit to start again.'),
         ]);
     }
 

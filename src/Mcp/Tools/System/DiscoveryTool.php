@@ -9,6 +9,7 @@ use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\Mcp\ExtraTools;
 use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
+use Cboxdk\StatamicMcp\Mcp\Support\ResultSchema;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseStatamicTool;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\AssetsRouter;
@@ -73,6 +74,14 @@ class DiscoveryTool extends BaseStatamicTool
     protected function getToolDomain(): ?string
     {
         return 'guidance';
+    }
+
+    protected function successDataSchema(): array
+    {
+        return ResultSchema::object(['discovery' => ResultSchema::object([
+            'recommended_tools' => ['type' => 'array'],
+            'available_tools' => ResultSchema::map(),
+        ], ['recommended_tools', 'available_tools'])], ['discovery']);
     }
 
     protected function defineSchema(JsonSchemaContract $schema): array

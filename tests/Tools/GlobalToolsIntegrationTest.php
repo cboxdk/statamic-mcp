@@ -43,7 +43,7 @@ class GlobalToolsIntegrationTest extends TestCase
         // Global operations are now implemented and should work
         $this->assertTrue($response['success']);
         $this->assertArrayHasKey('data', $response);
-        $this->assertArrayHasKey('globals', $response['data']);
+        $this->assertArrayHasKey('items', $response['data']);
     }
 
     public function test_globals_router_provides_global_metadata(): void

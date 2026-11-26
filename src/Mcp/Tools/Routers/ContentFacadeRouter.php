@@ -49,7 +49,7 @@ class ContentFacadeRouter extends BaseRouter
     {
         return [
             RouterAction::read('content_audit', 'Report content volume and coverage gaps across collections, taxonomies and globals', optional: []),
-            RouterAction::read('content_validate', 'Check stored content against its blueprints and report drift', optional: ['scope', 'collection', 'taxonomy', 'severity', 'limit', 'offset', 'max_findings']),
+            RouterAction::read('content_validate', 'Check stored content against its blueprints and report drift', optional: ['scope', 'collection', 'taxonomy', 'severity', 'limit', 'cursor', 'max_findings']),
             RouterAction::read('cross_reference', 'Map relationships between content types and find references to records that no longer exist', optional: []),
         ];
     }
@@ -71,8 +71,8 @@ class ContentFacadeRouter extends BaseRouter
                 ->description('restrict the term sweep to one taxonomy handle'),
             'limit' => JsonSchema::integer()
                 ->description('how many records to scan in this call (default 100, max 500)'),
-            'offset' => JsonSchema::integer()
-                ->description('record offset, for paging through a large site'),
+            'cursor' => JsonSchema::string()
+                ->description('next_cursor from the previous scan. Keep the other arguments unchanged. Omit to start again.'),
             'max_findings' => JsonSchema::integer()
                 ->description('cap on findings returned per call (default 200, max 2000). Counts stay accurate when findings are truncated.'),
             'severity' => JsonSchema::string()
@@ -398,8 +398,7 @@ class ContentFacadeRouter extends BaseRouter
      * that changed after the content was written.
      *
      * Records are walked in a fixed order (entries, terms, globals, navigations)
-     * and `offset`/`limit` address that combined stream, so paging through a
-     * large site is a matter of repeating the call with a rising offset.
+     * and cursor/limit address that combined stream, not the list of findings.
      *
      * @param  array<string, mixed>  $arguments
      *
@@ -489,7 +488,8 @@ class ContentFacadeRouter extends BaseRouter
             ],
             'findings' => $returned,
             'findings_truncated' => $totalFindings > count($returned),
-            'pagination' => $this->buildPaginationMeta($segmentStart, $limit, $offset),
+            'total' => $segmentStart,
+            'next_cursor' => $scanned === 0 ? null : $this->nextCursor($segmentStart, $offset + $scanned, $arguments),
             'completed' => true,
             'message' => $totalFindings === 0
                 ? "Validated {$scanned} record(s); no problems found."
@@ -566,7 +566,7 @@ class ContentFacadeRouter extends BaseRouter
         $units = [];
         $query = $this->entryQuery($collection);
 
-        foreach ($query?->offset($offset)->limit($limit)->get() ?? [] as $entry) {
+        foreach ($query?->orderBy('id')->offset($offset)->limit($limit)->get() ?? [] as $entry) {
             /** @var \Statamic\Contracts\Entries\Entry $entry */
             $units[] = function () use ($entry): array {
                 $blueprint = $entry->blueprint();
@@ -631,7 +631,7 @@ class ContentFacadeRouter extends BaseRouter
         $units = [];
         $query = $this->termQuery($taxonomy);
 
-        foreach ($query?->offset($offset)->limit($limit)->get() ?? [] as $term) {
+        foreach ($query?->orderBy('id')->offset($offset)->limit($limit)->get() ?? [] as $term) {
             /** @var \Statamic\Contracts\Taxonomies\Term $term */
             $units[] = function () use ($term): array {
                 $blueprint = $term->blueprint();
@@ -662,7 +662,7 @@ class ContentFacadeRouter extends BaseRouter
         $units = [];
 
         /** @var \Illuminate\Support\Collection<int, \Statamic\Contracts\Globals\GlobalSet> $globalSets */
-        $globalSets = GlobalSet::all();
+        $globalSets = GlobalSet::all()->sortBy->handle();
 
         foreach ($globalSets as $globalSet) {
             /** @var \Statamic\Contracts\Globals\GlobalSet $globalSet */
@@ -672,7 +672,7 @@ class ContentFacadeRouter extends BaseRouter
                 continue;
             }
 
-            foreach ($globalSet->localizations() as $locale => $localization) {
+            foreach ($globalSet->localizations()->sortKeys() as $locale => $localization) {
                 /** @var Variables $localization */
                 $units[] = fn (): array => $this->validateRecord(
                     $blueprint->fields(),
@@ -697,10 +697,10 @@ class ContentFacadeRouter extends BaseRouter
         $units = [];
 
         /** @var iterable<NavContract> $navs */
-        $navs = Nav::all();
+        $navs = Nav::all()->sortBy->handle();
 
         foreach ($navs as $nav) {
-            foreach ($nav->trees() as $locale => $tree) {
+            foreach ($nav->trees()->sortKeys() as $locale => $tree) {
                 /** @var Tree $tree */
                 $units[] = function () use ($nav, $tree, $locale): array {
                     $findings = [];

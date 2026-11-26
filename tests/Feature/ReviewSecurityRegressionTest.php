@@ -297,6 +297,6 @@ class ReviewSecurityRegressionTest extends TestCase
         $e->save();
         $this->assertFalse($u->can('view', $e));
         $r = (new EntriesRouter)->execute(['action' => 'list', 'collection' => $h, 'site' => 'de', 'include_unpublished' => true]);
-        $this->assertTrue(! $r['success'] || count($r['data']['entries']) === 0, json_encode($r));
+        $this->assertTrue(! $r['success'] || count($r['data']['items']) === 0, json_encode($r));
     }
 }

@@ -162,5 +162,5 @@ it('does not let a list filter probe a denied field', function () {
         'include_unpublished' => true, 'filters' => ['secret_note' => 'wrong']]);
 
     expect($result['success'])->toBeTrue(json_encode($result))
-        ->and(array_column($result['data']['entries'], 'id'))->toContain('mx-entry');
+        ->and(array_column($result['data']['items'], 'id'))->toContain('mx-entry');
 });

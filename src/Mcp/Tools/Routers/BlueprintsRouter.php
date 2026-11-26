@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
+use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
 use Cboxdk\StatamicMcp\Mcp\Support\FieldFormatSpec;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ChecksResourceVersions;
 use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
@@ -31,6 +33,8 @@ use Statamic\Fieldtypes\Replicator;
 #[Description('Statamic blueprints: the fields of every entry, term, global set, asset and user, with each field\'s _format_spec, the exact wire format a write must send.')]
 class BlueprintsRouter extends BaseRouter
 {
+    use ChecksResourceVersions;
+
     protected function getDomain(): string
     {
         return 'blueprints';
@@ -41,14 +45,14 @@ class BlueprintsRouter extends BaseRouter
         $where = ['namespace', 'collection', 'taxonomy'];
 
         return [
-            RouterAction::read('list', 'List blueprints', optional: ['namespace', 'include_fields', 'include_details']),
+            RouterAction::read('list', 'List blueprints', optional: ['namespace', 'include_fields', 'include_details', 'limit', 'cursor']),
             RouterAction::read('get', 'Get a blueprint\'s fields with each field\'s _format_spec, the wire format a write expects. In the collections and taxonomies namespaces, name the collection or taxonomy; field is a dot path to one field or set', needs: ['handle'], optional: [...$where, 'field', 'include_config', 'include_format_spec', 'max_format_depth']),
             RouterAction::admin('create', 'Create a blueprint; each field has a handle and a field object carrying type', needs: ['handle'], optional: [...$where, 'fields', 'title']),
             RouterAction::admin('update', 'Update a blueprint\'s fields, merged by handle unless replace_fields is true', needs: ['handle'], optional: [...$where, 'fields', 'replace_fields', 'title']),
             RouterAction::admin('delete', 'Delete a blueprint', needs: ['handle'], optional: $where),
-            RouterAction::read('scan', 'Report how blueprints and fieldtypes are used', optional: ['namespace', 'include_fields', 'include_details']),
+            RouterAction::read('scan', 'Report how blueprints and fieldtypes are used', optional: ['namespace', 'include_fields', 'include_details', 'limit', 'cursor']),
             RouterAction::admin('generate', 'Create a blueprint from field definitions you supply', needs: ['handle', 'fields'], optional: ['namespace', 'title']),
-            RouterAction::read('types', 'Generate TypeScript, PHP or JSON Schema types from blueprints; output_format defaults to typescript', optional: ['namespace', 'output_format']),
+            RouterAction::read('types', 'Generate TypeScript, PHP or JSON Schema types from blueprints; output_format defaults to typescript', optional: ['namespace', 'output_format', 'limit', 'cursor']),
             RouterAction::read('validate', 'Validate a blueprint\'s structure and field definitions', needs: ['handle'], optional: $where),
         ];
     }
@@ -87,6 +91,10 @@ class BlueprintsRouter extends BaseRouter
                 ->description('Include field type and configuration details in response. Default: false for list, true for get'),
             'include_fields' => JsonSchema::boolean()
                 ->description('Only applies to list. Include field handle/type/display in list response. Default: true.'),
+            'limit' => JsonSchema::integer()
+                ->description('Maximum blueprints to return (default: 50, max: 500; types max: 200).'),
+            'cursor' => JsonSchema::string()
+                ->description('next_cursor from the previous page. Keep the other arguments unchanged. Omit to start again.'),
             'field' => JsonSchema::string()
                 ->description(
                     'Only applies to get. Dot path narrowing the response to one field or set instead of the '
@@ -150,7 +158,7 @@ class BlueprintsRouter extends BaseRouter
         $pagination = $this->getPaginationArgs($arguments);
         $limit = $pagination['limit'];
         $offset = $pagination['offset'];
-        $data = $blueprints->values()->skip($offset)->take($limit)
+        $data = $blueprints->sortBy(fn (BlueprintContract $blueprint): string => $blueprint->namespace() . '.' . $blueprint->handle())->values()->skip($offset)->take($limit)
             ->map(function (mixed $blueprint) use ($includeDetails, $includeFields): array {
                 /** @var BlueprintContract $blueprint */
                 $result = [
@@ -179,8 +187,7 @@ class BlueprintsRouter extends BaseRouter
             })->values();
 
         return [
-            'blueprints' => $data->toArray(),
-            'pagination' => $this->buildPaginationMeta($total, $limit, $offset),
+            ...$this->buildPage($data->all(), $total, $offset, $arguments),
             'namespace' => $namespace,
         ];
     }
@@ -373,6 +380,7 @@ class BlueprintsRouter extends BaseRouter
         if ($blueprint === null) {
             return $this->missingResource('Blueprint', $handle, candidates: $this->candidateBlueprintHandles($namespace, $collectionHandle, $taxonomyHandle), arguments: $arguments)->toArray();
         }
+        $version = self::resourceVersion($blueprint->contents());
         // Resolve through the section so Entry/TermBlueprintFound listeners can add runtime fields.
         $resolvedNamespace = $blueprint->namespace();
         if (is_string($resolvedNamespace) && str_starts_with($resolvedNamespace, 'collections.')) {
@@ -385,14 +393,32 @@ class BlueprintsRouter extends BaseRouter
             ? $arguments['field']
             : null;
         if ($fieldPath !== null) {
-            return $this->getBlueprintSubtree($blueprint, $fieldPath, $includeConfig, $formatSpec);
+            $result = $this->getBlueprintSubtree($blueprint, $fieldPath, $includeConfig, $formatSpec);
+            if (isset($result['blueprint']) && is_array($result['blueprint'])) {
+                $result['blueprint']['version'] = $version;
+            }
+
+            return $result;
         }
+        $data = $this->blueprintRecord($blueprint, $includeConfig, $formatSpec);
+        $data['version'] = $version;
+        if ($formatSpec !== null && ($iconSets = $formatSpec->collectedIconSets()) !== []) {
+            $data['icon_sets'] = $iconSets;
+        }
+
+        return ['blueprint' => $data];
+    }
+
+    /** @return array<string, mixed> */
+    private function blueprintRecord(BlueprintContract $blueprint, bool $includeConfig = true, ?FieldFormatSpec $formatSpec = null): array
+    {
         $data = [
             'handle' => $blueprint->handle(),
             'title' => $blueprint->title(),
             'namespace' => $blueprint->namespace(),
             'hidden' => $blueprint->hidden(),
             'order' => $blueprint->order(),
+            'version' => self::resourceVersion($blueprint->contents()),
             'fields' => $blueprint->fields()->all()->map(function (mixed $field) use ($includeConfig, $formatSpec): array {
                 /** @var Field $field */
                 $fieldData = [
@@ -415,11 +441,8 @@ class BlueprintsRouter extends BaseRouter
                 return $fieldData;
             })->toArray(),
         ];
-        if ($formatSpec !== null && ($iconSets = $formatSpec->collectedIconSets()) !== []) {
-            $data['icon_sets'] = $iconSets;
-        }
 
-        return ['blueprint' => $data];
+        return $data;
     }
 
     /**
@@ -519,9 +542,7 @@ class BlueprintsRouter extends BaseRouter
 
             return [
                 'blueprint' => [
-                    'handle' => $blueprint->handle(),
-                    'title' => $blueprint->title(),
-                    'namespace' => $blueprint->namespace(),
+                    ...$this->blueprintRecord($blueprint),
                     'path' => $blueprint->path(),
                     'full_path' => $namespace === 'collections'
                         ? "collections/{$safeCollectionHandle}/{$safeHandle}.yaml"
@@ -815,20 +836,7 @@ class BlueprintsRouter extends BaseRouter
         $this->persistStatamic(fn () => $blueprint->save(), ['stache']);
 
         return [
-            'blueprint' => [
-                'handle' => $blueprint->handle(),
-                'title' => $blueprint->title(),
-                'namespace' => $blueprint->namespace(),
-                'fields' => $blueprint->fields()->all()->map(function (mixed $field): array {
-                    /** @var Field $field */
-                    return [
-                        'handle' => $field->handle(),
-                        'type' => $field->type(),
-                        'display' => $field->display(),
-                        'config' => $field->config(),
-                    ];
-                })->toArray(),
-            ],
+            'blueprint' => $this->blueprintRecord($blueprint),
             'updated' => true,
         ];
     }
@@ -850,11 +858,7 @@ class BlueprintsRouter extends BaseRouter
             return $this->missingResource('Blueprint', $handle, candidates: $this->candidateBlueprintHandles($namespace, $collectionHandle, $taxonomyHandle), arguments: $arguments)->toArray();
         }
         // Store blueprint info before deletion
-        $blueprintInfo = [
-            'handle' => $blueprint->handle(),
-            'title' => $blueprint->title(),
-            'namespace' => $blueprint->namespace(),
-        ];
+        $blueprintInfo = $this->blueprintRecord($blueprint);
         $this->persistStatamic(fn () => $blueprint->delete(), ['stache']);
 
         return [
@@ -937,20 +941,7 @@ class BlueprintsRouter extends BaseRouter
         $this->persistStatamic(fn () => $blueprint->save(), ['stache']);
 
         return [
-            'blueprint' => [
-                'handle' => $blueprint->handle(),
-                'title' => $blueprint->title(),
-                'namespace' => $blueprint->namespace(),
-                'fields' => $blueprint->fields()->all()->map(function (mixed $field): array {
-                    /** @var Field $field */
-                    return [
-                        'handle' => $field->handle(),
-                        'type' => $field->type(),
-                        'display' => $field->display(),
-                        'config' => $field->config(),
-                    ];
-                })->toArray(),
-            ],
+            'blueprint' => $this->blueprintRecord($blueprint),
             'generated' => true,
         ];
     }
@@ -969,7 +960,7 @@ class BlueprintsRouter extends BaseRouter
         $namespace = isset($arguments['namespace']) && is_string($arguments['namespace']) ? $arguments['namespace'] : null;
         $blueprints = $this->collectAllBlueprints($namespace);
         $total = $blueprints->count();
-        $paged = $blueprints->values()->skip($offset)->take($limit);
+        $paged = $blueprints->sortBy(fn (BlueprintContract $blueprint): string => $blueprint->namespace() . '.' . $blueprint->handle())->values()->skip($offset)->take($limit);
         $types = [];
         foreach ($paged as $blueprint) {
             /** @var BlueprintContract $blueprint */
@@ -987,13 +978,12 @@ class BlueprintsRouter extends BaseRouter
                 continue;
             }
 
-            $types[$handle] = $fields;
+            $types[] = ['handle' => $handle, 'namespace' => $blueprint->namespace(), 'fields' => $fields];
         }
 
         return [
             'format' => $outputFormat,
-            'types' => $types,
-            'pagination' => $this->buildPaginationMeta($total, $limit, $offset),
+            ...$this->buildPage($types, $total, $offset, $arguments),
             'generated_at' => now()->toISOString(),
         ];
     }
@@ -1045,28 +1035,31 @@ class BlueprintsRouter extends BaseRouter
      *
      * @param  string|null  $namespace  Filter to a specific namespace
      *
-     * @return SupportCollection<int|string, mixed>
+     * @return SupportCollection<int|string, BlueprintContract>
      */
     private function collectAllBlueprints(?string $namespace = null): SupportCollection
     {
         $blueprints = collect(Blueprint::in('collections')->all())
-            ->merge(Blueprint::in('taxonomies')->all())
-            ->merge(Blueprint::in('globals')->all())
-            ->merge(Blueprint::in('forms')->all())
-            ->merge(Blueprint::in('assets')->all())
-            ->merge(Blueprint::in('users')->all());
+            ->concat(Blueprint::in('taxonomies')->all())
+            ->concat(Blueprint::in('globals')->all())
+            ->concat(Blueprint::in('forms')->all())
+            ->concat(Blueprint::in('assets')->all())
+            ->concat(Blueprint::in('users')->all());
 
-        // Include collection-specific blueprints
+        // Blueprint::in() is non-recursive and keyed by handle. Concatenate
+        // namespaces so two resources can both have a "default" blueprint.
         if (! $namespace || $namespace === 'collections') {
+            /** @var list<string> $collectionHandles */
             $collectionHandles = Collection::handles()->all();
             foreach ($collectionHandles as $collectionHandle) {
-                try {
-                    /** @var string $collectionHandle */
-                    $collectionBlueprints = collect(Blueprint::in("collections.{$collectionHandle}")->all());
-                    $blueprints = $blueprints->merge($collectionBlueprints);
-                } catch (\Exception $e) {
-                    // Ignore if collection namespace doesn't exist
-                }
+                $blueprints = $blueprints->concat(Blueprint::in("collections.{$collectionHandle}")->all());
+            }
+        }
+        if (! $namespace || $namespace === 'taxonomies') {
+            /** @var list<string> $taxonomyHandles */
+            $taxonomyHandles = Taxonomy::handles()->all();
+            foreach ($taxonomyHandles as $taxonomyHandle) {
+                $blueprints = $blueprints->concat(Blueprint::in("taxonomies.{$taxonomyHandle}")->all());
             }
         }
 
@@ -1074,11 +1067,15 @@ class BlueprintsRouter extends BaseRouter
             $blueprints = $blueprints->filter(function (mixed $blueprint) use ($namespace): bool {
                 /** @var BlueprintContract $blueprint */
                 return $blueprint->namespace() === $namespace ||
-                       ($namespace === 'collections' && str_starts_with($blueprint->namespace() ?? '', 'collections.'));
+                       str_starts_with($blueprint->namespace() ?? '', $namespace . '.');
             });
         }
 
-        return $blueprints;
+        $policy = app(ResourcePolicy::class);
+
+        return $blueprints->filter(fn (mixed $blueprint): bool => $blueprint instanceof BlueprintContract
+            && $blueprint->handle() !== null
+            && $policy->canAccess('blueprints', $blueprint->handle(), 'read'));
     }
 
     /**

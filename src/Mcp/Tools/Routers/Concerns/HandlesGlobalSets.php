@@ -43,10 +43,10 @@ trait HandlesGlobalSets
     {
         $includeDetails = $this->getBooleanArgument($arguments, 'include_details', true);
         $policy = app(ResourcePolicy::class);
-        $globalSets = GlobalSet::all()->filter(
+        $globalSets = collect(GlobalSet::all()->all())->filter(
             fn ($globalSet): bool => $globalSet instanceof GlobalSetContract
                 && $policy->canAccess('structures', $globalSet->handle(), 'read')
-        )->map(function ($globalSet) use ($includeDetails) {
+        )->map(function ($globalSet) use ($includeDetails): array {
             /** @var GlobalSetContract $globalSet */
             $data = [
                 'handle' => $globalSet->handle(),
@@ -63,10 +63,7 @@ trait HandlesGlobalSets
             return $data;
         })->all();
 
-        return [
-            'globalsets' => $globalSets,
-            'total' => count($globalSets),
-        ];
+        return $this->paginateItems($globalSets, $arguments);
     }
 
     /**
@@ -81,6 +78,13 @@ trait HandlesGlobalSets
         if (! $globalSet) {
             return $this->missingResource('Global set', $handle, candidates: GlobalSet::all()->map->handle()->all(), arguments: $arguments)->toArray();
         }
+
+        return ['globalset' => $this->globalSetRecord($globalSet)];
+    }
+
+    /** @return array<string, mixed> */
+    private function globalSetRecord(GlobalSetContract $globalSet): array
+    {
         $data = [
             'handle' => $globalSet->handle(),
             'title' => $globalSet->title(),
@@ -88,7 +92,7 @@ trait HandlesGlobalSets
             'sites' => $globalSet->sites()->all(),
         ];
 
-        return ['globalset' => $data];
+        return [...$data, 'version' => self::resourceVersion($globalSet->fileData())];
     }
 
     /**
@@ -131,8 +135,7 @@ trait HandlesGlobalSets
 
         return [
             'globalset' => [
-                'handle' => $globalSet->handle(),
-                'title' => $globalSet->title(),
+                ...$this->globalSetRecord($globalSet),
                 'created' => true,
             ],
         ];
@@ -160,8 +163,7 @@ trait HandlesGlobalSets
 
         return [
             'globalset' => [
-                'handle' => $globalSet->handle(),
-                'title' => $globalSet->title(),
+                ...$this->globalSetRecord($globalSet),
                 'updated' => true,
             ],
         ];
@@ -182,13 +184,14 @@ trait HandlesGlobalSets
         if (! $globalSet) {
             return $this->missingResource('Global set', $handle, candidates: GlobalSet::all()->map->handle()->all(), arguments: $arguments)->toArray();
         }
+        $snapshot = $this->globalSetRecord($globalSet);
         $this->persistStatamic(fn () => $globalSet->delete());
         // Clear caches
         $this->clearCachesAfterWrite(['stache', 'static']);
 
         return [
             'globalset' => [
-                'handle' => $handle,
+                ...$snapshot,
                 'deleted' => true,
             ],
         ];

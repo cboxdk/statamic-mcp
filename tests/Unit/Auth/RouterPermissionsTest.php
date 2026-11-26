@@ -298,7 +298,7 @@ describe('Nested Permission Flow', function () {
         ]);
 
         expect($result['success'])->toBeTrue();
-        expect($result['data'])->toHaveKey('entries');
+        expect($result['data'])->toHaveKey('items');
     });
 
     it('refuses a legacy wildcard * scope at Layer 1', function () {
@@ -330,7 +330,7 @@ describe('Nested Permission Flow', function () {
         ]);
 
         expect($result['success'])->toBeTrue();
-        expect($result['data'])->toHaveKey('entries');
+        expect($result['data'])->toHaveKey('items');
     });
 
     it('allows super admin to bypass all Statamic permissions (Layer 2)', function () {
@@ -381,7 +381,7 @@ describe('Nested Permission Flow', function () {
         ]);
 
         expect($result['success'])->toBeTrue();
-        expect($result['data'])->toHaveKey('entries');
+        expect($result['data'])->toHaveKey('items');
     });
 
     it('rejects when token scope is correct but Statamic permission missing (both layers must pass)', function () {

@@ -50,7 +50,7 @@ trait HandlesTaxonomies
                 && $policy->canAccess('structures', $taxonomy->handle(), 'read')
         );
         $total = $allTaxonomies->count();
-        $taxonomies = $allTaxonomies->skip($offset)->take($limit)->map(function ($taxonomy) use ($includeDetails) {
+        $taxonomies = $allTaxonomies->sortBy(fn (TaxonomyContract $taxonomy): string => $taxonomy->handle())->skip($offset)->take($limit)->map(function ($taxonomy) use ($includeDetails) {
             /** @var TaxonomyContract $taxonomy */
             $data = [
                 'handle' => $taxonomy->handle(),
@@ -68,11 +68,7 @@ trait HandlesTaxonomies
             return $data;
         })->values()->all();
 
-        return [
-            'taxonomies' => $taxonomies,
-            'total' => $total,
-            'pagination' => $this->buildPaginationMeta($total, $limit, $offset),
-        ];
+        return $this->buildPage($taxonomies, $total, $offset, $arguments);
     }
 
     /**
@@ -87,16 +83,23 @@ trait HandlesTaxonomies
         if (! $taxonomy) {
             return $this->missingResource('Taxonomy', $handle, candidates: Taxonomy::all()->map->handle()->all(), arguments: $arguments)->toArray();
         }
+
+        return ['taxonomy' => [...$this->taxonomyRecord($taxonomy), 'term_count' => $taxonomy->queryTerms()->count()]];
+    }
+
+    /** @return array<string, mixed> */
+    private function taxonomyRecord(TaxonomyContract $taxonomy): array
+    {
         $data = [
             'handle' => $taxonomy->handle(),
             'title' => $taxonomy->title(),
             'blueprints' => $taxonomy->termBlueprints()->map->handle()->all(),
             'sites' => $taxonomy->sites()->all(),
             'collections' => $taxonomy->collections()->map->handle()->all(),
-            'term_count' => $taxonomy->queryTerms()->count(),
+            'preview_targets' => $taxonomy->previewTargets()->all(),
         ];
 
-        return ['taxonomy' => $data];
+        return [...$data, 'version' => self::resourceVersion($taxonomy->fileData())];
     }
 
     /**
@@ -137,8 +140,7 @@ trait HandlesTaxonomies
 
         return [
             'taxonomy' => [
-                'handle' => $taxonomy->handle(),
-                'title' => $taxonomy->title(),
+                ...$this->taxonomyRecord($taxonomy),
                 'created' => true,
             ],
         ];
@@ -175,8 +177,7 @@ trait HandlesTaxonomies
 
         return [
             'taxonomy' => [
-                'handle' => $taxonomy->handle(),
-                'title' => $taxonomy->title(),
+                ...$this->taxonomyRecord($taxonomy),
                 'updated' => true,
             ],
         ];
@@ -207,6 +208,7 @@ trait HandlesTaxonomies
         // Resolve blueprints before removing their parent, but preserve them
         // when the native parent deletion is vetoed or throws.
         $blueprints = $taxonomy->termBlueprints();
+        $snapshot = $this->taxonomyRecord($taxonomy);
         $this->persistStatamic(fn () => $taxonomy->delete());
         foreach ($blueprints as $blueprint) {
             $this->persistStatamic(fn () => $blueprint->delete());
@@ -216,7 +218,7 @@ trait HandlesTaxonomies
 
         return [
             'taxonomy' => [
-                'handle' => $handle,
+                ...$snapshot,
                 'deleted' => true,
             ],
         ];

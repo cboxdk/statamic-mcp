@@ -102,7 +102,7 @@ trait EnforcesResourcePolicy
         }
 
         // Filter nested 'data' within domain-specific wrapper keys (e.g. entry.data, term.data)
-        foreach (['entry', 'term', 'global', 'asset', 'user'] as $wrapper) {
+        foreach (['entry', 'term', 'global', 'asset', 'copy', 'user'] as $wrapper) {
             if (! isset($result[$wrapper]) || ! is_array($result[$wrapper])) {
                 continue;
             }
@@ -118,15 +118,19 @@ trait EnforcesResourcePolicy
             }
         }
 
-        // Filter list responses where items live under domain-specific keys
-        foreach (['entries', 'terms', 'globals', 'assets', 'users'] as $listKey) {
-            if (! isset($result[$listKey]) || ! is_array($result[$listKey])) {
-                continue;
+        // Configuration records and asset metadata also expose fields directly
+        // on the record. Apply the same policy to read and write snapshots.
+        foreach (['collection', 'taxonomy', 'navigation', 'globalset', 'site', 'container', 'asset', 'copy', 'role', 'group'] as $wrapper) {
+            if (isset($result[$wrapper]) && is_array($result[$wrapper])) {
+                $result[$wrapper] = $policy->filterFields($domain, $result[$wrapper]);
             }
+        }
 
+        // The items page uses the same policy as single-record responses.
+        if (isset($result['items']) && is_array($result['items'])) {
             /** @var array<int, mixed> $items */
-            $items = $result[$listKey];
-            $result[$listKey] = array_map(function (mixed $item) use ($policy, $domain): mixed {
+            $items = $result['items'];
+            $result['items'] = array_map(function (mixed $item) use ($policy, $domain): mixed {
                 if (! is_array($item)) {
                     return $item;
                 }

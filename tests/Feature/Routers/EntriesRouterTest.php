@@ -74,19 +74,18 @@ class EntriesRouterTest extends TestCase
             'action' => 'list',
             'collection' => $this->collectionHandle,
             'limit' => 2,
-            'offset' => 0,
             'include_unpublished' => true,
         ]);
 
         $this->assertTrue($result['success']);
-        $this->assertCount(2, $result['data']['entries']);
-        $this->assertEquals(5, $result['data']['pagination']['total']);
-        $this->assertTrue($result['data']['pagination']['has_more']);
+        $this->assertCount(2, $result['data']['items']);
+        $this->assertEquals(5, $result['data']['total']);
+        $this->assertIsString($result['data']['next_cursor']);
     }
 
-    public function test_list_entries_with_offset(): void
+    public function test_list_entries_resumes_with_a_cursor_and_allows_a_different_page_size(): void
     {
-        for ($i = 1; $i <= 5; $i++) {
+        foreach ([5, 2, 4, 1, 3] as $i) {
             Entry::make()
                 ->id("offset-{$i}-{$this->testId}")
                 ->collection($this->collectionHandle)
@@ -95,17 +94,20 @@ class EntriesRouterTest extends TestCase
                 ->save();
         }
 
-        $result = $this->router->execute([
+        $arguments = [
             'action' => 'list',
             'collection' => $this->collectionHandle,
-            'limit' => 2,
-            'offset' => 3,
+            'limit' => 3,
             'include_unpublished' => true,
-        ]);
+        ];
+        $first = $this->router->execute($arguments);
+        $this->assertTrue($first['success'], json_encode($first));
+        $this->assertSame(['Offset Entry 1', 'Offset Entry 2', 'Offset Entry 3'], array_column($first['data']['items'], 'title'));
+        $result = $this->router->execute([...$arguments, 'limit' => 2, 'cursor' => $first['data']['next_cursor']]);
 
         $this->assertTrue($result['success']);
-        $this->assertCount(2, $result['data']['entries']);
-        $this->assertFalse($result['data']['pagination']['has_more']);
+        $this->assertSame(['Offset Entry 4', 'Offset Entry 5'], array_column($result['data']['items'], 'title'));
+        $this->assertNull($result['data']['next_cursor']);
     }
 
     public function test_list_entries_excludes_unpublished_by_default(): void
@@ -133,7 +135,7 @@ class EntriesRouterTest extends TestCase
         ]);
 
         $this->assertTrue($result['success']);
-        $titles = collect($result['data']['entries'])->pluck('title')->toArray();
+        $titles = collect($result['data']['items'])->pluck('title')->toArray();
         $this->assertContains('Published', $titles);
         $this->assertNotContains('Draft', $titles);
     }
@@ -163,7 +165,7 @@ class EntriesRouterTest extends TestCase
         ]);
 
         $this->assertTrue($result['success']);
-        $titles = collect($result['data']['entries'])->pluck('title')->toArray();
+        $titles = collect($result['data']['items'])->pluck('title')->toArray();
         $this->assertContains('Published2', $titles);
         $this->assertContains('Draft2', $titles);
     }

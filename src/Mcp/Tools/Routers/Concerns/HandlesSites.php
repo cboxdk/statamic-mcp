@@ -57,7 +57,7 @@ trait HandlesSites
         $defaultSite = Site::default();
 
         return [
-            'sites' => $sites,
+            ...$this->paginateItems($sites, $arguments),
             'default' => $policy->canAccess('structures', $defaultSite->handle(), 'read') ? $defaultSite->handle() : null,
         ];
     }

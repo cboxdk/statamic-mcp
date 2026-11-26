@@ -7,6 +7,7 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\System;
 use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
 use Cboxdk\StatamicMcp\Mcp\ExtraTools;
 use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
+use Cboxdk\StatamicMcp\Mcp\Support\ResultSchema;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseStatamicTool;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
@@ -39,6 +40,14 @@ class SchemaTool extends BaseStatamicTool
     protected function getToolDomain(): ?string
     {
         return 'guidance';
+    }
+
+    protected function successDataSchema(): array
+    {
+        return ['anyOf' => [
+            ResultSchema::object(['tool' => ResultSchema::map()], ['tool']),
+            ResultSchema::object(['tools' => ResultSchema::map(), 'total' => ['type' => 'integer', 'minimum' => 0]], ['tools', 'total']),
+        ]];
     }
 
     protected function defineSchema(JsonSchemaContract $schema): array

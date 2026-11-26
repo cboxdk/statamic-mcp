@@ -57,9 +57,6 @@ class SystemRouterTest extends TestCase
         $this->assertArrayHasKey('system_info', $result['data']);
 
         $info = $result['data']['system_info'];
-        $this->assertArrayHasKey('statamic_version', $info);
-        $this->assertArrayHasKey('laravel_version', $info);
-        $this->assertArrayHasKey('php_version', $info);
         $this->assertArrayHasKey('environment', $info);
 
         // include_details defaults to false, so counts should not be present

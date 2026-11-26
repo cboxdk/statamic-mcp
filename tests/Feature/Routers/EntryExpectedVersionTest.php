@@ -27,7 +27,24 @@ it('reports a version that changes with every write and not without one', functi
 
     $updated = ev(['action' => 'update', 'data' => ['title' => 'Edited']]);
     expect($updated['data']['entry']['version'])->toBeString()->not->toBe($first)
+        ->and($updated['data']['entry']['data']['title'])->toBe('Edited')
         ->and(ev(['action' => 'get'])['data']['entry']['version'])->toBe($updated['data']['entry']['version']);
+});
+
+it('returns the full record from writes and the deleted snapshot from delete', function () {
+    foreach (['publish', 'unpublish'] as $action) {
+        $result = ev(['action' => $action]);
+        expect($result['success'])->toBeTrue(json_encode($result))
+            ->and($result['data']['entry']['data']['title'])->toBe('Original')
+            ->and($result['data']['entry']['collection'])->toBe('ev_pages')
+            ->and($result['data']['entry']['published'])->toBe($action === 'publish')
+            ->and($result['data']['entry'])->toEqual(ev(['action' => 'get'])['data']['entry']);
+    }
+    $before = ev(['action' => 'get'])['data']['entry'];
+    $deleted = ev(['action' => 'delete', 'expected_version' => $before['version']]);
+    expect($deleted['success'])->toBeTrue()
+        ->and($deleted['data']['entry'])->toBe($before)
+        ->and(Entry::find('ev-entry'))->toBeNull();
 });
 
 it('writes when the expected version is current', function () {

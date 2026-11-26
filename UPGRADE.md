@@ -85,8 +85,27 @@ journal never holds secrets or hashes. If it cannot be written, nothing changes.
   | system | `resource_type` | – (system has no resource types) |
 
   `filters` is gone from users, structures and content-facade, where nothing
-  read it. Structures `list` (collections, taxonomies) and asset `list` now
-  show `limit` and `offset`, which they always applied.
+  read it.
+- Lists return `data.items`, `data.next_cursor` and `data.total` instead of
+  domain-specific arrays (`entries`, `terms`, etc.) and `pagination`.
+  Replace `offset` with the opaque `next_cursor` from the preceding response;
+  stop when it is `null`. Keep the query arguments unchanged; `limit` may change.
+  Cursors are authenticated positions, not snapshots or access grants: each page
+  checks current permissions, and concurrent edits can shift the result set.
+  Invalid cursors and cursors from a different query return `VALIDATION`.
+  Configuration catalogs and `list_revisions` are paginated too.
+  `content_validate` retains `findings` and `summary`; its `next_cursor` and
+  `total` refer to the records scanned, not the number of findings.
+- Record writes return the full permitted record and its `version`; deletes return
+  its last snapshot. A collection `move` includes the saved tree, without exposing
+  configuration to users who may only reorder. `version` fingerprints the record;
+  only entries, terms and globals currently accept `expected_version` to guard a
+  write. System operations have no record version. User IDs are strings, including
+  Eloquent integer primary keys. Each tool's `outputSchema` describes successful
+  records, list pages, failures and reduced successful write results.
+- Framework versions move out of tool metadata and system `info` to
+  `server/discover`, under `result._meta["statamic-mcp/versions"]`, still opt-in
+  through `security.expose_versions`. Stored-record `version` tokens do not change.
 - Structures `configure` is removed. Use `update` with `data` for settings,
   including collection `structure` and `orderable`. To move a collection page,
   use `statamic-structures-admin` with `action: "move"`, `handle`, `site` and

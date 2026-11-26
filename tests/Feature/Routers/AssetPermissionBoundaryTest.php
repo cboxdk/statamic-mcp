@@ -67,7 +67,7 @@ class AssetPermissionBoundaryTest extends TestCase
         $result = $this->router->execute(['action' => 'list', 'resource_type' => 'container', 'include_details' => false]);
         $this->assertTrue($result['success'], json_encode($result) ?: '');
 
-        return collect($result['data']['containers'])->pluck('handle')->all();
+        return collect($result['data']['items'])->pluck('handle')->all();
     }
 
     public function test_editor_lists_only_the_containers_they_can_view(): void

@@ -21,6 +21,27 @@ class BlueprintsRouterTest extends TestCase
         $this->router = new BlueprintsRouter;
     }
 
+    public function test_writes_return_fields_and_versions_matching_the_stored_blueprint(): void
+    {
+        $where = ['namespace' => 'globals', 'handle' => 'record'];
+        $created = $this->router->execute(['action' => 'create', ...$where, 'fields' => [
+            ['handle' => 'intro', 'field' => ['type' => 'text', 'display' => 'Introduction']],
+        ]]);
+        $this->assertTrue($created['success'], json_encode($created));
+        $this->assertSame('text', $created['data']['blueprint']['fields']['intro']['type']);
+        $read = $this->router->execute(['action' => 'get', ...$where]);
+        $this->assertSame($read['data']['blueprint']['version'], $created['data']['blueprint']['version']);
+        $updated = $this->router->execute(['action' => 'update', ...$where, 'title' => 'Changed']);
+        $this->assertTrue($updated['success'], json_encode($updated));
+        $this->assertSame('Introduction', $updated['data']['blueprint']['fields']['intro']['display']);
+        $this->assertNotSame($created['data']['blueprint']['version'], $updated['data']['blueprint']['version']);
+        $read = $this->router->execute(['action' => 'get', ...$where, 'include_format_spec' => false]);
+        $this->assertSame($read['data']['blueprint'], $updated['data']['blueprint']);
+        $deleted = $this->router->execute(['action' => 'delete', ...$where]);
+        $this->assertTrue($deleted['success'], json_encode($deleted));
+        $this->assertSame($read['data']['blueprint'], $deleted['data']['blueprint']);
+    }
+
     public function test_list_all_blueprints(): void
     {
         // Clear any existing mocks and set up fresh ones
@@ -54,7 +75,7 @@ class BlueprintsRouterTest extends TestCase
 
         // Router should work and return blueprints (empty or with test data)
         $this->assertTrue($result['success']);
-        $this->assertArrayHasKey('blueprints', $result['data']);
+        $this->assertArrayHasKey('items', $result['data']);
     }
 
     public function test_list_blueprints_by_namespace(): void
@@ -91,7 +112,7 @@ class BlueprintsRouterTest extends TestCase
 
         // Router should work and return blueprints filtered by namespace
         $this->assertTrue($result['success']);
-        $this->assertArrayHasKey('blueprints', $result['data']);
+        $this->assertArrayHasKey('items', $result['data']);
     }
 
     public function test_list_blueprints_with_details(): void
@@ -104,10 +125,53 @@ class BlueprintsRouterTest extends TestCase
         ]);
 
         $this->assertTrue($result['success']);
-        $blueprint = collect($result['data']['blueprints'])->firstWhere('handle', 'detailed');
+        $blueprint = collect($result['data']['items'])->firstWhere('handle', 'detailed');
         $this->assertSame('Detailed Blueprint', $blueprint['title']);
         $this->assertArrayHasKey('hidden', $blueprint);
         $this->assertArrayHasKey('order', $blueprint);
+    }
+
+    public function test_paging_preserves_same_named_blueprints_in_different_namespaces(): void
+    {
+        Collection::make('pages')->save();
+        Taxonomy::make('tags')->save();
+        foreach (['globals', 'collections', 'assets', 'collections.pages', 'taxonomies.tags'] as $namespace) {
+            $this->createTestBlueprint('shared', $namespace, ucfirst($namespace));
+        }
+
+        $arguments = ['action' => 'list', 'limit' => 1, 'include_fields' => false];
+        $items = [];
+        do {
+            $result = $this->router->execute($arguments);
+            $this->assertTrue($result['success']);
+            $this->assertCount(1, $result['data']['items']);
+            array_push($items, ...$result['data']['items']);
+            $arguments['cursor'] = $result['data']['next_cursor'];
+            $this->assertLessThan(20, count($items), 'Pagination must terminate.');
+        } while ($arguments['cursor'] !== null);
+
+        $shared = array_values(array_filter($items, fn (array $item): bool => $item['handle'] === 'shared'));
+        $this->assertSame(['assets', 'collections.pages', 'collections', 'globals', 'taxonomies.tags'], array_column($shared, 'namespace'));
+        $this->assertSame(count($items), $result['data']['total']);
+    }
+
+    public function test_blueprint_pages_and_totals_exclude_denied_handles(): void
+    {
+        foreach (['a_hidden', 'b_visible', 'c_visible'] as $handle) {
+            $this->createTestBlueprint($handle, 'globals', $handle);
+        }
+        config(['statamic.mcp.tools.blueprints.resources.read' => ['*_visible']]);
+
+        foreach (['list', 'scan', 'types'] as $action) {
+            $arguments = ['action' => $action, 'namespace' => 'globals', 'limit' => 1];
+            $first = $this->router->execute($arguments);
+            $this->assertTrue($first['success']);
+            $this->assertSame(['b_visible'], array_column($first['data']['items'], 'handle'));
+            $this->assertSame(2, $first['data']['total']);
+            $second = $this->router->execute($arguments + ['cursor' => $first['data']['next_cursor']]);
+            $this->assertSame(['c_visible'], array_column($second['data']['items'], 'handle'));
+            $this->assertNull($second['data']['next_cursor']);
+        }
     }
 
     public function test_list_blueprints_without_fields(): void
@@ -120,7 +184,7 @@ class BlueprintsRouterTest extends TestCase
         ]);
 
         $this->assertTrue($result['success']);
-        $blueprint = collect($result['data']['blueprints'])->firstWhere('handle', 'no_fields');
+        $blueprint = collect($result['data']['items'])->firstWhere('handle', 'no_fields');
         $this->assertSame('No Fields', $blueprint['title']);
         $this->assertArrayNotHasKey('fields', $blueprint);
     }
@@ -192,7 +256,7 @@ class BlueprintsRouterTest extends TestCase
 
         // Router should work and return blueprint scan results
         $this->assertTrue($result['success']);
-        $this->assertArrayHasKey('blueprints', $result['data']);
+        $this->assertArrayHasKey('items', $result['data']);
     }
 
     public function test_types_analysis_typescript(): void
@@ -210,8 +274,9 @@ class BlueprintsRouterTest extends TestCase
 
         $this->assertTrue($result['success']);
         $this->assertSame('typescript', $result['data']['format']);
-        $this->assertSame('text', $result['data']['types']['type_test']['title']['type']);
-        $this->assertSame('toggle', $result['data']['types']['type_test']['published']['type']);
+        $fields = collect($result['data']['items'])->firstWhere('handle', 'type_test')['fields'];
+        $this->assertSame('text', $fields['title']['type']);
+        $this->assertSame('toggle', $fields['published']['type']);
     }
 
     public function test_types_analysis_all_formats(): void
@@ -225,7 +290,8 @@ class BlueprintsRouterTest extends TestCase
 
         $this->assertTrue($result['success']);
         $this->assertSame('all', $result['data']['format']);
-        $this->assertSame('text', $result['data']['types']['format_test']['title']['type']);
+        $fields = collect($result['data']['items'])->firstWhere('handle', 'format_test')['fields'];
+        $this->assertSame('text', $fields['title']['type']);
     }
 
     public function test_validate_blueprint(): void

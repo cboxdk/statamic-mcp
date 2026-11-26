@@ -54,7 +54,7 @@ Controls authentication enforcement, audit logging, and system hardening.
 | `security.max_input_values` | — | `20000` | Maximum nested input values |
 | `security.max_input_depth` | — | `64` | Maximum input nesting depth |
 | `security.max_upload_size` | `STATAMIC_MCP_MAX_UPLOAD_SIZE` | `10485760` | Max upload size in bytes (10MB) |
-| `security.expose_versions` | `STATAMIC_MCP_EXPOSE_VERSIONS` | `false` | Include Statamic/Laravel versions in responses |
+| `security.expose_versions` | `STATAMIC_MCP_EXPOSE_VERSIONS` | `false` | Include Statamic/Laravel/PHP versions in `server/discover` only |
 | `security.max_token_lifetime_days` | `STATAMIC_MCP_MAX_TOKEN_LIFETIME` | `365` | Maximum token lifetime in days |
 | `security.tool_timeout_seconds` | `STATAMIC_MCP_TOOL_TIMEOUT` | `30` | Duration warning budget; does not interrupt PHP or turn completed writes into failures |
 | `security.max_response_size` | `STATAMIC_MCP_MAX_RESPONSE_SIZE` | `100000` | Largest tool response in bytes before it is refused; `0` disables the guard |

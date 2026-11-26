@@ -370,15 +370,15 @@ class ContentValidateTest extends TestCase
             $this->storeEntry($slug, ['title' => ucfirst($slug)]);
         }
 
-        $first = $this->validate(['limit' => 2, 'offset' => 0]);
-        $second = $this->validate(['limit' => 2, 'offset' => 2]);
+        $first = $this->validate(['limit' => 2]);
+        $second = $this->validate(['limit' => 2, 'cursor' => $first['data']['next_cursor']]);
 
         $this->assertSame(2, $first['data']['summary']['records_scanned']);
-        $this->assertSame(3, $first['data']['pagination']['total']);
-        $this->assertTrue($first['data']['pagination']['has_more']);
+        $this->assertSame(3, $first['data']['total']);
+        $this->assertIsString($first['data']['next_cursor']);
 
         $this->assertSame(1, $second['data']['summary']['records_scanned']);
-        $this->assertFalse($second['data']['pagination']['has_more']);
+        $this->assertNull($second['data']['next_cursor']);
     }
 
     public function test_caps_returned_findings_while_keeping_counts_accurate(): void

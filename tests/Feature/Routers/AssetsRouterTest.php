@@ -63,12 +63,52 @@ class AssetsRouterTest extends TestCase
 
         $this->assertTrue($result['success']);
         $data = $result['data'];
-        $this->assertArrayHasKey('containers', $data);
-        $this->assertGreaterThanOrEqual(2, count($data['containers']));
+        $this->assertArrayHasKey('items', $data);
+        $this->assertGreaterThanOrEqual(2, count($data['items']));
 
-        $handles = collect($data['containers'])->pluck('handle')->toArray();
+        $handles = collect($data['items'])->pluck('handle')->toArray();
         $this->assertContains('images', $handles);
         $this->assertContains('documents', $handles);
+    }
+
+    public function test_asset_writes_return_full_records_and_versions(): void
+    {
+        $where = ['container' => 'records', 'resource_type' => 'container'];
+        $created = $this->router->execute(['action' => 'create', ...$where, 'data' => ['title' => 'Records', 'disk' => 'assets']]);
+        $this->assertTrue($created['success'], json_encode($created));
+        $read = $this->router->execute(['action' => 'get', ...$where, 'include_counts' => false]);
+        $this->assertSame($read['data']['container'], array_diff_key($created['data']['container'], ['created' => true]));
+        $where['resource_type'] = 'asset';
+        $created = $this->router->execute(['action' => 'create', ...$where, 'filename' => 'note.txt', 'content' => 'Record body', 'data' => ['title' => 'Original']]);
+        $this->assertTrue($created['success'], json_encode($created));
+        $where['path'] = 'note.txt';
+        $read = $this->router->execute(['action' => 'get', ...$where]);
+        $this->assertSame($read['data']['asset'], $created['data']['asset']);
+        $updated = $this->router->execute(['action' => 'update', ...$where, 'data' => ['title' => 'Changed']]);
+        $this->assertTrue($updated['success'], json_encode($updated));
+        $this->assertSame('Changed', $updated['data']['asset']['data']['title']);
+        $this->assertNotSame($created['data']['asset']['version'], $updated['data']['asset']['version']);
+        $read = $this->router->execute(['action' => 'get', ...$where]);
+        $this->assertSame($read['data']['asset']['version'], $updated['data']['asset']['version']);
+        $deleted = $this->router->execute(['action' => 'delete', ...$where]);
+        $this->assertTrue($deleted['success'], json_encode($deleted));
+        $this->assertSame($read['data']['asset'], array_diff_key($deleted['data']['asset'], ['deleted' => true]));
+    }
+
+    public function test_copy_hides_denied_metadata_in_the_full_record(): void
+    {
+        $container = $this->createContainerWithPermissions('private_meta', 'Private metadata');
+        Storage::disk('assets')->put('source.txt', 'Public file');
+        $container->makeAsset('source.txt')->data(['title' => 'Visible', 'secret_code' => 'hidden-value'])->save();
+        config(['statamic.mcp.tools.assets.denied_fields' => ['secret_code']]);
+        $result = $this->router->execute([
+            'action' => 'copy', 'resource_type' => 'asset', 'container' => 'private_meta',
+            'path' => 'source.txt', 'destination' => 'target.txt',
+        ]);
+        $this->assertTrue($result['success'], json_encode($result));
+        $this->assertSame('Visible', $result['data']['copy']['data']['title']);
+        $this->assertArrayNotHasKey('secret_code', $result['data']['copy']['data']);
+        $this->assertSame('Public file', Storage::disk('assets')->get('target.txt'));
     }
 
     public function test_get_container(): void
@@ -185,8 +225,8 @@ class AssetsRouterTest extends TestCase
 
         $this->assertTrue($result['success']);
         $data = $result['data'];
-        $this->assertArrayHasKey('assets', $data);
-        $this->assertArrayHasKey('pagination', $data);
+        $this->assertArrayHasKey('items', $data);
+        $this->assertArrayHasKey('next_cursor', $data);
         $this->assertEquals('test_assets', $data['container']);
     }
 
@@ -217,8 +257,8 @@ class AssetsRouterTest extends TestCase
 
         $this->assertTrue($result['success'], json_encode($result) ?: '');
 
-        $paths = collect($result['data']['assets'])->pluck('path')->sort()->values()->all();
-        $this->assertSame(count($paths), $result['data']['pagination']['total']);
+        $paths = collect($result['data']['items'])->pluck('path')->sort()->values()->all();
+        $this->assertSame(count($paths), $result['data']['total']);
 
         return $paths;
     }

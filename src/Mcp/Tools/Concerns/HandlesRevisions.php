@@ -184,14 +184,15 @@ trait HandlesRevisions
             return $revisionsError;
         }
         $revisions = $entry->revisions();
-        $formatted = $revisions->map(function (Revision $revision) {
-            return $this->formatRevisionMeta($revision);
-        })->values()->all();
+        ['limit' => $limit, 'offset' => $offset] = $this->getPaginationArgs($arguments, 50, 1000);
+        $formatted = $revisions->sortByDesc(fn (Revision $revision): int => $revision->date()->timestamp)
+            ->slice($offset, $limit)->map(function (Revision $revision) {
+                return $this->formatRevisionMeta($revision);
+            })->values()->all();
 
         return [
             'entry_id' => $entry->id(),
-            'revisions' => $formatted,
-            'total' => count($formatted),
+            ...$this->buildPage($formatted, $revisions->count(), $offset, $arguments),
             'revision_status' => $this->getRevisionStatusMeta($entry),
         ];
     }
@@ -289,6 +290,7 @@ trait HandlesRevisions
         $refreshed = $this->resolveRevisionEntry($arguments);
 
         return [
+            'entry' => ['id' => $entry->id()],
             'entry_id' => $entry->id(),
             'restored_from' => $revisionId,
             'restored_as_working_copy' => $refreshed !== null ? $refreshed->published() : $entry->published(),

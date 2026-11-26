@@ -57,10 +57,7 @@ trait HandlesRoles
             return $data;
         })->all();
 
-        return [
-            'roles' => $roles,
-            'total' => count($roles),
-        ];
+        return $this->paginateItems($roles, $arguments);
     }
 
     /**
@@ -84,9 +81,7 @@ trait HandlesRoles
         }
         $roleHandle = $role->handle();
         $data = [
-            'handle' => $roleHandle,
-            'title' => $role->title(),
-            'permissions' => $role->permissions(),
+            ...$this->roleRecord($role),
             'user_count' => User::all()->filter(function ($u) use ($roleHandle) {
                 /** @var \Statamic\Contracts\Auth\User $u */
                 return $u->hasRole($roleHandle);
@@ -140,8 +135,7 @@ trait HandlesRoles
 
         return [
             'role' => [
-                'handle' => $role->handle(),
-                'title' => $role->title(),
+                ...$this->roleRecord($role),
                 'created' => true,
             ],
         ];
@@ -187,8 +181,7 @@ trait HandlesRoles
 
         return [
             'role' => [
-                'handle' => $role->handle(),
-                'title' => $role->title(),
+                ...$this->roleRecord($role),
                 'updated' => true,
             ],
         ];
@@ -220,15 +213,28 @@ trait HandlesRoles
         if ($userCount > 0) {
             return $this->createErrorResponse("Cannot delete role '{$handle}' - it is assigned to {$userCount} users")->toArray();
         }
+        $snapshot = $this->roleRecord($role);
         $this->persistStatamic(fn () => $role->delete(), ['stache']);
         // Clear caches
         $this->clearCachesAfterWrite(['stache']);
 
         return [
             'role' => [
-                'handle' => $handle,
+                ...$snapshot,
                 'deleted' => true,
             ],
         ];
+    }
+
+    /** @return array<string, mixed> */
+    private function roleRecord(\Statamic\Contracts\Auth\Role $role): array
+    {
+        $data = [
+            'handle' => $role->handle(),
+            'title' => $role->title(),
+            'permissions' => $role->permissions(),
+        ];
+
+        return [...$data, 'version' => self::resourceVersion($data)];
     }
 }

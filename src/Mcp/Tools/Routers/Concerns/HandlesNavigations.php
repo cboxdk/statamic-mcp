@@ -86,10 +86,7 @@ trait HandlesNavigations
             return $data;
         })->all();
 
-        return [
-            'navigations' => $navigations,
-            'total' => count($navigations),
-        ];
+        return $this->paginateItems($navigations, $arguments);
     }
 
     /**
@@ -104,16 +101,8 @@ trait HandlesNavigations
         if (! $navigation) {
             return $this->missingResource('Navigation', $handle, candidates: Nav::all()->map->handle()->all(), arguments: $arguments)->toArray();
         }
-        $data = [
-            'handle' => $navigation->handle(),
-            'title' => $navigation->title(),
-            'collections' => $navigation->collections()->map->handle()->all(),
-            'max_depth' => $navigation->maxDepth(),
-            'sites' => $navigation->sites()->all(),
-            'trees' => $this->navigationTreesPayload($navigation),
-        ];
 
-        return ['navigation' => $data];
+        return ['navigation' => $this->navigationSummary($navigation)];
     }
 
     /**
@@ -193,13 +182,14 @@ trait HandlesNavigations
         if (! $navigation) {
             return $this->missingResource('Navigation', $handle, candidates: Nav::all()->map->handle()->all(), arguments: $arguments)->toArray();
         }
+        $snapshot = $this->navigationSummary($navigation);
         $this->persistStatamic(fn () => $navigation->delete());
         // Clear caches
         $this->clearCachesAfterWrite(['stache', 'static']);
 
         return [
             'navigation' => [
-                'handle' => $handle,
+                ...$snapshot,
                 'deleted' => true,
             ],
         ];
@@ -447,13 +437,16 @@ trait HandlesNavigations
      */
     private function navigationSummary(NavContract $navigation): array
     {
-        return [
+        $data = [
             'handle' => $navigation->handle(),
             'title' => $navigation->title(),
             'max_depth' => $navigation->maxDepth(),
             'collections' => $navigation->collections()->map->handle()->all(),
+            'sites' => $navigation->sites()->all(),
             'trees' => $this->navigationTreesPayload($navigation),
         ];
+
+        return [...$data, 'version' => self::resourceVersion($data)];
     }
 
     /**

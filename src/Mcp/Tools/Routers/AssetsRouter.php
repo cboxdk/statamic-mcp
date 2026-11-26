@@ -8,6 +8,7 @@ use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
 use Cboxdk\StatamicMcp\Mcp\Exceptions\ToolFailure;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ChecksResourceVersions;
 use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
 use Cboxdk\StatamicMcp\Support\Http\FetchRefused;
 use Cboxdk\StatamicMcp\Support\Http\OutboundFetcher;
@@ -34,6 +35,8 @@ use Statamic\Support\Str;
 #[Description('Statamic assets and asset containers: files, their metadata, and where they are stored.')]
 class AssetsRouter extends BaseRouter
 {
+    use ChecksResourceVersions;
+
     protected function getDomain(): string
     {
         return 'assets';
@@ -48,7 +51,7 @@ class AssetsRouter extends BaseRouter
     protected function actions(): array
     {
         return [
-            RouterAction::read('list', 'List containers, or the assets in one container', optional: ['container', 'folder', 'recursive', 'include_details', 'include_counts', 'limit', 'offset']),
+            RouterAction::read('list', 'List containers, or the assets in one container', optional: ['container', 'folder', 'recursive', 'include_details', 'include_counts', 'limit', 'cursor']),
             RouterAction::read('get', 'Get a container, or an asset by its path', needs: ['container'], optional: ['path', 'include_counts']),
             RouterAction::edit('create', 'Create a container (its settings in data), or an asset from inline content (filename, content, encoding)', needs: ['container'], optional: ['data', 'filename', 'content', 'encoding']),
             RouterAction::edit('update', 'Update a container\'s settings, or an asset\'s metadata by its path', needs: ['container', 'data'], optional: ['path']),
@@ -97,8 +100,8 @@ class AssetsRouter extends BaseRouter
                 ->description('Include asset and folder counts. Can be slow with large containers — omit for faster responses'),
             'limit' => JsonSchema::integer()
                 ->description('Maximum assets to return (default: 50, max: 500)'),
-            'offset' => JsonSchema::integer()
-                ->description('Number of assets to skip for pagination. Use with limit for paging'),
+            'cursor' => JsonSchema::string()
+                ->description('next_cursor from the previous page. Keep the other arguments unchanged. Omit to start again.'),
             'recursive' => JsonSchema::boolean()
                 ->description('Include assets in subdirectories of the listed folder. Default: false (only the folder itself, the container root when no folder is given)'),
         ]);
@@ -210,10 +213,7 @@ class AssetsRouter extends BaseRouter
             return $data;
         })->values()->all();
 
-        return [
-            'containers' => $containers,
-            'total' => count($containers),
-        ];
+        return $this->paginateItems($containers, $arguments);
     }
 
     /**
@@ -228,8 +228,20 @@ class AssetsRouter extends BaseRouter
         if (! $container) {
             return $this->missingResource('Asset container', $handle, 'container', AssetContainer::all()->map->handle()->all(), $arguments)->toArray();
         }
-        $permissions = $this->getContainerPermissions($container);
         $includeCounts = $this->getBooleanArgument($arguments, 'include_counts', true);
+        $data = $this->containerRecord($container);
+        if ($includeCounts) {
+            $data['asset_count'] = $this->getContainerAssetCount($container);
+            $data['folder_count'] = $this->getContainerFolderCount($container);
+        }
+
+        return ['container' => $data];
+    }
+
+    /** @return array<string, mixed> */
+    private function containerRecord(AssetContainerContract $container): array
+    {
+        $permissions = $this->getContainerPermissions($container);
         $data = [
             'handle' => $container->handle(),
             'title' => $container->title(),
@@ -244,12 +256,8 @@ class AssetsRouter extends BaseRouter
             'create_folders' => $permissions['create_folders'],
             'search_index' => $this->getContainerSearchIndex($container),
         ];
-        if ($includeCounts) {
-            $data['asset_count'] = $this->getContainerAssetCount($container);
-            $data['folder_count'] = $this->getContainerFolderCount($container);
-        }
 
-        return ['container' => $data];
+        return [...$data, 'version' => self::resourceVersion($container->fileData())];
     }
 
     /**
@@ -287,8 +295,7 @@ class AssetsRouter extends BaseRouter
 
         return [
             'container' => [
-                'handle' => $container->handle(),
-                'title' => $container->title(),
+                ...$this->containerRecord($container),
                 'created' => true,
             ],
         ];
@@ -322,8 +329,7 @@ class AssetsRouter extends BaseRouter
 
         return [
             'container' => [
-                'handle' => $container->handle(),
-                'title' => $container->title(),
+                ...$this->containerRecord($container),
                 'updated' => true,
             ],
         ];
@@ -346,13 +352,14 @@ class AssetsRouter extends BaseRouter
         if ($assetCount > 0) {
             return $this->createErrorResponse("Cannot delete container '{$handle}' - it contains {$assetCount} assets")->toArray();
         }
+        $snapshot = $this->containerRecord($container);
         $this->persistStatamic(fn () => $container->delete());
         // Clear caches
         $this->clearCachesAfterWrite(['stache']);
 
         return [
             'container' => [
-                'handle' => $handle,
+                ...$snapshot,
                 'deleted' => true,
             ],
         ];
@@ -383,15 +390,11 @@ class AssetsRouter extends BaseRouter
         }
         // Statamic reports root assets with folder '/', not ''. Its own
         // assets() resolves the root and subfolders, recursive or not.
-        $allAssets = $assetContainer->assets($folder === '' ? '/' : $folder, $recursive);
+        $allAssets = collect($assetContainer->assets($folder === '' ? '/' : $folder, $recursive)->all())
+            ->filter(fn (mixed $asset): bool => $asset instanceof AssetContract);
         $total = $allAssets->count();
-        $limit = $this->getIntegerArgument($arguments, 'limit', 50, 1, 500);
-        $offset = $this->getIntegerArgument($arguments, 'offset', 0, 0);
-        $assets = $allAssets->skip($offset)->take($limit)->map(function ($asset) use ($includeDetails) {
-            if (! $asset instanceof AssetContract) {
-                return null;
-            }
-
+        ['limit' => $limit, 'offset' => $offset] = $this->getPaginationArgs($arguments);
+        $assets = $allAssets->sortBy(fn (AssetContract $asset): string => $asset->id())->skip($offset)->take($limit)->map(function (AssetContract $asset) use ($includeDetails): array {
             $data = [
                 'id' => $asset->id(),
                 'path' => $asset->path(),
@@ -416,13 +419,7 @@ class AssetsRouter extends BaseRouter
         })->filter()->values()->all();
 
         return [
-            'assets' => $assets,
-            'pagination' => [
-                'total' => $total,
-                'limit' => $limit,
-                'offset' => $offset,
-                'has_more' => ($offset + $limit) < $total,
-            ],
+            ...$this->buildPage($assets, $total, $offset, $arguments),
             'container' => $container,
         ];
     }
@@ -443,6 +440,13 @@ class AssetsRouter extends BaseRouter
         if (! $asset) {
             return $this->missingResource('Asset', "{$container}::{$path}", 'path')->toArray();
         }
+
+        return ['asset' => $this->assetRecord($asset)];
+    }
+
+    /** @return array<string, mixed> */
+    private function assetRecord(AssetContract $asset): array
+    {
         $data = [
             'id' => $asset->id(),
             'path' => $asset->path(),
@@ -465,7 +469,11 @@ class AssetsRouter extends BaseRouter
             'data' => $asset->data()->all(),
         ];
 
-        return ['asset' => $data];
+        // URLs can be signed and expire; they are not part of the stored record.
+        return [...$data, 'version' => self::resourceVersion([
+            'id' => $data['id'], 'data' => $data['data'],
+            'size' => $data['size'], 'last_modified' => $data['last_modified'],
+        ])];
     }
 
     /**
@@ -528,17 +536,7 @@ class AssetsRouter extends BaseRouter
         $this->clearCachesAfterWrite(['stache']);
 
         return [
-            'asset' => [
-                'id' => $asset->id(),
-                'path' => $asset->path(),
-                'filename' => $asset->filename(),
-                'basename' => $asset->basename(),
-                'extension' => $asset->extension(),
-                'size' => $asset->size(),
-                'mime_type' => $asset->mimeType(),
-                'url' => $asset->url(),
-                'data' => $asset->data()->all(),
-            ],
+            'asset' => $this->assetRecord($asset),
             'created' => true,
         ];
     }
@@ -576,8 +574,7 @@ class AssetsRouter extends BaseRouter
 
         return [
             'asset' => [
-                'id' => $asset->id(),
-                'path' => $asset->path(),
+                ...$this->assetRecord($asset),
                 'updated' => true,
             ],
         ];
@@ -599,14 +596,14 @@ class AssetsRouter extends BaseRouter
         if (! $asset) {
             return $this->missingResource('Asset', "{$container}::{$path}", 'path')->toArray();
         }
-        $assetId = $asset->id();
+        $snapshot = $this->assetRecord($asset);
         $this->persistStatamic(fn () => $asset->delete());
         // Clear caches
         $this->clearCachesAfterWrite(['stache']);
 
         return [
             'asset' => [
-                'id' => $assetId,
+                ...$snapshot,
                 'deleted' => true,
             ],
         ];
@@ -657,7 +654,7 @@ class AssetsRouter extends BaseRouter
 
         return [
             'asset' => [
-                'id' => $asset->id(),
+                ...$this->assetRecord($asset),
                 'old_path' => $oldPath,
                 'new_path' => $asset->path(),
                 'moved' => true,
@@ -706,8 +703,7 @@ class AssetsRouter extends BaseRouter
                 'path' => $asset->path(),
             ],
             'copy' => [
-                'id' => $newAsset->id(),
-                'path' => $newAsset->path(),
+                ...$this->assetRecord($newAsset),
                 'copied' => true,
             ],
         ];
@@ -827,17 +823,7 @@ class AssetsRouter extends BaseRouter
         $this->clearCachesAfterWrite(['stache']);
 
         return [
-            'asset' => [
-                'id' => $asset->id(),
-                'path' => $asset->path(),
-                'filename' => $asset->filename(),
-                'basename' => $asset->basename(),
-                'extension' => $asset->extension(),
-                'size' => $asset->size(),
-                'mime_type' => $asset->mimeType(),
-                'url' => $asset->url(),
-                'data' => $asset->data()->all(),
-            ],
+            'asset' => $this->assetRecord($asset),
             'uploaded' => true,
         ];
     }
