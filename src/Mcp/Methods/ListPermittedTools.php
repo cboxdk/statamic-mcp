@@ -6,6 +6,8 @@ namespace Cboxdk\StatamicMcp\Mcp\Methods;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Illuminate\Support\Collection;
+use Laravel\Mcp\Enums\ErrorCode;
+use Laravel\Mcp\Exceptions\JsonRpcException;
 use Laravel\Mcp\Server\Methods\ListTools;
 use Laravel\Mcp\Server\Pagination\CursorPaginator;
 use Laravel\Mcp\Server\ServerContext;
@@ -24,15 +26,22 @@ final class ListPermittedTools extends ListTools
 {
     public function handle(JsonRpcRequest $request, ServerContext $context): JsonRpcResponse
     {
-        $request->validate([
-            'cursor' => ['nullable', 'string'],
-            'per_page' => ['nullable', 'integer:strict', 'min:1'],
-        ]);
-
+        // Checked here rather than with JsonRpcRequest::validate(), which
+        // laravel/mcp only gained after 1.1.2, the lowest version we allow.
+        $cursor = $request->get('cursor');
         $perPage = $request->get('per_page');
+
+        if (($cursor !== null && ! is_string($cursor)) || ($perPage !== null && (! is_int($perPage) || $perPage < 1))) {
+            throw new JsonRpcException(
+                'Invalid params: cursor must be a string and per_page a positive integer.',
+                ErrorCode::INVALID_PARAMS->value,
+                $request->id,
+            );
+        }
+
         $paginator = new CursorPaginator(
             items: new Collection($this->permitted($context)),
-            perPage: $context->perPage(is_int($perPage) ? $perPage : null),
+            perPage: $context->perPage($perPage),
             cursor: $request->cursor(),
         );
 
