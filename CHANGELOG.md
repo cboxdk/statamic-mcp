@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.7.0] - 2026-11-26
+
 ### Added
 
 - **`statamic-forms`: create forms and change their settings** (#100, thanks @SteJW). Until now a form could only have its fields edited, through its blueprint. The new router lists, reads, creates, updates and deletes forms, covering the settings the Control Panel's *Configure Form* screen edits: title, honeypot, whether submissions are stored, email notifications, and any settings an addon registers with `Form::appendConfigFields()`. `update` changes only the keys it is sent; unknown keys are refused. It requires Statamic's `configure forms` permission and the new `forms:read`/`forms:write` token scopes; `delete`, which also removes the form's submissions, goes through the confirmation gate. Toggle it with `STATAMIC_MCP_TOOL_FORMS_ENABLED`, and restrict it per form with `tools.forms.resources`. It is reached through `search_tools`/`execute_tools`. Submissions are not exposed.
@@ -752,7 +754,8 @@ straight to the fix. Thanks to @JorisOrangeStudio and @revans-premier-education.
 - Laravel MCP v0.2.0 integration
 - Comprehensive test suite
 
-[Unreleased]: https://github.com/cboxdk/statamic-mcp/compare/v3.6.3...HEAD
+[Unreleased]: https://github.com/cboxdk/statamic-mcp/compare/v3.7.0...HEAD
+[3.7.0]: https://github.com/cboxdk/statamic-mcp/compare/v3.6.3...v3.7.0
 [3.6.3]: https://github.com/cboxdk/statamic-mcp/compare/v3.6.2...v3.6.3
 [3.6.2]: https://github.com/cboxdk/statamic-mcp/compare/v3.6.1...v3.6.2
 [3.6.1]: https://github.com/cboxdk/statamic-mcp/compare/v3.6.0...v3.6.1
