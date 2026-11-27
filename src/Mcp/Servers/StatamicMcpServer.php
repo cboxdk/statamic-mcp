@@ -16,6 +16,7 @@ use Cboxdk\StatamicMcp\Mcp\Resources\BlueprintResource;
 use Cboxdk\StatamicMcp\Mcp\Resources\CatalogResource;
 use Cboxdk\StatamicMcp\Mcp\Resources\EntryResource;
 use Cboxdk\StatamicMcp\Mcp\Resources\RecordResource;
+use Cboxdk\StatamicMcp\Mcp\Skills\ContentWorkflowSkill;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\AssetsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\BlueprintsRouter;
@@ -148,6 +149,7 @@ class StatamicMcpServer extends Server
 
         $this->addCapability(self::CAPABILITY_COMPLETIONS);
         $this->prompts = array_map(fn ($name): ContentWorkflowPrompt => new ContentWorkflowPrompt($name), ContentWorkflowPrompt::NAMES);
+        $this->skills = array_map(fn ($name): ContentWorkflowSkill => new ContentWorkflowSkill($name), ContentWorkflowPrompt::NAMES);
         $this->resources = [...$this->resources,
             new CatalogResource('collections'), new CatalogResource('sites'), new CatalogResource('fieldtypes'),
             new RecordResource('collection'), new RecordResource('taxonomy'), new RecordResource('form'),
@@ -228,6 +230,8 @@ class StatamicMcpServer extends Server
             'server/discover' => new Cacheable(ttlMs: 300_000, scope: CacheScope::Private),
             'tools/list' => new Cacheable(ttlMs: 300_000, scope: CacheScope::Private),
             'prompts/list' => new Cacheable(ttlMs: 300_000, scope: CacheScope::Private),
+            'skills/list' => new Cacheable(ttlMs: 300_000, scope: CacheScope::Private),
+            'skills/get' => new Cacheable(ttlMs: 300_000, scope: CacheScope::Private),
         ];
     }
 

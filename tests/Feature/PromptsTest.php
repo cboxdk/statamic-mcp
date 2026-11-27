@@ -3,7 +3,9 @@
 declare(strict_types=1);
 
 use Cboxdk\StatamicMcp\Mcp\Prompts\ContentWorkflowPrompt;
+use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\EntriesRouter;
+use Cboxdk\StatamicMcp\Testing\FakeTransport;
 use Cboxdk\StatamicMcp\Testing\InteractsWithMcp;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Statamic\Facades\Blueprint;
@@ -15,8 +17,30 @@ class PromptsTest extends TestCase
 {
     use InteractsWithMcp;
 
+    public function test_local_protocol_serves_skills_and_rechecks_profile_on_the_same_connection(): void
+    {
+        config(['statamic.mcp.profiles.stdio' => 'read_only']);
+        $transport = new FakeTransport;
+        $server = new StatamicMcpServer($transport);
+        $server->start();
+        $call = function (string $method, array $params = []) use ($server, $transport): array {
+            $server->handle(json_encode(['jsonrpc' => '2.0', 'id' => 1, 'method' => $method, 'params' => $params], JSON_THROW_ON_ERROR));
+
+            return json_decode(end($transport->sent), true, 512, JSON_THROW_ON_ERROR);
+        };
+        $this->assertCount(4, $call('skills/list')['result']['skills']);
+        $uri = 'skill://translating-statamic-entries/SKILL.md';
+        $this->assertSame(file_get_contents(__DIR__ . '/../../resources/skills/translating-statamic-entries/SKILL.md'),
+            $call('resources/read', ['uri' => $uri])['result']['contents'][0]['text']);
+        config(['statamic.mcp.profiles.stdio' => null]);
+        $this->assertSame([], $call('skills/list')['result']['skills']);
+        $this->assertSame(-32602, $call('resources/read', ['uri' => $uri])['error']['code']);
+    }
+
     public function test_prompts_embed_live_formats_and_content_without_writing(): void
     {
+        // Prompts remain usable when a client/operator cannot use skill resources.
+        config(['statamic.mcp.resources.enabled' => false]);
         Collection::make('prompt_pages')->save();
         Blueprint::make('page')->setNamespace('collections.prompt_pages')->setContents(['fields' => [
             ['handle' => 'title', 'field' => ['type' => 'text']],

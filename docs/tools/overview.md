@@ -8,6 +8,23 @@ weight: 1
 
 Every tool follows the same pattern: send an `action` parameter to specify what operation to perform, along with action-specific parameters. All tools return a standardized response.
 
+## Skills over MCP
+
+The server exposes four static workflow skills through Laravel MCP's native `io.modelcontextprotocol/skills` extension:
+
+| Skill | Workflow prompt fallback |
+|---|---|
+| `writing-statamic-entries` | `write_entry` |
+| `translating-statamic-entries` | `translate_entry` |
+| `editing-statamic-page-builders` | `edit_page_builder` |
+| `modeling-statamic-content` | `model_content` |
+
+`skills/list` returns the manifests. `skills/get` takes a manifest's `uri`, for example `skill://writing-statamic-entries/SKILL.md`. Each manifest lists its files with their resource URI, `sha256:` digest and byte size; `resources/read` returns the file bytes. The MCP host decides whether to activate a skill. Reading a resource by itself does not activate it.
+
+Skills contain package guidance, not site content, credentials or live field definitions. They are available to authenticated HTTP callers and local stdio connections with an enabled installation profile, including `read_only`. Setting `resources.enabled=false` hides them and refuses direct file reads. Loading one grants no additional access: live reads and writes still enforce scopes, resource policy, Statamic permissions, versions and approvals.
+
+Clients without Skills support can use the workflow prompts below. Prompts embed the same shipped skill file, then add authorized live context. They remain usable when skill resources are disabled. No additional client-side installation is required by the server; actual activation depends on the host's support. Tasks and URL-elicitation are not implemented or advertised.
+
 ## Content workflow prompts
 
 `prompts/list` exposes four read-only preparations, not additional tools:

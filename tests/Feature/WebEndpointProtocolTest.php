@@ -157,7 +157,13 @@ class WebEndpointProtocolTest extends TestCase
             ['handle' => 'sections', 'field' => ['type' => 'replicator']],
         ]])->save();
         Entry::make()->id('prompt-entry')->collection('prompt_pages')->slug('page')->data(['sections' => []])->save();
-        $names = ['write_entry', 'translate_entry', 'edit_page_builder', 'model_content'];
+        $skills = [
+            'write_entry' => 'writing-statamic-entries',
+            'translate_entry' => 'translating-statamic-entries',
+            'edit_page_builder' => 'editing-statamic-page-builders',
+            'model_content' => 'modeling-statamic-content',
+        ];
+        $names = array_keys($skills);
         $this->assertEqualsCanonicalizing($names, array_column($this->rpc('prompts/list')->assertOk()->json('result.prompts'), 'name'));
         $tools = $this->toolNames();
         foreach ($names as $name) {
@@ -175,9 +181,65 @@ class WebEndpointProtocolTest extends TestCase
             $text = $response->json('result.messages.0.content.text');
             $this->assertIsString($text, $response->getContent());
             $this->assertStringContainsString('_format_spec', $text);
-            preg_match_all('/statamic-[a-z-]+/', $text, $matches);
-            foreach (array_unique($matches[0]) as $tool) {
+            $this->assertStringContainsString(file_get_contents(__DIR__ . '/../../resources/skills/' . $skills[$name] . '/SKILL.md'), $text);
+            preg_match_all('/`(statamic-[a-z-]+)`/', $text, $matches);
+            foreach (array_unique($matches[1]) as $tool) {
                 $this->assertContains($tool, $tools);
+            }
+        }
+    }
+
+    public function test_skills_discover_get_and_resource_bytes_match_the_shipped_manifests(): void
+    {
+        $capabilities = $this->rpc('server/discover')->assertOk()->json('result.capabilities');
+        $this->assertArrayHasKey('io.modelcontextprotocol/skills', $capabilities['extensions']);
+        $this->assertArrayHasKey('resources', $capabilities);
+        $listed = $this->rpc('skills/list')->assertOk()
+            ->assertJsonPath('result.cacheScope', 'private')
+            ->assertJsonPath('result.ttlMs', 300_000)->json('result.skills');
+        $this->assertEqualsCanonicalizing([
+            'writing-statamic-entries', 'translating-statamic-entries',
+            'editing-statamic-page-builders', 'modeling-statamic-content',
+        ], array_column(array_column($listed, 'frontmatter'), 'name'));
+        foreach ($listed as $skill) {
+            $this->assertSame($skill, $this->rpc('skills/get', ['uri' => $skill['uri']])->assertOk()
+                ->assertJsonPath('result.cacheScope', 'private')
+                ->assertJsonPath('result.ttlMs', 300_000)->json('result.skill'));
+            $this->assertCount(1, $skill['resources']);
+            $resource = $skill['resources'][0];
+            $text = $this->rpc('resources/read', ['uri' => $resource['uri']])->assertOk()->json('result.contents.0.text');
+            $expected = file_get_contents(__DIR__ . '/../../resources/skills/' . $skill['frontmatter']['name'] . '/SKILL.md');
+            $this->assertSame($expected, $text);
+            $this->assertSame('sha256:' . hash('sha256', $text), $resource['digest']);
+            $this->assertSame(strlen($text), $resource['size']);
+        }
+        foreach (['skill://missing/SKILL.md', 'skill://writing-statamic-entries/../translating-statamic-entries/SKILL.md',
+            'skill://writing-statamic-entries/%2e%2e/%2e%2e/composer.json'] as $uri) {
+            foreach (['skills/get', 'resources/read'] as $method) {
+                $this->rpc($method, ['uri' => $uri])->assertStatus(400)->assertJsonPath('error.code', -32602);
+            }
+        }
+    }
+
+    public function test_static_skills_do_not_grant_site_access_and_obey_resource_and_profile_switches(): void
+    {
+        $user = User::make()->email('skill-reader@example.test')->makeSuper();
+        $user->save();
+        $this->token = app(TokenService::class)->createToken((string) $user->id(), 'skills', ['entries:read'])['token'];
+        config(['statamic.mcp.profiles.http' => 'read_only']);
+        $uri = 'skill://writing-statamic-entries/SKILL.md';
+        $this->rpc('skills/list')->assertOk()->assertJsonCount(4, 'result.skills');
+        $this->rpc('resources/read', ['uri' => $uri])->assertOk()->assertJsonStructure(['result' => ['contents']]);
+        $this->rpc('resources/read', ['uri' => 'statamic://blueprints'])->assertForbidden();
+        $this->rpc('tools/call', ['name' => 'statamic-entries-write', 'arguments' => [
+            'action' => 'create', 'collection' => 'pages', 'data' => ['title' => 'Not authorized', 'published' => false],
+        ]])->assertForbidden();
+        foreach ([['statamic.mcp.resources.enabled' => false],
+            ['statamic.mcp.resources.enabled' => true, 'statamic.mcp.profiles.http' => null]] as $settings) {
+            config($settings);
+            $this->rpc('skills/list')->assertOk()->assertJsonCount(0, 'result.skills');
+            foreach (['skills/get', 'resources/read'] as $method) {
+                $this->rpc($method, ['uri' => $uri])->assertStatus(400)->assertJsonPath('error.code', -32602);
             }
         }
     }

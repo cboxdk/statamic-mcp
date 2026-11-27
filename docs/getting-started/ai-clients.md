@@ -14,6 +14,10 @@ the dashboard fills it into a copyable client snippet; dismissing it removes the
 secret and snippet. Never commit a filled snippet. Merge a server into existing
 configuration instead of replacing the whole file.
 
+## Workflow skills and prompts
+
+Hosts supporting the MCP Skills extension can discover workflows for writing entries, translating them, editing page builders and modeling content. The host chooses when to activate a skill; the connection settings below do not guarantee that a particular client supports activation. Other clients can select `write_entry`, `translate_entry`, `edit_page_builder` or `model_content` through their MCP prompt interface. Both surfaces use the same guidance; prompts also prepare authorized live context. See [Skills over MCP](../tools/overview.md#skills-over-mcp) for the protocol and access boundaries.
+
 ## Claude Desktop
 
 ### Option A: OAuth Connectors (recommended)
