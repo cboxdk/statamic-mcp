@@ -6,6 +6,7 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
+use Cboxdk\StatamicMcp\Mcp\Exceptions\ToolFailure;
 use Cboxdk\StatamicMcp\Mcp\Support\ConditionalFieldsValidator;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ChecksResourceVersions;
@@ -128,6 +129,19 @@ class GlobalsRouter extends BaseRouter
         $variables = GlobalSet::find($this->globalSetHandle($arguments))?->in($this->resolveSiteHandle($arguments));
 
         return $variables === null ? null : $this->globalVersion($variables);
+    }
+
+    protected function authorizeReplay(string $action, array $result): void
+    {
+        if (! $this->isWebContext() || ! is_array($record = $result['global'] ?? null)) {
+            return;
+        }
+        $handle = is_string($record['handle'] ?? null) ? $record['handle'] : '';
+        $site = is_string($record['site'] ?? null) ? $record['site'] : '';
+        $variables = GlobalSet::find($handle)?->in($site);
+        if ($variables === null || ! Gate::forUser(auth()->user())->allows('edit', $variables)) {
+            throw new ToolFailure(ErrorCode::Forbidden, 'Permission denied: Cannot access this stored global set site.');
+        }
     }
 
     /**

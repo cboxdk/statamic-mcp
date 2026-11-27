@@ -179,14 +179,18 @@ class OperationStoreTest extends TestCase
         }
     }
 
-    public function test_mysql_claim_is_atomic_across_processes_and_survives_crash(): void
+    public function test_server_database_claim_is_atomic_across_processes_and_survives_crash(): void
     {
-        $migration = mcpMysqlOperationTables();
+        $driver = config('database.default');
+        if (! in_array($driver, ['mysql', 'pgsql'], true)) {
+            $this->markTestSkipped('Needs DB_CONNECTION=mysql or pgsql, as in the server database CI jobs.');
+        }
+        $migration = mcpServerOperationTables($driver);
         $store = new DatabaseOperationStore(DB::connection());
-        $operation = new Operation(hash('sha256', 'concurrent-mysql'), hash('sha256', 'binding'), OperationState::Prepared, 1, time() + 300);
+        $operation = new Operation(hash('sha256', 'concurrent-server'), hash('sha256', 'binding'), OperationState::Prepared, 1, time() + 300);
         $store->create($operation);
         $store->transition($operation, $operation->transition(OperationState::Ready));
-        $command = [PHP_BINARY, __DIR__ . '/../../Support/database-operation-claim.php', '-', $operation->id, 'mysql'];
+        $command = [PHP_BINARY, __DIR__ . '/../../Support/database-operation-claim.php', '-', $operation->id, $driver];
         $inputs = [new InputStream, new InputStream];
         $workers = [new Process($command), new Process($command)];
         try {

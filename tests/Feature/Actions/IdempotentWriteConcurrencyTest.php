@@ -11,7 +11,7 @@ use Symfony\Component\Process\Process;
 /*
  * V04 exit criterion: concurrent and crashing callers with one idempotency key,
  * in real processes, against the file store and the database store on SQLite
- * and MySQL. The write must land once,
+ * and MySQL/PostgreSQL. The write must land once,
  * and a retry after a crash must report an unknown outcome, never write again.
  */
 
@@ -34,8 +34,8 @@ function iwStorePath(string $driver, string $dir): string
     if ($driver === 'file') {
         return $dir . '/operations';
     }
-    if ($driver === 'mysql') {
-        test()->iwMigration = mcpMysqlOperationTables();
+    if (in_array($driver, ['mysql', 'pgsql'], true)) {
+        test()->iwMigration = mcpServerOperationTables($driver);
 
         return '-';
     }
@@ -113,7 +113,7 @@ it('writes once when several processes race with the same key', function (string
     // Once it finished, a retry replays the result instead of writing.
     expect(iwStatus(iwRun($driver, $path, $this->iwEffects, ['write'])[0]))->toBe('replayed')
         ->and(iwWrites($this->iwEffects))->toBe(1);
-})->with(['file', 'database', 'mysql']);
+})->with(['file', 'database', 'mysql', 'pgsql']);
 
 it('answers unknown and never writes again after a crash mid-write', function (string $driver) {
     $path = iwStorePath($driver, $this->iwDir);
@@ -126,4 +126,4 @@ it('answers unknown and never writes again after a crash mid-write', function (s
 
     expect($retries)->toBe(['unknown', 'unknown'])
         ->and(iwWrites($this->iwEffects))->toBe(1);
-})->with(['file', 'database', 'mysql']);
+})->with(['file', 'database', 'mysql', 'pgsql']);

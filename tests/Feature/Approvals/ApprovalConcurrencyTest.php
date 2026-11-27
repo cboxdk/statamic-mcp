@@ -35,8 +35,8 @@ afterEach(function () {
 function acApproved(string $driver, string $dir): array
 {
     $path = $driver === 'file' ? $dir . '/operations' : $dir . '/operations.sqlite';
-    if ($driver === 'mysql') {
-        test()->acMigration = mcpMysqlOperationTables();
+    if (in_array($driver, ['mysql', 'pgsql'], true)) {
+        test()->acMigration = mcpServerOperationTables($driver);
         $path = '-';
     } elseif ($driver === 'database') {
         $pdo = new PDO('sqlite:' . $path);
@@ -100,7 +100,7 @@ it('runs an approved call once when several processes claim it', function (strin
     }
     expect(acRun($driver, $path, $this->acEffects, $id, ['write']))->toBe(['replayed'])
         ->and(acWrites($this->acEffects))->toBe(1);
-})->with(['file', 'database', 'mysql']);
+})->with(['file', 'database', 'mysql', 'pgsql']);
 
 it('keeps an approval spent after a crash mid-write', function (string $driver) {
     [$path, $id] = acApproved($driver, $this->acDir);
@@ -109,4 +109,4 @@ it('keeps an approval spent after a crash mid-write', function (string $driver) 
 
     expect(acRun($driver, $path, $this->acEffects, $id, ['write', 'write']))->toBe(['unknown', 'unknown'])
         ->and(acWrites($this->acEffects))->toBe(1);
-})->with(['file', 'database', 'mysql']);
+})->with(['file', 'database', 'mysql', 'pgsql']);

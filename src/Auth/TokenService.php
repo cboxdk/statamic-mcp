@@ -126,10 +126,11 @@ class TokenService
      * Update an existing token's name, scopes, and/or expiration.
      *
      * @param  array<int, TokenScope|string>|null  $scopes
+     * @param  list<string>|null  $expectedScopes
      */
-    public function updateToken(string $tokenId, ?string $name = null, ?array $scopes = null, ?Carbon $expiresAt = null, bool $clearExpiry = false): ?McpTokenData
+    public function updateToken(string $tokenId, ?string $name = null, ?array $scopes = null, ?Carbon $expiresAt = null, bool $clearExpiry = false, ?array $expectedScopes = null): ?McpTokenData
     {
-        return app(OAuthMutationLock::class)->run(function () use ($tokenId, $name, $scopes, $expiresAt, $clearExpiry): ?McpTokenData {
+        return app(OAuthMutationLock::class)->run(function () use ($tokenId, $name, $scopes, $expiresAt, $clearExpiry, $expectedScopes): ?McpTokenData {
             /** @var array<string, mixed> $data */
             $data = [];
 
@@ -177,7 +178,7 @@ class TokenService
             if ($existing !== null && $existing->oauthClientId !== null && ($scopesChanged || $expiryChanged)) {
                 app(OAuthDriver::class)->revokeRefreshTokensFor($existing->userId, $existing->oauthClientId);
             }
-            $updated = $this->tokenStore->update($tokenId, $data);
+            $updated = $this->tokenStore->update($tokenId, $data, $expectedScopes);
 
             if ($updated !== null) {
                 LifecycleEvents::legacy(new McpTokenSaved($updated));

@@ -17,6 +17,7 @@ use Cboxdk\StatamicMcp\OAuth\Models\OAuthCodeModel;
 use Cboxdk\StatamicMcp\OAuth\Models\OAuthRefreshTokenModel;
 use Cboxdk\StatamicMcp\OAuth\OAuthAuthCode;
 use Cboxdk\StatamicMcp\OAuth\OAuthClient;
+use Cboxdk\StatamicMcp\OAuth\OAuthGrant;
 use Cboxdk\StatamicMcp\OAuth\ResourceIndicator;
 use Cboxdk\StatamicMcp\Support\CommittedDatabase;
 use Cboxdk\StatamicMcp\Support\McpConfig;
@@ -333,6 +334,31 @@ class DatabaseOAuthDriver implements OAuthDriver, RevokesUserGrants
         return CommittedDatabase::run((new OAuthClientModel)->getConnection(), function () use ($userId): int {
             $refresh = OAuthRefreshTokenModel::query()->useWritePdo()->where('user_id', $userId)->delete();
             $codes = OAuthCodeModel::query()->useWritePdo()->where('user_id', $userId)->delete();
+
+            return (is_int($refresh) ? $refresh : 0) + (is_int($codes) ? $codes : 0);
+        });
+    }
+
+    /** @return iterable<OAuthGrant> */
+    public function pendingGrants(): iterable
+    {
+        return CommittedDatabase::run((new OAuthClientModel)->getConnection(), function (): array {
+            $grants = [];
+            foreach ([OAuthCodeModel::class, OAuthRefreshTokenModel::class] as $model) {
+                foreach ($model::query()->useWritePdo()->where('used', false)->where('expires_at', '>', now())->get() as $record) {
+                    $grants[] = new OAuthGrant($record->user_id, $record->client_id, array_values($record->scopes));
+                }
+            }
+
+            return $grants;
+        });
+    }
+
+    public function revokeGrantsForClient(string $userId, string $clientId): int
+    {
+        return CommittedDatabase::run((new OAuthClientModel)->getConnection(), function () use ($userId, $clientId): int {
+            $refresh = OAuthRefreshTokenModel::query()->useWritePdo()->where('user_id', $userId)->where('client_id', $clientId)->delete();
+            $codes = OAuthCodeModel::query()->useWritePdo()->where('user_id', $userId)->where('client_id', $clientId)->delete();
 
             return (is_int($refresh) ? $refresh : 0) + (is_int($codes) ? $codes : 0);
         });

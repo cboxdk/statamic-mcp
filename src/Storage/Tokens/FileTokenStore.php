@@ -128,10 +128,11 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
 
     /**
      * @param  array<string, mixed>  $data
+     * @param  list<string>|null  $expectedScopes
      */
-    public function update(string $id, array $data): ?McpTokenData
+    public function update(string $id, array $data, ?array $expectedScopes = null): ?McpTokenData
     {
-        return $this->withLock(function () use ($id, $data): ?McpTokenData {
+        return $this->withLock(function () use ($id, $data, $expectedScopes): ?McpTokenData {
             $filePath = $this->tokenFilePath($id);
 
             if (! file_exists($filePath)) {
@@ -142,6 +143,10 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
 
             if ($existing === null) {
                 return null;
+            }
+
+            if ($expectedScopes !== null && $this->scopesChanged($expectedScopes, $existing['scopes'] ?? [])) {
+                throw new \RuntimeException('Token changed since planning.');
             }
 
             $oldHash = is_string($existing['token_hash'] ?? null) ? $existing['token_hash'] : '';

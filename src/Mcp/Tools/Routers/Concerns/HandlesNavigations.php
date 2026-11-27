@@ -8,6 +8,7 @@ use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
 use Cboxdk\StatamicMcp\Mcp\Exceptions\ToolFailure;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Gate;
 use Statamic\Contracts\Structures\Nav as NavContract;
 use Statamic\Facades\Blink;
 use Statamic\Facades\Entry;
@@ -240,6 +241,10 @@ trait HandlesNavigations
                 return "Unknown site '{$site}'. Sites: " . $sites->keys()->implode(', ') . '.';
             }
 
+            if ($this->isWebContext()) {
+                Gate::authorize('edit', $navigation->in($site) ?? $navigation->makeTree($site));
+            }
+
             $ids = [];
             $error = $this->validateNavigationBranches($items, "trees.{$site}", 1, is_int($maxDepth) ? $maxDepth : null, $ids);
             if ($error !== null) {
@@ -459,9 +464,36 @@ trait HandlesNavigations
         $trees = [];
 
         foreach ($navigation->trees() as $tree) {
+            if ($this->isWebContext() && ! Gate::allows('view', $tree)) {
+                continue;
+            }
             $trees[] = ['site' => (string) $tree->locale(), 'items' => $tree->tree()];
         }
 
         return $trees;
+    }
+
+    /** @param array<string, mixed> $result
+     * @return array<string, mixed>
+     */
+    protected function filterOutputFields(array $result): array
+    {
+        // Authorize using the stored identity before denied_fields can hide it.
+        // The parent recurses into wrapped results through this method too.
+        $record = $result['navigation'] ?? null;
+        if ($this->isWebContext() && is_array($record) && is_string($record['handle'] ?? null) && is_array($record['trees'] ?? null)) {
+            // Stored receipts must not retain access to trees a user has lost.
+            $navigation = Nav::find($record['handle']) ?? Nav::make($record['handle']);
+            $record['trees'] = array_values(array_filter($record['trees'], static function (mixed $tree) use ($navigation): bool {
+                if (! is_array($tree) || ! is_string($site = $tree['site'] ?? null) || Site::get($site) === null) {
+                    return false;
+                }
+
+                return Gate::allows('view', $navigation->in($site) ?? $navigation->makeTree($site));
+            }));
+            $result['navigation'] = $record;
+        }
+
+        return parent::filterOutputFields($result);
     }
 }

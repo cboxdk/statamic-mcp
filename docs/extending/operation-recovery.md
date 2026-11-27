@@ -5,12 +5,15 @@ description: "Inspect and reconcile retained v4 action outcomes without repeatin
 
 # Operation recovery
 
-This page describes the v4 registered-action operation store. Legacy router calls
-have not yet been migrated to this store. It does not add idempotency to those calls.
+The operation store retains built-in and integration router writes made with an
+`idempotency_key` or through an approval, as well as lower-level coordinator actions.
+An ungated router write without an `idempotency_key` has no replay guarantee.
 
-When a write loses its response, retry its original prepared handle. Do not prepare
-a new operation to find out whether the previous write worked. A new handle is a
-new operation and can repeat side effects. Replays still require current permissions.
+When a router write loses its response, repeat the same tool and arguments with the
+original `idempotency_key` or `approval_id`. Do not send a new key to discover whether
+the previous write worked: it identifies a new operation and can repeat side effects.
+The lower-level coordinator API instead retries its original prepared handle.
+Both paths recheck current permissions before returning stored content.
 
 ## Inspect the retained state
 
@@ -27,7 +30,8 @@ that no write occurred.
 
 - `succeeded`: the result was stored. Retry within the original retry window and
   current access restrictions to receive a filtered replay.
-- `failed_no_effect`: the coordinator refused work before entering the handler.
+- `failed_no_effect`: the operation failed without a recorded write effect. Router
+  handlers may have run validation; the original key is spent, not a retry ticket.
 - `executing`: the claim is still reserved. A worker may be running, or may have
   crashed before recording its outcome. Recovery does not automatically release it.
 - `outcome_unknown`: the handler finished with an exception, or completion could not

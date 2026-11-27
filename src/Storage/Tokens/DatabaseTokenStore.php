@@ -10,6 +10,7 @@ use Cboxdk\StatamicMcp\Auth\McpToken;
 use Cboxdk\StatamicMcp\Contracts\TokenStore;
 use Cboxdk\StatamicMcp\Support\CommittedDatabase;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
 
 class DatabaseTokenStore extends BaseTokenStore implements TokenStore
 {
@@ -53,6 +54,10 @@ class DatabaseTokenStore extends BaseTokenStore implements TokenStore
 
     public function find(string $id): ?McpTokenData
     {
+        if (! Str::isUuid($id)) {
+            return null;
+        }
+
         return CommittedDatabase::run((new McpToken)->getConnection(), function () use ($id): ?McpTokenData {
             $model = McpToken::query()->useWritePdo()->find($id);
 
@@ -62,14 +67,25 @@ class DatabaseTokenStore extends BaseTokenStore implements TokenStore
 
     /**
      * @param  array<string, mixed>  $data
+     * @param  list<string>|null  $expectedScopes
      */
-    public function update(string $id, array $data): ?McpTokenData
+    public function update(string $id, array $data, ?array $expectedScopes = null): ?McpTokenData
     {
-        return CommittedDatabase::run((new McpToken)->getConnection(), function () use ($id, $data): ?McpTokenData {
-            $model = McpToken::query()->useWritePdo()->find($id);
+        if (! Str::isUuid($id)) {
+            return null;
+        }
+
+        $connection = (new McpToken)->getConnection();
+
+        return CommittedDatabase::run($connection, fn (): ?McpTokenData => $connection->transaction(function () use ($id, $data, $expectedScopes): ?McpTokenData {
+            $model = McpToken::query()->useWritePdo()->lockForUpdate()->find($id);
 
             if ($model === null) {
                 return null;
+            }
+
+            if ($expectedScopes !== null && $this->scopesChanged($expectedScopes, $model->scopes)) {
+                throw new \RuntimeException('Token changed since planning.');
             }
 
             /** @var array<string, mixed> $attributes */
@@ -96,11 +112,15 @@ class DatabaseTokenStore extends BaseTokenStore implements TokenStore
             }
 
             return $this->toData($model);
-        });
+        }));
     }
 
     public function delete(string $id): bool
     {
+        if (! Str::isUuid($id)) {
+            return false;
+        }
+
         return CommittedDatabase::run((new McpToken)->getConnection(), function () use ($id): bool {
             return McpToken::where('id', $id)->delete() > 0;
         });

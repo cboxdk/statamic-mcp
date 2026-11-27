@@ -343,7 +343,8 @@ class EloquentDriverTest extends TestCase
         $this->assertTrue($created['success'], json_encode($created) ?: '');
         $this->assertSame(1, DB::table('forms')->where('handle', 'contact')->count());
         $settings = json_decode(DB::table('forms')->where('handle', 'contact')->value('settings'), true);
-        $this->assertSame($fields, $settings['fields']);
+        // JSONB preserves values and list order, not object-key order.
+        $this->assertEquals($fields, $settings['fields']);
         $updated = $router->execute(['action' => 'update', 'form' => 'contact', 'expected_version' => $created['data']['form']['version'], 'data' => ['store' => false]]);
         $this->assertTrue($updated['success'], json_encode($updated) ?: '');
         $this->assertFalse(json_decode(DB::table('forms')->where('handle', 'contact')->value('settings'), true)['store']);

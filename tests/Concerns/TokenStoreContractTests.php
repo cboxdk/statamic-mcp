@@ -117,6 +117,23 @@ trait TokenStoreContractTests
         $this->assertNotNull($updated->updatedAt);
     }
 
+    public function test_scope_preconditions_cannot_restore_a_concurrently_removed_scope(): void
+    {
+        $store = $this->createStore();
+        $original = ['entries:read', 'entries:write', 'users:write'];
+        $token = $store->create('user-1', 'Migration', 'scope-precondition', $original, null);
+        $store->update($token->id, ['scopes' => ['entries:read', 'users:write']]);
+        try {
+            $store->update($token->id, ['scopes' => ['entries:read', 'entries:write']], expectedScopes: $original);
+            $this->fail('A stale migration must not restore entries:write.');
+        } catch (\RuntimeException $error) {
+            $this->assertSame('Token changed since planning.', $error->getMessage());
+        }
+        $this->assertSame(['entries:read', 'users:write'], $store->find($token->id)->scopes);
+        $changed = $store->update($token->id, ['scopes' => ['entries:read']], expectedScopes: ['users:write', 'entries:read']);
+        $this->assertSame(['entries:read'], $changed->scopes);
+    }
+
     public function test_update_token_hash(): void
     {
         $store = $this->createStore();
@@ -304,7 +321,7 @@ trait TokenStoreContractTests
         $now = Carbon::now();
 
         $original = new McpTokenData(
-            id: 'custom-uuid-123',
+            id: 'a18a1aae-89f1-4f6a-b23f-53b981747aa1',
             userId: 'user-1',
             name: 'Imported Token',
             tokenHash: 'hash_import',
@@ -316,7 +333,7 @@ trait TokenStoreContractTests
         );
 
         $imported = $store->import($original);
-        $this->assertSame('custom-uuid-123', $imported->id);
+        $this->assertSame('a18a1aae-89f1-4f6a-b23f-53b981747aa1', $imported->id);
         $this->assertSame('user-1', $imported->userId);
         $this->assertSame('Imported Token', $imported->name);
         $this->assertSame('hash_import', $imported->tokenHash);
@@ -324,7 +341,7 @@ trait TokenStoreContractTests
         $this->assertNotNull($imported->lastUsedAt);
         $this->assertNotNull($imported->expiresAt);
 
-        $found = $store->find('custom-uuid-123');
+        $found = $store->find('a18a1aae-89f1-4f6a-b23f-53b981747aa1');
         $this->assertNotNull($found);
         $this->assertSame('Imported Token', $found->name);
     }

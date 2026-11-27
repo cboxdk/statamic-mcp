@@ -42,15 +42,15 @@ pest()->extend(TestCase::class)->in(__DIR__);
 */
 
 /**
- * Fresh operation tables on the MySQL server the suite runs against, for the
+ * Fresh operation tables on the SQL server the suite runs against, for the
  * process tests that race separate connections on one shared store. Skipped
- * unless the suite runs on MySQL (the MySQL CI job). Call down() when done:
+ * unless the suite runs on the requested driver. Call down() when done:
  * the tables live in the shared test database, not in a per-test file.
  */
-function mcpMysqlOperationTables(): object
+function mcpServerOperationTables(string $driver): object
 {
-    if (config('database.default') !== 'mysql') {
-        Assert::markTestSkipped('Needs the suite on MySQL (DB_CONNECTION=mysql), as in the MySQL CI job.');
+    if (config('database.default') !== $driver) {
+        Assert::markTestSkipped("Needs the suite on DB_CONNECTION={$driver}, as in its CI job.");
     }
     $migration = require __DIR__ . '/../database/migrations/operations/0001_create_mcp_operations_table.php';
     $migration->down();

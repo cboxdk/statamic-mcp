@@ -14,6 +14,7 @@ use Cboxdk\StatamicMcp\OAuth\Contracts\RevokesUserGrants;
 use Cboxdk\StatamicMcp\OAuth\Exceptions\OAuthException;
 use Cboxdk\StatamicMcp\OAuth\OAuthAuthCode;
 use Cboxdk\StatamicMcp\OAuth\OAuthClient;
+use Cboxdk\StatamicMcp\OAuth\OAuthGrant;
 use Cboxdk\StatamicMcp\OAuth\ResourceIndicator;
 use Cboxdk\StatamicMcp\Support\McpConfig;
 use Symfony\Component\Yaml\Yaml;
@@ -454,11 +455,49 @@ class BuiltInOAuthDriver implements OAuthDriver, RevokesUserGrants
 
     public function revokeGrantsForUser(string $userId): int
     {
+        return $this->removeGrants($userId);
+    }
+
+    public function revokeGrantsForClient(string $userId, string $clientId): int
+    {
+        return $this->removeGrants($userId, $clientId);
+    }
+
+    /** @return iterable<OAuthGrant> */
+    public function pendingGrants(): iterable
+    {
+        foreach ([$this->refreshDir, $this->codesDir] as $directory) {
+            foreach (glob($directory . '/*.json') ?: [] as $file) {
+                $data = json_decode((string) file_get_contents($file), true, flags: JSON_THROW_ON_ERROR);
+                if (! is_array($data) || ! is_string($data['user_id'] ?? null) || ! is_string($data['client_id'] ?? null)
+                    || ! is_array($data['scopes'] ?? null) || ! is_string($data['expires_at'] ?? null)) {
+                    throw new \RuntimeException('Cannot inspect an invalid OAuth grant.');
+                }
+                if (($data['used'] ?? false) || Carbon::parse($data['expires_at'])->isPast()) {
+                    continue;
+                }
+                $scopes = [];
+                foreach ($data['scopes'] as $scope) {
+                    if (! is_string($scope)) {
+                        throw new \RuntimeException('Cannot inspect invalid OAuth grant scopes.');
+                    }
+                    $scopes[] = $scope;
+                }
+                yield new OAuthGrant($data['user_id'], $data['client_id'], $scopes);
+            }
+        }
+    }
+
+    private function removeGrants(string $userId, ?string $clientId = null): int
+    {
         $removed = 0;
         foreach ([$this->refreshDir, $this->codesDir] as $directory) {
             foreach (glob($directory . '/*.json') ?: [] as $file) {
-                $data = json_decode((string) file_get_contents($file), true);
-                if (is_array($data) && ($data['user_id'] ?? null) === $userId && unlink($file)) {
+                $data = json_decode((string) file_get_contents($file), true, flags: JSON_THROW_ON_ERROR);
+                if (is_array($data) && ($data['user_id'] ?? null) === $userId && ($clientId === null || ($data['client_id'] ?? null) === $clientId)) {
+                    if (! unlink($file)) {
+                        throw new \RuntimeException('OAuth grant could not be revoked.');
+                    }
                     $removed++;
                 }
             }

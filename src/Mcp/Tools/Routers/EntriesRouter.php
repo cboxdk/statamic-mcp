@@ -79,6 +79,8 @@ class EntriesRouter extends BaseRouter
 
     protected function filterOutputFields(array $result): array
     {
+        // Kept only in the encrypted operation receipt for delete authorization.
+        unset($result['_deleted_authors']);
         $result = parent::filterOutputFields($result);
 
         if (is_array($record = $result['entry'] ?? null) && is_string($record['collection'] ?? null)) {
@@ -303,6 +305,46 @@ class EntriesRouter extends BaseRouter
         $entry = is_string($arguments['id'] ?? null) ? $this->resolveEntryInCollection($arguments['id'], $arguments) : null;
 
         return $entry === null ? null : $this->entryVersion($entry);
+    }
+
+    protected function authorizeReplay(string $action, array $result): void
+    {
+        if (! $this->isWebContext() || ! is_array($record = $result['entry'] ?? null)) {
+            return;
+        }
+        $id = is_string($record['id'] ?? null) ? $record['id'] : '';
+        $collection = is_string($record['collection'] ?? null) ? $record['collection'] : '';
+        $site = is_string($record['site'] ?? null) ? $record['site'] : '';
+        $entry = Entry::find($id);
+        // A delete receipt still carries content. Check its original authors
+        // and site under today's policies, without resurrecting the record.
+        if ($entry === null && $action === 'delete' && Collection::find($collection) !== null && is_array($record['data'] ?? null)) {
+            $entry = Entry::make()->id($id)->collection($collection)->locale($site)->data($record['data']);
+            if (is_array($result['_deleted_authors'] ?? null)) {
+                $entry->set('author', $result['_deleted_authors']);
+            }
+            if (is_string($record['blueprint'] ?? null)) {
+                $entry->blueprint($record['blueprint']);
+            }
+        }
+        if ($entry === null || $entry->collectionHandle() !== $collection
+            || $this->authorizeEntrySite($site) !== null) {
+            throw new ToolFailure(ErrorCode::Forbidden, 'Permission denied: Cannot access this stored entry result.');
+        }
+        if (in_array($action, ['create', 'localize'], true)) {
+            $origin = $action === 'localize' ? $entry->origin() : null;
+            if (User::current()?->can('create', [EntryContract::class, $entry->collection(), $entry->site()]) !== true
+                || ($action === 'localize' && ! $origin instanceof EntryContract)
+                || ($origin instanceof EntryContract && $this->authorizeResolvedEntry('updateEntry', $origin) !== null)) {
+                throw new ToolFailure(ErrorCode::Forbidden, 'Permission denied: Cannot access this stored entry result.');
+            }
+        } elseif ($this->authorizeResolvedEntry(match ($action) {
+            'delete' => 'deleteEntry',
+            'publish', 'unpublish', 'publish_working_copy' => 'publishEntry',
+            default => 'updateEntry',
+        }, $entry) !== null) {
+            throw new ToolFailure(ErrorCode::Forbidden, 'Permission denied: Cannot access this stored entry result.');
+        }
     }
 
     /**
@@ -1358,6 +1400,7 @@ class EntriesRouter extends BaseRouter
             return $policyError;
         }
         $entryData = [...$this->entryRecord($entry), 'version' => $this->entryVersion($entry)];
+        $authors = $entry->authors()->all();
         $this->persistStatamic(fn () => $entry->delete());
         // Clear relevant caches
         $this->clearCachesAfterWrite(['stache', 'static']);
@@ -1365,6 +1408,7 @@ class EntriesRouter extends BaseRouter
         return [
             'entry' => $entryData,
             'deleted' => true,
+            '_deleted_authors' => $authors,
         ];
     }
 

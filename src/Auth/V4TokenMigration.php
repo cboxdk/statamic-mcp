@@ -6,6 +6,7 @@ namespace Cboxdk\StatamicMcp\Auth;
 
 use Cboxdk\StatamicMcp\Contracts\TokenStore;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
+use Cboxdk\StatamicMcp\OAuth\OAuthMutationLock;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Illuminate\Support\Str;
 
@@ -56,6 +57,30 @@ final class V4TokenMigration
             if ($step !== null) {
                 $steps[] = $step;
             }
+        }
+
+        // Access credentials expire independently of consent. Inspect codes
+        // and refresh tokens too, and revoke by owner/client, not a rotating id.
+        $revoking = [];
+        foreach ($steps as $step) {
+            if ($step['action'] === 'revoke' && $step['oauth_client_id'] !== null) {
+                $revoking[json_encode([$step['owner'], $step['oauth_client_id']], JSON_THROW_ON_ERROR)] = true;
+            }
+        }
+        foreach ($this->oauth->pendingGrants() as $grant) {
+            $changes = TokenScope::v3Changes($grant->scopes);
+            $unsafe = $mode === self::ROLLBACK ? isset($changes['publish_delete']) : isset($changes['full_access']) || isset($changes['replaced']);
+            $key = json_encode([$grant->userId, $grant->clientId], JSON_THROW_ON_ERROR);
+            if (! $unsafe || isset($revoking[$key])) {
+                continue;
+            }
+            $revoking[$key] = true;
+            $steps[] = [
+                'token_id' => 'oauth-' . hash('sha256', $key),
+                'name' => 'OAuth grant', 'owner' => $grant->userId, 'oauth_client_id' => $grant->clientId,
+                'action' => 'revoke', 'before' => $grant->scopes, 'after' => null,
+                'reason' => $mode === self::ROLLBACK ? 'v3 would widen this pending grant; authorize the client again after downgrading' : 'This pending v3 grant needs fresh v4 consent',
+            ];
         }
 
         usort($steps, static fn (array $a, array $b): int => [$a['action'], $a['name'], $a['token_id']] <=> [$b['action'], $b['name'], $b['token_id']]);
@@ -183,6 +208,15 @@ final class V4TokenMigration
     /** @param  Step  $step */
     private function applyStep(array $step): void
     {
+        if ($step['action'] === 'revoke' && $step['oauth_client_id'] !== null) {
+            app(OAuthMutationLock::class)->run(function () use ($step): void {
+                $this->oauth->revokeGrantsForClient($step['owner'], $step['oauth_client_id']);
+                $this->tokenService->revokeOAuthTokens($step['owner'], $step['oauth_client_id']);
+            });
+
+            return;
+        }
+
         $current = $this->tokens->find($step['token_id']);
         if ($current === null) {
             return; // Revoked meanwhile: the goal is reached.
@@ -199,14 +233,7 @@ final class V4TokenMigration
         }
 
         if ($step['action'] === 'narrow') {
-            $this->tokenService->updateToken($step['token_id'], scopes: $step['after'] ?? []);
-
-            return;
-        }
-
-        if ($current->oauthClientId !== null) {
-            $this->oauth->revokeRefreshTokensFor($current->userId, $current->oauthClientId);
-            $this->tokenService->revokeOAuthTokens($current->userId, $current->oauthClientId);
+            $this->tokenService->updateToken($step['token_id'], scopes: $step['after'] ?? [], expectedScopes: $step['before']);
 
             return;
         }

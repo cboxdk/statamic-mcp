@@ -5,12 +5,14 @@ declare(strict_types=1);
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\EntriesRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\FormsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\GlobalsRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\StructuresRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\TermsRouter;
 use Statamic\Facades\Blueprint;
 use Statamic\Facades\Collection;
 use Statamic\Facades\Entry;
 use Statamic\Facades\Form;
 use Statamic\Facades\GlobalSet;
+use Statamic\Facades\Nav;
 use Statamic\Facades\Role;
 use Statamic\Facades\Site;
 use Statamic\Facades\Taxonomy;
@@ -179,6 +181,118 @@ it('warns about unknown top-level fields for each content domain without storing
     expect(implode(' ', $result['warnings'] ?? []))->toContain('unknown_field')->not->toContain('private value');
     expect(json_encode($result['data']))->not->toContain('private value');
 })->with(['entries', 'terms', 'globals']);
+
+it('refuses stored write results after losing access to their site', function (string $domain) {
+    mxWeb(true);
+    $role = Role::find('mx_editor');
+    $permissions = $role->permissions()->all();
+    [$router, $target] = match ($domain) {
+        'entries' => [new EntriesRouter, ['collection' => 'mx_pages', 'id' => 'mx-entry']],
+        'terms' => [new TermsRouter, ['taxonomy' => 'mx_tags', 'slug' => 'one']],
+        'globals' => [new GlobalsRouter, ['handle' => 'mx_settings']],
+    };
+    $arguments = $target + ['action' => 'update', 'site' => 'en', 'data' => ['title' => 'Private snapshot'], 'idempotency_key' => 'site-replay-check'];
+    $first = $router->execute($arguments);
+    expect($first['success'])->toBeTrue(json_encode($first));
+    expect($router->execute($arguments)['success'])->toBeTrue();
+
+    $role->permissions(array_values(array_diff($permissions, ['access en site'])))->save();
+    $retry = $router->execute($arguments);
+    expect($retry['success'])->toBeFalse(json_encode($retry))
+        ->and(json_encode($retry))->not->toContain('Private snapshot');
+})->with(['entries', 'terms', 'globals']);
+
+it('rechecks an entry author restriction on a stored update or delete result', function (string $action) {
+    mxWeb(true);
+    config(['statamic.mcp.confirmation.enabled' => false]);
+    Blueprint::make('mx_pages')->setNamespace('collections.mx_pages')->setContents(['fields' => [
+        ['handle' => 'title', 'field' => ['type' => 'text']],
+        ['handle' => 'author', 'field' => ['type' => 'users']],
+    ]])->save();
+    User::make()->id('other-author')->email('other-author@example.test')->save();
+    Entry::find('mx-entry')->set('author', ['other-author'])->save();
+    if ($action === 'delete') {
+        Entry::find('mx-entry-de')->delete();
+    }
+    $role = Role::find('mx_editor');
+    $permissions = [...$role->permissions()->all(), 'delete mx_pages entries'];
+    // The native update policy calls this ability edit.
+    $otherAuthorPermission = $action === 'update' ? 'edit other authors mx_pages entries' : 'delete other authors mx_pages entries';
+    $role->permissions([...$permissions, $otherAuthorPermission])->save();
+    $arguments = ['action' => $action, 'collection' => 'mx_pages', 'id' => 'mx-entry', 'idempotency_key' => 'author-replay-check']
+        + ($action === 'update' ? ['data' => ['title' => 'Private author snapshot']] : []);
+    $router = new EntriesRouter;
+    $first = $router->execute($arguments);
+    expect($first['success'])->toBeTrue(json_encode($first))
+        ->and($router->execute($arguments)['success'])->toBeTrue();
+    $role->permissions(array_values(array_diff($permissions, [$otherAuthorPermission])))->save();
+    $retry = $router->execute($arguments);
+    expect($retry['success'])->toBeFalse(json_encode($retry))
+        ->and(json_encode($retry))->not->toContain('Private author snapshot');
+})->with(['update', 'delete']);
+
+it('lets a create-only actor replay their successful create without granting edit access', function () {
+    mxWeb(true);
+    Role::find('mx_editor')->permissions(['access cp', 'access en site', 'create mx_pages entries'])->save();
+    $arguments = ['action' => 'create', 'collection' => 'mx_pages', 'site' => 'en', 'data' => ['title' => 'Created', 'published' => false], 'idempotency_key' => 'create-only-replay'];
+    $router = new EntriesRouter;
+    $first = $router->execute($arguments);
+    expect($first['success'])->toBeTrue(json_encode($first));
+    $retry = $router->execute($arguments);
+    expect($retry['success'])->toBeTrue(json_encode($retry))
+        ->and($retry['data']['entry']['id'])->toBe($first['data']['entry']['id']);
+});
+
+it('authorizes every navigation tree before saving any settings or trees', function (bool $hideHandle) {
+    mxWeb(true);
+    config(['statamic.mcp.tools.structures.denied_fields' => $hideHandle ? ['handle'] : []]);
+    $role = Role::find('mx_editor');
+    $role->permissions([...$role->permissions()->all(), 'view main nav', 'edit main nav'])->save();
+    $nav = Nav::make('main')->title('Main');
+    $nav->save();
+    $nav->makeTree('en', [['id' => 'en-link', 'title' => 'English', 'url' => '/']])->save();
+    $nav->makeTree('de', [['id' => 'de-link', 'title' => 'Private German', 'url' => '/de/']])->save();
+    $router = new StructuresRouter;
+    $target = ['resource_type' => 'navigation', 'handle' => 'main'];
+    $denied = $router->execute($target + ['action' => 'update', 'data' => [
+        'title' => 'Forbidden change', 'trees' => [['site' => 'en', 'items' => []], ['site' => 'de', 'items' => []]],
+    ]]);
+    expect($denied['success'])->toBeFalse(json_encode($denied))
+        ->and(Nav::find('main')->title())->toBe('Main')
+        ->and(Nav::find('main')->in('en')->tree())->toHaveCount(1)
+        ->and(Nav::find('main')->in('de')->tree())->toHaveCount(1);
+
+    $read = $router->execute($target + ['action' => 'get']);
+    expect($read['success'])->toBeTrue(json_encode($read))
+        ->and(array_column($read['data']['navigation']['trees'], 'site'))->toBe(['en']);
+    $arguments = $target + ['action' => 'update', 'data' => ['trees' => [['site' => 'en', 'items' => []]]], 'idempotency_key' => 'nav-site-replay-check'];
+    $allowed = $router->execute($arguments);
+    expect($allowed['success'])->toBeTrue(json_encode($allowed))
+        ->and(json_encode($allowed))->not->toContain('Private German');
+    $role->permissions(['access cp', 'view main nav', 'edit main nav'])->save();
+    $retry = $router->execute($arguments);
+    expect($retry['data']['navigation']['trees'] ?? [])->toBe([]);
+})->with([false, true]);
+
+it('replays deletion of an owned localization without exposing inherited authors', function () {
+    mxWeb(true);
+    config(['statamic.mcp.confirmation.enabled' => false, 'statamic.mcp.tools.entries.denied_fields' => ['author', 'origin']]);
+    Blueprint::make('mx_pages')->setNamespace('collections.mx_pages')->setContents(['fields' => [
+        ['handle' => 'title', 'field' => ['type' => 'text']],
+        ['handle' => 'author', 'field' => ['type' => 'users']],
+    ]])->save();
+    Entry::find('mx-entry')->set('author', ['mx-editor'])->save();
+    Role::find('mx_editor')->permissions(['access cp', 'access de site', 'delete mx_pages entries'])->save();
+    $router = new EntriesRouter;
+    $arguments = ['action' => 'delete', 'collection' => 'mx_pages', 'id' => 'mx-entry-de', 'idempotency_key' => 'inherited-author-delete'];
+    $first = $router->execute($arguments);
+    $retry = $router->execute($arguments);
+    expect($first['success'])->toBeTrue(json_encode($first))
+        ->and($retry['success'])->toBeTrue(json_encode($retry))
+        ->and(json_encode([$first, $retry]))->not->toContain('mx-editor')->not->toContain('_deleted_authors');
+    Role::find('mx_editor')->permissions(['access cp', 'access de site'])->save();
+    expect($router->execute($arguments)['success'])->toBeFalse();
+});
 
 it('hides a denied field from output and refuses to write it, on every transport', function (string $domain, bool $web) {
     mxWeb($web);

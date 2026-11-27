@@ -940,6 +940,12 @@ abstract class BaseRouter extends BaseStatamicTool
      */
     protected function authorizeAction(array $arguments): void {}
 
+    /** Reauthorize stored content, including records no longer present after deletion.
+     *
+     * @param  array<string, mixed>  $result  Unwrapped operation result.
+     */
+    protected function authorizeReplay(string $action, array $result): void {}
+
     protected function authorizePendingWrite(): void
     {
         if ($this->executingArguments === null || app(IntegrationRegistry::class)->package(static::class) === null) {
@@ -968,6 +974,10 @@ abstract class BaseRouter extends BaseStatamicTool
      */
     private function replayed(string $action, string $operationId, array $result): array
     {
+        $payload = isset($result['success'], $result['meta']) && is_array($result['data'] ?? null)
+            ? array_filter($result['data'], is_string(...), ARRAY_FILTER_USE_KEY) : $result;
+        $this->authorizeReplay($action, $payload);
+
         // Both raw data and a standard envelope are valid router results.
         if (isset($result['success'], $result['meta']) && is_array($result['data'] ?? null)) {
             foreach (['idempotent_replay', 'approval_replay'] as $flag) {

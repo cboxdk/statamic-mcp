@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
+use Cboxdk\StatamicMcp\Mcp\Exceptions\ToolFailure;
 use Cboxdk\StatamicMcp\Mcp\Support\ConditionalFieldsValidator;
 use Cboxdk\StatamicMcp\Mcp\Support\SeoProFieldData;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
@@ -91,11 +92,15 @@ class TermsRouter extends BaseRouter
         ]);
     }
 
-    /**
-     * Route actions to appropriate handlers with security checks.
-     *
-     * @param  array<string, mixed>  $arguments
-     *
+    protected function authorizeReplay(string $action, array $result): void
+    {
+        if ($this->isWebContext() && is_array($record = $result['term'] ?? null)
+            && $this->authorizeTermSite(is_string($record['site'] ?? null) ? $record['site'] : '') !== null) {
+            throw new ToolFailure(ErrorCode::Forbidden, 'Permission denied: Cannot access this stored term site.');
+        }
+    }
+
+    /** @param array<string, mixed> $arguments
      * @return array<string, mixed>
      */
     protected function executeAction(array $arguments): array

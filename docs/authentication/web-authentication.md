@@ -70,7 +70,7 @@ Refresh tokens rotate on every exchange. Their successors share the original gra
 
 Issuance, scope changes and revocation share an atomic cache lock. Configure `oauth.lock_store` with a lock-capable cache store shared by every application node (for example Redis or the database cache store). Do not use the `array` store outside tests. A single-server site can use the file cache store. The database OAuth driver alone does not make a node-local cache lock distributed.
 
-All v4 OAuth drivers must implement `revokeGrantsForUser` through the `OAuthDriver` contract. Revocation includes refresh grants and pending authorization codes whose access tokens have expired or been pruned. Custom drivers must also accept the `resource` argument on both exchange methods, preserve `CapabilitySnapshot.resource` through rotation, and reject an audience mismatch before consuming the grant. Update custom drivers before upgrading; the incomplete legacy fallback has been removed.
+All v4 OAuth drivers must implement `revokeGrantsForUser`, `revokeGrantsForClient` and `pendingGrants` through the `OAuthDriver` contract. Revocation includes refresh grants and pending authorization codes whose access tokens have expired or been pruned. `pendingGrants` returns `OAuthGrant` metadata for unexpired, unused codes and refresh tokens, never credentials or hashes. Migration revokes an owner/client pair under the OAuth mutation lock, including any successor issued between planning and applying. Custom drivers must also accept the `resource` argument on both exchange methods, preserve `CapabilitySnapshot.resource` through rotation, and reject an audience mismatch before consuming the grant. Update custom drivers before upgrading; the incomplete legacy fallback has been removed.
 
 ### Redirect URI matching
 
@@ -148,13 +148,12 @@ Desktop MCP clients (Claude Desktop, Cursor, etc.) don't need CORS. If you're bu
 // config/statamic/mcp.php
 'web' => [
     'allowed_origins' => ['https://your-app.com'],
-    // or ['*'] to allow all origins (not recommended for production)
 ],
 ```
 
-When `allowed_origins` is empty (the default), no CORS headers are sent.
+With an empty allowlist (the default), only same-origin browser requests are accepted. Add every cross-origin browser client explicitly. Wildcard origins are rejected in production.
 
-The same list feeds laravel/mcp's Origin check on this endpoint, which refuses a request carrying an `Origin` header unless it is localhost, `APP_URL`, in `mcp.allowed_origins` or in this list. Requests without an `Origin` header (desktop and server-side clients) are not affected.
+The addon's allowlist also feeds laravel/mcp's Origin check on this endpoint. The library's localhost and `mcp.allowed_origins` exemptions do not bypass the addon's own check: cross-origin clients must still appear in `statamic.mcp.web.allowed_origins`. Requests without an `Origin` header (desktop and server-side clients) are not affected.
 
 ### Production Checklist
 

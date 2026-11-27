@@ -264,7 +264,7 @@ contain other client configuration secrets; keep them out of version control.
   through `security.expose_versions`. Stored-record `version` tokens do not change.
 - Structures `configure` is removed. Use `update` with `data` for settings,
   including collection `structure` and `orderable`. To move a collection page,
-  use `statamic-structures-admin` with `action: "move"`, `handle`, `site` and
+  use `statamic-structures-admin` with `action: "move"`, `resource_type: "collection"`, `handle`, `site` and
   `data: {entry: "CHILD_ID", parent: "PARENT_ID"}` (`null` moves to the top level).
   Collection `update` no longer accepts `entry`, `parent`, `tree` or `trees`.
   Moves still need both `entries:write` and `structures:admin`, and reorder rights.
@@ -277,8 +277,11 @@ contain other client configuration secrets; keep them out of version control.
 
 ## Custom drivers and tools
 
-- Token stores must keep the capability snapshot fields; OAuth drivers must
-  implement user-wide grant revocation; audit drivers must implement
+- Token stores must keep the capability snapshot fields and accept the optional
+  `expectedScopes` argument on `update()`. Compare it with the current scopes
+  under the same lock or transaction as the write, throwing on a mismatch.
+  OAuth drivers must implement user-wide and owner/client grant revocation,
+  plus `pendingGrants()` independently of access-token records; audit drivers must implement
   `DurableAuditStore`. `mcp:doctor` reports the last two.
 - `AuditStore::query()` gained an `?string $actor` filter (`user:{id}` or
   `cli`); a custom audit store must accept and apply it.
@@ -288,11 +291,17 @@ contain other client configuration secrets; keep them out of version control.
 ## Rolling back to v3
 
 A rollback is a procedure, not only `composer require` of an older version.
+Stop MCP traffic and token/consent creation for the duration of the downgrade;
+the migration plans existing credentials, not credentials issued afterwards.
 
 1. While v4 is still installed: `php artisan mcp:migrate-v4 --rollback`, then
    again with `--apply`. It revokes every token that v3 would let publish or
    delete although v4 did not (an `{entries,terms,assets}:write` token without
-   the matching publish/delete scopes), OAuth grants included.
+   the matching publish/delete scopes), OAuth grants included. Pending codes and
+   refresh tokens are inspected even when their access token expired or was pruned.
+   A grant selected for revocation is ended for its owner/client pair, including
+   access and refresh successors issued since planning. Do not downgrade if the
+   command reports a failed step; fix it and rerun first.
 2. `composer require cboxdk/statamic-mcp:^3.6`
 3. Do not restore tokens from the backup. A token revoked during the upgrade or
    the rollback stays revoked; its owner creates a new one. Pending approvals

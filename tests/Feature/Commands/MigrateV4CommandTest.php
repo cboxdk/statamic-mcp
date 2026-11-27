@@ -7,8 +7,10 @@ use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\Auth\V4TokenMigration;
 use Cboxdk\StatamicMcp\Contracts\TokenStore;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
+use Cboxdk\StatamicMcp\OAuth\Drivers\DatabaseOAuthDriver;
 use Cboxdk\StatamicMcp\OAuth\Exceptions\OAuthException;
 use Cboxdk\StatamicMcp\Storage\Tokens\FileTokenStore;
+use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
 use Statamic\Facades\User;
@@ -270,6 +272,34 @@ it('changes nothing when the journal cannot be written', function () {
         ->and(app(TokenStore::class)->find($id))->not->toBeNull();
 });
 
+it('revokes unsafe OAuth grants even without an access token and across rotation', function (string $driver, string $mode) {
+    if ($driver === 'database') {
+        $this->loadMigrationsFrom(__DIR__ . '/../../../database/migrations/oauth');
+        app()->instance(OAuthDriver::class, new DatabaseOAuthDriver);
+    }
+    $oauth = app(OAuthDriver::class);
+    $client = $oauth->registerClient('Client', ['https://client.example/callback']);
+    $scopes = $mode === V4TokenMigration::ROLLBACK ? ['entries:write'] : ['system:write'];
+    $snapshot = new CapabilitySnapshot([], resource: 'http://localhost/mcp/statamic');
+    $refresh = $oauth->createRefreshToken('owner-1', $client->clientId, $scopes, $snapshot);
+    $verifier = str_repeat('a', 64);
+    $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+    $code = $oauth->createAuthCode($client->clientId, 'owner-1', $scopes, $challenge, 'S256', 'https://client.example/callback', $snapshot);
+    $other = $oauth->createRefreshToken('other-owner', $client->clientId, ['entries:read'], $snapshot);
+    $migration = app(V4TokenMigration::class);
+    $plan = $migration->plan($mode);
+    expect($plan)->not->toBeEmpty();
+    // The grant survives rotation and the old access credential disappearing.
+    $rotated = $oauth->exchangeRefreshToken($refresh, $client->clientId, 'http://localhost/mcp/statamic')->refreshToken;
+    $accessId = v3Token('Rotated access', $scopes, $client->clientId);
+    $result = $migration->apply($mode, $plan);
+    expect($result['error'])->toBeNull()
+        ->and(app(TokenStore::class)->find($accessId))->toBeNull()
+        ->and(fn () => $oauth->exchangeRefreshToken($rotated, $client->clientId, 'http://localhost/mcp/statamic'))->toThrow(OAuthException::class)
+        ->and(fn () => $oauth->exchangeCode($code, $verifier, $client->clientId, 'https://client.example/callback', 'http://localhost/mcp/statamic'))->toThrow(OAuthException::class)
+        ->and($oauth->exchangeRefreshToken($other, $client->clientId, 'http://localhost/mcp/statamic')->scopes)->toBe(['entries:read']);
+})->with(['file', 'database'])->with([V4TokenMigration::UPGRADE, V4TokenMigration::ROLLBACK]);
+
 it('leaves a token alone when it changed after the plan was made', function () {
     $id = v3Token('Admin', ['users:write']);
     $migration = app(V4TokenMigration::class);
@@ -280,6 +310,27 @@ it('leaves a token alone when it changed after the plan was made', function () {
 
     expect($result['error'])->not->toBeNull()->and($result['applied'])->toBe(0)
         ->and(app(TokenStore::class)->find($id)?->scopes)->toBe(['users:write', 'users:admin']);
+});
+
+it('does not restore a scope removed between migration planning and the store mutation', function () {
+    $store = new class($this->journals . '/tokens') extends FileTokenStore
+    {
+        public function update(string $id, array $data, ?array $expectedScopes = null): ?McpTokenData
+        {
+            // Deterministic interleaving: the other writer finishes after
+            // migration/service reads, immediately before the locked mutation.
+            parent::update($id, ['scopes' => ['entries:read', 'users:write']]);
+
+            return parent::update($id, $data, $expectedScopes);
+        }
+    };
+    app()->instance(TokenStore::class, $store);
+    app()->forgetInstance(TokenService::class);
+    $id = v3Token('Mixed', ['entries:read', 'entries:write', 'users:write']);
+    $migration = app(V4TokenMigration::class);
+    $result = $migration->apply(V4TokenMigration::UPGRADE, $migration->plan(V4TokenMigration::UPGRADE));
+    expect($result['error'])->not->toBeNull()
+        ->and($store->find($id)->scopes)->toBe(['entries:read', 'users:write']);
 });
 
 it('migrates token files written by v3.6.2 in place', function () {

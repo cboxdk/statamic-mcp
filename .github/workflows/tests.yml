@@ -202,6 +202,54 @@ jobs:
           DB_USERNAME: root
           DB_PASSWORD: password
 
+  test-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: code-quality
+    strategy:
+      fail-fast: false
+      matrix:
+        testbench: ['^10.0', '^11.0']
+    name: PHP 8.4 - Laravel ${{ matrix.testbench == '^10.0' && '12' || '13' }} - PostgreSQL
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: mcp_test
+          POSTGRES_PASSWORD: disposable
+          POSTGRES_DB: mcp_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd="pg_isready -U mcp_test -d mcp_test"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962
+        with:
+          php-version: '8.4'
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, pdo_pgsql, pdo_sqlite, bcmath, intl
+      - name: Install dependencies
+        run: |
+          composer require --dev --no-update "orchestra/testbench:${{ matrix.testbench }}"
+          composer update --prefer-dist --no-progress
+      - name: Create temporary .env file
+        run: echo "APP_KEY=base64:SGk1bGF2ZWw=" > .env
+      - name: Execute tests including independent-process races and crashes
+        run: ./vendor/bin/pest
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: mcp_test
+          DB_USERNAME: mcp_test
+          DB_PASSWORD: disposable
+
   lowest:
     # composer.json promises Statamic 6.44, laravel/mcp 1.3 and Symfony 7.
     # Only --prefer-lowest resolves them together; the locked matrix never does.

@@ -7,11 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-These notes describe the v4 development branch, not a published release. The
-lifecycle timing and rejection-observation changes below remain under verification.
+These notes describe the v4 development branch, not a published release.
 
 ### Added
 
+- PostgreSQL 17 CI coverage on Laravel 12 and 13, including independent-process operation claims, approvals, retention and crash recovery.
 - Four native MCP Skills for writing entries, translating localizations, editing page builders and modeling content. `skills/list` and `skills/get` expose static manifests with SHA-256 digests and byte sizes; `resources/read` serves their files. Existing workflow prompts reuse those files and retain authorized live context. Disabled resources or installation profiles refuse skill access; skills never expand a token's grants. Client activation requires host support.
 - Fieldset list/get/create/update/delete and installed fieldtype inspection through the blueprint facets. Blueprint edits retain native tabs, sections, imports, prefixes and field references; resolved fields report provenance. Fieldset updates/deletes accept `expected_version`, reject cyclic references and refuse deletion while a readable or hidden consumer still uses the fieldset.
 - Entry `get` by exactly one of id, slug or URI within the requested collection/site. Localized reads separate local `data` from authorized inherited `merged_data`, with permission-filtered origin/localization links. Entry creation accepts an explicit collection blueprint; content writes warn about unrecognized top-level keys without disclosing their values.
@@ -35,10 +35,11 @@ lifecycle timing and rejection-observation changes below remain under verificati
 - `mcp:migrate-v4` plans the token changes for v4 as a dry run and carries them out with `--apply`: a v3 `*` token is revoked, a replaced admin `:write` scope is dropped from a personal token that holds other scopes (an OAuth grant, or a token with nothing else, is revoked). It never adds a scope, acts only on a token unchanged since planning, writes a `0600` journal of scopes before and after (no secrets) before changing anything, and finds nothing left on a second run. `--rollback` revokes before a downgrade the tokens v3 would let publish or delete. UPGRADE.md describes the upgrade and the rollback.
 - `mcp:doctor` fails debug mode on an enabled non-local HTTP endpoint, warns when every proxy is trusted, and fails a log channel that writes to stdout when stdio is configured (stdout carries only protocol messages there). Local/testing loopback HTTP is allowed; disabled transports and token-free built-in stdio do not produce spurious warnings. Reports distinguish actionable checks from verification notes and do not probe writes, networks or locks.
 
-- Lifecycle contract: terminal execution events finalize after response sizing and deferred cache work; `approval.consumed` precedes `execution.completed`. Execution metadata adds reason, error code, correlation id, encoded-envelope bytes, cache duration and validated W3C v00 `traceparent`, never arguments, content or actor identity. An expired approval retry emits `approval.expired` once; `request.rejected` covers HTTP 4xx observed by the MCP input middleware. Observer failures cannot veto a call, and delivery is best effort, not durable audit. See [lifecycle events](docs/extending/lifecycle-events.md); runtime verification is pending.
+- Lifecycle contract: terminal execution events finalize after response sizing and deferred cache work; `approval.consumed` precedes `execution.completed`. Execution metadata adds reason, error code, correlation id, encoded-envelope bytes, cache duration and validated W3C v00 `traceparent`, never arguments, content or actor identity. An expired approval retry emits `approval.expired` once; `request.rejected` covers HTTP 4xx observed by the MCP input middleware. Observer failures cannot veto a call, and delivery is best effort, not durable audit. See [lifecycle events](docs/extending/lifecycle-events.md).
 
 ### Changed (breaking)
 
+- Custom token stores accept an optional atomic `expectedScopes` precondition on `update()`. OAuth drivers expose pending grant metadata independently of access tokens and revoke codes and refresh tokens by owner/client. See UPGRADE for the contracts and downgrade maintenance procedure.
 - Require Statamic ^6.44 and Laravel MCP ^1.3. Form fields use Forms 2's stored sections/pages in `data.fields`. The `forms` blueprint namespace is no longer exposed: saving a Forms 2 form removes its legacy blueprint. Submission deletion returns a receipt, not the deleted field values.
 - OAuth requires the endpoint's `resource` on authorization and code/refresh exchanges, binding that audience through access and refresh tokens. Unbound legacy OAuth grants require new consent; personal tokens are unchanged. Authorization responses include `iss`. HTTP challenges advertise required scopes, and missing scopes fail with 403 `insufficient_scope` before dispatch, including the full `execute_tools` batch. CORS exposes that challenge to browser clients. Protected-resource discovery advertises minimal initial reads; DCR accepts `web` and `native` application types with unchanged redirect safety.
 - `statamic-discover` replaces the separate discovery and schema tools. Catalog entries, recommendations and action enums reflect the caller's scopes and installation profile; an optional system inventory uses authorized, paginated router reads. Server instructions describe the contracts without advertising unavailable tools.
@@ -87,6 +88,8 @@ lifecycle timing and rejection-observation changes below remain under verificati
 
 ### Security
 
+- Reauthorize entry, term and global snapshots before approval/idempotency replay, including site and entry-author restrictions on deleted-record receipts. Navigation writes authorize every supplied site's tree before saving anything; reads and stored receipts omit inaccessible trees.
+- Token migration inspects pending OAuth codes and refresh tokens independently of access tokens and revokes unsafe owner/client grants across rotation. Scope narrowing compares the planned scopes atomically with the store mutation, so a concurrent removal cannot be undone.
 - Blueprint denied-field filtering covers full definitions, selected subtrees, lists and format specs, including configuration defaults embedded by prompts. Localization honors an explicit `data.published=false`, including when the source is published and the caller could publish.
 - Registered OAuth clients that are never authorized are removed after `oauth.unused_client_ttl` (default one day) and stop counting toward `oauth.max_clients`, so anonymous registration can no longer keep real clients out for 30 days.
 - A client metadata document's `logo_uri` is shown only over https on the `client_id`'s own host. Why a metadata document could not be fetched is logged, not shown.
