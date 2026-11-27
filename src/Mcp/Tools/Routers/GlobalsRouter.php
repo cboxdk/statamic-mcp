@@ -53,7 +53,7 @@ class GlobalsRouter extends BaseRouter
                 ),
 
             'expected_version' => JsonSchema::string()
-                ->description('Optimistic concurrency for update: the `version` from your last get/update of this global set in this site. If its stored values changed since (through MCP, the Control Panel or anything else), the update is refused with a version conflict and nothing is saved; get the global set again and redo the change. Omit to write unconditionally.'),
+                ->description('Update: version from the last get/update of this global set in this site. Any intervening change causes VERSION_CONFLICT without saving; reread and redo. Omit for an unconditional write.'),
 
             'limit' => JsonSchema::integer()
                 ->description('Maximum results to return (default: 50, max: 1000)'),

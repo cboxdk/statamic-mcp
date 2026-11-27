@@ -361,6 +361,17 @@ abstract class BaseRouter extends BaseStatamicTool
         return $this->facet;
     }
 
+    public function toArray(): array
+    {
+        $tool = parent::toArray();
+        if (in_array(static::class, [...StatamicMcpServer::CORE_TOOLS, ...StatamicMcpServer::SEARCHABLE_TOOLS], true)
+            && isset($tool['outputSchema'])) {
+            $tool['outputSchema'] = ResultSchema::deduplicate($tool['outputSchema']);
+        }
+
+        return $tool;
+    }
+
     protected function successDataSchema(): array
     {
         $integration = app(IntegrationRegistry::class)->package(static::class) !== null;
@@ -471,10 +482,11 @@ abstract class BaseRouter extends BaseStatamicTool
             return $base;
         }
         $lead = $this->facet === 'read'
-            ? 'Reads only; changes nothing.'
-            : 'Changes the site. Actions that need a person\'s approval answer APPROVAL_REQUIRED first.';
+            ? 'Read-only.'
+            : 'Writes; gated actions require Control Panel approval (APPROVAL_REQUIRED).';
 
-        return trim($base . ' ' . $lead . ' Actions: ' . implode(', ', $this->facetActionNames()) . '.');
+        // The action enum and its description already list this facet's actions.
+        return trim($base . ' ' . $lead);
     }
 
     /**
@@ -536,11 +548,11 @@ abstract class BaseRouter extends BaseStatamicTool
 
         return $properties + [
             'fields' => JsonSchema::array()->items(JsonSchema::string())->min(1)->max(50)
-                ->description('For get: dot paths into the result, e.g. ["entry.version", "entry.data.page_builder.0"]. Returns explicit path/value pairs, not a complete record. Omit to read the full record.'),
+                ->description('Get only: result dot paths, e.g. ["entry.version", "entry.data.page_builder.0"]. Returns path/value pairs, not a replacement record. Omit for the full record.'),
             'approval_id' => JsonSchema::string()
-                ->description('For actions that need a person\'s approval: the approval_id from the APPROVAL_REQUIRED answer. After the person approved it in the Control Panel, repeat the same call with approval_id added. The approval covers exactly that call, once.'),
+                ->description('From APPROVAL_REQUIRED. After Control Panel approval, retry the exact call with this id; single use.'),
             'idempotency_key' => JsonSchema::string()
-                ->description('Optional for write actions: a key you choose (8-128 characters: letters, digits, . _ : -), new for each change. Retrying with the same key and the same arguments replays the first result instead of writing again; if the first call stopped without reporting, the retry answers OUTCOME_UNKNOWN and does not write.'),
+                ->description('New per write: 8-128 letters, digits, . _ : -. Same key and arguments replay without writing; an unfinished first call returns OUTCOME_UNKNOWN without retrying the write.'),
         ];
     }
 

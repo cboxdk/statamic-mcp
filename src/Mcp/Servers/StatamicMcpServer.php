@@ -76,12 +76,10 @@ class StatamicMcpServer extends Server
     public int $maxPaginationLength = 200;
 
     /**
-     * Tools every client loads at connect time.
+     * Tools kept in tools/list when the searchable catalog is enabled.
      *
-     * The routers carry large schemas — the full catalog is ~31 KB, which each
-     * client pays for on every connection before it has asked anything. These
-     * three cover the work a session actually starts with; the rest are reached
-     * through search_tools and execute_tools, which cuts the catalog by ~60%.
+     * Otherwise every tool is listed with its own schema and behaviour hints.
+     * Search is opt-in: execute_tools cannot advertise each routed tool's hints.
      *
      * @var array<int, class-string<Tool>>
      */

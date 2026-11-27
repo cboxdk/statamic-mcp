@@ -9,6 +9,89 @@ use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 /** JSON Schema for the data returned by each built-in action. */
 final class ResultSchema
 {
+    /**
+     * Factor exact repetitions in our generated schemas into local definitions.
+     * Not for integration schemas: moving their $id/$ref scopes can change meaning.
+     * Definitions stay inline and independent of every other tool in tools/list.
+     *
+     * @param  array<string, mixed>  $schema
+     *
+     * @return array<string, mixed>
+     */
+    public static function deduplicate(array $schema): array
+    {
+        $counts = [];
+        self::mapChildren($schema, function (array $node) use (&$counts): array {
+            $encoded = json_encode($node, JSON_THROW_ON_ERROR);
+            $counts[$encoded] = ($counts[$encoded] ?? 0) + 1;
+
+            return $node;
+        });
+        // Larger nodes first: a shared record can subsume its repeated fields.
+        uksort($counts, fn (string $a, string $b): int => strlen($b) <=> strlen($a));
+        $definitions = [];
+        foreach ($counts as $encoded => $count) {
+            $name = 's' . count($definitions);
+            $reference = ['$ref' => '#/$defs/' . $name];
+            if ($count < 2 || strlen($encoded) <= strlen(json_encode($reference, JSON_THROW_ON_ERROR))) {
+                continue;
+            }
+            $definition = null;
+            $candidate = self::mapChildren($schema, function (array $node) use ($encoded, $reference, &$definition): array {
+                if (json_encode($node, JSON_THROW_ON_ERROR) !== $encoded) {
+                    return $node;
+                }
+                $definition = $node;
+
+                return $reference;
+            });
+            if ($definition === null) {
+                continue;
+            }
+            $candidate['$defs'] = $definitions + [$name => $definition];
+            if (strlen(json_encode($candidate, JSON_THROW_ON_ERROR)) < strlen(json_encode($schema, JSON_THROW_ON_ERROR))) {
+                $schema = $candidate;
+                $definitions[$name] = $definition;
+            }
+        }
+
+        return $schema;
+    }
+
+    /**
+     * Visit only schema positions used by ResultSchema, never property names,
+     * enum/const values, annotations or definitions already extracted above.
+     *
+     * @template TKey of array-key
+     *
+     * @param  array<TKey, mixed>  $schema
+     * @param  callable(array<array-key, mixed>): array<array-key, mixed>  $visit
+     *
+     * @return array<TKey, mixed>
+     */
+    private static function mapChildren(array $schema, callable $visit): array
+    {
+        foreach ($schema as $keyword => $value) {
+            if (! is_array($value)) {
+                continue;
+            }
+            if (in_array($keyword, ['properties', 'anyOf'], true)) {
+                foreach ($value as $key => $child) {
+                    if (is_array($child)) {
+                        $mapped = $visit($child);
+                        $value[$key] = $mapped === $child ? self::mapChildren($child, $visit) : $mapped;
+                    }
+                }
+                $schema[$keyword] = $value;
+            } elseif (in_array($keyword, ['items', 'if', 'then', 'else', 'not'], true)) {
+                $mapped = $visit($value);
+                $schema[$keyword] = $mapped === $value ? self::mapChildren($value, $visit) : $mapped;
+            }
+        }
+
+        return $schema;
+    }
+
     /** @return array<string, mixed> */
     public static function action(string $domain, string $action): array
     {

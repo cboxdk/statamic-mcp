@@ -37,6 +37,11 @@ These notes describe the v4 development branch, not a published release.
 
 - Lifecycle contract: terminal execution events finalize after response sizing and deferred cache work; `approval.consumed` precedes `execution.completed`. Execution metadata adds reason, error code, correlation id, encoded-envelope bytes, cache duration and validated W3C v00 `traceparent`, never arguments, content or actor identity. An expired approval retry emits `approval.expired` once; `request.rejected` covers HTTP 4xx observed by the MCP input middleware. Observer failures cannot veto a call, and delivery is best effort, not durable audit. See [lifecycle events](docs/extending/lifecycle-events.md).
 
+### Changed
+
+- Reduced repeated catalog descriptions while preserving every input/output validation constraint, action argument declaration and read/write annotation. All tools remain directly listed by default; searchable catalog remains opt-in.
+- Repeated built-in output-schema fragments share local `$defs` only when doing so reduces their serialized size. Each tool remains self-contained; input schemas and integration-owned output schemas are unchanged.
+
 ### Changed (breaking)
 
 - Custom token stores accept an optional atomic `expectedScopes` precondition on `update()`. OAuth drivers expose pending grant metadata independently of access tokens and revoke codes and refresh tokens by owner/client. See UPGRADE for the contracts and downgrade maintenance procedure.

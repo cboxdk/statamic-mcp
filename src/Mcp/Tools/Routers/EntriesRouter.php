@@ -148,26 +148,24 @@ class EntriesRouter extends BaseRouter
         return array_merge(parent::defineSchema($schema), [
 
             'collection' => JsonSchema::string()
-                ->description('Collection handle in snake_case. Required for all actions. Example: "blog", "products"')
+                ->description('Collection handle, e.g. blog or products.')
                 ->required(),
 
             'blueprint' => JsonSchema::string()
                 ->description('For create: exact handle of a blueprint belonging to this collection. Omit to use the collection default.'),
 
             'id' => JsonSchema::string()
-                ->description('Entry UUID. Required for get, update, delete, publish, unpublish, list_revisions, get_revision, restore_revision, publish_working_copy actions'),
+                ->description('Entry UUID; see action for requirements and get alternatives.'),
 
             'site' => JsonSchema::string()
                 ->description(
-                    'Site handle for multi-site setups. Defaults to the default site. Example: "default", "en". '
-                    . 'For the localize action this is the target site the localization is created in.'
+                    'Site handle, e.g. en; defaults to the default site. For localize: the target site.'
                 ),
 
             'data' => JsonSchema::object()
                 ->description(
-                    'Parent: data.parent is an entry id in this collection/site, or null for the top level. Create and update persist it in the collection tree; requires reorder permission plus entries:write and structures:admin. Parent cannot be combined with other changes on a published entry using revisions. Entry field values. Structure must match the collection blueprint including nested types '
-                    . '(bard, replicator, grid). Use statamic-blueprints-read get with the collection\'s '
-                    . 'blueprint handle to see required fields, types, and nesting before sending data.'
+                    'Field values matching the collection blueprint, including nested bard/replicator/grid. First read statamic-blueprints-read get for required fields and _format_spec. '
+                    . 'data.parent sets the collection/site tree parent on create/update: entry id or null for root. Requires reorder permission, entries:write and structures:admin. With revisions on a published entry, parent must be the only change.'
                 ),
 
             'slug' => JsonSchema::string()
@@ -177,7 +175,7 @@ class EntriesRouter extends BaseRouter
                 ->description('For get: exact site-relative URI, such as /blog/hello, instead of id or slug. The entry must belong to the named collection.'),
 
             'filters' => JsonSchema::object()
-                ->description('Exact-match filters for list, as key-value pairs with scalar values. Keys are field handles from the collection\'s blueprints, or one of id, slug, title, published, date, uri, parent, origin, or "status" (published, scheduled, expired, draft). Any other key is refused with the list of valid keys. Example: {"status": "scheduled"}'),
+                ->description('List exact-match key/scalar pairs. Keys: blueprint fields or id, slug, title, published, date, uri, parent, origin, status. Unknown keys are refused. Example: {"status":"scheduled"}; statuses: published, scheduled, expired, draft.'),
 
             'include_unpublished' => JsonSchema::boolean()
                 ->description('Include draft/unpublished entries in list results. Default: false, which still lists scheduled and expired entries because they are published; read each entry\'s status, or filter by it'),
@@ -192,7 +190,7 @@ class EntriesRouter extends BaseRouter
                 ->description('next_cursor from the previous page. Keep the other arguments unchanged. Omit to start again.'),
 
             'expected_version' => JsonSchema::string()
-                ->description('Optimistic concurrency for update, delete, publish, unpublish, restore_revision and publish_working_copy: the `version` from your last get/create/update. If the stored entry changed since (through MCP, the Control Panel or anything else), the write is refused with a version conflict and nothing is saved; get the entry again and redo the change. Omit to write unconditionally.'),
+                ->description('Version from the last get/create/update. Any intervening change causes VERSION_CONFLICT without saving; reread and redo. Omit for an unconditional write. See action for supported writes.'),
 
             'revision_state' => JsonSchema::string()
                 ->description('Which state of the entry get returns: "published" (default) the live data, "working_copy" the unpublished working copy, "latest" the working copy when there is one, else the published data')
@@ -200,13 +198,7 @@ class EntriesRouter extends BaseRouter
 
             'merge_sets' => JsonSchema::boolean()
                 ->description(
-                    'Update action only. When true, a replicator field in "data" is merged into the stored '
-                    . 'array by item id instead of replacing it: items whose id already exists are replaced in '
-                    . 'place, new ids are appended, and stored items you did not send are left untouched. Use it '
-                    . 'to change one section of a page builder without resending the whole array. Every item sent '
-                    . 'must carry an "id". Removing or reordering items still requires sending the full array with '
-                    . 'merge_sets off. Applies to top-level replicator fields only — not bard, whose nodes are not '
-                    . 'all addressable by id.'
+                    'Update only, top-level replicator fields (not bard). True merges by required item id: replace matching items in place, append new ids, retain unsent items. To remove or reorder, send the full array with merge_sets off.'
                 ),
 
             'revision_message' => JsonSchema::string()

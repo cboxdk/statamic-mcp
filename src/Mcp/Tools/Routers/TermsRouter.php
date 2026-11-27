@@ -76,7 +76,7 @@ class TermsRouter extends BaseRouter
                 ->description('Exact-match filters for list, as key-value pairs with scalar values. Keys are field handles from the taxonomy\'s blueprints, or one of id, slug, title, uri. Any other key is refused with the list of valid keys. Example: {"slug": "news"}'),
 
             'expected_version' => JsonSchema::string()
-                ->description('Optimistic concurrency for update and delete: the `version` from your last get/create/update. It covers the whole term, every site included. If the stored term changed since (through MCP, the Control Panel or anything else), the write is refused with a version conflict and nothing is saved; get the term again and redo the change. Omit to write unconditionally.'),
+                ->description('Update/delete: version from the last get/create/update, covering the whole term across all sites. Any intervening change causes VERSION_CONFLICT without saving; reread and redo. Omit for an unconditional write.'),
 
             'include_counts' => JsonSchema::boolean()
                 ->description('Include how many entries use the term. Default: false'),

@@ -141,19 +141,19 @@ abstract class BaseStatamicTool extends Tool
     public function outputSchema(JsonSchemaContract $schema): array
     {
         return [
-            'success' => JsonSchema::boolean()->description('Whether the operation succeeded'),
+            'success' => JsonSchema::boolean(),
             // A failure carries data: null, and a list result is a JSON array.
             // SDK clients validate failures too and discard what does not match.
-            'data' => JsonSchema::union(['object', 'array', 'null'])->description('Operation result data; null on most failures'),
-            'meta' => JsonSchema::object()->description('Response metadata (tool, timestamp)'),
+            'data' => JsonSchema::union(['object', 'array', 'null']),
+            'meta' => JsonSchema::object()->description('Tool and timestamp'),
             'error' => JsonSchema::object([
                 'code' => JsonSchema::string()->enum(array_column(ErrorCode::cases(), 'value'))->required(),
                 'message' => JsonSchema::string()->required(),
                 'field' => JsonSchema::string(),
                 'valid_values' => JsonSchema::array()->items(JsonSchema::string()),
                 'hint' => JsonSchema::string(),
-            ])->withoutAdditionalProperties()->description('Failure and how to correct it; present when success is false'),
-            'warnings' => JsonSchema::array()->description('Warning messages'),
+            ])->withoutAdditionalProperties(),
+            'warnings' => JsonSchema::array(),
         ];
     }
 
