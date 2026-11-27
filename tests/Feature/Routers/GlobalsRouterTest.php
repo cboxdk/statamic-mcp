@@ -80,10 +80,10 @@ class GlobalsRouterTest extends TestCase
         ]);
 
         $this->assertTrue($result['success']);
-        $this->assertArrayHasKey('globals', $result['data']);
-        $this->assertArrayHasKey('pagination', $result['data']);
+        $this->assertArrayHasKey('items', $result['data']);
+        $this->assertArrayHasKey('next_cursor', $result['data']);
 
-        $handles = collect($result['data']['globals'])->pluck('handle')->toArray();
+        $handles = collect($result['data']['items'])->pluck('handle')->toArray();
         $this->assertContains($this->globalHandle, $handles);
     }
 
@@ -92,12 +92,11 @@ class GlobalsRouterTest extends TestCase
         $result = $this->router->execute([
             'action' => 'list',
             'limit' => 1,
-            'offset' => 0,
         ]);
 
         $this->assertTrue($result['success']);
-        $this->assertCount(1, $result['data']['globals']);
-        $this->assertArrayHasKey('total', $result['data']['pagination']);
+        $this->assertCount(1, $result['data']['items']);
+        $this->assertArrayHasKey('total', $result['data']);
     }
 
     public function test_get_global_includes_blueprint_info(): void
@@ -115,19 +114,19 @@ class GlobalsRouterTest extends TestCase
         $this->assertEquals($this->globalHandle, $result['data']['global']['blueprint']['handle']);
     }
 
-    public function test_get_global_with_global_set_param(): void
+    public function test_the_v3_global_set_alias_is_refused(): void
     {
-        $globalSet = GlobalSet::find($this->globalHandle);
-        $this->setGlobalValues($globalSet, 'default', ['site_title' => 'Via Global Set Param']);
-
+        // v4 names a global set by handle only. The alias is refused rather
+        // than ignored, so a v3 caller learns the new name instead of reading
+        // "handle is required".
         $result = $this->router->execute([
             'action' => 'get',
             'global_set' => $this->globalHandle,
         ]);
 
-        $this->assertTrue($result['success']);
-        $this->assertEquals($this->globalHandle, $result['data']['global']['handle']);
-        $this->assertEquals('Via Global Set Param', $result['data']['global']['data']['site_title']);
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('does not take global_set', $result['errors'][0]);
+        $this->assertStringContainsString('handle', $result['errors'][0]);
     }
 
     public function test_missing_handle_for_get_returns_error(): void
@@ -137,7 +136,7 @@ class GlobalsRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Global set handle is required', $result['errors'][0]);
+        $this->assertStringContainsString('needs handle', $result['errors'][0]);
     }
 
     public function test_missing_handle_for_update_returns_error(): void
@@ -148,7 +147,7 @@ class GlobalsRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Global set handle is required', $result['errors'][0]);
+        $this->assertStringContainsString('needs handle', $result['errors'][0]);
     }
 
     public function test_missing_data_for_update_returns_error(): void
@@ -159,7 +158,7 @@ class GlobalsRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Data is required for update action', $result['errors'][0]);
+        $this->assertStringContainsString('The update action needs data', $result['errors'][0]);
     }
 
     public function test_nonexistent_global_set_returns_error(): void
@@ -215,7 +214,7 @@ class GlobalsRouterTest extends TestCase
 
         $this->assertTrue($result['success']);
 
-        $global = collect($result['data']['globals'])->firstWhere('handle', $this->globalHandle);
+        $global = collect($result['data']['items'])->firstWhere('handle', $this->globalHandle);
         $this->assertNotNull($global);
         $this->assertArrayHasKey('localized', $global);
         $this->assertArrayHasKey('sites', $global);

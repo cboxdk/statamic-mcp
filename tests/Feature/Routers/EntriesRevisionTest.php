@@ -260,7 +260,7 @@ class EntriesRevisionTest extends TestCase
             'action' => 'get',
             'collection' => $this->collectionHandle,
             'id' => $entry->id(),
-            'version' => 'working_copy',
+            'revision_state' => 'working_copy',
         ]);
 
         $this->assertTrue($result['success']);
@@ -296,7 +296,7 @@ class EntriesRevisionTest extends TestCase
             'action' => 'get',
             'collection' => $this->collectionHandle,
             'id' => $entry->id(),
-            'version' => 'working_copy',
+            'revision_state' => 'working_copy',
         ]);
 
         $this->assertTrue($result['success']);
@@ -319,7 +319,7 @@ class EntriesRevisionTest extends TestCase
             'action' => 'get',
             'collection' => $this->collectionHandle,
             'id' => $entry->id(),
-            'version' => 'working_copy',
+            'revision_state' => 'working_copy',
         ]);
 
         $this->assertFalse($result['success']);
@@ -349,7 +349,7 @@ class EntriesRevisionTest extends TestCase
             'action' => 'get',
             'collection' => $this->collectionHandle,
             'id' => $entry->id(),
-            'version' => 'latest',
+            'revision_state' => 'latest',
         ]);
 
         $this->assertTrue($result['success']);
@@ -371,7 +371,7 @@ class EntriesRevisionTest extends TestCase
             'action' => 'get',
             'collection' => $this->collectionHandle,
             'id' => $entry->id(),
-            'version' => 'latest',
+            'revision_state' => 'latest',
         ]);
 
         $this->assertTrue($result['success']);
@@ -475,18 +475,31 @@ class EntriesRevisionTest extends TestCase
             ->published(false);
         $entry->save();
 
-        // store() creates an initial revision
+        $this->freezeTime();
         $entry->store(['message' => 'First version']);
+        $this->travel(2)->seconds();
+        $entry->store(['message' => 'Second version']);
+        $this->travel(3)->seconds();
+        $entry->store(['message' => 'Third version']);
 
-        $result = $this->router->execute([
+        $arguments = [
             'action' => 'list_revisions',
             'collection' => $this->collectionHandle,
             'id' => $entry->id(),
-        ]);
+            'limit' => 2,
+        ];
+        $result = $this->router->execute($arguments);
 
         $this->assertTrue($result['success']);
-        $this->assertArrayHasKey('revisions', $result['data']);
-        $this->assertGreaterThanOrEqual(1, $result['data']['total']);
+        $this->assertSame(3, $result['data']['total']);
+        $this->assertSame(['Third version', 'Second version'], array_column($result['data']['items'], 'message'));
+        $this->assertIsString($result['data']['next_cursor']);
+
+        $next = $this->router->execute($arguments + ['cursor' => $result['data']['next_cursor']]);
+        $this->assertTrue($next['success']);
+        $this->assertSame(3, $next['data']['total']);
+        $this->assertSame(['First version'], array_column($next['data']['items'], 'message'));
+        $this->assertNull($next['data']['next_cursor']);
     }
 
     public function test_list_revisions_returns_error_when_revisions_disabled(): void
@@ -531,9 +544,9 @@ class EntriesRevisionTest extends TestCase
         ]);
 
         $this->assertTrue($listResult['success']);
-        $this->assertGreaterThanOrEqual(1, count($listResult['data']['revisions']));
+        $this->assertGreaterThanOrEqual(1, count($listResult['data']['items']));
 
-        $revisionId = $listResult['data']['revisions'][0]['id'];
+        $revisionId = $listResult['data']['items'][0]['id'];
 
         // Get that specific revision
         $result = $this->router->execute([
@@ -584,8 +597,8 @@ class EntriesRevisionTest extends TestCase
         // Create a revision (via store)
         $entry->store(['message' => 'Version to restore']);
 
-        // Publish the entry directly to make it published
-        $entry->published(true)->save();
+        // Published content differs from the revision being restored.
+        $entry->set('title', 'Live Version')->published(true)->save();
 
         // List revisions to get an ID
         $listResult = $this->router->execute([
@@ -595,7 +608,7 @@ class EntriesRevisionTest extends TestCase
         ]);
 
         $this->assertTrue($listResult['success']);
-        $revisionId = $listResult['data']['revisions'][0]['id'];
+        $revisionId = $listResult['data']['items'][0]['id'];
 
         // Restore that revision
         $result = $this->router->execute([
@@ -607,6 +620,9 @@ class EntriesRevisionTest extends TestCase
 
         $this->assertTrue($result['success']);
         $this->assertTrue($result['data']['restored_as_working_copy']);
+        $this->assertSame('Original Version', $result['data']['entry']['data']['title']);
+        $this->assertIsString($result['data']['entry']['version']);
+        $this->assertSame('Live Version', Entry::find($entry->id())->get('title'));
     }
 
     public function test_restore_revision_updates_directly_for_unpublished_entry(): void
@@ -634,7 +650,7 @@ class EntriesRevisionTest extends TestCase
         ]);
 
         $this->assertTrue($listResult['success']);
-        $revisionId = $listResult['data']['revisions'][0]['id'];
+        $revisionId = $listResult['data']['items'][0]['id'];
 
         // Restore
         $result = $this->router->execute([
@@ -646,6 +662,8 @@ class EntriesRevisionTest extends TestCase
 
         $this->assertTrue($result['success']);
         $this->assertFalse($result['data']['restored_as_working_copy']);
+        $this->assertSame('First Version', $result['data']['entry']['data']['title']);
+        $this->assertIsString($result['data']['entry']['version']);
     }
 
     public function test_publish_working_copy_succeeds(): void
@@ -680,6 +698,7 @@ class EntriesRevisionTest extends TestCase
 
         // The published entry should now have the WC data
         $reloaded = Entry::find($entry->id());
+        $this->assertSame('WC Data', $result['data']['entry']['data']['title']);
         $this->assertSame('WC Data', $reloaded->get('title'));
     }
 
@@ -759,7 +778,7 @@ class EntriesRevisionTest extends TestCase
 
         $this->assertTrue($result['success']);
         $this->assertSame(1, $result['data']['total']);
-        $this->assertSame('French revision', $result['data']['revisions'][0]['message']);
+        $this->assertSame('French revision', $result['data']['items'][0]['message']);
     }
 
     // ========================================================================
@@ -774,7 +793,7 @@ class EntriesRevisionTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Entry ID is required for list_revisions action', $result['errors'][0]);
+        $this->assertStringContainsString('The list_revisions action needs id', $result['errors'][0]);
     }
 
     public function test_missing_id_for_get_revision(): void
@@ -786,7 +805,7 @@ class EntriesRevisionTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Entry ID is required for get_revision action', $result['errors'][0]);
+        $this->assertStringContainsString('The get_revision action needs id', $result['errors'][0]);
     }
 
     public function test_missing_revision_id_for_get_revision(): void
@@ -805,7 +824,7 @@ class EntriesRevisionTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Revision ID is required for get_revision action', $result['errors'][0]);
+        $this->assertStringContainsString('The get_revision action needs revision_id', $result['errors'][0]);
     }
 
     public function test_missing_revision_id_for_restore_revision(): void
@@ -824,7 +843,7 @@ class EntriesRevisionTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Revision ID is required for restore_revision action', $result['errors'][0]);
+        $this->assertStringContainsString('The restore_revision action needs revision_id', $result['errors'][0]);
     }
 
     public function test_missing_id_for_publish_working_copy(): void
@@ -835,7 +854,7 @@ class EntriesRevisionTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Entry ID is required for publish_working_copy action', $result['errors'][0]);
+        $this->assertStringContainsString('The publish_working_copy action needs id', $result['errors'][0]);
     }
 
     // ========================================================================
@@ -868,7 +887,7 @@ class EntriesRevisionTest extends TestCase
         $reflection->setAccessible(true);
 
         $permissions = $reflection->invoke($this->router, 'restore_revision', ['collection' => $this->collectionHandle]);
-        $this->assertEquals(["publish {$this->collectionHandle} entries"], $permissions);
+        $this->assertEquals(["edit {$this->collectionHandle} entries"], $permissions);
     }
 
     public function test_correct_permissions_for_publish_working_copy(): void

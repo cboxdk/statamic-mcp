@@ -14,14 +14,14 @@ Controls the HTTP-accessible MCP endpoint.
 
 | Key | Env Variable | Default | Description |
 |-----|-------------|---------|-------------|
-| `web.enabled` | `STATAMIC_MCP_WEB_ENABLED` | `true` | Enable the web MCP endpoint |
+| `web.enabled` | `STATAMIC_MCP_WEB_ENABLED` | `false` | Enable the web MCP endpoint |
 | `web.path` | `STATAMIC_MCP_WEB_PATH` | `/mcp/statamic` | URL path for the endpoint |
 | `web.require_https` | `STATAMIC_MCP_WEB_REQUIRE_HTTPS` | `true` | Reject plain HTTP requests (skipped in local/testing) |
-| `web.allowed_origins` | — | `[]` | CORS allowed origins for browser-based clients. Empty = no CORS headers |
+| `web.allowed_origins` | — | `[]` | Allowed browser origins. Unknown origins receive 403; same-origin and requests without Origin remain allowed |
 
 ```php
 'web' => [
-    'enabled' => env('STATAMIC_MCP_WEB_ENABLED', true),
+    'enabled' => env('STATAMIC_MCP_WEB_ENABLED', false),
     'path' => env('STATAMIC_MCP_WEB_PATH', '/mcp/statamic'),
     'require_https' => env('STATAMIC_MCP_WEB_REQUIRE_HTTPS', true),
     'allowed_origins' => [], // e.g. ['https://your-app.com'] or ['*']
@@ -50,10 +50,13 @@ Controls authentication enforcement, audit logging, and system hardening.
 |-----|-------------|---------|-------------|
 | `security.force_web_mode` | `STATAMIC_MCP_FORCE_WEB_MODE` | `false` | Require token auth even in CLI context |
 | `security.audit_logging` | `STATAMIC_MCP_AUDIT_LOGGING` | `true` | Log all MCP tool calls |
+| `security.max_input_bytes` | — | `16777216` | Input traversal byte budget, including encoded asset content |
+| `security.max_input_values` | — | `20000` | Maximum nested input values |
+| `security.max_input_depth` | — | `64` | Maximum input nesting depth |
 | `security.max_upload_size` | `STATAMIC_MCP_MAX_UPLOAD_SIZE` | `10485760` | Max upload size in bytes (10MB) |
-| `security.expose_versions` | `STATAMIC_MCP_EXPOSE_VERSIONS` | `false` | Include Statamic/Laravel versions in responses |
+| `security.expose_versions` | `STATAMIC_MCP_EXPOSE_VERSIONS` | `false` | Include Statamic/Laravel/PHP versions in `server/discover` only |
 | `security.max_token_lifetime_days` | `STATAMIC_MCP_MAX_TOKEN_LIFETIME` | `365` | Maximum token lifetime in days |
-| `security.tool_timeout_seconds` | `STATAMIC_MCP_TOOL_TIMEOUT` | `30` | Maximum execution time per tool call |
+| `security.tool_timeout_seconds` | `STATAMIC_MCP_TOOL_TIMEOUT` | `30` | Duration warning budget; does not interrupt PHP or turn completed writes into failures |
 | `security.max_response_size` | `STATAMIC_MCP_MAX_RESPONSE_SIZE` | `100000` | Largest tool response in bytes before it is refused; `0` disables the guard |
 | `security.reject_unknown_fields` | `STATAMIC_MCP_REJECT_UNKNOWN_FIELDS` | `true` | Refuse writes carrying keys that are not field handles inside a set, grid row or group |
 | `security.url_import.enabled` | `STATAMIC_MCP_URL_IMPORT_ENABLED` | `true` | Let `statamic-assets` upload fetch a file from a URL (`source_url`) |
@@ -82,6 +85,8 @@ Controls authentication enforcement, audit logging, and system hardening.
 ],
 ```
 
+Input budgets apply before field processing on HTTP and stdio. They do not replace HTTP body limits before JSON parsing. Keep `max_input_bytes` large enough for base64 expansion when raising `max_upload_size`; all three input limits must be positive.
+
 ### `max_response_size`
 
 The limit exists to protect the client's context window, not the server: the
@@ -89,6 +94,15 @@ response has already been built by the time it is measured. The right ceiling
 therefore depends on the client, which is why it is configurable. Setting it to
 `0` disables the guard entirely — reasonable for a client with a large context,
 but a tool call can then return an arbitrarily large payload.
+
+Lists shorten at whole-record boundaries and return `truncated` and `next_cursor`.
+An individually oversized record returns `TOO_LARGE`; use `get` with `fields`
+to read selected paths. Successful writes, including replays, return bounded
+receipts instead of turning the saved change into an error. Keep the ceiling
+large enough for an envelope, a cursor and at least one record; it is not an
+HTTP body limit. The blueprint read tool's Claude result-size hint follows this
+setting up to that client's 500,000-character cap; disabling the server limit
+does not disable the client's cap.
 
 ### `reject_unknown_fields`
 
@@ -136,14 +150,30 @@ the damage.
 
 ```php
 'cache' => [
-    'clear_stache_after_write' => env('STATAMIC_MCP_CLEAR_STACHE_AFTER_WRITE', true),
+    'stache_after_write' => env('STATAMIC_MCP_STACHE_AFTER_WRITE', 'repair'),
+    'static_after_write' => env('STATAMIC_MCP_STATIC_AFTER_WRITE'),
     'clear_static_after_write' => env('STATAMIC_MCP_CLEAR_STATIC_AFTER_WRITE', true),
 ],
 ```
 
-Turn either off if you would rather trade index freshness for speed on a large site and
-rely on your own invalidation rules. The `statamic-system` tool's `cache_clear` action is
-unaffected — that clear runs immediately, because it was asked for.
+`stache_after_write` is `repair` by default: the indexes a write leaves stale outside its
+own store (term usage, sibling order, URIs of a mounted collection, a changed collection's
+entry indexes, role membership) are brought up to date, and nothing else is rebuilt. A write
+costs what a Statamic save costs, however large the site. `clear` clears the whole Stache
+after every write, as 3.x did (about 1 ms per entry on the site); `none` leaves it alone.
+The 3.x switch `clear_stache_after_write => false` is still read as `none`.
+
+`static_after_write` selects `full` (clear after content writes), `statamic` (native
+invalidation rules only) or `refresh` (clear, then queue previously cached pages).
+When unset, `clear_static_after_write` selects `full` when true or `statamic` when false.
+Listing pages, globals and navigation render more than the record written: use native-only
+invalidation only when your rules cover those pages. Refresh needs an asynchronous
+`statamic.static_caching.warm_queue_connection` and a running worker; a stopped worker
+leaves pages uncached, not stale. Native `rules: all` avoids a duplicate flush when
+the cache is already empty, including checking actual HTML files for the file driver.
+See [search and cache](../tools/search-and-cache.md) for queue behavior and explicit
+maintenance. The `statamic-system-admin` tool's `cache_clear` action is unaffected:
+that clear runs immediately, because it was asked for.
 
 ### `url_import`
 
@@ -174,14 +204,14 @@ user cannot exercise grants nothing. Offering it still misleads: an editor who s
 "Write Users" on a consent screen reads it as something the client is about to do.
 
 With this on, the dashboard's scope picker, token creation and the OAuth consent screen
-offer only the scopes the user can exercise. `*`, `system:write` and the content-facade
+offer only the scopes the user can exercise. `*`, `system:admin` and the content-facade
 scopes are for super admins only. A scope is also withheld from everyone when the site
 has closed its domain — the tool switched off, or its resource allowlist set to `[]`.
 
 - Creating a token with an unavailable scope is refused with a 422 naming it.
-- Editing a token is capped by the token's **owner**, not by whoever edits it, and only
-  scopes being added are checked — a token minted before this setting existed keeps the
-  scopes it has and can still be renamed.
+- Editing a token is capped by its **owner** and, when someone else edits it, by
+  the editor too. Only scopes being added are checked — an older token can still
+  be renamed without gaining access.
 - An OAuth client asking for more than the user can hold is not an error: it is offered
   what the user can hold, and a request for `*` is narrowed to exactly that. Only a
   client asking for nothing the user has is refused with `invalid_scope`.
@@ -191,13 +221,15 @@ way.
 
 ## Resources
 
-The read-only surface: `statamic://blueprints` and friends.
+The read-only surface includes blueprint schemas, collection/site/fieldtype
+catalogs, and entry, collection, taxonomy and form records. See
+[resources and completions](../tools/overview.md#resources) for URI templates.
 
-These have their own switch because they used to share the tools' one. A site that keeps
-its content model in Git turns the blueprints *tool* off precisely because it can create
-and delete blueprints — and that also removed the only read-only way for an agent to
-learn a blueprint's fields, while the server's own instructions tell it to read the
-blueprint before every write.
+`resources.enabled` controls resources independently. Blueprint resources can
+remain readable when `tools.blueprints.enabled` is false, for sites that keep
+their content model in Git. Other resources read through their domain router
+and retain its tool toggle, profile, scopes, site and record permissions, field
+filtering and response-size limit.
 
 ```php
 'resources' => [
@@ -209,7 +241,7 @@ blueprint before every write.
 `require_statamic_permission` keeps the Statamic permission check (`configure fields`,
 `configure collections` or `configure taxonomies`) on top of the token scope and the
 resource-policy allowlist. It covers the read actions of the `statamic-blueprints` tool
-too (`list`, `get`, `scan`, `types`, `validate`), so the tool and the resources never
+too (including fieldset and fieldtype reads), so the tool and the resources never
 disagree about who may read a schema. Set it to `false` if your editors hold none of
 those and you would rather let the token scope you minted decide who may read schema.
 Writing a blueprint always requires `configure fields`.
@@ -218,29 +250,24 @@ Writing a blueprint always requires `configure fields`.
 
 Controls how the tool list is presented to a client when it connects.
 
-By default the catalog is **partial**. Only the tools a session usually opens with are
-listed — `statamic-entries`, `statamic-blueprints` and `statamic-system-discover`. The
-rest are reached through `search_tools` and `execute_tools`.
-
-The reason is token cost: the full catalog is roughly 31 KB of JSON schema that every
-client loads on every connection, before it has asked anything. Withholding the less-used
-tools cuts that to about 12.6 KB — a ~60% saving in the client's context window.
-
-Nothing is taken away. The hidden tools are fully available and fully gated — token
-scopes, resource policy, Statamic permissions and the confirmation gate all apply
-exactly as they do on a direct call. Only their schemas wait until a client asks.
+By default the catalog lists all permitted read and write/admin facets directly,
+plus `statamic-discover`. Token scopes and the installation profile filter what
+the caller sees; actual calls still check resource and native permissions.
 
 ```php
 'catalog' => [
-    'searchable' => env('STATAMIC_MCP_SEARCHABLE_CATALOG', true),
+    'searchable' => env('STATAMIC_MCP_SEARCHABLE_CATALOG', false),
 ],
 ```
 
-Set it to `false` if your MCP client handles `search_tools` poorly and you would rather
-it saw every tool listed directly:
+Set it to `true` for a client without its own tool search. The entries and
+blueprints facets and `statamic-discover` remain in the initial catalog; other
+tools use `search_tools` / `execute_tools`. All authorization still applies.
+The wrapper does not expose each invoked tool's read/write annotations, so
+client auto-approval rules are less precise than with direct facets.
 
 ```env
-STATAMIC_MCP_SEARCHABLE_CATALOG=false
+STATAMIC_MCP_SEARCHABLE_CATALOG=true
 ```
 
 ## Extra Tools
@@ -250,8 +277,8 @@ Tools from other packages, served next to the built-in ones. See
 
 ```php
 'extra_tools' => [
-    \Vendor\Package\Mcp\SiteHealthRouter::class,                              // via search_tools
-    ['class' => \Vendor\Package\Mcp\OtherRouter::class, 'searchable' => false], // listed at connect time
+    \Vendor\Package\Mcp\SiteHealthRouter::class,                              // searchable when catalog.searchable is on
+    ['class' => \Vendor\Package\Mcp\OtherRouter::class, 'searchable' => false], // always listed directly when permitted
 ],
 ```
 
@@ -293,9 +320,11 @@ Configure the OAuth 2.1 authorization server for browser-based MCP client regist
 | `oauth.code_ttl` | `STATAMIC_MCP_OAUTH_CODE_TTL` | `600` | Authorization code TTL in seconds (10 min) |
 | `oauth.client_ttl` | `STATAMIC_MCP_OAUTH_CLIENT_TTL` | `2592000` | Client registration TTL in seconds (30 days) |
 | `oauth.token_ttl` | `STATAMIC_MCP_OAUTH_TOKEN_TTL` | `604800` | Access token TTL in seconds (7 days) |
-| `oauth.refresh_token_ttl` | `STATAMIC_MCP_OAUTH_REFRESH_TOKEN_TTL` | `2592000` | Refresh token TTL in seconds (30 days) |
-| `oauth.default_scopes` | `STATAMIC_MCP_OAUTH_DEFAULT_SCOPES` | every `:read` scope | Comma-separated scopes offered when a client requests none |
+| `oauth.lock_store` | `STATAMIC_MCP_OAUTH_LOCK_STORE` | application default | Shared, lock-capable cache store for issuance and revocation |
+| `oauth.refresh_token_ttl` | `STATAMIC_MCP_OAUTH_REFRESH_TOKEN_TTL` | `2592000` | Maximum grant lifetime in seconds, including rotated successors (30 days) |
+| `oauth.default_scopes` | `STATAMIC_MCP_OAUTH_DEFAULT_SCOPES` | reads listed in the example below | Comma-separated scopes offered when a client requests none; not all read scopes |
 | `oauth.max_clients` | `STATAMIC_MCP_OAUTH_MAX_CLIENTS` | `50` | Maximum number of registered OAuth clients |
+| `oauth.unused_client_ttl` | `STATAMIC_MCP_OAUTH_UNUSED_CLIENT_TTL` | `86400` | Seconds after which a registered client that was never authorized is removed and stops counting toward `max_clients` |
 | `oauth.max_clients_per_ip` | `STATAMIC_MCP_OAUTH_MAX_CLIENTS_PER_IP` | `5` | Maximum client registrations per IP address |
 
 ```php
@@ -306,8 +335,9 @@ Configure the OAuth 2.1 authorization server for browser-based MCP client regist
     'client_ttl' => (int) env('STATAMIC_MCP_OAUTH_CLIENT_TTL', 2592000),
     'token_ttl' => (int) env('STATAMIC_MCP_OAUTH_TOKEN_TTL', 604800),
     'refresh_token_ttl' => (int) env('STATAMIC_MCP_OAUTH_REFRESH_TOKEN_TTL', 2592000),
-    'default_scopes' => array_filter(explode(',', env('STATAMIC_MCP_OAUTH_DEFAULT_SCOPES', 'content:read,blueprints:read,structures:read,entries:read,terms:read,globals:read,assets:read,system:read,content-facade:read'))),
+    'default_scopes' => array_filter(explode(',', env('STATAMIC_MCP_OAUTH_DEFAULT_SCOPES', 'blueprints:read,structures:read,entries:read,terms:read,globals:read,assets:read,system:read,content-facade:read'))),
     'max_clients' => (int) env('STATAMIC_MCP_OAUTH_MAX_CLIENTS', 50),
+    'unused_client_ttl' => (int) env('STATAMIC_MCP_OAUTH_UNUSED_CLIENT_TTL', 86400),
     'max_clients_per_ip' => (int) env('STATAMIC_MCP_OAUTH_MAX_CLIENTS_PER_IP', 5),
 ],
 ```
@@ -328,9 +358,43 @@ Configure which storage backends to use for tokens and audit logs. Swap to datab
 ],
 ```
 
-`FileTokenStore` keeps one YAML file per token in `storage.tokens_path`. Every authenticated request records `last_used_at`, so these files are written constantly. Writes replace a file whole (a temporary file renamed over it), so a concurrent request never reads a partial one, and every change to a token waits on one store-wide lock (`.mutation.lock` in the same directory), so recording a use can never undo a revoke, a regenerate or a scope change. Leave `.mutation.lock` in place; it is created again if it is removed while nothing holds it.
+`FileTokenStore` keeps one YAML file per token in `storage.tokens_path`.
+`last_used_at` writes are coalesced to at most once a minute per token, so the
+displayed timestamp is approximate. Invalid credentials do not repeatedly parse
+an unchanged token catalog, and an index hit is checked against the current
+token hash. Writes replace a file whole (a temporary file renamed over it), so a
+concurrent request never reads a partial one. Every mutation waits on the
+store-wide `.store.lock`, so recording a use cannot undo a revoke, regenerate
+or scope change. Leave that lock file in place.
+
+Restore token backups during maintenance: stop MCP traffic and workers, restore
+the YAML files, remove the derived `.index` and `.index.catalog` files from the
+token directory, then resume. Do not replace the live lock file. The catalog
+fingerprint uses file metadata, not a content hash: an in-place rewrite of the
+same length within the same filesystem timestamp second can be invisible.
+Use the token API for live changes; external writes do not acquire its lock.
 
 Both guarantees rely on `rename()` and `flock()` behaving as they do on a local disk. On NFS and other network filesystems they are not reliable. Use `DatabaseTokenStore` there, and whenever more than one server shares the token directory.
+
+## Activity and audit reads
+
+**Tools → MCP → Activity** shows only the signed-in user's calls. Its actor
+cannot be changed by a query parameter, even by an administrator. The separate
+admin activity log requires `view mcp audit log` and can filter by actor, tool
+and status. Filters apply before pagination and totals in both audit stores.
+
+File audit queries read complete records newest first from one fixed-size file
+snapshot without holding the writer lock, retaining only the requested page.
+Exact totals still scan that snapshot; this is not a constant-time indexed query.
+Reads cover the active log, capped at its last 50 MiB, not rotated archives.
+An incomplete tail is omitted until complete. Purge replaces the file atomically
+so an in-progress reader can finish its existing snapshot.
+
+`security.audit_logging` controls tool-call logging. Durable admission for
+registered writes is independent of that switch and lifecycle observers.
+Arguments are sanitized, but audit history is not an anonymous metrics feed:
+protect the store and configure retention for your site's requirements. See
+[lifecycle events](../extending/lifecycle-events.md) for metadata-only observation.
 
 ## Storage Paths
 
@@ -361,6 +425,7 @@ Quick reference for all `.env` variables:
 ```env
 # Web endpoint
 STATAMIC_MCP_WEB_ENABLED=true
+STATAMIC_MCP_HTTP_PROFILE=read_only
 STATAMIC_MCP_WEB_PATH="/mcp/statamic"
 STATAMIC_MCP_WEB_REQUIRE_HTTPS=true
 
@@ -382,19 +447,31 @@ STATAMIC_MCP_URL_IMPORT_TIMEOUT=15
 STATAMIC_MCP_URL_IMPORT_ALLOWED_HOSTS=
 STATAMIC_MCP_URL_IMPORT_BLOCK_PRIVATE_IPS=true
 
-# Confirmation flow
+# Approvals for gated actions (Tools → MCP → Approvals)
 # Unset auto-detects: on in production, off in local/dev/testing
 STATAMIC_MCP_CONFIRMATION_ENABLED=
-STATAMIC_MCP_CONFIRMATION_TTL=300
+STATAMIC_MCP_CONFIRMATION_TTL=900
+# Where a waiting approval is announced: auto, none, or a list of
+# mail, relay, cbox_id and your own classes (docs/extending/approval-channels.md)
+STATAMIC_MCP_APPROVAL_CHANNELS=auto
+STATAMIC_MCP_PROMOTE_CBOX=true
+STATAMIC_MCP_APPROVAL_RELAY_MAIL=true
+STATAMIC_MCP_APPROVAL_RELAY_PUSH=true
+STATAMIC_MCP_APPROVAL_RELAY_WEBHOOK=true
+STATAMIC_MCP_APPROVAL_CBOX_ID_FIELD=cbox_id
+STATAMIC_MCP_APPROVAL_CBOX_ID_SCOPE=openid
+STATAMIC_MCP_APPROVAL_CBOX_ID_RESOURCE=
 
 # Rate limiting
 STATAMIC_MCP_RATE_LIMIT_MAX=60
 
 # Tool catalog
-STATAMIC_MCP_SEARCHABLE_CATALOG=true
+STATAMIC_MCP_SEARCHABLE_CATALOG=false
 
 # Cache
-STATAMIC_MCP_CLEAR_STACHE_AFTER_WRITE=false
+STATAMIC_MCP_STACHE_AFTER_WRITE=repair
+# Optional: full, statamic or refresh; unset keeps the legacy switch below
+# STATAMIC_MCP_STATIC_AFTER_WRITE=full
 STATAMIC_MCP_CLEAR_STATIC_AFTER_WRITE=true
 
 # Resources
@@ -408,7 +485,7 @@ STATAMIC_MCP_OAUTH_CODE_TTL=600
 STATAMIC_MCP_OAUTH_CLIENT_TTL=2592000
 STATAMIC_MCP_OAUTH_TOKEN_TTL=604800
 STATAMIC_MCP_OAUTH_REFRESH_TOKEN_TTL=2592000
-STATAMIC_MCP_OAUTH_DEFAULT_SCOPES=content:read,blueprints:read,structures:read,entries:read,terms:read,globals:read,assets:read,system:read,content-facade:read
+STATAMIC_MCP_OAUTH_DEFAULT_SCOPES=blueprints:read,structures:read,entries:read,terms:read,globals:read,assets:read,system:read,content-facade:read
 STATAMIC_MCP_OAUTH_MAX_CLIENTS=50
 STATAMIC_MCP_OAUTH_MAX_CLIENTS_PER_IP=5
 
@@ -430,3 +507,60 @@ STATAMIC_MCP_TOOL_USERS_ENABLED=true
 STATAMIC_MCP_TOOL_SYSTEM_ENABLED=true
 STATAMIC_MCP_TOOL_CONTENT_FACADE_ENABLED=true
 ```
+
+## V4 installation profiles
+
+Set `profiles.http` and `profiles.stdio` separately. Missing or unknown values
+reject execution, including resource and prompt requests. An HTTP request cannot
+inherit the local stdio profile. Environment variables are
+`STATAMIC_MCP_HTTP_PROFILE` and `STATAMIC_MCP_STDIO_PROFILE`.
+
+- `read_only`: content/model reads; users, system diagnostics and unknown extension
+  domains are excluded. Existing scope, site and field restrictions still apply.
+- `editor`: the same reads plus entry creation with `data.published: false` and draft
+  updates. Omit the publication flag on updates; changing it to true is refused. Updates require an already unpublished localized entry. Live entries, publishing,
+  deletion and tree moves are refused. Working-copy editing is not enabled yet.
+- `operator`: permits the existing action surface, still subject to HTTP token,
+  Statamic permission, resource and confirmation checks. Stdio runs with the local
+  operator's authority; select this only for a trusted local client.
+
+Example for local administration: `STATAMIC_MCP_STDIO_PROFILE=operator`.
+Selecting a profile does not enable the HTTP endpoint by itself.
+
+### v4 input budgets
+
+`security.max_input_bytes` limits the complete JSON message on HTTP and stdio
+(default 16 MiB). The HTTP guard runs before Laravel's global JSON input
+transformations; stdio reads bounded chunks and assembles complete newline-delimited
+messages. An oversized stdio frame ends that connection, so its remaining bytes
+cannot be treated as another command. Reconnect before sending a smaller request.
+
+`security.max_input_values` (default 20,000; supported range 1–1,000,000) and
+`security.max_input_depth` (default 64; supported range 1–256) also bound decoded
+tool arguments. The raw JSON guard allows envelope overhead: twice the configured
+value count plus 32 lexical tokens, and eight extra nesting levels. Keys count
+as lexical tokens; text inside strings does not. Invalid limits fail closed.
+The byte budget includes the JSON envelope and base64 expansion. The defaults
+accommodate the default 10 MiB asset upload; raising the upload limit alone does
+not raise the input budget. Web-server and PHP limits can impose a lower ceiling.
+
+### v4 operation storage
+
+The registered-action executor uses `stores.operations`, defaulting to
+`FileOperationStore` under `storage.operations_path`. Set `operations.multi_node`
+to true on shared deployments and select `DatabaseOperationStore`; local files
+are rejected in that configuration. The file backend requires a local POSIX
+filesystem with working flock, atomic rename, file fsync and directory fsync.
+Do not use it on NFS or mix old/new workers during an upgrade.
+
+`operations.max_records` defaults to 256. Each serialized record is limited to
+3,000,000 bytes; the file backend may also retain one temporary recovery candidate
+per slot. Admission fails when full. `operations.retry_seconds` defaults to 3600
+and supports 60–86400 seconds. Retry an executed operation using its existing
+prepared handle. Never prepare a replacement merely because a response was lost.
+
+Schedule `php artisan mcp:prune-operations --limit=100` to remove expired records
+in bounded batches. Executing and unknown outcomes remain for manual investigation.
+After an interrupted file-store reservation, `php artisan mcp:repair-operation-capacity`
+can recount occupied slots. It does not resolve uncertain writes or remove orphan
+recovery candidates. The legacy MCP routers are not yet migrated to this executor.

@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Tests\Integration;
 
+use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
 use Cboxdk\StatamicMcp\Mcp\Exceptions\FieldFormatException;
+use Cboxdk\StatamicMcp\Mcp\Exceptions\ToolFailure;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseStatamicTool;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
@@ -31,7 +33,8 @@ class ClientSafeExceptionTest extends TestCase
         $result = $tool->execute([]);
 
         $this->assertFalse($result['success']);
-        $error = $result['error'] ?? ($result['errors'][0] ?? '');
+        $error = $result['error']['message'];
+        $this->assertSame('VALIDATION', $result['error']['code']);
         $this->assertIsString($error);
         $this->assertStringContainsString(
             'Field [page_builder.0] expects replicator data as an array',
@@ -51,11 +54,22 @@ class ClientSafeExceptionTest extends TestCase
         $result = $tool->execute([]);
 
         $this->assertFalse($result['success']);
-        $error = $result['error'] ?? ($result['errors'][0] ?? '');
+        $error = $result['error']['message'];
+        $this->assertSame('INTERNAL', $result['error']['code']);
         $this->assertIsString($error);
         $this->assertStringNotContainsString('Internal database path', $error);
         $this->assertStringNotContainsString('secret-cred-cache', $error);
         $this->assertStringContainsString('An error occurred', $error);
+    }
+
+    public function test_uncertain_writes_keep_their_reconciliation_instruction_in_production(): void
+    {
+        $this->app['env'] = 'production';
+        $tool = new ThrowingTool(new ToolFailure(ErrorCode::OutcomeUnknown, 'Read the navigation before retrying.'));
+        $result = $tool->execute([]);
+        $this->assertFalse($result['success']);
+        $this->assertSame('OUTCOME_UNKNOWN', $result['error']['code']);
+        $this->assertStringContainsString('Read the navigation before retrying.', $result['error']['message']);
     }
 
     public function test_unrelated_type_error_is_genericised_in_production(): void
@@ -69,7 +83,8 @@ class ClientSafeExceptionTest extends TestCase
         $result = $tool->execute([]);
 
         $this->assertFalse($result['success']);
-        $error = $result['error'] ?? ($result['errors'][0] ?? '');
+        $error = $result['error']['message'];
+        $this->assertSame('INTERNAL', $result['error']['code']);
         $this->assertIsString($error);
         $this->assertStringNotContainsString('vendor/statamic', $error);
         $this->assertStringContainsString('An error occurred', $error);
@@ -83,7 +98,7 @@ class ClientSafeExceptionTest extends TestCase
 
         $result = $tool->execute([]);
 
-        $error = $result['error'] ?? ($result['errors'][0] ?? '');
+        $error = $result['error']['message'];
         $this->assertStringContainsString('field [foo] expects bard data', is_string($error) ? $error : '');
     }
 }

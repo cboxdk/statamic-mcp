@@ -46,7 +46,7 @@ class TermsRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Taxonomy handle is required', $result['errors'][0]);
+        $this->assertStringContainsString('The list action needs taxonomy', $result['errors'][0]);
     }
 
     public function test_nonexistent_taxonomy_returns_error(): void
@@ -62,6 +62,28 @@ class TermsRouterTest extends TestCase
 
     // ─── List action ───────────────────────────────────────────────────
 
+    public function test_sort_is_stable_across_pages_and_refuses_hidden_or_unknown_fields(): void
+    {
+        foreach (['c' => 'Alpha', 'b' => 'Zulu', 'a' => 'Zulu'] as $slug => $title) {
+            Term::make()->taxonomy($this->taxonomyHandle)->slug($slug)->data(['title' => $title])->save();
+        }
+        $call = ['action' => 'list', 'taxonomy' => $this->taxonomyHandle, 'sort' => 'title:desc', 'limit' => 1];
+        $slugs = [];
+        do {
+            $result = $this->router->execute($call);
+            $this->assertTrue($result['success'], json_encode($result));
+            $slugs[] = $result['data']['items'][0]['slug'];
+            $call['cursor'] = $result['data']['next_cursor'];
+        } while ($call['cursor'] !== null);
+        $this->assertSame(['a', 'b', 'c'], $slugs);
+
+        config(['statamic.mcp.tools.terms.denied_fields' => ['title']]);
+        foreach (['title:asc', 'unknown:desc', 'id:sideways'] as $sort) {
+            $result = $this->router->execute(['action' => 'list', 'taxonomy' => $this->taxonomyHandle, 'sort' => $sort]);
+            $this->assertFalse($result['success'], $sort);
+        }
+    }
+
     public function test_list_terms_empty(): void
     {
         $result = $this->router->execute([
@@ -70,9 +92,9 @@ class TermsRouterTest extends TestCase
         ]);
 
         $this->assertTrue($result['success']);
-        $this->assertEmpty($result['data']['terms']);
-        $this->assertEquals(0, $result['data']['pagination']['total']);
-        $this->assertFalse($result['data']['pagination']['has_more']);
+        $this->assertEmpty($result['data']['items']);
+        $this->assertEquals(0, $result['data']['total']);
+        $this->assertNull($result['data']['next_cursor']);
     }
 
     public function test_list_terms_with_pagination(): void
@@ -89,18 +111,17 @@ class TermsRouterTest extends TestCase
             'action' => 'list',
             'taxonomy' => $this->taxonomyHandle,
             'limit' => 2,
-            'offset' => 0,
         ]);
 
         $this->assertTrue($result['success']);
-        $this->assertCount(2, $result['data']['terms']);
-        $this->assertEquals(5, $result['data']['pagination']['total']);
-        $this->assertTrue($result['data']['pagination']['has_more']);
+        $this->assertCount(2, $result['data']['items']);
+        $this->assertEquals(5, $result['data']['total']);
+        $this->assertIsString($result['data']['next_cursor']);
     }
 
-    public function test_list_terms_with_offset(): void
+    public function test_list_terms_with_cursor(): void
     {
-        for ($i = 1; $i <= 5; $i++) {
+        foreach ([5, 2, 4, 1, 3] as $i) {
             Term::make()
                 ->taxonomy($this->taxonomyHandle)
                 ->slug("offset-{$i}-{$this->testId}")
@@ -108,16 +129,22 @@ class TermsRouterTest extends TestCase
                 ->save();
         }
 
-        $result = $this->router->execute([
+        $arguments = [
             'action' => 'list',
             'taxonomy' => $this->taxonomyHandle,
             'limit' => 2,
-            'offset' => 4,
-        ]);
+        ];
+        $titles = [];
+        do {
+            $result = $this->router->execute($arguments);
+            $this->assertTrue($result['success'], json_encode($result));
+            $titles = [...$titles, ...array_column($result['data']['items'], 'title')];
+            $arguments['cursor'] = $result['data']['next_cursor'];
+            $this->assertLessThanOrEqual(5, count($titles));
+        } while ($arguments['cursor'] !== null);
 
-        $this->assertTrue($result['success']);
-        $this->assertCount(1, $result['data']['terms']);
-        $this->assertFalse($result['data']['pagination']['has_more']);
+        $this->assertSame(['Offset Term 1', 'Offset Term 2', 'Offset Term 3', 'Offset Term 4', 'Offset Term 5'], $titles);
+        $this->assertCount(1, $result['data']['items']);
     }
 
     public function test_list_terms_returns_correct_structure(): void
@@ -134,12 +161,12 @@ class TermsRouterTest extends TestCase
         ]);
 
         $this->assertTrue($result['success']);
-        $this->assertArrayHasKey('terms', $result['data']);
-        $this->assertArrayHasKey('pagination', $result['data']);
+        $this->assertArrayHasKey('items', $result['data']);
+        $this->assertArrayHasKey('next_cursor', $result['data']);
         $this->assertArrayHasKey('taxonomy', $result['data']);
         $this->assertArrayHasKey('site', $result['data']);
 
-        $term = $result['data']['terms'][0];
+        $term = $result['data']['items'][0];
         $this->assertArrayHasKey('id', $term);
         $this->assertArrayHasKey('slug', $term);
         $this->assertArrayHasKey('title', $term);
@@ -196,7 +223,7 @@ class TermsRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Term ID or slug is required', $result['errors'][0]);
+        $this->assertStringContainsString('needs id or slug', $result['errors'][0]);
     }
 
     public function test_get_nonexistent_term_returns_error(): void
@@ -286,7 +313,7 @@ class TermsRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Data is required', $result['errors'][0]);
+        $this->assertStringContainsString('The create action needs data', $result['errors'][0]);
     }
 
     public function test_create_term_generates_slug_from_title(): void
@@ -371,7 +398,7 @@ class TermsRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Term ID or slug is required', $result['errors'][0]);
+        $this->assertStringContainsString('needs id or slug', $result['errors'][0]);
     }
 
     // ─── Delete action ─────────────────────────────────────────────────
@@ -404,7 +431,7 @@ class TermsRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Term ID or slug is required', $result['errors'][0]);
+        $this->assertStringContainsString('needs id or slug', $result['errors'][0]);
     }
 
     public function test_delete_nonexistent_term_returns_error(): void
@@ -469,7 +496,7 @@ class TermsRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('not supported', $result['errors'][0]);
+        $this->assertStringContainsString("Unknown action 'nonexistent_action'. Use one of: list, get, create, update, delete.", $result['errors'][0]);
     }
 
     // ─── Site validation ───────────────────────────────────────────────

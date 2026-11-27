@@ -16,16 +16,16 @@ use Statamic\Facades\Taxonomy;
 class StructuresListPolicyTest extends TestCase
 {
     /**
-     * @return array<string, array{string, string}>
+     * @return array<string, array{string}>
      */
     public static function structureTypes(): array
     {
         return [
-            'collections' => ['collection', 'collections'],
-            'taxonomies' => ['taxonomy', 'taxonomies'],
-            'navigations' => ['navigation', 'navigations'],
-            'global sets' => ['globalset', 'globalsets'],
-            'sites' => ['site', 'sites'],
+            'collections' => ['collection'],
+            'taxonomies' => ['taxonomy'],
+            'navigations' => ['navigation'],
+            'global sets' => ['globalset'],
+            'sites' => ['site'],
         ];
     }
 
@@ -54,7 +54,7 @@ class StructuresListPolicyTest extends TestCase
     }
 
     #[DataProvider('structureTypes')]
-    public function test_lists_only_include_resources_allowed_by_the_read_policy(string $type, string $key): void
+    public function test_lists_only_include_resources_allowed_by_the_read_policy(string $type): void
     {
         $this->createStructures($type);
         config(['statamic.mcp.tools.structures.resources.read' => ['visible_*']]);
@@ -65,7 +65,7 @@ class StructuresListPolicyTest extends TestCase
         ]);
 
         $this->assertTrue($result['success'], json_encode($result));
-        $this->assertEqualsCanonicalizing(['visible_one', 'visible_two'], array_column($result['data'][$key], 'handle'));
+        $this->assertEqualsCanonicalizing(['visible_one', 'visible_two'], array_column($result['data']['items'], 'handle'));
 
         if ($type === 'site') {
             $this->assertNull($result['data']['default']);
@@ -75,7 +75,7 @@ class StructuresListPolicyTest extends TestCase
     }
 
     #[DataProvider('structureTypes')]
-    public function test_an_empty_read_policy_returns_no_structures(string $type, string $key): void
+    public function test_an_empty_read_policy_returns_no_structures(string $type): void
     {
         $this->createStructures($type);
         config(['statamic.mcp.tools.structures.resources.read' => []]);
@@ -86,7 +86,7 @@ class StructuresListPolicyTest extends TestCase
         ]);
 
         $this->assertTrue($result['success'], json_encode($result));
-        $this->assertSame([], $result['data'][$key]);
+        $this->assertSame([], $result['data']['items']);
 
         if ($type === 'site') {
             $this->assertNull($result['data']['default']);
@@ -96,7 +96,7 @@ class StructuresListPolicyTest extends TestCase
     }
 
     #[DataProvider('structureTypes')]
-    public function test_a_wildcard_read_policy_preserves_the_complete_list(string $type, string $key): void
+    public function test_a_wildcard_read_policy_preserves_the_complete_list(string $type): void
     {
         $this->createStructures($type);
         config(['statamic.mcp.tools.structures.resources.read' => ['*']]);
@@ -109,7 +109,7 @@ class StructuresListPolicyTest extends TestCase
         $this->assertTrue($result['success'], json_encode($result));
         $this->assertEqualsCanonicalizing(
             ['hidden_first', 'visible_one', 'visible_two'],
-            array_column($result['data'][$key], 'handle'),
+            array_column($result['data']['items'], 'handle'),
         );
 
         if ($type === 'site') {
@@ -119,35 +119,25 @@ class StructuresListPolicyTest extends TestCase
         }
     }
 
-    public function test_collection_and_taxonomy_pagination_counts_only_allowed_resources(): void
+    #[DataProvider('structureTypes')]
+    public function test_pagination_counts_only_allowed_resources(string $type): void
     {
         config(['statamic.mcp.tools.structures.resources.read' => ['visible_*']]);
+        $this->createStructures($type);
+        $seen = [];
+        $arguments = ['action' => 'list', 'resource_type' => $type, 'limit' => 1];
 
-        foreach (['collection' => 'collections', 'taxonomy' => 'taxonomies'] as $type => $key) {
-            $this->createStructures($type);
-            $seen = [];
-
-            foreach ([0, 1] as $offset) {
-                $result = (new StructuresRouter)->execute([
-                    'action' => 'list',
-                    'resource_type' => $type,
-                    'limit' => 1,
-                    'offset' => $offset,
-                ]);
-
-                $this->assertTrue($result['success'], json_encode($result));
-                $this->assertCount(1, $result['data'][$key]);
-                $this->assertSame(2, $result['data']['total']);
-                $this->assertSame([
-                    'total' => 2,
-                    'limit' => 1,
-                    'offset' => $offset,
-                    'has_more' => $offset === 0,
-                ], $result['data']['pagination']);
-                $seen[] = $result['data'][$key][0]['handle'];
-            }
-
-            $this->assertEqualsCanonicalizing(['visible_one', 'visible_two'], $seen);
+        foreach ([0, 1] as $page) {
+            $result = (new StructuresRouter)->execute($arguments);
+            $this->assertTrue($result['success'], json_encode($result));
+            $this->assertCount(1, $result['data']['items']);
+            $this->assertSame(2, $result['data']['total']);
+            $this->assertSame($page === 0, is_string($result['data']['next_cursor']));
+            $arguments['cursor'] = $result['data']['next_cursor'];
+            $seen[] = $result['data']['items'][0]['handle'];
         }
+
+        $this->assertSame(['visible_one', 'visible_two'], $seen);
+        $this->assertNull($arguments['cursor']);
     }
 }

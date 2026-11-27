@@ -5,7 +5,12 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
+use Cboxdk\StatamicMcp\Auth\TokenScope;
+use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
+use Cboxdk\StatamicMcp\Mcp\Exceptions\ToolFailure;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ChecksResourceVersions;
+use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesCollections;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesGlobalSets;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesNavigations;
@@ -13,21 +18,30 @@ use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesSites;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesTaxonomies;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
-use Illuminate\Validation\ValidationException;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Attributes\Title;
 
 #[Name('statamic-structures')]
 #[Title('Statamic Structures')]
-#[Description('Manage Statamic structural resources: collections, taxonomies, navigations, sites, and global sets. Use resource_type to select the kind, then action for the operation. Actions: list, get, create, update, delete, configure.')]
+#[Description('Statamic structures: collections, taxonomies, navigations, sites and global sets, their settings, and the page and menu trees.')]
 class StructuresRouter extends BaseRouter
 {
+    use ChecksResourceVersions;
     use HandlesCollections;
     use HandlesGlobalSets;
     use HandlesNavigations;
     use HandlesSites;
     use HandlesTaxonomies;
+
+    protected function additionalTokenScopes(string $action, array $arguments): array
+    {
+        if ($action === 'get' && ($arguments['resource_type'] ?? '') === 'collection' && ! empty($arguments['include_tree'])) {
+            return [TokenScope::EntriesRead];
+        }
+
+        return $action === 'move' ? [TokenScope::EntriesWrite] : [];
+    }
 
     protected function filterInputFields(array $arguments): array
     {
@@ -35,7 +49,7 @@ class StructuresRouter extends BaseRouter
         if (($arguments['resource_type'] ?? '') === 'collection' && (array_key_exists('entry', $data) || array_key_exists('parent', $data))) {
             foreach (['entries', 'structures'] as $domain) {
                 if (array_intersect(['entry', 'parent'], app(ResourcePolicy::class)->getDeniedFields($domain))) {
-                    throw ValidationException::withMessages(['parent' => 'Tree changes are denied by resource policy.']);
+                    throw new ToolFailure(ErrorCode::Forbidden, 'Tree changes are denied by resource policy.', 'parent');
                 }
             }
         }
@@ -48,15 +62,17 @@ class StructuresRouter extends BaseRouter
         return 'structures';
     }
 
-    public function getActions(): array
+    protected function actions(): array
     {
+        $writable = ['collection', 'taxonomy', 'navigation', 'globalset'];
+
         return [
-            'list' => 'List structures by type with configuration details',
-            'get' => 'Get specific structure configuration and details',
-            'create' => 'Create new structures with configuration',
-            'update' => 'Update structure configuration and settings',
-            'delete' => 'Delete structures with safety checks',
-            'configure' => 'Configure structure-specific settings and options',
+            RouterAction::read('list', 'List collections, taxonomies, navigations, sites or global sets', optional: ['include_details', 'limit', 'cursor']),
+            RouterAction::read('get', 'Get one structure\'s configuration; for a collection, include_tree and site read its page tree', needs: ['handle'], optional: ['include_tree', 'include_counts', 'site', 'fields']),
+            RouterAction::admin('create', 'Create a collection, taxonomy, navigation or global set; data holds its settings', $writable, needs: ['handle'], optional: ['data']),
+            RouterAction::admin('update', 'Update a structure\'s settings. A navigation\'s data may carry its trees; collection trees are changed with move', $writable, needs: ['handle', 'data']),
+            RouterAction::admin('move', 'Move one collection page and its descendants using data {entry, parent}; parent is an entry id or null for the top level', ['collection'], needs: ['handle', 'data'], optional: ['site']),
+            RouterAction::admin('delete', 'Delete a structure; its content must be deleted first', $writable, needs: ['handle']),
         ];
     }
 
@@ -74,38 +90,23 @@ class StructuresRouter extends BaseRouter
     protected function defineSchema(JsonSchemaContract $schema): array
     {
         return array_merge(parent::defineSchema($schema), [
-            'action' => JsonSchema::string()
-                ->description(
-                    'Action to perform. Required params per action: '
-                    . 'list (resource_type), '
-                    . 'get (resource_type, handle), '
-                    . 'create (resource_type, handle, data), '
-                    . 'update (resource_type, handle, data), '
-                    . 'delete (resource_type, handle), '
-                    . 'configure (resource_type, handle, config)'
-                )
-                ->enum(['list', 'get', 'create', 'update', 'delete', 'configure'])
-                ->required(),
-            'resource_type' => JsonSchema::string()
-                ->description('Type of structure to manage. Determines available actions and data format.')
-                ->enum(['collection', 'taxonomy', 'navigation', 'site', 'globalset'])
-                ->required(),
             'handle' => JsonSchema::string()
-                ->description('Structure identifier in snake_case. Required for get, create, update, delete, configure. Example: "blog" for collection, "tags" for taxonomy'),
+                ->description('Structure identifier in snake_case. Required for get, create, update, move, delete. Example: "blog" for collection, "tags" for taxonomy'),
             'data' => JsonSchema::object()
-                ->description('Structure data for create/update. Fields depend on resource_type. Use statamic-structures action "get" to see current configuration before updating. '
+                ->description('Structure data for create/update. Fields depend on resource_type. Action get on the read tool shows the current configuration. '
                     . 'Navigation: title, max_depth, collections, and the menu itself as trees — the same [{site, items}] list "get" returns, so edit it and send it back — '
                     . 'or tree (a list of items) with an optional site. Each item is {id?, entry? | url? | title?, data?, children?}; an item without an id gets one. '
-                    . 'A tree replaces the whole menu for its site. Unknown keys are refused. Collection: update with data {entry: id, parent: id|null} moves one branch; requires reorder permission and both entries:write and structures:write. Collection tree replacement is not supported.'),
+                    . 'A tree replaces the whole menu for its site. Unknown keys are refused. Collection: move with data {entry: id, parent: id|null} moves one branch; requires reorder permission and both entries:write and structures:admin. Collection update changes settings only; tree replacement is not supported.'),
             'site' => JsonSchema::string()->description('Collection site for tree reads and moves; defaults to the default site.'),
             'include_tree' => JsonSchema::boolean()->description('On collection get, include the selected site tree. Requires entries:read and structures:read.'),
-            'config' => JsonSchema::object()
-                ->description('Settings for configure on collections, taxonomies, navigations, and global sets. Use action "get" to inspect current configuration. '
-                    . 'Navigation accepts the settings and trees described under data; config takes precedence, with data used only when config is omitted.'),
+            'include_counts' => JsonSchema::boolean()
+                ->description('On collection get, include how many entries it holds. Default: false'),
+            'limit' => JsonSchema::integer()
+                ->description('Maximum results to return (default: 50, max: 500)'),
+            'cursor' => JsonSchema::string()
+                ->description('next_cursor from the previous page. Keep the other arguments unchanged. Omit to start again.'),
             'include_details' => JsonSchema::boolean()
                 ->description('Include detailed configuration and statistics in response'),
-            'filters' => JsonSchema::object()
-                ->description('Filter conditions for list operations'),
         ]);
     }
 
@@ -155,8 +156,7 @@ class StructuresRouter extends BaseRouter
             if ($action === 'list') {
                 return []; // Each collection is filtered by policy and view permission.
             }
-            $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
-            if ($action === 'update' && $handle !== '' && (array_key_exists('entry', $data) || array_key_exists('parent', $data))) {
+            if ($action === 'move' && $handle !== '') {
                 return [['configure collections', "reorder {$handle} entries"]];
             }
             if ($action === 'get' && $handle !== '') {
@@ -176,7 +176,7 @@ class StructuresRouter extends BaseRouter
             return match ($action) {
                 'list' => ['configure navs'],
                 'get' => $handle !== '' ? ["view {$handle} nav"] : ['configure navs'],
-                'update', 'configure' => $handle !== '' ? ["edit {$handle} nav"] : ['configure navs'],
+                'update' => $handle !== '' ? ["edit {$handle} nav"] : ['configure navs'],
                 'create', 'delete' => ['configure navs'],
                 default => ['super'],
             };
@@ -194,28 +194,18 @@ class StructuresRouter extends BaseRouter
     }
 
     /**
-     * The resource policy must see the same resource the action acts on, which
-     * is the top-level handle except on create. Create prefers a string
-     * data.handle, after denied fields have been removed, just as its handler
-     * does. The default resolver tries `collection`/`taxonomy`/`container`
-     * first, so an unrelated extra key — e.g. a permitted `collection` alongside
-     * a denied `handle` — could satisfy the policy for a resource the handler
-     * never touches.
+     * The resource policy must see the resource the action acts on, which in
+     * v4 is always `handle`, a create's new handle included: data.handle may
+     * only repeat it. v3 let a create's data.handle win, so the policy and the
+     * handler could each read a different name. The default resolver tries
+     * `collection`/`taxonomy`/`container` first, so pinning `handle` also keeps
+     * an unrelated allowed key from satisfying the policy.
      *
      * @param  array<string, mixed>  $arguments
      */
     protected function resolveResourceHandle(array $arguments): ?string
     {
         $raw = $arguments['handle'] ?? null;
-
-        if (($arguments['action'] ?? null) === 'create') {
-            $arguments = $this->filterInputFields($arguments);
-            $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
-
-            if (is_string($data['handle'] ?? null)) {
-                $raw = $data['handle'];
-            }
-        }
 
         return is_string($raw) && $raw !== '' ? $raw : null;
     }

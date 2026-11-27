@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
+use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ValidatesContentRecords;
+use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
 use Cboxdk\StatamicMcp\Mcp\Validation\Finding;
 use Cboxdk\StatamicMcp\Mcp\Validation\FindingType;
 use Cboxdk\StatamicMcp\Mcp\Validation\RecordRef;
@@ -34,7 +36,7 @@ use Statamic\Stache\Query\TermQueryBuilder;
 
 #[Name('statamic-content-facade')]
 #[Title('Statamic Content Analysis')]
-#[Description('High-level content analysis workflows spanning all content types. Workflows: content_audit reports content volume and coverage gaps; content_validate checks stored content against its blueprints and reports schema drift; cross_reference analyzes relationships and dependencies between content types.')]
+#[Description('Statamic content analysis across collections, taxonomies and globals: volume and coverage, stored content that no longer matches its blueprint, and references to records that no longer exist.')]
 class ContentFacadeRouter extends BaseRouter
 {
     use ValidatesContentRecords;
@@ -44,44 +46,38 @@ class ContentFacadeRouter extends BaseRouter
         return 'content-facade';
     }
 
-    public function getActions(): array
+    protected function actions(): array
     {
         return [
-            'content_audit' => 'Scan all content for issues across collections, taxonomies, and globals',
-            'content_validate' => 'Validate stored content against its blueprints and report schema drift',
-            'cross_reference' => 'Analyze relationships and dependencies between content types',
+            RouterAction::read('content_audit', 'Report content volume and coverage gaps across collections, taxonomies and globals', optional: []),
+            RouterAction::read('content_validate', 'Check stored content against its blueprints and report drift', optional: ['scope', 'collection', 'taxonomy', 'severity', 'limit', 'cursor', 'max_findings']),
+            RouterAction::read('cross_reference', 'Map relationships between content types and find references to records that no longer exist', optional: []),
         ];
     }
 
     public function getTypes(): array
     {
-        return [
-            'ContentAudit' => 'Result of content audit workflow',
-            'ContentValidation' => 'Result of content validation sweep',
-            'CrossReference' => 'Result of cross-reference analysis',
-        ];
+        return [];
     }
 
     protected function defineSchema(JsonSchemaContract $schema): array
     {
         return array_merge(parent::defineSchema($schema), [
-            'filters' => JsonSchema::object()
-                ->description('Optional filter conditions to narrow the workflow scope'),
             'scope' => JsonSchema::string()
-                ->description('content_validate: which record types to sweep. Defaults to all.')
+                ->description('which record types to sweep. Defaults to all.')
                 ->enum(['all', ...RecordType::scopes()]),
             'collection' => JsonSchema::string()
-                ->description('content_validate: restrict the entry sweep to one collection handle'),
+                ->description('restrict the entry sweep to one collection handle'),
             'taxonomy' => JsonSchema::string()
-                ->description('content_validate: restrict the term sweep to one taxonomy handle'),
+                ->description('restrict the term sweep to one taxonomy handle'),
             'limit' => JsonSchema::integer()
-                ->description('content_validate: how many records to scan in this call (default 100, max 500)'),
-            'offset' => JsonSchema::integer()
-                ->description('content_validate: record offset, for paging through a large site'),
+                ->description('how many records to scan in this call (default 100, max 500)'),
+            'cursor' => JsonSchema::string()
+                ->description('next_cursor from the previous scan. Keep the other arguments unchanged. Omit to start again.'),
             'max_findings' => JsonSchema::integer()
-                ->description('content_validate: cap on findings returned per call (default 200, max 2000). Counts stay accurate when findings are truncated.'),
+                ->description('cap on findings returned per call (default 200, max 2000). Counts stay accurate when findings are truncated.'),
             'severity' => JsonSchema::string()
-                ->description('content_validate: only return findings at this severity')
+                ->description('only return findings at this severity')
                 ->enum(['error', 'warning']),
         ]);
     }
@@ -145,143 +141,102 @@ class ContentFacadeRouter extends BaseRouter
             ],
             'recommendations' => [],
         ];
-
-        try {
-            // Collect all collection metadata first
-            /** @var iterable<\Statamic\Contracts\Entries\Collection> $collections */
-            $collections = Collection::all();
-
-            /** @var array<string, array{title: string, entry_count: int, published_count: int}> $collectionData */
-            $collectionData = [];
-            foreach ($collections as $collection) {
-                if (! in_array((string) $collection->handle(), $this->readableCollectionHandles(), true)) {
-                    continue;
-                }
-                $collectionData[$collection->handle()] = [
-                    'title' => $collection->title(),
-                    'entry_count' => 0,
-                    'published_count' => 0,
-                ];
+        // Collect all collection metadata first
+        /** @var iterable<\Statamic\Contracts\Entries\Collection> $collections */
+        $collections = Collection::all();
+        /** @var array<string, array{title: string, entry_count: int, published_count: int}> $collectionData */
+        $collectionData = [];
+        foreach ($collections as $collection) {
+            if (! in_array((string) $collection->handle(), $this->readableCollectionHandles(), true)) {
+                continue;
             }
-
-            // Single pass over all entries instead of per-collection queries
-            $allEntries = Entry::query()->get();
-            foreach ($allEntries as $entry) {
-                /** @var \Statamic\Contracts\Entries\Entry $entry */
-                $col = $entry->collectionHandle();
-                if (isset($collectionData[$col])) {
-                    $collectionData[$col]['entry_count']++;
-                    if ($entry->published()) {
-                        $collectionData[$col]['published_count']++;
-                    }
-                }
-            }
-
-            // Build collection details from aggregated data
-            foreach ($collectionData as $handle => $data) {
-                $results['summary']['total_entries'] += $data['entry_count'];
-                $results['details']['collections'][] = [
-                    'handle' => $handle,
-                    'title' => $data['title'],
-                    'entry_count' => $data['entry_count'],
-                    'published_count' => $data['published_count'],
-                ];
-            }
-
-            // Audit terms — single query over all terms
-            /** @var iterable<\Statamic\Contracts\Taxonomies\Taxonomy> $taxonomies */
-            $taxonomies = Taxonomy::all();
-
-            /** @var array<string, array{title: string, term_count: int}> $taxonomyData */
-            $taxonomyData = [];
-            foreach ($taxonomies as $taxonomy) {
-                if (! in_array((string) $taxonomy->handle(), $this->readableTaxonomyHandles(), true)) {
-                    continue;
-                }
-                $taxonomyData[$taxonomy->handle()] = [
-                    'title' => $taxonomy->title(),
-                    'term_count' => 0,
-                ];
-            }
-
-            $allTerms = Term::query()->get();
-            foreach ($allTerms as $term) {
-                $tax = $term->taxonomyHandle();
-                if (isset($taxonomyData[$tax])) {
-                    $taxonomyData[$tax]['term_count']++;
-                }
-            }
-
-            foreach ($taxonomyData as $handle => $data) {
-                $results['summary']['total_terms'] += $data['term_count'];
-                $results['details']['taxonomies'][] = [
-                    'handle' => $handle,
-                    'title' => $data['title'],
-                    'term_count' => $data['term_count'],
-                ];
-            }
-
-            // Audit globals
-            /** @var \Illuminate\Support\Collection<int, \Statamic\Contracts\Globals\GlobalSet> $globalSets */
-            $globalSets = GlobalSet::all();
-            $results['summary']['total_globals'] = $globalSets->count();
-
-            /** @var \Statamic\Sites\Site $defaultSite */
-            $defaultSite = Site::default();
-            foreach ($globalSets as $globalSet) {
-                /** @var \Statamic\Contracts\Globals\GlobalSet $globalSet */
-                if (! $this->globalIsReadable((string) $globalSet->handle())) {
-                    continue;
-                }
-                $hasValues = $globalSet->in($defaultSite->handle())->data()->isNotEmpty();
-                $results['details']['globals'][] = [
-                    'handle' => $globalSet->handle(),
-                    'title' => $globalSet->title(),
-                    'has_values' => $hasValues,
-                ];
-            }
-
-            // Quality checks — detect real issues
-            $issues = 0;
-
-            foreach ($results['details']['collections'] as $col) {
-                if ($col['entry_count'] === 0) {
-                    $issues++;
-                    $results['recommendations'][] = "Collection '{$col['handle']}' has no entries";
-                } elseif ($col['published_count'] === 0) {
-                    $issues++;
-                    $results['recommendations'][] = "Collection '{$col['handle']}' has entries but none are published";
-                }
-            }
-
-            foreach ($results['details']['taxonomies'] as $tax) {
-                if ($tax['term_count'] === 0) {
-                    $issues++;
-                    $results['recommendations'][] = "Taxonomy '{$tax['handle']}' has no terms";
-                }
-            }
-
-            foreach ($results['details']['globals'] as $global) {
-                if (! $global['has_values']) {
-                    $issues++;
-                    $results['recommendations'][] = "Global set '{$global['handle']}' has no values set";
-                }
-            }
-
-            $results['summary']['issues_found'] = $issues;
-
-            // Calculate quality score
-            $totalContent = $results['summary']['total_entries'] + $results['summary']['total_terms'] + $results['summary']['total_globals'];
-            $results['summary']['quality_score'] = $totalContent > 0 ? max(0, round(100 - ($issues / max($totalContent, 1) * 100))) : 100;
-
-            $results['completed'] = true;
-            $results['message'] = 'Content audit completed successfully';
-
-            return $results;
-
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Content audit workflow failed: {$e->getMessage()}")->toArray();
+            $collectionData[$collection->handle()] = [
+                'title' => $collection->title(),
+                'entry_count' => Entry::query()->where('collection', $collection->handle())->count(),
+                'published_count' => Entry::query()->where('collection', $collection->handle())->where('published', true)->count(),
+            ];
         }
+        // Build collection details from aggregated data
+        foreach ($collectionData as $handle => $data) {
+            $results['summary']['total_entries'] += $data['entry_count'];
+            $results['details']['collections'][] = [
+                'handle' => $handle,
+                'title' => $data['title'],
+                'entry_count' => $data['entry_count'],
+                'published_count' => $data['published_count'],
+            ];
+        }
+        // Audit terms — single query over all terms
+        /** @var iterable<\Statamic\Contracts\Taxonomies\Taxonomy> $taxonomies */
+        $taxonomies = Taxonomy::all();
+        /** @var array<string, array{title: string, term_count: int}> $taxonomyData */
+        $taxonomyData = [];
+        foreach ($taxonomies as $taxonomy) {
+            if (! in_array((string) $taxonomy->handle(), $this->readableTaxonomyHandles(), true)) {
+                continue;
+            }
+            $taxonomyData[$taxonomy->handle()] = [
+                'title' => $taxonomy->title(),
+                'term_count' => Term::query()->where('taxonomy', $taxonomy->handle())->count(),
+            ];
+        }
+        foreach ($taxonomyData as $handle => $data) {
+            $results['summary']['total_terms'] += $data['term_count'];
+            $results['details']['taxonomies'][] = [
+                'handle' => $handle,
+                'title' => $data['title'],
+                'term_count' => $data['term_count'],
+            ];
+        }
+        // Audit globals
+        /** @var \Illuminate\Support\Collection<int, \Statamic\Contracts\Globals\GlobalSet> $globalSets */
+        $globalSets = GlobalSet::all();
+        /** @var \Statamic\Sites\Site $defaultSite */
+        $defaultSite = Site::default();
+        foreach ($globalSets as $globalSet) {
+            /** @var \Statamic\Contracts\Globals\GlobalSet $globalSet */
+            if (! $this->globalIsReadable((string) $globalSet->handle())) {
+                continue;
+            }
+            $results['summary']['total_globals']++;
+            $hasValues = $globalSet->in($defaultSite->handle())->data()->isNotEmpty();
+            $results['details']['globals'][] = [
+                'handle' => $globalSet->handle(),
+                'title' => $globalSet->title(),
+                'has_values' => $hasValues,
+            ];
+        }
+        // Quality checks — detect real issues
+        $issues = 0;
+        foreach ($results['details']['collections'] as $col) {
+            if ($col['entry_count'] === 0) {
+                $issues++;
+                $results['recommendations'][] = "Collection '{$col['handle']}' has no entries";
+            } elseif ($col['published_count'] === 0) {
+                $issues++;
+                $results['recommendations'][] = "Collection '{$col['handle']}' has entries but none are published";
+            }
+        }
+        foreach ($results['details']['taxonomies'] as $tax) {
+            if ($tax['term_count'] === 0) {
+                $issues++;
+                $results['recommendations'][] = "Taxonomy '{$tax['handle']}' has no terms";
+            }
+        }
+        foreach ($results['details']['globals'] as $global) {
+            if (! $global['has_values']) {
+                $issues++;
+                $results['recommendations'][] = "Global set '{$global['handle']}' has no values set";
+            }
+        }
+        $results['summary']['issues_found'] = $issues;
+        // Calculate quality score
+        $totalContent = $results['summary']['total_entries'] + $results['summary']['total_terms'] + $results['summary']['total_globals'];
+        $results['summary']['quality_score'] = $totalContent > 0 ? max(0, round(100 - ($issues / max($totalContent, 1) * 100))) : 100;
+        $results['completed'] = true;
+        $results['message'] = 'Content audit completed successfully';
+
+        return $results;
     }
 
     /**
@@ -293,6 +248,14 @@ class ContentFacadeRouter extends BaseRouter
      */
     private function executeCrossReference(array $arguments): array
     {
+        // Refuse rather than report orphaned terms from an incomplete entry scan.
+        // Also enforce the bound while scanning, because content can grow meanwhile.
+        $budget = 5000;
+        $records = Entry::query()->whereIn('collection', $this->readableCollectionHandles())->count()
+            + Term::query()->whereIn('taxonomy', $this->readableTaxonomyHandles())->count();
+        if ($records > $budget) {
+            return $this->createErrorResponse('Cross reference is limited to 5000 readable records. Use paginated content_validate for larger sites.', code: ErrorCode::TooLarge)->toArray();
+        }
         $results = [
             'workflow' => 'cross_reference',
             'analysis_timestamp' => now()->toISOString(),
@@ -307,125 +270,121 @@ class ContentFacadeRouter extends BaseRouter
                 'orphaned_terms' => 0,
             ],
         ];
-
-        try {
-            // Build a set of taxonomy field handles by inspecting collection blueprints
-            /** @var array<string, list<string>> $collectionTaxonomyFields */
-            $collectionTaxonomyFields = [];
-
-            /** @var iterable<\Statamic\Contracts\Entries\Collection> $collections */
-            $collections = Collection::all();
-            foreach ($collections as $collection) {
-                if (! in_array((string) $collection->handle(), $this->readableCollectionHandles(), true)) {
-                    continue;
-                }
-                /** @var \Statamic\Contracts\Entries\Collection $collection */
-                $taxonomyFieldHandles = [];
-
-                // Get taxonomy fields from blueprints (accurate detection, not heuristic)
-                /** @var \Illuminate\Support\Collection<int, Blueprint> $entryBlueprints */
-                $entryBlueprints = $collection->entryBlueprints();
-                foreach ($entryBlueprints as $bp) {
-                    foreach ($bp->fields()->all() as $field) {
-                        /** @var Field $field */
-                        if (in_array($field->type(), ['terms', 'taxonomies'], true)) {
-                            $taxonomyFieldHandles[] = $field->handle();
-                        }
-                    }
-                }
-
-                $collectionTaxonomyFields[$collection->handle()] = array_unique($taxonomyFieldHandles);
+        // Build a set of taxonomy field handles by inspecting collection blueprints
+        /** @var array<string, list<string>> $collectionTaxonomyFields */
+        $collectionTaxonomyFields = [];
+        /** @var iterable<\Statamic\Contracts\Entries\Collection> $collections */
+        $collections = Collection::all();
+        foreach ($collections as $collection) {
+            if (! in_array((string) $collection->handle(), $this->readableCollectionHandles(), true)) {
+                continue;
             }
+            /** @var \Statamic\Contracts\Entries\Collection $collection */
+            $taxonomyFieldHandles = [];
 
-            // Analyze entry-term relationships and collect referenced term slugs in a single pass
-            /** @var array<string, bool> $referencedTermSlugs */
-            $referencedTermSlugs = [];
-
-            foreach ($collections as $collection) {
-                if (! in_array((string) $collection->handle(), $this->readableCollectionHandles(), true)) {
-                    continue;
-                }
-                /** @var \Statamic\Contracts\Entries\Collection $collection */
-                $taxFields = $collectionTaxonomyFields[$collection->handle()] ?? [];
-                $page = 1;
-                $perPage = 100;
-
-                do {
-                    $entries = Entry::query()
-                        ->where('collection', $collection->handle())
-                        ->limit($perPage)
-                        ->offset(($page - 1) * $perPage)
-                        ->get();
-
-                    foreach ($entries as $entry) {
-                        $entryData = $entry->data();
-                        $termReferences = 0;
-
-                        // Only check actual taxonomy fields from the blueprint
-                        foreach ($taxFields as $fieldHandle) {
-                            $value = $entryData->get($fieldHandle);
-                            if (is_array($value)) {
-                                $termReferences += count($value);
-                                foreach ($value as $slug) {
-                                    if (is_string($slug) && $slug !== '') {
-                                        $referencedTermSlugs[$slug] = true;
-                                    }
-                                }
-                            } elseif (is_string($value) && $value !== '') {
-                                $termReferences++;
-                                $referencedTermSlugs[$value] = true;
-                            }
-                        }
-
-                        if ($termReferences === 0) {
-                            $results['statistics']['orphaned_entries']++;
-                        } else {
-                            $results['statistics']['total_relationships'] += $termReferences;
-                        }
-                    }
-
-                    $page++;
-                } while ($entries->count() === $perPage);
-            }
-
-            // Now check all terms against the collected references (no per-term query)
-            /** @var iterable<\Statamic\Contracts\Taxonomies\Taxonomy> $taxonomies */
-            $taxonomies = Taxonomy::all();
-            foreach ($taxonomies as $taxonomy) {
-                /** @var \Statamic\Contracts\Taxonomies\Taxonomy $taxonomy */
-                if (! in_array((string) $taxonomy->handle(), $this->readableTaxonomyHandles(), true)) {
-                    continue;
-                }
-                $terms = Term::query()->where('taxonomy', $taxonomy->handle())->get();
-
-                foreach ($terms as $term) {
-                    $termSlug = $term->slug();
-                    $termId = $term->id();
-
-                    // A term is orphaned if neither its slug nor its full ID is referenced
-                    $isReferenced = isset($referencedTermSlugs[$termSlug])
-                        || (is_string($termId) && isset($referencedTermSlugs[$termId]));
-
-                    if (! $isReferenced) {
-                        $results['statistics']['orphaned_terms']++;
-                        $results['relationships']['orphaned_content'][] = [
-                            'type' => 'term',
-                            'id' => $termId,
-                            'title' => $term->get('title', $term->slug()),
-                            'taxonomy' => $term->taxonomyHandle(),
-                        ];
+            // Get taxonomy fields from blueprints (accurate detection, not heuristic)
+            /** @var \Illuminate\Support\Collection<int, Blueprint> $entryBlueprints */
+            $entryBlueprints = $collection->entryBlueprints();
+            foreach ($entryBlueprints as $bp) {
+                foreach ($bp->fields()->all() as $field) {
+                    /** @var Field $field */
+                    if (in_array($field->type(), ['terms', 'taxonomies'], true)) {
+                        $taxonomyFieldHandles[] = $field->handle();
                     }
                 }
             }
 
-            $results['completed'] = true;
-            $results['message'] = 'Cross reference analysis completed successfully';
-
-            return $results;
-
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Cross reference workflow failed: {$e->getMessage()}")->toArray();
+            $collectionTaxonomyFields[$collection->handle()] = array_unique($taxonomyFieldHandles);
         }
+        // Analyze entry-term relationships and collect referenced term slugs in a single pass
+        /** @var array<string, bool> $referencedTermSlugs */
+        $referencedTermSlugs = [];
+        foreach ($collections as $collection) {
+            if (! in_array((string) $collection->handle(), $this->readableCollectionHandles(), true)) {
+                continue;
+            }
+            /** @var \Statamic\Contracts\Entries\Collection $collection */
+            $taxFields = $collectionTaxonomyFields[$collection->handle()] ?? [];
+            $page = 1;
+            $perPage = 100;
+
+            do {
+                $entries = Entry::query()
+                    ->where('collection', $collection->handle())
+                    ->orderBy('id')
+                    ->limit($perPage)
+                    ->offset(($page - 1) * $perPage)
+                    ->get();
+
+                foreach ($entries as $entry) {
+                    if (--$budget < 0) {
+                        return $this->createErrorResponse('Cross reference exceeded 5000 records while scanning. Use paginated content_validate.', code: ErrorCode::TooLarge)->toArray();
+                    }
+                    $entryData = $entry->data();
+                    $termReferences = 0;
+
+                    // Only check actual taxonomy fields from the blueprint
+                    foreach ($taxFields as $fieldHandle) {
+                        $value = $entryData->get($fieldHandle);
+                        if (is_array($value)) {
+                            $termReferences += count($value);
+                            foreach ($value as $slug) {
+                                if (is_string($slug) && $slug !== '') {
+                                    $referencedTermSlugs[$slug] = true;
+                                }
+                            }
+                        } elseif (is_string($value) && $value !== '') {
+                            $termReferences++;
+                            $referencedTermSlugs[$value] = true;
+                        }
+                    }
+
+                    if ($termReferences === 0) {
+                        $results['statistics']['orphaned_entries']++;
+                    } else {
+                        $results['statistics']['total_relationships'] += $termReferences;
+                    }
+                }
+
+                $page++;
+            } while ($entries->count() === $perPage);
+        }
+        // Now check all terms against the collected references (no per-term query)
+        /** @var iterable<\Statamic\Contracts\Taxonomies\Taxonomy> $taxonomies */
+        $taxonomies = Taxonomy::all();
+        foreach ($taxonomies as $taxonomy) {
+            /** @var \Statamic\Contracts\Taxonomies\Taxonomy $taxonomy */
+            if (! in_array((string) $taxonomy->handle(), $this->readableTaxonomyHandles(), true)) {
+                continue;
+            }
+            $terms = Term::query()->where('taxonomy', $taxonomy->handle())->orderBy('id')->limit($budget + 1)->get();
+
+            foreach ($terms as $term) {
+                if (--$budget < 0) {
+                    return $this->createErrorResponse('Cross reference exceeded 5000 records while scanning. Use paginated content_validate.', code: ErrorCode::TooLarge)->toArray();
+                }
+                $termSlug = $term->slug();
+                $termId = $term->id();
+
+                // A term is orphaned if neither its slug nor its full ID is referenced
+                $isReferenced = isset($referencedTermSlugs[$termSlug])
+                    || (is_string($termId) && isset($referencedTermSlugs[$termId]));
+
+                if (! $isReferenced) {
+                    $results['statistics']['orphaned_terms']++;
+                    $results['relationships']['orphaned_content'][] = [
+                        'type' => 'term',
+                        'id' => $termId,
+                        'title' => $term->get('title', $term->slug()),
+                        'taxonomy' => $term->taxonomyHandle(),
+                    ];
+                }
+            }
+        }
+        $results['completed'] = true;
+        $results['message'] = 'Cross reference analysis completed successfully';
+
+        return $results;
     }
 
     /**
@@ -436,8 +395,7 @@ class ContentFacadeRouter extends BaseRouter
      * that changed after the content was written.
      *
      * Records are walked in a fixed order (entries, terms, globals, navigations)
-     * and `offset`/`limit` address that combined stream, so paging through a
-     * large site is a matter of repeating the call with a rising offset.
+     * and cursor/limit address that combined stream, not the list of findings.
      *
      * @param  array<string, mixed>  $arguments
      *
@@ -472,76 +430,68 @@ class ContentFacadeRouter extends BaseRouter
         $recordTypes = $scope === 'all'
             ? RecordType::cases()
             : array_filter([RecordType::fromScope($scope)]);
+        /** @var list<Finding> $findings */
+        $findings = [];
+        $scanned = 0;
+        $recordsWithIssues = 0;
+        $segmentStart = 0;
+        foreach ($recordTypes as $recordType) {
+            $total = $this->validationUnitCount($recordType, $collection, $taxonomy);
+            $window = $this->segmentWindow($segmentStart, $total, $offset, $limit);
+            $segmentStart += $total;
 
-        try {
-            /** @var list<Finding> $findings */
-            $findings = [];
-            $scanned = 0;
-            $recordsWithIssues = 0;
-            $segmentStart = 0;
-
-            foreach ($recordTypes as $recordType) {
-                $total = $this->validationUnitCount($recordType, $collection, $taxonomy);
-                $window = $this->segmentWindow($segmentStart, $total, $offset, $limit);
-                $segmentStart += $total;
-
-                if ($window === null) {
-                    continue;
-                }
-
-                foreach ($this->validationUnits($recordType, $collection, $taxonomy, $window[0], $window[1]) as $unit) {
-                    $scanned++;
-                    $unitFindings = $unit();
-
-                    if ($unitFindings !== []) {
-                        $recordsWithIssues++;
-                        $findings = [...$findings, ...$unitFindings];
-                    }
-                }
+            if ($window === null) {
+                continue;
             }
 
-            if ($severity !== null) {
-                $findings = array_values(array_filter(
-                    $findings,
-                    fn (Finding $finding): bool => $finding->severity() === $severity
-                ));
+            foreach ($this->validationUnits($recordType, $collection, $taxonomy, $window[0], $window[1]) as $unit) {
+                $scanned++;
+                $unitFindings = $unit();
+
+                if ($unitFindings !== []) {
+                    $recordsWithIssues++;
+                    $findings = [...$findings, ...$unitFindings];
+                }
             }
-
-            $totalFindings = count($findings);
-
-            // Findings become arrays only here, at the MCP response boundary.
-            $returned = array_map(
-                fn (Finding $finding): array => $finding->toArray(),
-                array_slice($findings, 0, $maxFindings)
-            );
-
-            return [
-                'workflow' => 'content_validate',
-                'validated_at' => now()->toISOString(),
-                'scope' => [
-                    'record_types' => array_map(fn (RecordType $type): string => $type->scope(), $recordTypes),
-                    'collection' => $collection !== '' ? $collection : null,
-                    'taxonomy' => $taxonomy !== '' ? $taxonomy : null,
-                    'severity' => $severity?->value,
-                ],
-                'summary' => [
-                    'records_scanned' => $scanned,
-                    'records_with_issues' => $recordsWithIssues,
-                    'findings' => $totalFindings,
-                    'by_severity' => $this->tally($findings, fn (Finding $f): string => $f->severity()->value),
-                    'by_type' => $this->tally($findings, fn (Finding $f): string => $f->type->value),
-                ],
-                'findings' => $returned,
-                'findings_truncated' => $totalFindings > count($returned),
-                'pagination' => $this->buildPaginationMeta($segmentStart, $limit, $offset),
-                'completed' => true,
-                'message' => $totalFindings === 0
-                    ? "Validated {$scanned} record(s); no problems found."
-                    : "Validated {$scanned} record(s); found {$totalFindings} problem(s) in {$recordsWithIssues} record(s).",
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Content validation workflow failed: {$e->getMessage()}")->toArray();
         }
+        if ($severity !== null) {
+            $findings = array_values(array_filter(
+                $findings,
+                fn (Finding $finding): bool => $finding->severity() === $severity
+            ));
+        }
+        $totalFindings = count($findings);
+        // Findings become arrays only here, at the MCP response boundary.
+        $returned = array_map(
+            fn (Finding $finding): array => $finding->toArray(),
+            array_slice($findings, 0, $maxFindings)
+        );
+
+        return [
+            'workflow' => 'content_validate',
+            'validated_at' => now()->toISOString(),
+            'scope' => [
+                'record_types' => array_map(fn (RecordType $type): string => $type->scope(), $recordTypes),
+                'collection' => $collection !== '' ? $collection : null,
+                'taxonomy' => $taxonomy !== '' ? $taxonomy : null,
+                'severity' => $severity?->value,
+            ],
+            'summary' => [
+                'records_scanned' => $scanned,
+                'records_with_issues' => $recordsWithIssues,
+                'findings' => $totalFindings,
+                'by_severity' => $this->tally($findings, fn (Finding $f): string => $f->severity()->value),
+                'by_type' => $this->tally($findings, fn (Finding $f): string => $f->type->value),
+            ],
+            'findings' => $returned,
+            'findings_truncated' => $totalFindings > count($returned),
+            'total' => $segmentStart,
+            'next_cursor' => $scanned === 0 ? null : $this->nextCursor($segmentStart, $offset + $scanned, $arguments),
+            'completed' => true,
+            'message' => $totalFindings === 0
+                ? "Validated {$scanned} record(s); no problems found."
+                : "Validated {$scanned} record(s); found {$totalFindings} problem(s) in {$recordsWithIssues} record(s).",
+        ];
     }
 
     /**
@@ -551,8 +501,8 @@ class ContentFacadeRouter extends BaseRouter
     private function validationUnitCount(RecordType $recordType, string $collection, string $taxonomy): int
     {
         return match ($recordType) {
-            RecordType::Entry => $this->entryQuery($collection)->count(),
-            RecordType::Term => $this->termQuery($taxonomy)->count(),
+            RecordType::Entry => $this->entryQuery($collection)?->count() ?? 0,
+            RecordType::Term => $this->termQuery($taxonomy)?->count() ?? 0,
             // Globals and navigations are bounded by configuration rather than
             // content volume, so materializing them to count is cheap.
             RecordType::Global => count($this->globalValidationUnits()),
@@ -578,34 +528,31 @@ class ContentFacadeRouter extends BaseRouter
         };
     }
 
-    private function entryQuery(string $collection): EntryQueryBuilder
+    /**
+     * The entries a sweep may read, or null when it may read none.
+     *
+     * A named collection that does not exist or that the policy denies, and an
+     * "all collections" sweep with nothing permitted, resolve to no query at
+     * all: the Stache has no store for a handle it does not know, so querying
+     * one fails instead of answering empty.
+     */
+    private function entryQuery(string $collection): ?EntryQueryBuilder
     {
         $allowed = $this->readableCollectionHandles();
-        $query = Entry::query();
+        $handles = $collection !== '' ? array_intersect([$collection], $allowed) : $allowed;
 
-        if ($collection !== '') {
-            // A named collection the policy denies resolves to nothing.
-            $query->where('collection', in_array($collection, $allowed, true) ? $collection : '__mcp_denied__');
-        } else {
-            // The "all collections" sweep is limited to the permitted ones.
-            $query->whereIn('collection', $allowed !== [] ? $allowed : ['__mcp_denied__']);
-        }
-
-        return $query;
+        return $handles === [] ? null : Entry::query()->whereIn('collection', array_values($handles));
     }
 
-    private function termQuery(string $taxonomy): TermQueryBuilder
+    /**
+     * The terms a sweep may read, or null when it may read none (see entryQuery()).
+     */
+    private function termQuery(string $taxonomy): ?TermQueryBuilder
     {
         $allowed = $this->readableTaxonomyHandles();
-        $query = Term::query();
+        $handles = $taxonomy !== '' ? array_intersect([$taxonomy], $allowed) : $allowed;
 
-        if ($taxonomy !== '') {
-            $query->where('taxonomy', in_array($taxonomy, $allowed, true) ? $taxonomy : '__mcp_denied__');
-        } else {
-            $query->whereIn('taxonomy', $allowed !== [] ? $allowed : ['__mcp_denied__']);
-        }
-
-        return $query;
+        return $handles === [] ? null : Term::query()->whereIn('taxonomy', array_values($handles));
     }
 
     /**
@@ -614,8 +561,9 @@ class ContentFacadeRouter extends BaseRouter
     private function entryValidationUnits(string $collection, int $offset, int $limit): array
     {
         $units = [];
+        $query = $this->entryQuery($collection);
 
-        foreach ($this->entryQuery($collection)->offset($offset)->limit($limit)->get() as $entry) {
+        foreach ($query?->orderBy('id')->offset($offset)->limit($limit)->get() ?? [] as $entry) {
             /** @var \Statamic\Contracts\Entries\Entry $entry */
             $units[] = function () use ($entry): array {
                 $blueprint = $entry->blueprint();
@@ -678,8 +626,9 @@ class ContentFacadeRouter extends BaseRouter
     private function termValidationUnits(string $taxonomy, int $offset, int $limit): array
     {
         $units = [];
+        $query = $this->termQuery($taxonomy);
 
-        foreach ($this->termQuery($taxonomy)->offset($offset)->limit($limit)->get() as $term) {
+        foreach ($query?->orderBy('id')->offset($offset)->limit($limit)->get() ?? [] as $term) {
             /** @var \Statamic\Contracts\Taxonomies\Term $term */
             $units[] = function () use ($term): array {
                 $blueprint = $term->blueprint();
@@ -710,7 +659,7 @@ class ContentFacadeRouter extends BaseRouter
         $units = [];
 
         /** @var \Illuminate\Support\Collection<int, \Statamic\Contracts\Globals\GlobalSet> $globalSets */
-        $globalSets = GlobalSet::all();
+        $globalSets = GlobalSet::all()->sortBy->handle();
 
         foreach ($globalSets as $globalSet) {
             /** @var \Statamic\Contracts\Globals\GlobalSet $globalSet */
@@ -720,7 +669,7 @@ class ContentFacadeRouter extends BaseRouter
                 continue;
             }
 
-            foreach ($globalSet->localizations() as $locale => $localization) {
+            foreach ($globalSet->localizations()->sortKeys() as $locale => $localization) {
                 /** @var Variables $localization */
                 $units[] = fn (): array => $this->validateRecord(
                     $blueprint->fields(),
@@ -745,10 +694,10 @@ class ContentFacadeRouter extends BaseRouter
         $units = [];
 
         /** @var iterable<NavContract> $navs */
-        $navs = Nav::all();
+        $navs = Nav::all()->sortBy->handle();
 
         foreach ($navs as $nav) {
-            foreach ($nav->trees() as $locale => $tree) {
+            foreach ($nav->trees()->sortKeys() as $locale => $tree) {
                 /** @var Tree $tree */
                 $units[] = function () use ($nav, $tree, $locale): array {
                     $findings = [];

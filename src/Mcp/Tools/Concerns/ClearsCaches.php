@@ -4,8 +4,14 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Concerns;
 
+use Cboxdk\StatamicMcp\Integration\Effects;
+use Cboxdk\StatamicMcp\Mcp\Support\StacheRepair;
+use Cboxdk\StatamicMcp\Mcp\Support\StaticCacheMaintenance;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Log;
+use Statamic\Facades\Search;
+use Statamic\Search\Index;
+use Statamic\StaticCaching\Cacher;
 use Statamic\StaticCaching\Invalidator;
 
 trait ClearsCaches
@@ -17,40 +23,126 @@ trait ClearsCaches
      */
     private array $pendingCacheClears = [];
 
-    /**
-     * Ask for a cache clear once the current tool call is done.
-     *
-     * The timing is the whole fix for #53, and it is worth being precise about
-     * why. Clearing after a write was never wrong in itself — Statamic does not
-     * rebuild the indexes that *depend* on a write, so without it a changed
-     * max_items leaves an index of arrays that later throws, a removed taxonomy
-     * leaves whereTaxonomy() returning entries, a changed mount leaves every
-     * entry 404ing. That set is long, version-dependent, and was not exhausted by
-     * repeated attempts to enumerate it — every pass over the code turned up
-     * another one.
-     *
-     * What was wrong was clearing **mid-request**. `statamic:stache:clear` runs
-     * through Artisan and resets the in-memory stores there and then, so the
-     * rest of the call read from emptied stores: on a live multisite the tree
-     * repository returned nothing, CollectionStructure::validateTree() padded
-     * the empty tree with every entry at root, and a random entry became the
-     * homepage.
-     *
-     * Deferring to the end of the call keeps the coverage and removes the
-     * mechanism. By then the response is built and nothing further reads
-     * Statamic; the next call starts fresh, with Blink flushed too.
-     *
-     * @param  array<int, string>  $types
-     */
-    protected function clearCachesAfterWrite(array $types = ['stache', 'static']): void
+    /** @var list<string> */
+    private array $pendingStaticUrls = [];
+
+    /** @var list<string> */
+    private array $pendingSearchIndexes = [];
+
+    /** @var list<string> */
+    private array $pendingRefreshUrls = [];
+
+    /** @var array<string, string> */
+    private array $completedCacheClears = [];
+
+    private ?string $writeEffects = null;
+
+    /** What this call's writes did so far: null (none), 'unknown' or 'committed'. */
+    protected function writeEffectsSoFar(): ?string
     {
+        return $this->writeEffects;
+    }
+
+    /** @return array<string, mixed> */
+    protected function writeMetadata(bool $success): array
+    {
+        $meta = [];
+        if ($this->writeEffects !== null) {
+            $meta['write_effects'] = $this->writeEffects;
+            $meta['retry_requires_reconciliation'] = ! $success;
+        }
+        if ($this->completedCacheClears !== []) {
+            $meta['cache'] = $this->completedCacheClears;
+        }
+
+        return $meta;
+    }
+
+    /**
+     * Register cleanup before invoking native events: a saved listener may
+     * throw after persistence. Only an explicit false is a Statamic veto.
+     *
+     * @template T
+     *
+     * @param  callable(): T  $write
+     * @param  list<string>|Effects  $cacheTypes
+     *
+     * @return T
+     */
+    protected function persistStatamic(callable $write, array|Effects $cacheTypes = ['stache', 'static']): mixed
+    {
+        $this->authorizePendingWrite();
+        $this->clearCachesAfterWrite($cacheTypes);
+        // An earlier write that landed stays reported: a failing later step
+        // makes the whole call partial, not unknown.
+        $this->writeEffects ??= 'unknown';
+        $result = $write();
+        if ($result === false) {
+            throw new \RuntimeException('Statamic refused the write.');
+        }
+
+        $this->writeEffects = 'committed';
+
+        return $result;
+    }
+
+    /** Routers with a capability grant recheck it at the persistence boundary. */
+    protected function authorizePendingWrite(): void {}
+
+    /**
+     * Ask for the caches a write affects to be brought up to date once the
+     * current tool call is done.
+     *
+     * The Stache is repaired, not cleared: Statamic keeps the store of the item
+     * it saves current, and StacheRepair fixes the indexes elsewhere that the
+     * write left stale (see there, and StacheConsistencyTest, which proves the
+     * result equals a rebuild from disk). A full clear cost every write about
+     * 1 ms per entry on the whole site. 'clear' in the config brings it back.
+     *
+     * Either way it waits until the call is finished. Clearing **mid-request**
+     * is what broke a live site (#53): `statamic:stache:clear` resets the
+     * in-memory stores there and then, so the rest of the call read emptied
+     * stores, the tree repository returned nothing, Statamic padded the empty
+     * tree with every entry at root, and a random entry became the homepage.
+     *
+     * The static cache is still flushed in full: listing pages, globals and
+     * navigation render other records than the one written, and Statamic's
+     * invalidator only refreshes the written record's own URL
+     * (RenderedCacheMatrixTest).
+     *
+     * @param  array<int, string>|Effects  $types
+     */
+    protected function clearCachesAfterWrite(array|Effects $types = ['stache', 'static']): void
+    {
+        if ($types instanceof Effects) {
+            $this->pendingStaticUrls = array_values(array_unique([...$this->pendingStaticUrls, ...$types->staticUrls]));
+            $this->pendingSearchIndexes = array_values(array_unique([...$this->pendingSearchIndexes, ...$types->searchIndexes]));
+            $types = [...($types->stache ? ['stache'] : []), ...($types->static ? ['static'] : []), ...($types->glide ? ['images'] : [])];
+        }
+        if (in_array('static', $types, true) && app(StaticCacheMaintenance::class)->mode() === 'refresh') {
+            $this->pendingRefreshUrls = array_values(array_unique([
+                ...$this->pendingRefreshUrls, ...app(StaticCacheMaintenance::class)->cachedUrls(),
+            ]));
+        }
         $wanted = array_filter($types, fn (string $type): bool => match ($type) {
-            'stache' => (bool) config('statamic.mcp.cache.clear_stache_after_write', true),
-            'static' => (bool) config('statamic.mcp.cache.clear_static_after_write', true),
+            'stache' => $this->stacheAfterWrite() !== 'none',
+            'static' => app(StaticCacheMaintenance::class)->mode() !== 'statamic',
             default => true,
         });
 
         $this->pendingCacheClears = array_values(array_unique([...$this->pendingCacheClears, ...$wanted]));
+    }
+
+    /** 'repair' (default), 'clear' (the whole Stache) or 'none'. */
+    private function stacheAfterWrite(): string
+    {
+        $mode = config('statamic.mcp.cache.stache_after_write');
+        if (in_array($mode, ['repair', 'clear', 'none'], true)) {
+            return $mode;
+        }
+
+        // A config published before v4 carries only the old on/off switch.
+        return config('statamic.mcp.cache.clear_stache_after_write', true) === false ? 'none' : 'repair';
     }
 
     /**
@@ -60,14 +152,76 @@ trait ClearsCaches
      */
     protected function flushPendingCacheClears(): array
     {
-        if ($this->pendingCacheClears === []) {
+        if ($this->pendingCacheClears === [] && $this->pendingStaticUrls === [] && $this->pendingSearchIndexes === []) {
             return [];
         }
 
         $types = $this->pendingCacheClears;
+        $urls = $this->pendingStaticUrls;
+        $indexes = $this->pendingSearchIndexes;
+        $refresh = $this->pendingRefreshUrls;
         $this->pendingCacheClears = [];
+        $this->pendingStaticUrls = [];
+        $this->pendingSearchIndexes = [];
+        $this->pendingRefreshUrls = [];
 
-        return $this->clearStatamicCaches($types);
+        $results = [];
+        if (in_array('stache', $types, true) && $this->stacheAfterWrite() === 'repair') {
+            $types = array_values(array_diff($types, ['stache']));
+            try {
+                app(StacheRepair::class)->apply();
+                $results['stache'] = 'repaired';
+            } catch (\Throwable $e) {
+                // A repair that fails must not leave the Stache stale: fall back
+                // to what always works.
+                Log::warning('MCP Stache repair failed, clearing the Stache instead: ' . $e->getMessage());
+                $types = ['stache', ...$types];
+            }
+        }
+
+        if (in_array('static', $types, true) && app(StaticCacheMaintenance::class)->alreadyEmptyAfterNativeInvalidation()) {
+            $types = array_values(array_diff($types, ['static']));
+            $results['static'] = 'cleared';
+        }
+        $results = [...$results, ...$this->clearStatamicCaches($types)];
+        if ($refresh !== []) {
+            try {
+                // Flush first, so a stopped queue cannot leave stale pages served.
+                app(StaticCacheMaintenance::class)->queueWarm($refresh);
+                $results['static_refresh'] = 'queued';
+            } catch (\Throwable $error) {
+                $results['static_refresh'] = 'failed';
+                report($error);
+            }
+        }
+        if ($urls !== [] && ! in_array($results['static'] ?? '', ['cleared', 'disabled'], true)) {
+            try {
+                app(Cacher::class)->invalidateUrls($urls);
+                $results['static_urls'] = 'invalidated';
+            } catch (\Throwable $error) {
+                $results['static_urls'] = 'failed';
+                report($error);
+            }
+        }
+        foreach ($indexes as $handle) {
+            try {
+                $configured = Search::indexes()->whereInstanceOf(Index::class)
+                    ->filter(fn (Index $index): bool => $index->handle() === $handle);
+                if ($configured->isEmpty()) {
+                    throw new \InvalidArgumentException('Unknown search index.');
+                }
+                foreach ($configured as $index) {
+                    $index->update();
+                }
+                $results['search:' . $handle] = 'updated';
+            } catch (\Throwable $error) {
+                $results['search:' . $handle] = 'failed';
+                report($error);
+            }
+        }
+        $this->completedCacheClears = [...$this->completedCacheClears, ...$results];
+
+        return $results;
     }
 
     /**
@@ -113,15 +267,22 @@ trait ClearsCaches
 
         foreach ($types as $type) {
             try {
-                match ($type) {
+                $exitCode = match ($type) {
                     'stache' => Artisan::call('statamic:stache:clear'),
                     'static' => Artisan::call('statamic:static:clear'),
                     'images' => Artisan::call('statamic:glide:clear'),
                     'views' => Artisan::call('view:clear'),
                     'application' => Artisan::call('cache:clear'),
-                    default => null,
+                    default => 1,
                 };
-                $results[$type] = 'cleared';
+                $results[$type] = match (true) {
+                    $exitCode === 0 => 'cleared',
+                    $type === 'static' && ! config('statamic.static_caching.strategy') => 'disabled',
+                    default => 'failed',
+                };
+                if ($results[$type] === 'failed') {
+                    Log::warning("MCP cache clear failed for type '{$type}'", ['exit_code' => $exitCode]);
+                }
             } catch (\Throwable $e) {
                 // Throwable, not Exception: a StacheCleared listener raising a
                 // TypeError would otherwise escape and cost the caller its

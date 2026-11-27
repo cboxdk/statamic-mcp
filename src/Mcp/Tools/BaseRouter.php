@@ -4,12 +4,40 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools;
 
+use Cboxdk\StatamicMcp\Actions\ActionEffect;
+use Cboxdk\StatamicMcp\Actions\Contracts\ActorScope;
+use Cboxdk\StatamicMcp\Actions\Events;
+use Cboxdk\StatamicMcp\Actions\ExecutionContext;
+use Cboxdk\StatamicMcp\Actions\LifecycleEvents;
+use Cboxdk\StatamicMcp\Actions\Operations\IdempotentWrite;
+use Cboxdk\StatamicMcp\Actions\Operations\OperationIntent;
+use Cboxdk\StatamicMcp\Actions\SchemaValidator;
+use Cboxdk\StatamicMcp\Actions\Transport\ContextFactory;
+use Cboxdk\StatamicMcp\Approvals\Approvals;
+use Cboxdk\StatamicMcp\Auth\ConfirmationActionGate;
+use Cboxdk\StatamicMcp\Auth\TokenScope;
+use Cboxdk\StatamicMcp\Auth\TokenService;
+use Cboxdk\StatamicMcp\Authorization\GrantAuthorizer;
+use Cboxdk\StatamicMcp\Authorization\InstallationProfile;
+use Cboxdk\StatamicMcp\Authorization\McpAuthorizer;
+use Cboxdk\StatamicMcp\Integration\IntegrationRegistry;
+use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
+use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorResponse;
+use Cboxdk\StatamicMcp\Mcp\ExtraTools;
+use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
+use Cboxdk\StatamicMcp\Mcp\Support\ResultSchema;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\BuildsPaginatedResponse;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\EnforcesResourcePolicy;
-use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\RequiresConfirmation;
+use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\LimitsReadResponses;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\RouterHelpers;
+use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
+use Illuminate\JsonSchema\JsonSchemaTypeFactory;
+use Illuminate\Support\Str;
+use Laravel\Mcp\Response;
+use Statamic\Facades\Site;
 
 /**
  * Base router class providing action routing and audit logging.
@@ -18,7 +46,7 @@ abstract class BaseRouter extends BaseStatamicTool
 {
     use BuildsPaginatedResponse;
     use EnforcesResourcePolicy;
-    use RequiresConfirmation;
+    use LimitsReadResponses;
     use RouterHelpers;
 
     /**
@@ -28,12 +56,147 @@ abstract class BaseRouter extends BaseStatamicTool
      */
     abstract protected function getDomain(): string;
 
+    final public function domain(): string
+    {
+        return $this->getDomain();
+    }
+
+    protected function resourceLinks(array $arguments, array $result): array
+    {
+        $action = is_string($arguments['action'] ?? null) ? $this->declaredAction($arguments['action']) : null;
+        if ($action === null || ! $action->writes() || $action->effect === ActionEffect::Delete
+            || ! config('statamic.mcp.resources.enabled', true)) {
+            return [];
+        }
+
+        // Use only identifiers already present in the filtered result. A link
+        // grants nothing; resources/read authorizes again when it is followed.
+        $data = is_array($result['data'] ?? null) ? $result['data'] : [];
+        $paths = match ($this->getDomain()) {
+            'entries' => ['entries' => ['entry.collection', 'entry.site', 'entry.id']],
+            'blueprints' => ['blueprints' => ['blueprint.namespace', 'blueprint.handle']],
+            'forms' => ['forms' => ['form.handle']],
+            'structures' => ['collections' => ['collection.handle'], 'taxonomies' => ['taxonomy.handle']],
+            default => [],
+        };
+        foreach ($paths as $path => $keys) {
+            $segments = [];
+            foreach ($keys as $key) {
+                $value = data_get($data, $key);
+                if (! is_string($value) || $value === '') {
+                    continue 2;
+                }
+                $segments[] = rawurlencode($value);
+            }
+
+            return [Response::resourceLink('statamic://' . $path . '/' . implode('/', $segments), name: 'Saved ' . $path, mimeType: 'application/json')];
+        }
+
+        return [];
+    }
+
     /**
-     * Get available actions for this router.
+     * Every action this router offers, with its effect. The one place an
+     * action is classified: scopes, resource policy mode, idempotency,
+     * approvals and the schema's action list all read it.
      *
-     * @return array<string, string> Action name => description mapping
+     * @return list<RouterAction>
      */
-    abstract protected function getActions(): array;
+    abstract protected function actions(): array;
+
+    /** @var array<string, RouterAction>|null */
+    private ?array $declaredActions = null;
+
+    /** The declaration of an action, or null when the router has no such action. */
+    public function declaredAction(string $action): ?RouterAction
+    {
+        if ($this->declaredActions === null) {
+            $this->declaredActions = [];
+            foreach ($this->actions() as $declared) {
+                if (isset($this->declaredActions[$declared->name])) {
+                    throw new \LogicException(static::class . " declares the action '{$declared->name}' twice.");
+                }
+                $this->declaredActions[$declared->name] = $declared;
+            }
+        }
+
+        return $this->declaredActions[$action] ?? null;
+    }
+
+    /** @return list<RouterAction> */
+    public function declaredActions(): array
+    {
+        $this->declaredAction('');
+
+        return array_values($this->declaredActions ?? []);
+    }
+
+    /** @return list<string> */
+    protected function actionNames(): array
+    {
+        return array_map(fn (RouterAction $action): string => $action->name, $this->declaredActions());
+    }
+
+    /**
+     * Candidates must already satisfy object/site-level read permissions.
+     * Check the read scope, profile and resource policy as well: a writer
+     * without read access must not discover other handles through a typo.
+     *
+     * @param  iterable<string>  $candidates
+     * @param  array<string, mixed>  $arguments
+     */
+    protected function missingResource(string $kind, string $handle, string $field = 'handle', iterable $candidates = [], array $arguments = []): ErrorResponse
+    {
+        $nearby = [];
+        foreach ($candidates as $candidate) {
+            $read = array_replace($arguments, ['action' => 'get', $field => $candidate]);
+            if (app(InstallationProfile::class)->denial($this->getDomain(), 'get', $read, false) !== null
+                || app(McpAuthorizer::class)->denial($this->describeCall('get', $read)) !== null) {
+                continue;
+            }
+            $distance = levenshtein($handle, $candidate);
+            if ($distance <= max(1, intdiv(strlen($handle), 3))) {
+                $nearby[] = ['handle' => $candidate, 'distance' => $distance];
+            }
+        }
+        usort($nearby, fn (array $a, array $b): int => ($a['distance'] <=> $b['distance']) ?: strcmp($a['handle'], $b['handle']));
+        $handles = array_slice(array_values(array_unique(array_column($nearby, 'handle'))), 0, 3);
+
+        return $this->createErrorResponse(
+            "{$kind} not found: {$handle}", code: ErrorCode::NotFound, field: $field,
+            validValues: $handles === [] ? null : $handles,
+            hint: $handles === [] ? null : 'Did you mean ' . implode(', ', $handles) . '?',
+        );
+    }
+
+    /**
+     * Action name => description, as discovery and the schema tool show them.
+     *
+     * @return array<string, string>
+     */
+    public function getActions(): array
+    {
+        $actions = [];
+        foreach ($this->declaredActions() as $action) {
+            $actions[$action->name] = $action->summary();
+        }
+
+        return $actions;
+    }
+
+    protected function actionWrites(string $action): bool
+    {
+        return $this->isWriteAction($action);
+    }
+
+    /**
+     * Whether the action writes. An undeclared action counts as a write, so
+     * anything that slipped past the declaration check fails closed.
+     */
+    protected function isWriteAction(string $action): bool
+    {
+        return $this->declaredAction($action)?->writes() ?? true;
+    }
 
     /**
      * Get available types/resources for this router.
@@ -41,6 +204,12 @@ abstract class BaseRouter extends BaseStatamicTool
      * @return array<string, string> Type name => description mapping
      */
     abstract protected function getTypes(): array;
+
+    /** @return list<string> */
+    public function resourceTypes(): array
+    {
+        return array_map('strval', array_keys($this->getTypes()));
+    }
 
     /**
      * Execute the actual action logic.
@@ -52,18 +221,81 @@ abstract class BaseRouter extends BaseStatamicTool
     abstract protected function executeAction(array $arguments): array;
 
     /**
-     * What statamic-system-schema reports for a router it has no entry for,
-     * which is every tool another package registers.
+     * What statamic-system-schema reports for this tool: its domain, the
+     * actions and resource types it takes, every argument, and who ships it.
      *
-     * @return array{domain: string, actions: list<string>, provided_by: string}
+     * @return array{domain: string, actions: list<string>, resource_types: list<string>, arguments: list<string>, provided_by: string}
      */
     public function catalogEntry(): array
     {
+        $types = $this->resourceTypes();
+
         return [
             'domain' => $this->getDomain(),
-            'actions' => array_map('strval', array_keys($this->getActions())),
-            'provided_by' => 'extension',
+            'actions' => $this->facetActionNames(),
+            'resource_types' => array_values(array_filter($types, fn (string $type): bool => array_filter($this->facetActions(), fn (RouterAction $action): bool => $action->appliesTo($type)) !== [])),
+            'arguments' => array_map('strval', array_keys($this->schema(new JsonSchemaTypeFactory))),
+            'provided_by' => app(IntegrationRegistry::class)->package(static::class)
+                ?? (ExtraTools::isRegistered(static::class) ? 'extension' : 'statamic-mcp'),
         ];
+    }
+
+    /**
+     * Actions the token and installation profile permit in principle. A call
+     * still checks its concrete resource, site, data and Statamic permissions.
+     *
+     * @return list<RouterAction>
+     */
+    public function discoverableActions(): array
+    {
+        $token = request()->attributes->get('mcp_token');
+
+        return array_values(array_filter($this->facetActions(), function (RouterAction $action) use ($token): bool {
+            // Editor can create drafts; this describes capability, not a call.
+            $arguments = in_array($action->name, ['create', 'localize'], true) ? ['data' => ['published' => false]] : [];
+            if (app(InstallationProfile::class)->denial($this->getDomain(), $action->name, $arguments, $action->writes()) !== null) {
+                return false;
+            }
+            $binding = app(IntegrationRegistry::class)->binding(static::class, $action->name);
+            if ($binding !== null) {
+                $sites = Site::all();
+                if (! is_iterable($sites)) {
+                    return false;
+                }
+                foreach ($sites as $site) {
+                    if (! $site instanceof \Statamic\Sites\Site) {
+                        continue;
+                    }
+                    try {
+                        app(GrantAuthorizer::class)->authorizeCapability($binding['id'], $binding['fingerprint'], $action->scopes,
+                            app(ContextFactory::class)->create($site->handle()));
+
+                        return true;
+                    } catch (AuthorizationException) {
+                        // Discovery may succeed on a non-default permitted site.
+                    }
+                }
+
+                return false;
+            }
+            if ($this->isCliContext()) {
+                return true;
+            }
+            if (! $token instanceof McpTokenData) {
+                return false;
+            }
+            $scopes = $this->describeCall($action->name, $arguments)->scopes;
+            if ($scopes === []) {
+                return false;
+            }
+            foreach ($scopes as $scope) {
+                if (! app(TokenService::class)->hasScope($token, $scope)) {
+                    return false;
+                }
+            }
+
+            return true;
+        }));
     }
 
     /**
@@ -103,21 +335,224 @@ abstract class BaseRouter extends BaseStatamicTool
         return $this->getDomain();
     }
 
+    /**
+     * How this router is presented: null for the whole router (stdio tests,
+     * internal callers), 'read' or 'write' for the tool clients see. A client
+     * gets each router as a read tool and a write tool, so read-only use can
+     * be allowed by name (`*-read`) and clients read the annotations right.
+     */
+    private ?string $facet = null;
+
+    /**
+     * This router presented as its read or its write tool.
+     *
+     * @param  'read'|'write'  $facet
+     */
+    public function facet(string $facet): static
+    {
+        $clone = clone $this;
+        $clone->facet = $facet;
+
+        return $clone;
+    }
+
+    public function presentedFacet(): ?string
+    {
+        return $this->facet;
+    }
+
+    public function toArray(): array
+    {
+        $tool = parent::toArray();
+        if (in_array(static::class, [...StatamicMcpServer::CORE_TOOLS, ...StatamicMcpServer::SEARCHABLE_TOOLS], true)
+            && isset($tool['outputSchema'])) {
+            $tool['outputSchema'] = ResultSchema::deduplicate($tool['outputSchema']);
+        }
+
+        return $tool;
+    }
+
+    protected function successDataSchema(): array
+    {
+        $integration = app(IntegrationRegistry::class)->package(static::class) !== null;
+        if (! $integration && ! in_array(static::class, [...StatamicMcpServer::CORE_TOOLS, ...StatamicMcpServer::SEARCHABLE_TOOLS], true)) {
+            return parent::successDataSchema();
+        }
+
+        $variants = [];
+        foreach ($this->facetActions() as $action) {
+            $schema = $integration ? ($action->outputSchema ?? []) : ResultSchema::action($this->getDomain(), $action->name);
+            if ($integration && $action->writes()) {
+                $properties = is_array($schema['properties'] ?? null) ? $schema['properties'] : [];
+                $schema['properties'] = $properties + ['idempotent_replay' => ['type' => 'boolean'], 'approval_replay' => ['type' => 'boolean']];
+            }
+            $variants[json_encode($schema, JSON_THROW_ON_ERROR)] = $schema;
+            if (! $integration && $action->name === 'get' && ! $action->writes()) {
+                $variants['projection'] = ResultSchema::object([
+                    'projection' => ['const' => true],
+                    'fields' => ['type' => 'array', 'items' => ResultSchema::object([
+                        'path' => ['type' => 'string'], 'value' => new \stdClass,
+                    ], ['path', 'value'])],
+                ], ['projection', 'fields']);
+            }
+        }
+        if ($this->facet !== 'read') {
+            $variants['truncated'] = ResultSchema::object([
+                'response_truncated' => ['const' => true], 'note' => ['type' => 'string'],
+            ], ['response_truncated', 'note']);
+        }
+
+        return ['anyOf' => array_values($variants)];
+    }
+
+    /**
+     * Whether this caller could use the tool at all: the installation profile
+     * allows its kind of action here, and over HTTP the token holds its scope.
+     * tools/list shows only these; a call still reaches the rest and is refused
+     * with the reason.
+     */
+    public function availableToCaller(): bool
+    {
+        if (app(IntegrationRegistry::class)->package(static::class) !== null) {
+            return $this->discoverableActions() !== [];
+        }
+        if ($this->facet === null) {
+            return true;
+        }
+        $writes = $this->facet === 'write';
+        if (! app(InstallationProfile::class)->allowsAny($this->getDomain(), $writes)) {
+            return false;
+        }
+        if ($this->isCliContext()) {
+            return true;
+        }
+        $token = request()->attributes->get('mcp_token');
+        if (! $token instanceof McpTokenData) {
+            return true;
+        }
+        $scope = $writes ? TokenScope::writeFor($this->getDomain()) : TokenScope::tryFrom($this->getDomain() . ':read');
+
+        return $scope !== null && app(TokenService::class)->hasScope($token, $scope);
+    }
+
+    /** Whether the facet has any action, so whether it is a tool at all. */
+    public function offersFacet(string $facet): bool
+    {
+        return array_filter($this->declaredActions(), fn (RouterAction $action): bool => $action->writes() === ($facet === 'write')) !== [];
+    }
+
+    /** The write tool is `-admin` when its writes administer the site, `-write` when they edit content. */
+    public function writeSuffix(): string
+    {
+        foreach ($this->declaredActions() as $action) {
+            if ($action->effect === ActionEffect::Admin) {
+                return 'admin';
+            }
+        }
+
+        return 'write';
+    }
+
+    public function name(): string
+    {
+        $base = parent::name();
+
+        return match ($this->facet) {
+            null => $base,
+            'read' => "{$base}-read",
+            default => "{$base}-{$this->writeSuffix()}",
+        };
+    }
+
+    public function title(): string
+    {
+        $base = parent::title();
+
+        return match ($this->facet) {
+            null => $base,
+            'read' => "{$base} (read)",
+            default => $this->writeSuffix() === 'admin' ? "{$base} (admin)" : "{$base} (write)",
+        };
+    }
+
+    public function description(): string
+    {
+        $base = parent::description();
+        if ($this->facet === null) {
+            return $base;
+        }
+        $lead = $this->facet === 'read'
+            ? 'Read-only.'
+            : 'Writes; gated actions require Control Panel approval (APPROVAL_REQUIRED).';
+
+        // The action enum and its description already list this facet's actions.
+        return trim($base . ' ' . $lead);
+    }
+
+    /**
+     * Behaviour hints, all four explicit. Without them a client must assume a
+     * tool is a destructive, open-world write and asks about every call.
+     *
+     * @return array<string, mixed>
+     */
+    public function annotations(): array
+    {
+        return match ($this->facet) {
+            null => parent::annotations(),
+            'read' => ['readOnlyHint' => true, 'destructiveHint' => false, 'idempotentHint' => true, 'openWorldHint' => false],
+            default => ['readOnlyHint' => false, 'destructiveHint' => true, 'idempotentHint' => false, 'openWorldHint' => $this->writesReachOutside()],
+        };
+    }
+
+    /** Whether a write can reach outside this site, such as fetching a URL the client names. */
+    protected function writesReachOutside(): bool
+    {
+        return false;
+    }
+
+    /** @return list<RouterAction> */
+    private function facetActions(): array
+    {
+        return array_values(array_filter(
+            $this->declaredActions(),
+            fn (RouterAction $action): bool => $this->facet === null || $action->writes() === ($this->facet === 'write'),
+        ));
+    }
+
+    /** @return list<string> */
+    private function facetActionNames(): array
+    {
+        return array_map(fn (RouterAction $action): string => $action->name, $this->facetActions());
+    }
+
     protected function defineSchema(JsonSchemaContract $schema): array
     {
-        $actions = array_keys($this->getActions());
-        $types = array_keys($this->getTypes());
+        $actions = $this->facetActions();
+        $types = array_values(array_filter(
+            array_map('strval', array_keys($this->getTypes())),
+            fn (string $type): bool => array_filter($actions, fn (RouterAction $action): bool => $action->appliesTo($type)) !== [],
+        ));
 
-        return [
+        $properties = [
             'action' => JsonSchema::string()
-                ->description('Action to perform. See the specific tool description for available actions and their required parameters.')
-                ->enum($actions)
+                ->description(implode(' ', array_map(fn (RouterAction $action): string => "{$action->name}: {$action->summary()}", $actions)))
+                ->enum(array_map(fn (RouterAction $action): string => $action->name, $actions))
                 ->required(),
-            'resource_type' => JsonSchema::string()
-                ->description('Resource subtype for routers that manage multiple resource kinds. See the specific tool description for valid values and required combinations with actions.')
-                ->enum($types),
-            'confirmation_token' => JsonSchema::string()
-                ->description('Optional token returned by a previous confirmation-required response. Provide it unchanged to confirm and execute gated actions.'),
+        ];
+        if ($types !== []) {
+            $properties['resource_type'] = JsonSchema::string()
+                ->description('The kind of resource the action works on.')
+                ->enum($types)
+                ->required();
+        }
+
+        return $properties + [
+            'fields' => JsonSchema::array()->items(JsonSchema::string())->min(1)->max(50)
+                ->description('Get only: result dot paths, e.g. ["entry.version", "entry.data.page_builder.0"]. Returns path/value pairs, not a replacement record. Omit for the full record.'),
+            'approval_id' => JsonSchema::string()
+                ->description('From APPROVAL_REQUIRED. After Control Panel approval, retry the exact call with this id; single use.'),
+            'idempotency_key' => JsonSchema::string()
+                ->description('New per write: 8-128 letters, digits, . _ : -. Same key and arguments replay without writing; an unfinished first call returns OUTCOME_UNKNOWN without retrying the write.'),
         ];
     }
 
@@ -134,40 +569,584 @@ abstract class BaseRouter extends BaseStatamicTool
      */
     protected function executeInternal(array $arguments): array
     {
+        if (app(IntegrationRegistry::class)->package(static::class) === null) {
+            return $this->executeRouter($arguments);
+        }
+        $context = app(ContextFactory::class)->create(is_string($arguments['site'] ?? null) ? $arguments['site'] : null);
+
+        return app(ActorScope::class)->run($context, function () use ($arguments, $context): array {
+            $this->integrationContext = $context;
+            try {
+                return $this->executeRouter($arguments);
+            } finally {
+                $this->integrationContext = null;
+                $this->executingArguments = null;
+            }
+        });
+    }
+
+    /** @param array<string, mixed> $arguments
+     * @return array<string, mixed>
+     */
+    private function executeRouter(array $arguments): array
+    {
         if ($this->isWebContext() && ! $this->isWebToolEnabled()) {
             return $this->createErrorResponse(
-                'Permission denied: ' . ucfirst($this->getDomain()) . ' tool is disabled for web access'
+                'Permission denied: ' . ucfirst($this->getDomain()) . ' tool is disabled for web access',
+                code: ErrorCode::Forbidden,
             )->toArray();
         }
 
         $action = is_string($arguments['action'] ?? null) ? $arguments['action'] : '';
 
-        if ($this->isWebContext()) {
-            $permissionError = $this->checkWebPermissions($action, $arguments);
-            if ($permissionError) {
-                return $permissionError;
-            }
+        $declared = $this->declaredAction($action);
+        if ($declared !== null && $this->facet !== null && $declared->writes() !== ($this->facet === 'write')) {
+            $other = $this->facet($this->facet === 'read' ? 'write' : 'read')->name();
+
+            return $this->createErrorResponse(
+                "The {$action} action is on the {$other} tool. This tool offers: " . implode(', ', $this->facetActionNames()) . '.',
+                field: 'action', validValues: $this->facetActionNames(), hint: "Use {$other} for {$action}.",
+            )->toArray();
+        }
+        if ($declared === null) {
+            return $this->createErrorResponse(
+                ($action === '' ? 'action is required.' : "Unknown action '{$action}'.")
+                . ' Use one of: ' . implode(', ', $this->facet === null ? $this->actionNames() : $this->facetActionNames()) . '.',
+                field: 'action', validValues: $this->facet === null ? $this->actionNames() : $this->facetActionNames(),
+            )->toArray();
+        }
+        $type = is_string($arguments['resource_type'] ?? null) ? $arguments['resource_type'] : null;
+        if (! $declared->appliesTo($type)) {
+            return $this->createErrorResponse(
+                "The {$action} action does not apply to resource_type '{$type}'. It applies to: " . implode(', ', $declared->types) . '.',
+                field: 'resource_type', validValues: $declared->types,
+            )->toArray();
         }
 
-        // Resource policy check (applies in ALL contexts — site-wide admin policy)
-        $resourceError = $this->checkResourceAccess($action, $arguments);
-        if ($resourceError) {
-            return $resourceError;
+        if (($denial = app(McpAuthorizer::class)->authenticationDenial()) !== null) {
+            $this->emitExecution(Events\ExecutionDenied::class, $action, $this->freshOperationId(), 'none', hrtime(true));
+
+            return $this->createErrorResponse($denial['message'], code: $denial['code'])->toArray();
         }
 
-        // Confirmation check (skipped in CLI and when disabled)
-        $confirmationResponse = $this->handleConfirmation($action, $arguments);
-        if ($confirmationResponse) {
-            return $confirmationResponse;
+        // An action must not drop what it was asked to do: a top-level
+        // `published` on create was ignored and the entry saved as a draft,
+        // and a list given a filter it does not read answers unfiltered.
+        if (($unknown = $this->unknownArguments($declared, $arguments)) !== []) {
+            return $this->createErrorResponse(
+                "The {$action} action does not take " . implode(', ', $unknown) . '. '
+                . ($declared->declaresArguments() ? 'It takes: ' . implode(', ', $this->acceptedArguments($declared)) . '. ' : '')
+                . ($declared->writes() ? 'Nothing was written.' : 'Nothing was read.')
+                . ($declared->writes() && in_array('data', $this->acceptedArguments($declared), true) ? ' Field values and flags such as published go inside data.' : ''),
+                field: $unknown[0], validValues: $this->acceptedArguments($declared),
+            )->toArray();
+        }
+        if (($missing = $declared->missingNeeds($arguments)) !== []) {
+            return $this->createErrorResponse(
+                "The {$action} action needs " . implode(', ', array_map(fn (string $need): string => str_replace('|', ' or ', $need), $missing)) . '.',
+                field: $missing[0],
+            )->toArray();
+        }
+
+        // Token scope and Statamic permissions (HTTP), resource policy (every
+        // transport): the same decision resources ask for.
+        $denial = app(McpAuthorizer::class)->denial($this->describeCall($action, $arguments));
+        if ($denial !== null) {
+            $this->emitExecution(Events\ExecutionDenied::class, $action, $this->freshOperationId(), 'none', hrtime(true));
+
+            return $this->createErrorResponse($denial['message'], code: $denial['code'])->toArray();
+        }
+
+        $inputSchema = app(IntegrationRegistry::class)->inputSchema(static::class);
+        if ($inputSchema !== null) {
+            app(SchemaValidator::class)->validateInput($arguments, $inputSchema);
+        }
+        try {
+            $this->authorizeAction($arguments);
+        } catch (AuthorizationException $error) {
+            $this->emitExecution(Events\ExecutionDenied::class, $action, $this->freshOperationId(), 'none', hrtime(true));
+            throw $error;
         }
 
         // Filter denied fields from input
         $arguments = $this->filterInputFields($arguments);
 
-        // Execute the action
-        $result = $this->executeAction($arguments);
+        // A gated action runs only with a person's approval (HTTP); otherwise
+        // at most once per idempotency key.
+        if ($this->needsApproval($action)) {
+            $result = $this->executeWithApproval($action, $arguments);
+        } elseif ($this->isWriteAction($action) && array_key_exists('idempotency_key', $arguments)) {
+            $result = $this->executeIdempotently($action, $arguments);
+        } else {
+            $result = $this->observedAction($action, $this->freshOperationId(), $arguments);
+        }
 
         // Filter denied fields from output
         return $this->filterOutputFields($result);
+    }
+
+    /**
+     * Arguments given a value that the action does not take. An action that
+     * declares no arguments (an extension's) takes whatever the schema
+     * offers, and only its writes are checked, as before declarations.
+     *
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return list<string>
+     */
+    private function unknownArguments(RouterAction $action, array $arguments): array
+    {
+        if (! $action->declaresArguments() && ! $action->writes()) {
+            return [];
+        }
+        $accepted = array_flip($this->acceptedArguments($action));
+
+        return array_values(array_filter(
+            array_map('strval', array_keys(array_filter($arguments, fn (mixed $value): bool => $value !== null))),
+            fn (string $key): bool => ! isset($accepted[$key]),
+        ));
+    }
+
+    /**
+     * Every argument the action takes, the shared ones included.
+     *
+     * @return list<string>
+     */
+    private function acceptedArguments(RouterAction $action): array
+    {
+        if (! $action->declaresArguments()) {
+            return array_map('strval', array_keys($this->defineSchema(new JsonSchemaTypeFactory)));
+        }
+
+        return [
+            'action',
+            ...($this->getTypes() !== [] ? ['resource_type'] : []),
+            ...$action->argumentNames(),
+            ...($action->writes() ? ['approval_id', 'idempotency_key'] : []),
+        ];
+    }
+
+    /**
+     * The schema clients see: the arguments the tool's actions take. When
+     * every action declares its arguments, nothing else is offered; an
+     * argument an action names that the router does not define is a bug in
+     * the router and fails loudly.
+     *
+     * @return array<string, mixed>
+     */
+    public function schema(JsonSchemaContract $schema): array
+    {
+        $properties = $this->defineSchema($schema);
+        $actions = $this->facetActions();
+
+        if ($actions !== [] && array_filter($actions, fn (RouterAction $action): bool => ! $action->declaresArguments()) === []) {
+            $taken = [];
+            foreach ($actions as $action) {
+                foreach ($this->acceptedArguments($action) as $name) {
+                    if (! array_key_exists($name, $properties)) {
+                        throw new \LogicException(static::class . " action '{$action->name}' takes '{$name}', which its schema does not define.");
+                    }
+                    $taken[$name] = true;
+                }
+            }
+
+            return array_intersect_key($properties, $taken);
+        }
+
+        return $this->facet === 'read'
+            ? array_diff_key($properties, array_flip(['approval_id', 'idempotency_key']))
+            : $properties;
+    }
+
+    /**
+     * The record's current version for a write the caller cannot tell landed,
+     * or null when this router does not version that record.
+     *
+     * @param  array<string, mixed>  $arguments
+     */
+    protected function currentResourceVersion(array $arguments): ?string
+    {
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string, mixed>
+     */
+    private function executeIdempotently(string $action, array $arguments): array
+    {
+        $key = $arguments['idempotency_key'];
+        if (! is_string($key) || ! preg_match('/^[A-Za-z0-9._:-]{8,128}$/D', $key)) {
+            return $this->createErrorResponse('idempotency_key must be 8-128 characters of letters, digits, ".", "_", ":" or "-".')->toArray();
+        }
+        $profile = app(InstallationProfile::class)->name();
+        if (! in_array($profile, ['editor', 'operator'], true)) {
+            return $this->createErrorResponse('This action is not allowed by the installation profile.', code: ErrorCode::Forbidden)->toArray();
+        }
+
+        [$actor, $grant] = $this->callIdentity();
+        $intent = IdempotentWrite::intent($key, $actor, $grant, $this->getDomain(), $action, $this->actionEffect($action),
+            $this->resolveSiteHandle($arguments), $profile, $this->isCliContext() ? 'stdio' : 'http', $this->boundInput($arguments),
+            app(IntegrationRegistry::class)->binding(static::class, $action), app(IntegrationRegistry::class)->version(static::class));
+        $outcome = app(IdempotentWrite::class)
+            ->run($intent, fn (): array => $this->observedAction($action, $intent->operationId, $arguments), fn (): ?string => $this->writeEffectsSoFar());
+
+        return match ($outcome['status']) {
+            'executed' => $outcome['result'],
+            'replayed' => $this->replayed($action, $intent->operationId, ['idempotent_replay' => true] + $outcome['result']),
+            'reused' => $this->createErrorResponse('This idempotency_key was already used for a different request. Nothing was saved; use a new key for a new change.',
+                ['code' => 'IDEMPOTENCY_KEY_REUSED'])->toArray(),
+            'spent' => $this->createErrorResponse('The call that used this idempotency_key saved nothing. Send the change again with a new key.',
+                ['code' => 'IDEMPOTENCY_KEY_SPENT'])->toArray(),
+            'expired' => $this->createErrorResponse('The retry window for this idempotency_key has passed, so nothing was run. Read the record before sending the change with a new key.',
+                ['code' => 'IDEMPOTENCY_KEY_EXPIRED'])->toArray(),
+            'unknown' => $this->createErrorResponse('A call with this idempotency_key started and has not finished, or stopped without reporting. It will not run again. Read the record to see whether the change landed.',
+                ['code' => 'OUTCOME_UNKNOWN', 'current_version' => $this->currentResourceVersion($arguments)])->toArray(),
+        };
+    }
+
+    /** Gated actions need approval over HTTP; the local stdio operator is the person. */
+    protected function needsApproval(string $action): bool
+    {
+        // A read changes nothing, so there is nothing for a person to approve.
+        return $this->isWriteAction($action) && ! $this->isCliContext() && ConfirmationActionGate::enabled()
+            && ConfirmationActionGate::gates($this->getDomain(), $action);
+    }
+
+    /**
+     * Without approval_id: record the call and ask the person to approve it in
+     * the Control Panel. With it: run that exact call once, if it was approved
+     * and the record has not changed since.
+     *
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string, mixed>
+     */
+    private function executeWithApproval(string $action, array $arguments): array
+    {
+        [$actor, $grant] = $this->callIdentity();
+        if (! str_starts_with($actor, 'user:') || $actor === 'user:anonymous') {
+            return $this->createErrorResponse('This action needs a person\'s approval, and the call has no Control Panel user to ask.')->toArray();
+        }
+        $profile = app(InstallationProfile::class)->name();
+        $approvals = app(Approvals::class);
+        $id = $arguments['approval_id'] ?? null;
+
+        if ($id === null) {
+            $intent = OperationIntent::forToolCall(bin2hex(random_bytes(32)), $actor, $grant, $this->getDomain(), $action,
+                $this->actionEffect($action), $this->resolveSiteHandle($arguments), $profile, 'http', $this->boundInput($arguments),
+                app(IntegrationRegistry::class)->binding(static::class, $action), app(IntegrationRegistry::class)->version(static::class));
+            $preview = [
+                'tool' => $this->name(), 'action' => $action, 'site' => $this->resolveSiteHandle($arguments),
+                'description' => $this->describeForApproval($action, $arguments),
+                'arguments' => self::withoutSecrets($this->boundInput($arguments)),
+                'expected_version' => $this->currentResourceVersion($arguments),
+            ];
+            $operation = $approvals->request($intent, $preview);
+
+            return $this->createErrorResponse(
+                'This action needs a person\'s approval. Ask them to approve it in the Control Panel, then repeat the same call with approval_id. Nothing was saved.',
+                ['code' => 'APPROVAL_REQUIRED', 'approval_id' => $operation->id, 'approve_url' => cp_route('statamic-mcp.approvals.index'),
+                    'description' => $preview['description'], 'expires_in' => $approvals->ttlSeconds()],
+            )->toArray();
+        }
+
+        if (! is_string($id)) {
+            return $this->createErrorResponse('approval_id must be the string from the APPROVAL_REQUIRED answer.')->toArray();
+        }
+        $intent = OperationIntent::forToolCall(str_repeat('0', 64), $actor, $grant, $this->getDomain(), $action,
+            $this->actionEffect($action), $this->resolveSiteHandle($arguments), $profile, 'http', $this->boundInput($arguments),
+            app(IntegrationRegistry::class)->binding(static::class, $action), app(IntegrationRegistry::class)->version(static::class));
+        $outcome = $approvals->execute($id, $intent, $this->currentResourceVersion($arguments),
+            fn (): array => $this->observedAction($action, $id, $arguments), fn (): ?string => $this->writeEffectsSoFar());
+
+        return match ($outcome['status']) {
+            'executed' => $outcome['result'],
+            'replayed' => $this->replayed($action, $id, ['approval_replay' => true] + $outcome['result']),
+            'pending' => $this->createErrorResponse('Not approved yet. Nothing was saved; repeat the call once the person approved it.', ['code' => 'APPROVAL_PENDING'])->toArray(),
+            'rejected' => $this->createErrorResponse('The person rejected this action. Nothing was saved.', ['code' => 'APPROVAL_REJECTED'])->toArray(),
+            'stale' => $this->createErrorResponse('The record changed after the approval was asked for, so the approval no longer holds. Nothing was saved; ask again.', ['code' => 'APPROVAL_STALE'])->toArray(),
+            'mismatch' => $this->createErrorResponse('This approval was for a different call. Nothing was saved; repeat exactly the approved call, or ask again.', ['code' => 'APPROVAL_MISMATCH'])->toArray(),
+            'expired' => $this->createErrorResponse('This approval has expired or is unknown. Nothing was saved; ask again.', ['code' => 'APPROVAL_EXPIRED'])->toArray(),
+            'spent' => $this->createErrorResponse('The approved call ran and saved nothing. The approval is used; ask again.', ['code' => 'APPROVAL_SPENT'])->toArray(),
+            'unknown' => $this->createErrorResponse('The approved call started and has not finished, or stopped without reporting. It will not run again. Read the record to see whether the change landed.',
+                ['code' => 'OUTCOME_UNKNOWN', 'current_version' => $this->currentResourceVersion($arguments)])->toArray(),
+        };
+    }
+
+    /**
+     * Run the handler between ExecutionStarted and its terminal event. Started
+     * is emitted only here, after authorization and any approval or
+     * idempotency claim, so a refused call never looks like an execution.
+     *
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string, mixed>
+     */
+    private function observedAction(string $action, string $operationId, array $arguments): array
+    {
+        $this->executingArguments = $arguments;
+        $start = hrtime(true);
+        // One execution id ties started to its terminal event; observers pair them on it.
+        $execution = (string) Str::uuid();
+        $this->emitExecution(Events\ExecutionStarted::class, $action, $operationId, 'none', $start, $execution);
+        try {
+            $result = $this->validateIntegrationResult($action, $this->executeAction($arguments));
+        } catch (\Throwable $error) {
+            $this->emitExecution(Events\ExecutionFailed::class, $action, $operationId, $this->writeEffectsSoFar() ?? 'none', $start, $execution);
+            throw $error;
+        } finally {
+            $this->executingArguments = null;
+        }
+        $effects = $this->writeEffectsSoFar() ?? 'none';
+        $this->emitExecution(($result['success'] ?? true) === false ? Events\ExecutionFailed::class : Events\ExecutionCompleted::class,
+            $action, $operationId, $effects, $start, $execution);
+
+        // Store warnings with the operation result so an idempotent replay
+        // reports the same ignored fields without running the write again.
+        if ($this->callWarnings !== [] && ($result['success'] ?? true) === true) {
+            if (! isset($result['success'], $result['meta'])) {
+                $result = $this->createSuccessResponse($result)->toArray();
+            }
+            $result['warnings'] = array_values(array_unique([
+                ...(is_array($result['warnings'] ?? null) ? array_filter($result['warnings'], 'is_string') : []),
+                ...$this->callWarnings,
+            ]));
+        }
+
+        return $result;
+    }
+
+    /** @param array<string, mixed> $result
+     * @return array<string, mixed>
+     */
+    private function validateIntegrationResult(string $action, array $result, bool $replay = false): array
+    {
+        if (app(IntegrationRegistry::class)->package(static::class) === null || ($result['success'] ?? true) === false) {
+            return $result;
+        }
+        $result = $this->filterOutputFields($result);
+        $data = isset($result['success']) ? ($result['data'] ?? []) : $result;
+        if (! is_array($data)) {
+            throw new \LogicException('Integration results must be objects.');
+        }
+        // These flags belong to the framework, not the integration's payload.
+        if ($replay) {
+            unset($data['idempotent_replay'], $data['approval_replay']);
+        }
+        app(SchemaValidator::class)->validate(array_filter($data, is_string(...), ARRAY_FILTER_USE_KEY), $this->declaredAction($action)->outputSchema ?? []);
+
+        return $result;
+    }
+
+    /** @var array<string, mixed>|null */
+    private ?array $executingArguments = null;
+
+    private ?ExecutionContext $integrationContext = null;
+
+    /** Resolve and authorize the exact record and site, including before replay.
+     * Integration routers must implement this policy; it must not write.
+     *
+     * @param  array<string, mixed>  $arguments
+     */
+    protected function authorizeAction(array $arguments): void {}
+
+    /** Reauthorize stored content, including records no longer present after deletion.
+     *
+     * @param  array<string, mixed>  $result  Unwrapped operation result.
+     */
+    protected function authorizeReplay(string $action, array $result): void {}
+
+    protected function authorizePendingWrite(): void
+    {
+        if ($this->executingArguments === null || app(IntegrationRegistry::class)->package(static::class) === null) {
+            return;
+        }
+        $action = $this->executingArguments['action'] ?? '';
+        if (! is_string($action) || ! ($this->declaredAction($action)?->writes() ?? false)) {
+            throw new \LogicException('A read action cannot persist changes.');
+        }
+        if ($this->integrationContext !== null) {
+            app(ActorScope::class)->refresh($this->integrationContext);
+        }
+        $denial = app(McpAuthorizer::class)->denial($this->describeCall($action, $this->executingArguments));
+        if ($denial !== null) {
+            throw new AuthorizationException($denial['message']);
+        }
+        $this->authorizeAction($this->executingArguments);
+    }
+
+    /**
+     * A stored result handed back again: no new write, so no Started/Completed.
+     *
+     * @param  array<string, mixed>  $result
+     *
+     * @return array<string, mixed>
+     */
+    private function replayed(string $action, string $operationId, array $result): array
+    {
+        $payload = isset($result['success'], $result['meta']) && is_array($result['data'] ?? null)
+            ? array_filter($result['data'], is_string(...), ARRAY_FILTER_USE_KEY) : $result;
+        $this->authorizeReplay($action, $payload);
+
+        // Both raw data and a standard envelope are valid router results.
+        if (isset($result['success'], $result['meta']) && is_array($result['data'] ?? null)) {
+            foreach (['idempotent_replay', 'approval_replay'] as $flag) {
+                if (isset($result[$flag])) {
+                    $result['data'][$flag] = $result[$flag];
+                    unset($result[$flag]);
+                }
+            }
+        }
+        $result = $this->validateIntegrationResult($action, $result, replay: true);
+        $this->emitExecution(Events\ExecutionReplayed::class, $action, $operationId, 'none', hrtime(true));
+
+        return $result;
+    }
+
+    /** @var list<array{class-string<Events\ExecutionEvent>, string, string, string, int, string|null}> */
+    private array $terminalEvents = [];
+
+    protected function beforeToolCall(): void
+    {
+        $this->terminalEvents = [];
+    }
+
+    /** @param array<string, mixed> $result */
+    protected function afterToolCall(array $result): void
+    {
+        $pending = $this->terminalEvents;
+        $this->terminalEvents = [];
+        foreach ($pending as [$event, $action, $operationId, $effects, $start, $execution]) {
+            if ($event === Events\ExecutionCompleted::class && ($result['success'] ?? false) === false) {
+                $event = Events\ExecutionFailed::class;
+            }
+            $this->emitExecution($event, $action, $operationId, $effects, $start, $execution, $result);
+        }
+    }
+
+    /** @param  class-string<Events\ExecutionEvent>  $event
+     * @param  array<string, mixed>|null  $result
+     */
+    private function emitExecution(string $event, string $action, string $operationId, string $effects, int $start, ?string $execution = null, ?array $result = null): void
+    {
+        if ($event !== Events\ExecutionStarted::class && $result === null) {
+            $this->terminalEvents[] = [$event, $action, $operationId, $effects, $start, $execution];
+
+            return;
+        }
+        $domain = trim((string) preg_replace('/[^a-z0-9-]+/', '-', strtolower($this->getDomain())), '-') ?: 'tool';
+        $outcome = match ($event) {
+            Events\ExecutionStarted::class => 'started',
+            Events\ExecutionCompleted::class => 'completed',
+            Events\ExecutionDenied::class => 'denied',
+            Events\ExecutionFailed::class => 'failed',
+            default => 'replayed',
+        };
+        try {
+            $error = $result['error'] ?? null;
+            $code = is_array($error) && is_string($error['code'] ?? null) ? $error['code'] : null;
+            $bytes = $result === null ? false : json_encode($result, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            $instance = new $event((string) Str::uuid(), $operationId,
+                app(IntegrationRegistry::class)->binding(static::class, $action)['id'] ?? 'statamic-mcp/' . $domain . '/' . ($action !== '' ? $action : 'unknown'),
+                app(IntegrationRegistry::class)->version(static::class),
+                $this->isCliContext() ? 'stdio' : 'http', $outcome, $effects, (hrtime(true) - $this->callStartedAt) / 1_000_000, gmdate('Y-m-d\TH:i:s\Z'),
+                executionId: $execution ?? (string) Str::uuid(), reason: $code === null ? null : strtolower($code),
+                errorCode: $code, correlationId: $this->callCorrelationId,
+                responseBytes: is_string($bytes) ? strlen($bytes) : null,
+                cacheMilliseconds: $this->cacheMilliseconds,
+                traceparent: $this->isCliContext() ? null : LifecycleEvents::traceparent());
+        } catch (\Throwable) {
+            return;
+        }
+        LifecycleEvents::dispatch($instance);
+    }
+
+    private function freshOperationId(): string
+    {
+        return bin2hex(random_bytes(32));
+    }
+
+    /** @return array{0: string, 1: string} actor and grant, never a credential */
+    private function callIdentity(): array
+    {
+        if ($this->integrationContext !== null) {
+            return ['user:' . $this->integrationContext->actorId, 'grant:' . $this->integrationContext->grantId];
+        }
+        if ($this->isCliContext()) {
+            return ['stdio', 'stdio'];
+        }
+        $token = request()->attributes->get('mcp_token');
+        $user = auth()->id();
+        $actor = 'user:' . ($token instanceof McpTokenData ? $token->userId : (is_scalar($user) ? (string) $user : 'anonymous'));
+
+        return [$actor, $token instanceof McpTokenData ? 'token:' . $token->id : 'session'];
+    }
+
+    private function actionEffect(string $action): ActionEffect
+    {
+        return $this->declaredAction($action)->effect ?? ActionEffect::Edit;
+    }
+
+    /**
+     * The arguments an approval or idempotency key binds: the call itself.
+     *
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return array<string, mixed>
+     */
+    private function boundInput(array $arguments): array
+    {
+        unset($arguments['idempotency_key'], $arguments['approval_id']);
+        $action = $arguments['action'] ?? null;
+        $binding = is_string($action) ? app(IntegrationRegistry::class)->binding(static::class, $action) : null;
+        if ($binding !== null) {
+            $arguments['_capability'] = $binding;
+        }
+
+        return $arguments;
+    }
+
+    /**
+     * The arguments as the approval record stores and the Control Panel shows
+     * them, with secrets such as a new password replaced. The approval stays
+     * bound to the full input through the intent's hash.
+     *
+     * @param  array<array-key, mixed>  $arguments
+     *
+     * @return array<array-key, mixed>
+     */
+    private static function withoutSecrets(array $arguments): array
+    {
+        foreach ($arguments as $key => $value) {
+            if (is_string($key) && preg_match('/password|secret|token|api_?key|^connections$/i', $key) === 1 && $value !== null) {
+                $arguments[$key] = '[hidden]';
+            } elseif (is_array($value)) {
+                $arguments[$key] = self::withoutSecrets($value);
+            }
+        }
+
+        return $arguments;
+    }
+
+    /** @param  array<string, mixed>  $arguments */
+    protected function describeForApproval(string $action, array $arguments): string
+    {
+        $domain = Str::singular($this->getDomain());
+        $handle = $arguments['handle'] ?? $arguments['slug'] ?? $arguments['id'] ?? 'unknown';
+        $handle = is_string($handle) ? $handle : 'unknown';
+        $context = '';
+        foreach (['collection' => 'collection', 'taxonomy' => 'taxonomy', 'namespace' => 'namespace', 'container' => 'container'] as $key => $label) {
+            if (isset($arguments[$key]) && is_string($arguments[$key])) {
+                $context = " in {$label} '{$arguments[$key]}'";
+                break;
+            }
+        }
+
+        return match ($action) {
+            'delete' => "Delete {$domain} '{$handle}'{$context}. This cannot be undone.",
+            default => ucfirst(str_replace('_', ' ', $action)) . " {$domain} '{$handle}'{$context}.",
+        };
     }
 }

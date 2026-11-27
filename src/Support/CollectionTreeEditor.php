@@ -8,24 +8,28 @@ use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\Contracts\CollectionTreeEditor as CollectionTreeEditorContract;
+use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
+use Cboxdk\StatamicMcp\Mcp\Exceptions\ToolFailure;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Validation\ValidationException;
 use Statamic\Contracts\Entries\Collection;
 use Statamic\Contracts\Entries\Entry as EntryContract;
 use Statamic\Contracts\Routing\UrlBuilder;
+use Statamic\Contracts\Structures\CollectionTreeRepository;
 use Statamic\Facades\Blink;
 use Statamic\Facades\Entry;
 use Statamic\Facades\Site;
+use Statamic\Stache\Repositories\CollectionTreeRepository as StacheCollectionTreeRepository;
 use Statamic\Structures\CollectionTree;
+use Statamic\Structures\Tree;
 
 /** Moves one existing branch. Never accepts replacement trees or deletes entries. */
 class CollectionTreeEditor implements CollectionTreeEditorContract
 {
-    private function refuse(string $message): never
+    private function refuse(string $message, ErrorCode $code = ErrorCode::Validation): never
     {
-        throw ValidationException::withMessages(['parent' => $message]);
+        throw new ToolFailure($code, $message, $code === ErrorCode::Validation ? 'parent' : null);
     }
 
     private function context(Collection $collection, string $site, bool $write): CollectionTree
@@ -37,28 +41,28 @@ class CollectionTreeEditor implements CollectionTreeEditorContract
         $policy = app(ResourcePolicy::class);
         foreach (['entries', 'structures'] as $domain) {
             if ($write && array_intersect(['parent', 'tree', 'children'], $policy->getDeniedFields($domain))) {
-                $this->refuse('Tree changes are denied by resource field policy.');
+                $this->refuse('Tree changes are denied by resource field policy.', ErrorCode::Forbidden);
             }
             if (! $policy->canAccess($domain, $collection->handle(), $mode)) {
-                $this->refuse("{$mode} access to this collection is denied by the {$domain} resource policy.");
+                $this->refuse("{$mode} access to this collection is denied by the {$domain} resource policy.", ErrorCode::Forbidden);
             }
         }
         if (McpContext::isWebRequest()) {
             $user = auth()->user();
             if (! $user || ! Gate::forUser($user)->allows('view', $collection) || ! Gate::forUser($user)->allows('view', $siteObject)) {
-                $this->refuse('Permission denied: Cannot access this collection site.');
+                $this->refuse('Permission denied: Cannot access this collection site.', ErrorCode::Forbidden);
             }
             if ($write && ! Gate::forUser($user)->allows('reorder', $collection)) {
-                $this->refuse('Permission denied: Reordering this collection is required.');
+                $this->refuse('Permission denied: Reordering this collection is required.', ErrorCode::Forbidden);
             }
             if ($token = request()->attributes->get('mcp_token')) {
                 if (! $token instanceof McpTokenData) {
-                    $this->refuse('Invalid MCP token context.');
+                    $this->refuse('Invalid MCP token context.', ErrorCode::Forbidden);
                 }
-                $scopes = $write ? [TokenScope::EntriesWrite, TokenScope::StructuresWrite] : [TokenScope::EntriesRead, TokenScope::StructuresRead];
+                $scopes = $write ? [TokenScope::EntriesWrite, TokenScope::StructuresAdmin] : [TokenScope::EntriesRead, TokenScope::StructuresRead];
                 foreach ($scopes as $scope) {
                     if (! app(TokenService::class)->hasScope($token, $scope)) {
-                        $this->refuse("Token missing required scope: {$scope->value}");
+                        $this->refuse("Token missing required scope: {$scope->value}", ErrorCode::ScopeMissing);
                     }
                 }
             }
@@ -71,7 +75,7 @@ class CollectionTreeEditor implements CollectionTreeEditorContract
         Blink::forget('collection-structure-flattened-pages-collection' . $collection->handle() . '-' . $site);
         $tree = $collection->structure()->in($site);
         if (! $tree instanceof CollectionTree) {
-            $this->refuse('Collection tree not found.');
+            $this->refuse('Collection tree not found.', ErrorCode::NotFound);
         }
 
         return $this->freshTree($tree);
@@ -81,7 +85,7 @@ class CollectionTreeEditor implements CollectionTreeEditorContract
     {
         $tree = $source->structure()->makeTree($source->locale(), $source->getOriginal('tree', []));
         if (! $tree instanceof CollectionTree) {
-            $this->refuse('Collection tree not found.');
+            $this->refuse('Collection tree not found.', ErrorCode::NotFound);
         }
 
         // Rebuild pages without inheriting cached parents or URIs, while
@@ -125,10 +129,12 @@ class CollectionTreeEditor implements CollectionTreeEditorContract
         }
         $collection = $entry->collection();
         $site = $entry->locale();
+        // Before the tree is read for planning: a change in between can only
+        // refuse this move, never be overwritten by it.
+        $version = $this->storedTreeVersion($collection, $site);
         $tree = $this->context($collection, $site, true);
-        $version = is_file($tree->path()) ? hash_file('sha256', $tree->path()) : null;
         if (McpContext::isWebRequest() && $entry->id() && Entry::find($entry->id()) && ! Gate::forUser(auth()->user())->allows('edit', $entry)) {
-            $this->refuse('Permission denied: Cannot move this entry (author or site restriction).');
+            $this->refuse('Permission denied: Cannot move this entry (author or site restriction).', ErrorCode::Forbidden);
         }
         $parentPage = $parent ? $tree->find($parent) : null;
         if ($parent !== null) {
@@ -137,7 +143,7 @@ class CollectionTreeEditor implements CollectionTreeEditorContract
                 $this->refuse('Parent must exist in the same collection and site.');
             }
             if (McpContext::isWebRequest() && ! Gate::forUser(auth()->user())->allows('view', $target)) {
-                $this->refuse('Permission denied: Cannot view the requested parent.');
+                $this->refuse('Permission denied: Cannot view the requested parent.', ErrorCode::Forbidden);
             }
             if ($parentPage->isRoot()) {
                 $parent = null;
@@ -161,7 +167,7 @@ class CollectionTreeEditor implements CollectionTreeEditorContract
             foreach ($page->flattenedPages() as $descendant) {
                 $subtreeDepth = max($subtreeDepth, $descendant->depth() - $page->depth());
                 if (McpContext::isWebRequest() && ! Gate::forUser(auth()->user())->allows('edit', $descendant->entry())) {
-                    $this->refuse('Permission denied: Cannot move every entry in this subtree.');
+                    $this->refuse('Permission denied: Cannot move every entry in this subtree.', ErrorCode::Forbidden);
                 }
             }
         }
@@ -214,6 +220,34 @@ class CollectionTreeEditor implements CollectionTreeEditorContract
         return new CollectionTreeMove($tree, $candidate, $version, $parent);
     }
 
+    /**
+     * The stored tree's version, read past every in-memory cache.
+     *
+     * Read before the move is planned and again before it is saved; the
+     * planned tree cannot serve as the first read, because Statamic adds the
+     * entries the stored tree lacks to it in memory.
+     *
+     * The Stache keeps a tree in a file, so the file's hash is its version.
+     * Another repository (the Eloquent driver keeps trees in a table) has no
+     * file: its path() names one that does not exist, so hashing it gave null
+     * on every read and a concurrent change was never noticed. There the
+     * version is the stored tree's contents.
+     */
+    private function storedTreeVersion(Collection $collection, string $site): string
+    {
+        $repository = app(CollectionTreeRepository::class);
+        if (get_class($repository) === StacheCollectionTreeRepository::class) {
+            $path = $repository->find($collection->handle(), $site)?->path();
+
+            return is_string($path) && is_file($path) ? (hash_file('sha256', $path) ?: 'unreadable') : 'absent';
+        }
+        Blink::flush();
+        $stored = $repository->find($collection->handle(), $site);
+
+        // fileData(), not tree(): tree() validates, dropping ids it cannot find.
+        return $stored instanceof Tree ? hash('sha256', json_encode($stored->fileData()) ?: '') : 'absent';
+    }
+
     public function move(EntryContract $entry, mixed $parent): ?string
     {
         $savedParent = null;
@@ -222,17 +256,17 @@ class CollectionTreeEditor implements CollectionTreeEditorContract
             if (! $plan->candidate) {
                 $this->refuse('The entry must be saved in the collection tree before it can be moved.');
             }
-            if ((is_file($plan->original->path()) ? hash_file('sha256', $plan->original->path()) : null) !== $plan->version) {
-                $this->refuse('The tree changed during this operation. Read it again before retrying.');
+            if ($this->storedTreeVersion($entry->collection(), $entry->locale()) !== $plan->version) {
+                $this->refuse('The tree changed during this operation. Read it again before retrying.', ErrorCode::VersionConflict);
             }
             if (! $plan->candidate->save()) {
-                $this->refuse('The tree could not be saved.');
+                $this->refuse('The tree could not be saved.', ErrorCode::Internal);
             }
             Blink::flush();
 
             $actualParent = $this->parent($entry);
             if ($actualParent !== $plan->parent) {
-                $this->refuse('The tree save did not apply the requested parent.');
+                $this->refuse('The tree save did not apply the requested parent.', ErrorCode::OutcomeUnknown);
             }
 
             $savedParent = $actualParent;

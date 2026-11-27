@@ -70,7 +70,7 @@ class BlueprintGenerateGateTest extends TestCase
             }
         })->scopeFor('generate');
 
-        $this->assertSame(TokenScope::BlueprintsWrite, $scope, 'A blueprints:read token must not be able to generate a blueprint.');
+        $this->assertSame(TokenScope::BlueprintsAdmin, $scope, 'A blueprints:read token must not be able to generate a blueprint.');
     }
 
     public function test_generate_is_covered_by_the_confirmation_gate(): void

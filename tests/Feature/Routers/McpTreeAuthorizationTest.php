@@ -1,10 +1,14 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Cboxdk\StatamicMcp\Tests\Feature\Routers;
 
 use Carbon\Carbon;
 use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\Contracts\CollectionTreeEditor;
+use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
+use Cboxdk\StatamicMcp\Mcp\Exceptions\ToolFailure;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Cboxdk\StatamicMcp\Support\McpContext;
 use Cboxdk\StatamicMcp\Tests\TestCase;
@@ -12,7 +16,6 @@ use Illuminate\Contracts\Auth\Access\Gate as GateContract;
 use Illuminate\Contracts\Auth\Guard;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Validation\ValidationException;
 use Statamic\Auth\File\User;
 use Statamic\Contracts\Routing\UrlBuilder;
 use Statamic\Entries\Collection;
@@ -112,11 +115,15 @@ class McpTreeAuthorizationTest extends TestCase
         app()->instance(UrlBuilder::class, $builder);
     }
 
-    private function rejected(string $message, mixed $parent = 'target'): void
+    private function rejected(string $message, mixed $parent = 'target', ErrorCode $code = ErrorCode::Validation): void
     {
-        $this->expectException(ValidationException::class);
-        $this->expectExceptionMessage($message);
-        app(CollectionTreeEditor::class)->validate($this->entry, $parent);
+        try {
+            app(CollectionTreeEditor::class)->validate($this->entry, $parent);
+            $this->fail('Expected the tree operation to be refused.');
+        } catch (ToolFailure $error) {
+            $this->assertSame($code, $error->errorCode);
+            $this->assertStringContainsString($message, $error->getMessage());
+        }
     }
 
     public function test_missing_parent_is_rejected(): void
@@ -173,43 +180,43 @@ class McpTreeAuthorizationTest extends TestCase
     public function test_reorder_permission_is_required(): void
     {
         $this->deny = 'reorder';
-        $this->rejected('Reordering');
+        $this->rejected('Reordering', code: ErrorCode::Forbidden);
     }
 
     public function test_site_access_is_required(): void
     {
         $this->deny = 'site';
-        $this->rejected('collection site');
+        $this->rejected('collection site', code: ErrorCode::Forbidden);
     }
 
     public function test_entry_author_policy_is_enforced(): void
     {
         $this->deny = 'edit';
-        $this->rejected('author or site');
+        $this->rejected('author or site', code: ErrorCode::Forbidden);
     }
 
     public function test_entry_resource_policy_is_enforced(): void
     {
         config(['statamic.mcp.tools.entries.resources.write' => ['cases']]);
-        $this->rejected('entries resource policy');
+        $this->rejected('entries resource policy', code: ErrorCode::Forbidden);
     }
 
     public function test_structure_resource_policy_is_enforced(): void
     {
         config(['statamic.mcp.tools.structures.resources.write' => ['cases']]);
-        $this->rejected('structures resource policy');
+        $this->rejected('structures resource policy', code: ErrorCode::Forbidden);
     }
 
     public function test_structure_write_scope_is_required(): void
     {
         app()->instance(TokenService::class, (new \ReflectionClass(TokenService::class))->newInstanceWithoutConstructor());
         request()->attributes->set('mcp_token', new McpTokenData('probe', 'user', 'Test', '', ['entries:write'], null, null, Carbon::now()));
-        $this->rejected('structures:write');
+        $this->rejected('structures:admin', code: ErrorCode::ScopeMissing);
     }
 
     public function test_structural_field_policy_is_enforced(): void
     {
         config(['statamic.mcp.tools.structures.denied_fields' => ['tree']]);
-        $this->rejected('resource field policy');
+        $this->rejected('resource field policy', code: ErrorCode::Forbidden);
     }
 }

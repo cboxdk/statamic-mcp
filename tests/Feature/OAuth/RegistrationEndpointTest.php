@@ -5,9 +5,32 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Tests\Feature\OAuth;
 
 use Cboxdk\StatamicMcp\Tests\TestCase;
+use Illuminate\Routing\Middleware\ThrottleRequests;
 
 class RegistrationEndpointTest extends TestCase
 {
+    public function test_registration_refuses_malformed_authorities_and_credentials(): void
+    {
+        $this->withoutMiddleware(ThrottleRequests::class);
+        foreach (['https://<img src=x onerror=alert(1)>/callback', 'https://app.example\\@evil.example/callback', 'https://user:password@example.com/callback', "https://exam\nple.com/callback"] as $uri) {
+            $this->postJson('/mcp/oauth/register', ['client_name' => 'Unsafe', 'redirect_uris' => [$uri]])
+                ->assertStatus(400)->assertJsonPath('error', 'invalid_request');
+        }
+    }
+
+    public function test_application_type_is_metadata_not_a_redirect_safety_bypass(): void
+    {
+        $this->withoutMiddleware(ThrottleRequests::class);
+        foreach (['web', 'native'] as $type) {
+            $this->postJson('/mcp/oauth/register', ['client_name' => 'Typed client', 'application_type' => $type, 'redirect_uris' => ['http://localhost:8000/callback']])
+                ->assertCreated()->assertJsonPath('application_type', $type);
+            $this->postJson('/mcp/oauth/register', ['client_name' => 'Unsafe', 'application_type' => $type, 'redirect_uris' => ['http://example.com/callback']])
+                ->assertStatus(400);
+        }
+        $this->postJson('/mcp/oauth/register', ['client_name' => 'Invalid', 'application_type' => 'other', 'redirect_uris' => ['https://example.com/callback']])
+            ->assertStatus(400)->assertJsonPath('error', 'invalid_client_metadata');
+    }
+
     public function test_successful_client_registration(): void
     {
         $response = $this->postJson('/mcp/oauth/register', [

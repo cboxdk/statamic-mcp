@@ -98,8 +98,8 @@ class MultiSiteIsolationTest extends TestCase
         ]);
 
         $this->assertTrue($result['success']);
-        $this->assertNotEmpty($result['data']['entries']);
-        $this->assertGreaterThanOrEqual(1, $result['data']['pagination']['total']);
+        $this->assertNotEmpty($result['data']['items']);
+        $this->assertGreaterThanOrEqual(1, $result['data']['total']);
     }
 
     public function test_global_update_rejects_invalid_site(): void

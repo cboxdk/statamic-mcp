@@ -17,7 +17,7 @@ describe('DiscoveryTool', function () {
 
         // Should recommend entries tool for blog content
         $toolNames = collect($result['data']['discovery']['recommended_tools'])->pluck('tool')->all();
-        expect($toolNames)->toContain('statamic-entries');
+        expect($toolNames)->toContain('statamic-entries-read');
     });
 
     it('returns tool suggestions for blueprint intents', function () {
@@ -27,7 +27,7 @@ describe('DiscoveryTool', function () {
         expect($result)->toHaveKey('success');
         expect($result['success'])->toBeTrue();
         $toolNames = collect($result['data']['discovery']['recommended_tools'])->pluck('tool')->all();
-        expect($toolNames)->toContain('statamic-blueprints');
+        expect($toolNames)->toContain('statamic-blueprints-read');
     });
 
     it('returns available tools list', function () {
@@ -38,6 +38,14 @@ describe('DiscoveryTool', function () {
         expect($result['success'])->toBeTrue();
         expect($result['data']['discovery'])->toHaveKey('available_tools');
         expect($result['data']['discovery']['available_tools'])->not->toBeEmpty();
+    });
+
+    it('recommends forms for form work rather than format questions', function () {
+        foreach (['configure a form' => true, 'explain field format' => false] as $intent => $expected) {
+            $result = (new DiscoveryTool)->execute(['intent' => $intent]);
+            $names = array_column($result['data']['discovery']['recommended_tools'], 'tool');
+            expect(in_array('statamic-forms-read', $names, true))->toBe($expected);
+        }
     });
 
     it('handles empty intent gracefully', function () {

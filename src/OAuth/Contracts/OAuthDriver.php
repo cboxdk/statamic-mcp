@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\OAuth\Contracts;
 
+use Cboxdk\StatamicMcp\Actions\CapabilitySnapshot;
 use Cboxdk\StatamicMcp\OAuth\Exceptions\OAuthException;
 use Cboxdk\StatamicMcp\OAuth\OAuthAuthCode;
 use Cboxdk\StatamicMcp\OAuth\OAuthClient;
+use Cboxdk\StatamicMcp\OAuth\OAuthGrant;
 
-interface OAuthDriver
+interface OAuthDriver extends RevokesUserGrants
 {
     /** @param array<int, string> $redirectUris */
     public function registerClient(string $clientName, array $redirectUris, ?string $registeredIp = null): OAuthClient;
@@ -28,6 +30,7 @@ interface OAuthDriver
         string $codeChallenge,
         string $codeChallengeMethod,
         string $redirectUri,
+        ?CapabilitySnapshot $capabilities = null,
     ): string;
 
     /**
@@ -38,6 +41,7 @@ interface OAuthDriver
         string $codeVerifier,
         string $clientId,
         string $redirectUri,
+        ?string $resource = null,
     ): OAuthAuthCode;
 
     /**
@@ -45,7 +49,7 @@ interface OAuthDriver
      *
      * @param  array<int, string>  $scopes
      */
-    public function createRefreshToken(string $userId, string $clientId, array $scopes): string;
+    public function createRefreshToken(string $userId, string $clientId, array $scopes, ?CapabilitySnapshot $capabilities = null): string;
 
     /**
      * Exchange a refresh token for a new OAuthAuthCode (with userId and scopes).
@@ -54,7 +58,7 @@ interface OAuthDriver
      *
      * @throws OAuthException
      */
-    public function exchangeRefreshToken(string $refreshToken, string $clientId): OAuthAuthCode;
+    public function exchangeRefreshToken(string $refreshToken, string $clientId, ?string $resource = null): OAuthAuthCode;
 
     /**
      * Revoke a refresh token. Returns true if found and revoked.
@@ -66,6 +70,16 @@ interface OAuthDriver
      * revoking the access token ends the whole grant. Returns the number removed.
      */
     public function revokeRefreshTokensFor(string $userId, string $clientId): int;
+
+    /** Unexpired, unused authorization codes and refresh tokens, independent of access tokens.
+     * @return iterable<OAuthGrant>
+     */
+    public function pendingGrants(): iterable;
+
+    /** Revoke authorization codes AND refresh tokens for one owner/client pair.
+     * Caller holds the OAuth mutation lock so a rotation cannot escape.
+     */
+    public function revokeGrantsForClient(string $userId, string $clientId): int;
 
     public function prune(): int;
 }

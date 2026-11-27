@@ -6,10 +6,14 @@ namespace Cboxdk\StatamicMcp\Mcp\Tools\Concerns;
 
 use Carbon\Exceptions\InvalidFormatException;
 use Cboxdk\StatamicMcp\Mcp\Exceptions\FieldFormatException;
+use Cboxdk\StatamicMcp\Mcp\Support\BardNodes;
 use Cboxdk\StatamicMcp\Mcp\Support\FieldtypeExtensions;
-use Cboxdk\StatamicMcp\Mcp\Support\SeoProFieldData;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
+use Statamic\Facades\Entry;
+use Statamic\Facades\Term;
+use Statamic\Facades\User;
 use Statamic\Fields\Blueprint;
 use Statamic\Fields\Field;
 use Statamic\Fieldtypes\Bard;
@@ -18,6 +22,7 @@ use Statamic\Fieldtypes\Grid;
 use Statamic\Fieldtypes\Group;
 use Statamic\Fieldtypes\Relationship;
 use Statamic\Fieldtypes\Replicator;
+use Statamic\Fieldtypes\Terms;
 
 trait SanitizesFieldData
 {
@@ -161,6 +166,14 @@ trait SanitizesFieldData
             $this->assertKnownHandles($fields, $data, $path, $structuralKeys);
         }
 
+        if (! $allowLegacyCoercion && $structuralKeys === null) {
+            $unknown = array_diff(array_keys($data), $fields->keys()->all());
+            if ($unknown !== []) {
+                $this->callWarnings[] = 'Fields outside the blueprint: ' . implode(', ', array_slice($unknown, 0, self::MAX_LISTED_HANDLES))
+                    . '. Only supported metadata is retained; check the returned record for saved values.';
+            }
+        }
+
         foreach ($fields as $handle => $field) {
             if (! array_key_exists($handle, $data)) {
                 continue;
@@ -238,12 +251,17 @@ trait SanitizesFieldData
      */
     private function sanitizeFieldValue(Field $field, mixed $value, bool $allowLegacyCoercion, string $path): mixed
     {
-        if (in_array($field->type(), ['seo_pro', 'seo_pro_source'], true)) {
-            return SeoProFieldData::sanitize($field, $value, $path);
+        if (FieldtypeExtensions::hasSanitizer($field)) {
+            return FieldtypeExtensions::applySanitizer($field, $value, $path);
         }
 
         if ($value === null) {
             return null;
+        }
+
+        if (! $allowLegacyCoercion && in_array($field->type(), ['collections', 'navs', 'sites', 'form', 'user_roles', 'user_groups'], true)
+            && (! is_string($value) && (! is_array($value) || array_filter($value, fn (mixed $handle): bool => ! is_string($handle)) !== []))) {
+            throw new FieldFormatException("Field [{$path}] expects a handle or a list of handles.");
         }
 
         return match ($field->type()) {
@@ -252,21 +270,19 @@ trait SanitizesFieldData
             'grid' => $this->sanitizeGridValue($field, $value, $allowLegacyCoercion, $path),
             'replicator' => $this->sanitizeReplicatorValue($field, $value, $allowLegacyCoercion, $path),
             'table' => $this->sanitizeTableValue($value, $allowLegacyCoercion, $path),
+            'array' => $this->sanitizeKeyValueArray($value, $allowLegacyCoercion, $path),
             'date' => $this->sanitizeDateValue($field, $value),
             'assets' => $this->normalizeAssetFieldValue($field, $value),
-            'terms', 'entries', 'users', 'checkboxes' => $this->sanitizeRelationshipValue($value),
-            // A registered sanitizer replaces the built-in checks below, so a
-            // site can still decide for itself what a field accepts.
+            'terms', 'taxonomy', 'entries', 'users' => $allowLegacyCoercion
+                ? $this->sanitizeRelationshipValue($value)
+                : $this->resolveReferences($field, $this->sanitizeRelationshipValue($value), $path),
+            'checkboxes' => $this->sanitizeRelationshipValue($value),
             default => match (true) {
-                FieldtypeExtensions::hasSanitizer($field) => FieldtypeExtensions::applySanitizer($field, $value, $path),
-                // Every Relationship validates as `array`, but stores a bare id
-                // when max_items is 1 (process() unwraps it again on save). The
-                // Control Panel wraps it before submitting; this does the same
-                // for every subclass — entries, terms, users, form, collections,
-                // navs, sites and the rest — not a list that falls behind (#102).
+                // Every Relationship validates as a list, including addon subclasses.
+                // Statamic unwraps max_items: 1 again when processing the save (#102).
                 $field->fieldtype() instanceof Relationship => $this->sanitizeRelationshipValue($value),
                 in_array($field->type(), self::STRING_FIELDTYPES, true) => $this->sanitizeStringValue($field, $value, $allowLegacyCoercion, $path),
-                default => FieldtypeExtensions::applySanitizer($field, $value, $path),
+                default => $value,
             },
         };
     }
@@ -384,15 +400,12 @@ trait SanitizesFieldData
      */
     private function sanitizeBardValue(Field $field, mixed $value, bool $allowLegacyCoercion, string $path): array
     {
+        $inline = (bool) $field->get('inline', false);
         if (is_string($value)) {
-            return [
-                [
-                    'type' => 'paragraph',
-                    'content' => [
-                        ['type' => 'text', 'text' => $value],
-                    ],
-                ],
-            ];
+            $value = [['type' => 'text', 'text' => $value]];
+            if (! $inline) {
+                $value = [['type' => 'paragraph', 'content' => $value]];
+            }
         }
 
         $nodes = $this->sanitizeArrayValue('bard', $value, $allowLegacyCoercion, $path);
@@ -400,6 +413,10 @@ trait SanitizesFieldData
 
         if (! $fieldtype instanceof Bard) {
             return [];
+        }
+
+        if (! $allowLegacyCoercion) {
+            (new BardNodes($fieldtype))->validate($nodes, $path, $inline);
         }
 
         /** @var array<int, array<string, mixed>> $sanitized */
@@ -456,7 +473,39 @@ trait SanitizesFieldData
             $sanitized[] = $node;
         }
 
-        return $sanitized;
+        // Statamic's process() unwraps one paragraph in inline mode. Our public
+        // wire format is the stored inline nodes, so add the CP wrapper once.
+        return $inline && $sanitized !== []
+            ? [['type' => 'paragraph', 'content' => $sanitized]]
+            : $sanitized;
+    }
+
+    /** @return array<array-key, mixed> */
+    private function sanitizeKeyValueArray(mixed $value, bool $legacy, string $path): array
+    {
+        $data = $this->sanitizeArrayValue('array', $value, $legacy, $path);
+        if (! array_is_list($data) || $data === [] || ! is_array($data[0]) || ! array_key_exists('key', $data[0])) {
+            return $data;
+        }
+        // Expanded storage is a list of {key, value}, not a numerically keyed
+        // input map. Passing it straight to process() silently replaces the keys.
+        $values = [];
+        foreach ($data as $item) {
+            if (! is_array($item) || ! array_key_exists('key', $item) || ! array_key_exists('value', $item)
+                || (! is_string($item['key']) && ! is_int($item['key']))) {
+                throw new FieldFormatException("Field [{$path}] expects a key/value object or expanded {key, value} rows.");
+            }
+            if (array_key_exists($item['key'], $values)) {
+                throw new FieldFormatException("Field [{$path}] contains duplicate array keys.");
+            }
+            // Native preProcess() drops hidden flags in keyed mode. Preserve
+            // them here, including numeric keys that form another PHP list.
+            $values[$item['key']] = ($item['hidden'] ?? false) === true
+                ? ['value' => $item['value'], 'hidden' => true]
+                : $item['value'];
+        }
+
+        return $values;
     }
 
     /**
@@ -700,6 +749,100 @@ trait SanitizesFieldData
         }
 
         return [];
+    }
+
+    /**
+     * Check every reference a client sends against what exists.
+     *
+     * Statamic's Terms fieldtype turns a value without `taxonomy::` into a new
+     * term (createTermFromString), outside this server's scope and policy
+     * checks, so an agent that sent an id the field did not know created junk
+     * terms and was told it succeeded. Entries and users would store a dangling
+     * id the same way. A reference must name a record that exists; a term is
+     * created with the terms tool first.
+     *
+     * Stored values are not checked here: an unrelated update must not fail on
+     * a reference that was deleted since.
+     *
+     * @param  array<int, mixed>  $values
+     *
+     * @return array<int, string>
+     */
+    private function resolveReferences(Field $field, array $values, string $path): array
+    {
+        $resolved = [];
+        foreach ($values as $value) {
+            if (! is_string($value) && ! is_int($value)) {
+                throw new FieldFormatException("Field [{$path}] expects an array of ids, received an item of type " . get_debug_type($value) . '.');
+            }
+            $value = (string) $value;
+            $resolved[] = match ($field->type()) {
+                'terms', 'taxonomy' => $this->resolveTermReference($field, $value, $path),
+                'entries' => $this->resolveEntryReference($field, $value, $path),
+                default => User::find($value) !== null
+                    ? $value
+                    : throw new FieldFormatException("Field [{$path}] references user '{$value}', which does not exist. Send a user id."),
+            };
+        }
+
+        return array_values(array_unique($resolved));
+    }
+
+    private function resolveEntryReference(Field $field, string $id, string $path): string
+    {
+        $entry = Entry::find($id);
+        if ($entry === null) {
+            throw new FieldFormatException("Field [{$path}] references entry '{$id}', which does not exist. Send the id of an existing entry.");
+        }
+
+        $allowed = array_values(array_filter((array) $field->get('collections', []), 'is_string'));
+        if ($allowed !== [] && ! in_array($entry->collectionHandle(), $allowed, true)) {
+            throw new FieldFormatException("Field [{$path}] accepts entries from " . implode(', ', $allowed) . "; entry '{$id}' is in " . $entry->collectionHandle() . '.');
+        }
+
+        return $id;
+    }
+
+    /**
+     * A term reference is `taxonomy::slug`, or the slug alone when the field
+     * has one taxonomy. A title such as "Modern PHP" is matched by its slug, so
+     * the stored value is what the Control Panel would store.
+     */
+    private function resolveTermReference(Field $field, string $reference, string $path): string
+    {
+        $fieldtype = $field->fieldtype();
+        /** @var list<string> $taxonomies */
+        $taxonomies = $fieldtype instanceof Terms
+            ? array_values(array_filter($fieldtype->taxonomies(), 'is_string'))
+            : [];
+        $single = count($taxonomies) === 1 ? $taxonomies[0] : null;
+
+        if (str_contains($reference, '::')) {
+            [$taxonomy, $slug] = explode('::', $reference, 2);
+        } elseif ($single !== null) {
+            [$taxonomy, $slug] = [$single, $reference];
+        } else {
+            throw new FieldFormatException("Field [{$path}] takes terms from " . ($taxonomies === [] ? 'several taxonomies' : implode(', ', $taxonomies))
+                . ", so each value must be taxonomy::slug; received '{$reference}'.");
+        }
+
+        if ($taxonomies !== [] && ! in_array($taxonomy, $taxonomies, true)) {
+            throw new FieldFormatException("Field [{$path}] accepts terms from " . implode(', ', $taxonomies) . "; '{$reference}' is in {$taxonomy}.");
+        }
+
+        $term = Term::find("{$taxonomy}::{$slug}") ?? Term::find("{$taxonomy}::" . Str::slug($slug));
+        if ($term === null) {
+            $known = Term::query()->where('taxonomy', $taxonomy)->limit(20)->get()
+                ->map(fn ($t): string => (string) $t->slug())->all();
+
+            throw new FieldFormatException("Field [{$path}] references term '{$slug}', which does not exist in taxonomy {$taxonomy}. "
+                . 'Create it with the terms tool first, then send its slug.'
+                . ($known === [] ? '' : ' Existing slugs include: ' . implode(', ', $known) . '.'));
+        }
+
+        // Statamic stores the bare slug for a single-taxonomy field and the
+        // full id otherwise; send it the shape it would store itself.
+        return $single !== null ? (string) $term->slug() : (string) $term->id();
     }
 
     private function invalidStructuredValue(string $path, string $fieldType, mixed $value): FieldFormatException

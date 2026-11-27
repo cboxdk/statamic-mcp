@@ -72,7 +72,7 @@ class BlueprintFieldScopeTest extends TestCase
         return $this->router->execute(array_merge([
             'action' => 'get',
             'namespace' => 'collections',
-            'collection_handle' => $this->collectionHandle,
+            'collection' => $this->collectionHandle,
             'handle' => 'pages',
         ], $extra));
     }

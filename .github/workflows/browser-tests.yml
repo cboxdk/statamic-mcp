@@ -2,19 +2,21 @@ name: Browser Tests
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, sd/release/v4]
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, sd/release/v4]
+
+# A push and its pull-request event verify the same branch, so they share a
+# group and the newest run wins. Pushes to main get a group per commit and are
+# never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || (github.ref_name == 'main' && github.sha) || github.ref_name }}
+  cancel-in-progress: ${{ github.ref_name != 'main' }}
 
 # Read-only token: this workflow builds and exercises the addon, it never
 # writes to the repo.
 permissions:
   contents: read
-
-concurrency:
-  # A new push to a pull request cancels its older run; runs on main are never cancelled.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   playwright:
@@ -48,12 +50,13 @@ jobs:
           cd site
           echo "APP_KEY=$(php artisan key:generate --show)" >> .env
           echo "STATAMIC_MCP_WEB_ENABLED=true" >> .env
+          echo "STATAMIC_MCP_HTTP_PROFILE=operator" >> .env
           echo "STATAMIC_MCP_OAUTH_ENABLED=true" >> .env
 
       - name: Install addon from local path
         working-directory: site
         run: |
-          composer config repositories.statamic-mcp '{"type": "path", "url": "../addon", "options": {"symlink": false}}'
+          composer config repositories.statamic-mcp '{"type": "path", "url": "../addon", "options": {"symlink": true}}'
           composer require cboxdk/statamic-mcp:@dev --no-interaction
 
       - name: Create test user
@@ -71,8 +74,10 @@ jobs:
       - name: Build addon frontend
         working-directory: addon
         run: |
-          npm install
-          npx vite build
+          mkdir -p vendor/statamic
+          ln -s ../../../site/vendor/statamic/cms vendor/statamic/cms
+          npm install --install-links
+          npm run build
 
       - name: Publish addon assets
         working-directory: site

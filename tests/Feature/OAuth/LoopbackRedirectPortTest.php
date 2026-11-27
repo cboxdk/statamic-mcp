@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Tests\Feature\OAuth;
 
+use Cboxdk\StatamicMcp\Tests\Concerns\InteractsWithOAuthConsent;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Illuminate\Support\Facades\Http;
 use Statamic\Facades\User;
@@ -15,6 +16,8 @@ use Statamic\Facades\User;
  */
 class LoopbackRedirectPortTest extends TestCase
 {
+    use InteractsWithOAuthConsent;
+
     private string $cimdClientId = 'https://app.example.com/oauth/client-metadata.json';
 
     private string $registeredRedirectUri = 'http://localhost/callback';
@@ -74,13 +77,14 @@ class LoopbackRedirectPortTest extends TestCase
     private function authorizeParams(string $clientId, string $redirectUri, string $challenge): array
     {
         return [
+            'resource' => 'http://localhost/mcp/statamic',
             'response_type' => 'code',
             'client_id' => $clientId,
             'redirect_uri' => $redirectUri,
             'code_challenge' => $challenge,
             'code_challenge_method' => 'S256',
             'state' => 'loopback-state',
-            'scope' => 'content:read',
+            'scope' => 'entries:read',
         ];
     }
 
@@ -90,13 +94,14 @@ class LoopbackRedirectPortTest extends TestCase
     private function approveParams(string $clientId, string $redirectUri, string $challenge): array
     {
         return [
+            'resource' => 'http://localhost/mcp/statamic',
             'client_id' => $clientId,
             'redirect_uri' => $redirectUri,
             'state' => 'loopback-state',
             'code_challenge' => $challenge,
             'code_challenge_method' => 'S256',
-            'scope' => 'content:read',
-            'scopes' => ['content:read'],
+            'scope' => 'entries:read',
+            'scopes' => ['entries:read'],
             'decision' => 'approve',
         ];
     }
@@ -107,14 +112,17 @@ class LoopbackRedirectPortTest extends TestCase
         $user = $this->authenticatedUser('loopback-cimd');
         $pkce = $this->generatePkce();
 
-        $this->actingAs($user, 'web')
+        $consent = $this->actingAs($user, 'web')
             ->get($this->authorizeUrl(http_build_query(
                 $this->authorizeParams($this->cimdClientId, $this->requestedRedirectUri, $pkce['challenge']),
             )))
             ->assertOk();
 
         $approve = $this->actingAs($user, 'web')
-            ->post($this->authorizeUrl(), $this->approveParams($this->cimdClientId, $this->requestedRedirectUri, $pkce['challenge']));
+            ->post($this->authorizeUrl(), array_merge(
+                $this->approveParams($this->cimdClientId, $this->requestedRedirectUri, $pkce['challenge']),
+                ['consent_offer' => $this->consentOfferFrom($consent)],
+            ));
 
         $approve->assertRedirect();
         $location = (string) $approve->headers->get('Location', '');
@@ -125,6 +133,7 @@ class LoopbackRedirectPortTest extends TestCase
 
         $this->post('/mcp/oauth/token', [
             'grant_type' => 'authorization_code',
+            'resource' => 'http://localhost/mcp/statamic',
             'code' => $query['code'],
             'redirect_uri' => $this->requestedRedirectUri,
             'client_id' => $this->cimdClientId,

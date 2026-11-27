@@ -5,11 +5,18 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\OAuth\Drivers;
 
 use Carbon\Carbon;
+use Cboxdk\StatamicMcp\Actions\CapabilitySnapshot;
+use Cboxdk\StatamicMcp\Actions\LifecycleEvents;
+use Cboxdk\StatamicMcp\Auth\TokenService;
 use Cboxdk\StatamicMcp\OAuth\Concerns\ValidatesRedirectUris;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
+use Cboxdk\StatamicMcp\OAuth\Contracts\RevokesUserGrants;
 use Cboxdk\StatamicMcp\OAuth\Exceptions\OAuthException;
 use Cboxdk\StatamicMcp\OAuth\OAuthAuthCode;
 use Cboxdk\StatamicMcp\OAuth\OAuthClient;
+use Cboxdk\StatamicMcp\OAuth\OAuthGrant;
+use Cboxdk\StatamicMcp\OAuth\ResourceIndicator;
+use Cboxdk\StatamicMcp\Support\McpConfig;
 use Symfony\Component\Yaml\Yaml;
 
 /**
@@ -19,7 +26,7 @@ use Symfony\Component\Yaml\Yaml;
  * reliably on local filesystems. For horizontally scaled deployments (multiple
  * servers, NFS, or container shared volumes), use a database-backed driver instead.
  */
-class BuiltInOAuthDriver implements OAuthDriver
+class BuiltInOAuthDriver implements OAuthDriver, RevokesUserGrants
 {
     use ValidatesRedirectUris;
 
@@ -80,8 +87,8 @@ class BuiltInOAuthDriver implements OAuthDriver
             }
         }
 
-        /** @var int $maxClients */
-        $maxClients = config('statamic.mcp.oauth.max_clients', 50);
+        $this->removeUnusedClients();
+        $maxClients = McpConfig::int('oauth.max_clients', 50);
         $existingFiles = glob($this->clientsDir . '/*.yaml');
         $count = $existingFiles !== false ? count($existingFiles) : 0;
 
@@ -113,6 +120,7 @@ class BuiltInOAuthDriver implements OAuthDriver
 
     public function countClientsByIp(string $ip): int
     {
+        $this->removeUnusedClients();
         $count = 0;
         $files = glob($this->clientsDir . '/*.yaml');
 
@@ -172,6 +180,7 @@ class BuiltInOAuthDriver implements OAuthDriver
         string $codeChallenge,
         string $codeChallengeMethod,
         string $redirectUri,
+        ?CapabilitySnapshot $capabilities = null,
     ): string {
         $code = bin2hex(random_bytes(32));
         $codeHash = hash('sha256', $code);
@@ -185,6 +194,7 @@ class BuiltInOAuthDriver implements OAuthDriver
             'client_id' => $clientId,
             'user_id' => $userId,
             'scopes' => $scopes,
+            'capabilities' => $capabilities?->toStored(),
             'code_challenge' => $codeChallenge,
             'code_challenge_method' => $codeChallengeMethod,
             'redirect_uri' => $redirectUri,
@@ -203,6 +213,7 @@ class BuiltInOAuthDriver implements OAuthDriver
         string $codeVerifier,
         string $clientId,
         string $redirectUri,
+        ?string $resource = null,
     ): OAuthAuthCode {
         $codeHash = hash('sha256', $code);
         $filePath = $this->codesDir . '/' . $this->sanitizeFilename($codeHash) . '.json';
@@ -264,6 +275,8 @@ class BuiltInOAuthDriver implements OAuthDriver
                 throw new OAuthException('invalid_request', 'Redirect URI mismatch');
             }
 
+            ResourceIndicator::requireAudience(CapabilitySnapshot::fromStored($data['capabilities'] ?? null), $resource);
+
             // PKCE verification — only S256 is supported
             $method = $data['code_challenge_method'] ?? '';
             if ($method !== 'S256') {
@@ -293,6 +306,7 @@ class BuiltInOAuthDriver implements OAuthDriver
                 userId: is_string($data['user_id'] ?? null) ? $data['user_id'] : '',
                 scopes: $scopes,
                 redirectUri: is_string($data['redirect_uri'] ?? null) ? $data['redirect_uri'] : '',
+                capabilities: CapabilitySnapshot::fromStored($data['capabilities'] ?? null),
             );
         } finally {
             flock($handle, LOCK_UN);
@@ -301,13 +315,19 @@ class BuiltInOAuthDriver implements OAuthDriver
     }
 
     /** @param array<int, string> $scopes */
-    public function createRefreshToken(string $userId, string $clientId, array $scopes): string
+    public function createRefreshToken(string $userId, string $clientId, array $scopes, ?CapabilitySnapshot $capabilities = null): string
+    {
+        /** @var int $refreshTtl */
+        $refreshTtl = config('statamic.mcp.oauth.refresh_token_ttl', 2592000);
+
+        return $this->issueRefreshToken($userId, $clientId, $scopes, Carbon::now()->addSeconds($refreshTtl), $capabilities);
+    }
+
+    /** @param array<int, string> $scopes */
+    private function issueRefreshToken(string $userId, string $clientId, array $scopes, Carbon $expiresAt, ?CapabilitySnapshot $capabilities): string
     {
         $token = bin2hex(random_bytes(32));
         $tokenHash = hash('sha256', $token);
-
-        /** @var int $refreshTtl */
-        $refreshTtl = config('statamic.mcp.oauth.refresh_token_ttl', 2592000);
 
         /** @var array<string, mixed> $data */
         $data = [
@@ -315,7 +335,8 @@ class BuiltInOAuthDriver implements OAuthDriver
             'user_id' => $userId,
             'client_id' => $clientId,
             'scopes' => $scopes,
-            'expires_at' => Carbon::now()->addSeconds($refreshTtl)->toIso8601String(),
+            'capabilities' => $capabilities?->toStored(),
+            'expires_at' => $expiresAt->toIso8601String(),
             'used' => false,
         ];
 
@@ -325,7 +346,7 @@ class BuiltInOAuthDriver implements OAuthDriver
         return $token;
     }
 
-    public function exchangeRefreshToken(string $refreshToken, string $clientId): OAuthAuthCode
+    public function exchangeRefreshToken(string $refreshToken, string $clientId, ?string $resource = null): OAuthAuthCode
     {
         $tokenHash = hash('sha256', $refreshToken);
         $filePath = $this->refreshDir . '/' . $this->sanitizeFilename($tokenHash) . '.json';
@@ -365,21 +386,21 @@ class BuiltInOAuthDriver implements OAuthDriver
                 throw new OAuthException('invalid_grant', 'Refresh token not found');
             }
 
-            // Check if already used (single-use rotation)
-            if (($data['used'] ?? false) === true) {
-                throw new OAuthException('invalid_grant', 'Refresh token has already been used');
-            }
-
-            // Check expiry
-            $expiresAt = is_string($data['expires_at'] ?? null) ? $data['expires_at'] : '';
-
-            if ($expiresAt !== '' && Carbon::parse($expiresAt)->isPast()) {
-                throw new OAuthException('invalid_grant', 'Refresh token has expired');
-            }
-
-            // Check client_id
+            // Client binding precedes replay handling, so another client cannot revoke a grant.
             if (($data['client_id'] ?? '') !== $clientId) {
                 throw new OAuthException('invalid_client', 'Client ID mismatch');
+            }
+            ResourceIndicator::requireAudience(CapabilitySnapshot::fromStored($data['capabilities'] ?? null), $resource);
+            $userId = is_string($data['user_id'] ?? null) ? $data['user_id'] : '';
+            $expiresAt = is_string($data['expires_at'] ?? null) ? $data['expires_at'] : '';
+            if ($expiresAt === '' || Carbon::parse($expiresAt)->isPast()) {
+                throw new OAuthException('invalid_grant', 'Refresh token has expired');
+            }
+            if (($data['used'] ?? false) === true) {
+                $this->revokeRefreshTokensFor($userId, $clientId);
+                app(TokenService::class)->revokeOAuthTokens($userId, $clientId);
+                LifecycleEvents::refreshReplay($data['capabilities'] ?? null);
+                throw new OAuthException('invalid_grant', 'Refresh token has already been used; grant revoked');
             }
 
             // Mark as used (rotation) — fflush before releasing lock to
@@ -398,13 +419,12 @@ class BuiltInOAuthDriver implements OAuthDriver
                 userId: is_string($data['user_id'] ?? null) ? $data['user_id'] : '',
                 scopes: $scopes,
                 redirectUri: '',
+                refreshToken: $this->issueRefreshToken($userId, $clientId, $scopes, Carbon::parse($expiresAt), CapabilitySnapshot::fromStored($data['capabilities'] ?? null)),
+                capabilities: CapabilitySnapshot::fromStored($data['capabilities'] ?? null),
             );
         } finally {
             flock($handle, LOCK_UN);
             fclose($handle);
-
-            // Delete the used refresh token file (single-use rotation)
-            @unlink($filePath);
         }
     }
 
@@ -433,6 +453,59 @@ class BuiltInOAuthDriver implements OAuthDriver
         return $revoked;
     }
 
+    public function revokeGrantsForUser(string $userId): int
+    {
+        return $this->removeGrants($userId);
+    }
+
+    public function revokeGrantsForClient(string $userId, string $clientId): int
+    {
+        return $this->removeGrants($userId, $clientId);
+    }
+
+    /** @return iterable<OAuthGrant> */
+    public function pendingGrants(): iterable
+    {
+        foreach ([$this->refreshDir, $this->codesDir] as $directory) {
+            foreach (glob($directory . '/*.json') ?: [] as $file) {
+                $data = json_decode((string) file_get_contents($file), true, flags: JSON_THROW_ON_ERROR);
+                if (! is_array($data) || ! is_string($data['user_id'] ?? null) || ! is_string($data['client_id'] ?? null)
+                    || ! is_array($data['scopes'] ?? null) || ! is_string($data['expires_at'] ?? null)) {
+                    throw new \RuntimeException('Cannot inspect an invalid OAuth grant.');
+                }
+                if (($data['used'] ?? false) || Carbon::parse($data['expires_at'])->isPast()) {
+                    continue;
+                }
+                $scopes = [];
+                foreach ($data['scopes'] as $scope) {
+                    if (! is_string($scope)) {
+                        throw new \RuntimeException('Cannot inspect invalid OAuth grant scopes.');
+                    }
+                    $scopes[] = $scope;
+                }
+                yield new OAuthGrant($data['user_id'], $data['client_id'], $scopes);
+            }
+        }
+    }
+
+    private function removeGrants(string $userId, ?string $clientId = null): int
+    {
+        $removed = 0;
+        foreach ([$this->refreshDir, $this->codesDir] as $directory) {
+            foreach (glob($directory . '/*.json') ?: [] as $file) {
+                $data = json_decode((string) file_get_contents($file), true, flags: JSON_THROW_ON_ERROR);
+                if (is_array($data) && ($data['user_id'] ?? null) === $userId && ($clientId === null || ($data['client_id'] ?? null) === $clientId)) {
+                    if (! unlink($file)) {
+                        throw new \RuntimeException('OAuth grant could not be revoked.');
+                    }
+                    $removed++;
+                }
+            }
+        }
+
+        return $removed;
+    }
+
     public function revokeRefreshToken(string $refreshToken): bool
     {
         $tokenHash = hash('sha256', $refreshToken);
@@ -442,7 +515,14 @@ class BuiltInOAuthDriver implements OAuthDriver
             return false;
         }
 
-        return unlink($filePath);
+        $data = json_decode((string) file_get_contents($filePath), true);
+        if (! is_array($data) || ! is_string($data['user_id'] ?? null) || ! is_string($data['client_id'] ?? null)) {
+            return false;
+        }
+        $this->revokeRefreshTokensFor($data['user_id'], $data['client_id']);
+        app(TokenService::class)->revokeOAuthTokens($data['user_id'], $data['client_id']);
+
+        return true;
     }
 
     public function prune(): int
@@ -521,7 +601,7 @@ class BuiltInOAuthDriver implements OAuthDriver
             }
         }
 
-        // Prune used or expired refresh tokens
+        // Retain used refresh tokens until expiry to detect replay.
         $refreshFiles = glob($this->refreshDir . '/*.json');
 
         if ($refreshFiles !== false) {
@@ -541,11 +621,6 @@ class BuiltInOAuthDriver implements OAuthDriver
 
                 $shouldPrune = false;
 
-                // Prune if used
-                if (($data['used'] ?? false) === true) {
-                    $shouldPrune = true;
-                }
-
                 // Prune if expired
                 $expiresAt = is_string($data['expires_at'] ?? null) ? $data['expires_at'] : null;
 
@@ -560,7 +635,39 @@ class BuiltInOAuthDriver implements OAuthDriver
             }
         }
 
-        return $pruned;
+        return $pruned + $this->removeUnusedClients();
+    }
+
+    /**
+     * Removes registrations that never led to a grant: older than
+     * oauth.unused_client_ttl, with no authorization code and no refresh
+     * token. Registration is anonymous, so without this anyone could fill
+     * oauth.max_clients and keep real clients out until client_ttl passed.
+     */
+    private function removeUnusedClients(): int
+    {
+        $cutoff = Carbon::now()->subSeconds(McpConfig::int('oauth.unused_client_ttl', 86400));
+
+        $inUse = [];
+        foreach ([...(glob($this->codesDir . '/*.json') ?: []), ...(glob($this->refreshDir . '/*.json') ?: [])] as $file) {
+            $data = json_decode((string) @file_get_contents($file), true);
+            if (is_array($data) && is_string($data['client_id'] ?? null)) {
+                $inUse[$data['client_id']] = true;
+            }
+        }
+
+        $removed = 0;
+        foreach (glob($this->clientsDir . '/*.yaml') ?: [] as $file) {
+            $data = Yaml::parseFile($file);
+            if (! is_array($data) || ! is_string($data['client_id'] ?? null) || ! is_string($data['created_at'] ?? null)) {
+                continue;
+            }
+            if (! isset($inUse[$data['client_id']]) && Carbon::parse($data['created_at'])->lessThan($cutoff) && @unlink($file)) {
+                $removed++;
+            }
+        }
+
+        return $removed;
     }
 
     /**

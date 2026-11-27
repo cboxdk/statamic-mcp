@@ -67,7 +67,7 @@ class AssetPermissionBoundaryTest extends TestCase
         $result = $this->router->execute(['action' => 'list', 'resource_type' => 'container', 'include_details' => false]);
         $this->assertTrue($result['success'], json_encode($result) ?: '');
 
-        return collect($result['data']['containers'])->pluck('handle')->all();
+        return collect($result['data']['items'])->pluck('handle')->all();
     }
 
     public function test_editor_lists_only_the_containers_they_can_view(): void
@@ -95,17 +95,20 @@ class AssetPermissionBoundaryTest extends TestCase
     {
         $this->actAs(["view {$this->allowed} assets"]);
 
-        // `container` names an allowed container, `handle` the one returned.
+        // v3 checked `container` and returned `handle`. v4 has one name, and
+        // the old one cannot ride along beside an allowed container.
         $result = $this->router->execute([
             'action' => 'get',
             'resource_type' => 'container',
             'container' => $this->allowed,
             'handle' => $this->other,
         ]);
-
         $this->assertFalse($result['success']);
 
-        $result = $this->router->execute(['action' => 'get', 'resource_type' => 'container', 'handle' => $this->allowed]);
+        $result = $this->router->execute(['action' => 'get', 'resource_type' => 'container', 'container' => $this->other]);
+        $this->assertFalse($result['success']);
+
+        $result = $this->router->execute(['action' => 'get', 'resource_type' => 'container', 'container' => $this->allowed]);
         $this->assertTrue($result['success'], json_encode($result) ?: '');
     }
 
@@ -180,7 +183,8 @@ class AssetPermissionBoundaryTest extends TestCase
         $result = $this->router->execute([
             'action' => 'create',
             'resource_type' => 'container',
-            'data' => ['handle' => $handle, 'title' => 'New', 'disk' => 'assets'],
+            'container' => $handle,
+            'data' => ['title' => 'New', 'disk' => 'assets'],
         ]);
 
         $this->assertTrue($result['success'], json_encode($result) ?: '');
@@ -193,17 +197,35 @@ class AssetPermissionBoundaryTest extends TestCase
         config(['statamic.mcp.tools.assets.resources.write' => [$this->allowed]]);
         $this->actAs(['configure asset containers']);
 
-        // An allowed name in data.handle must not cover a denied top-level handle.
-        foreach (['get', 'update', 'delete'] as $action) {
+        // An allowed name in data.handle must not cover a denied container.
+        foreach (['update', 'delete'] as $action) {
             $result = $this->router->execute([
                 'action' => $action,
                 'resource_type' => 'container',
-                'handle' => $this->other,
+                'container' => $this->other,
                 'data' => ['handle' => $this->allowed, 'title' => 'Hijacked'],
             ]);
 
             $this->assertFalse($result['success'], "{$action} reached a denied container");
         }
+
+        // A create is checked on the container argument, so data.handle may
+        // only repeat it: an allowed container cannot create a denied one.
+        $result = $this->router->execute([
+            'action' => 'create',
+            'resource_type' => 'container',
+            'container' => $this->allowed . '-x',
+            'data' => ['handle' => $this->allowed, 'title' => 'Hijacked', 'disk' => 'assets'],
+        ]);
+        $this->assertFalse($result['success']);
+        $result = $this->router->execute([
+            'action' => 'create',
+            'resource_type' => 'container',
+            'container' => $this->allowed,
+            'data' => ['handle' => 'sneaky', 'title' => 'Hijacked', 'disk' => 'assets'],
+        ]);
+        $this->assertFalse($result['success']);
+        $this->assertNull(AssetContainer::find('sneaky'));
 
         $this->assertNotNull(AssetContainer::find($this->other));
         $this->assertSame('Docs', AssetContainer::find($this->other)?->title());

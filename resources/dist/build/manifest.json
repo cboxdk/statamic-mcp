@@ -1,8 +1,11 @@
 {
   "resources/js/addon.js": {
-    "file": "assets/addon-D_ERBHhD.js",
+    "file": "assets/addon-BzZLoX31.js",
     "name": "addon",
     "src": "resources/js/addon.js",
-    "isEntry": true
+    "isEntry": true,
+    "css": [
+      "assets/addon-Bk7CPjOv.css"
+    ]
   }
 }

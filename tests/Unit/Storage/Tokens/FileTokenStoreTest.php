@@ -8,6 +8,7 @@ use Cboxdk\StatamicMcp\Contracts\TokenStore;
 use Cboxdk\StatamicMcp\Storage\Tokens\FileTokenStore;
 use Cboxdk\StatamicMcp\Tests\Concerns\TokenStoreContractTests;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\Process\Process;
 
 class FileTokenStoreTest extends TestCase
 {
@@ -56,6 +57,65 @@ class FileTokenStoreTest extends TestCase
         $this->assertFileExists($indexPath);
     }
 
+    public function test_concurrent_usage_and_updates_cannot_resurrect_a_revoked_token(): void
+    {
+        $store = new FileTokenStore($this->tempDir);
+        $token = $store->create('user-1', 'Revoke race', 'hash_race', ['entries:read'], null);
+        $lock = fopen($this->tempDir . '/.store.lock', 'c+b');
+        $this->assertIsResource($lock);
+        $this->assertTrue(flock($lock, LOCK_EX));
+        $workers = [];
+        try {
+            foreach (['used', 'update', 'delete'] as $action) {
+                $worker = new Process([PHP_BINARY, __DIR__ . '/../../../Support/token-store-mutation.php', $this->tempDir, $token->id, $action]);
+                $worker->setTimeout(10)->start();
+                $workers[] = $worker;
+                $this->assertTrue(waitForWorkerReady($worker));
+            }
+            // Every entry point must wait for the same lock. Without this,
+            // last-used may read before revoke and write the credential back.
+            usleep(100000);
+            foreach ($workers as $worker) {
+                $this->assertTrue($worker->isRunning());
+                $this->assertSame("ready\n", $worker->getOutput());
+            }
+            flock($lock, LOCK_UN);
+            foreach ($workers as $worker) {
+                $this->assertSame(0, $worker->wait(), $worker->getErrorOutput());
+            }
+            $this->assertNull($store->find($token->id));
+            $this->assertNull($store->findByHash('hash_race'));
+            $this->assertCount(0, $store->listAll());
+        } finally {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+            foreach ($workers as $worker) {
+                $worker->stop();
+            }
+        }
+    }
+
+    public function test_token_file_replacement_preserves_an_open_read_snapshot(): void
+    {
+        $store = new FileTokenStore($this->tempDir);
+        $token = $store->create('user-1', 'Before', 'old_hash', ['entries:read'], null);
+        $path = $this->tempDir . '/' . $token->id . '.yaml';
+        $reader = fopen($path, 'rb');
+        $this->assertIsResource($reader);
+        $before = file_get_contents($path);
+        try {
+            $store->update($token->id, ['name' => 'After', 'tokenHash' => 'new_hash']);
+            $this->assertSame($before, stream_get_contents($reader));
+            $this->assertSame('After', $store->find($token->id)->name);
+            $this->assertNull($store->findByHash('old_hash'));
+            $this->assertSame($token->id, $store->findByHash('new_hash')->id);
+            $this->assertSame(0600, fileperms($path) & 0777);
+            $this->assertFileDoesNotExist($this->tempDir . '/.token.tmp');
+        } finally {
+            fclose($reader);
+        }
+    }
+
     public function test_mark_as_used_replaces_the_token_file_instead_of_rewriting_it_in_place(): void
     {
         $store = new FileTokenStore($this->tempDir);
@@ -92,9 +152,9 @@ class FileTokenStoreTest extends TestCase
         $files = array_values(array_diff(scandir($this->tempDir) ?: [], ['.', '..']));
         sort($files);
 
-        // .mutation.lock persists on purpose: unlinking a lock file other
+        // .store.lock persists on purpose: unlinking a lock file other
         // processes may hold open would let two writers lock different inodes.
-        $this->assertSame(['.index', '.mutation.lock', $token->id . '.yaml'], $files);
+        $this->assertSame(['.index', '.store.lock', $token->id . '.yaml'], $files);
         $this->assertSame('Renamed', $store->find($token->id)?->name);
     }
 
@@ -187,82 +247,6 @@ class FileTokenStoreTest extends TestCase
             chmod($this->tempDir, 0755);
             $this->assertSame($before, file_get_contents($path));
         }
-    }
-
-    public function test_a_usage_write_waits_for_a_mutation_in_progress(): void
-    {
-        $store = new FileTokenStore($this->tempDir);
-        $token = $store->create('user-1', 'Lock Test', 'hash_lock_used', ['*'], null);
-
-        $this->assertNull($this->whileMutationLockIsHeld(
-            "\$store->markAsUsed('{$token->id}');",
-            fn () => $store->find($token->id)?->lastUsedAt,
-        ));
-
-        $this->assertNotNull($store->find($token->id)?->lastUsedAt);
-    }
-
-    public function test_a_revoke_waits_for_a_usage_write_in_progress(): void
-    {
-        $store = new FileTokenStore($this->tempDir);
-        $token = $store->create('user-1', 'Lock Test', 'hash_lock_delete', ['*'], null);
-
-        // A usage write holds the lock between reading the record and
-        // replacing it. A revoke landing in that window used to be undone by
-        // the write; now it waits, and the write cannot bring the token back.
-        $this->assertNotNull($this->whileMutationLockIsHeld(
-            "\$store->delete('{$token->id}');",
-            fn () => $store->find($token->id),
-        ));
-
-        $this->assertNull($store->find($token->id));
-        $this->assertNull($store->findByHash('hash_lock_delete'));
-    }
-
-    /**
-     * Hold the store's mutation lock, run $operation against the store in a
-     * second PHP process, and return what $probe sees while the lock is still
-     * held. The second process must have finished once the lock is released.
-     *
-     * @template T
-     *
-     * @param  callable(): T  $probe
-     *
-     * @return T
-     */
-    private function whileMutationLockIsHeld(string $operation, callable $probe): mixed
-    {
-        $handle = fopen($this->tempDir . '/.mutation.lock', 'c');
-        $this->assertNotFalse($handle);
-        $this->assertTrue(flock($handle, LOCK_EX));
-
-        $autoload = dirname(__DIR__, 4) . '/vendor/autoload.php';
-        $code = sprintf(
-            'require %s; $store = new %s(%s); %s',
-            var_export($autoload, true),
-            FileTokenStore::class,
-            var_export($this->tempDir, true),
-            $operation,
-        );
-
-        $process = proc_open([PHP_BINARY, '-r', $code], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
-        $this->assertIsResource($process);
-
-        // Long enough for the second process to boot and reach the lock.
-        usleep(500_000);
-        $this->assertTrue(proc_get_status($process)['running'], 'The operation ran without waiting for the lock.');
-
-        $seen = $probe();
-
-        flock($handle, LOCK_UN);
-        fclose($handle);
-
-        $output = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-        $this->assertSame(0, proc_close($process), $output);
-
-        return $seen;
     }
 
     private function deleteDirectory(string $dir): void

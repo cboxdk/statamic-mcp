@@ -35,7 +35,7 @@ class SetOAuthWwwAuthenticate extends AddWwwAuthenticateHeader
     {
         $response = $next($request);
 
-        if ($response->getStatusCode() !== 401) {
+        if ($response->getStatusCode() !== 401 || $response->headers->has('WWW-Authenticate')) {
             return $response;
         }
 

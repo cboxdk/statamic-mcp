@@ -4,13 +4,16 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Http\Controllers\CP;
 
+use Cboxdk\StatamicMcp\Approvals\Approvals;
 use Cboxdk\StatamicMcp\Auth\ScopeAvailability;
-use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
+use Cboxdk\StatamicMcp\Authorization\InstallationProfile;
+use Cboxdk\StatamicMcp\Authorization\PersonalTokenConsent;
 use Cboxdk\StatamicMcp\Http\Controllers\CP\Concerns\ResolvesUserId;
 use Cboxdk\StatamicMcp\Services\ClientConfigGenerator;
 use Cboxdk\StatamicMcp\Services\StatsService;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
+use Cboxdk\StatamicMcp\Support\McpConfig;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -52,20 +55,18 @@ class DashboardController extends CpController
 
         return Inertia::render('statamic-mcp::McpPage', [
             'tokens' => $tokens->map(fn (McpTokenData $token): array => $this->serializeToken($token))->values()->all(),
+            'pendingApprovals' => app(Approvals::class)->pendingCountFor('user:' . $userId),
+            'approvalsUrl' => cp_route('statamic-mcp.approvals.index'),
             // Only what this user can exercise (see ScopeAvailability).
-            'availableScopes' => array_map(
-                fn (TokenScope $s): array => [
-                    'value' => $s->value,
-                    'label' => $s->label(),
-                    'description' => $s->description(),
-                    'group' => $s->group(),
-                ],
-                app(ScopeAvailability::class)->forUser(User::current())
-            ),
+            'availableScopes' => app(ScopeAvailability::class)->options(User::current()),
+            'httpProfile' => app(InstallationProfile::class)->name('http'),
+            'scopeRestrictions' => (object) app(ScopeAvailability::class)->httpProfileRestrictions(),
+            'capabilityOffer' => app(PersonalTokenConsent::class)->offer(request()),
             'clients' => $this->configGenerator->getAvailableClients(),
             'webEnabled' => (bool) config('statamic.mcp.web.enabled', false),
+            'oauthEnabled' => (bool) config('statamic.mcp.oauth.enabled', true),
             'mcpEndpoint' => $this->getMcpEndpoint(),
-            'maxTokenLifetimeDays' => config('statamic.mcp.security.max_token_lifetime_days'),
+            'maxTokenLifetimeDays' => McpConfig::optionalInt('security.max_token_lifetime_days', 365),
         ]);
     }
 
@@ -109,20 +110,17 @@ class DashboardController extends CpController
 
         return Inertia::render('statamic-mcp::McpAdminPage', [
             'allTokens' => $allTokens->map(fn (McpTokenData $token): array => $this->serializeToken($token, true))->values()->all(),
-            'availableScopes' => array_map(
-                fn (TokenScope $s): array => [
-                    'value' => $s->value,
-                    'label' => $s->label(),
-                    'description' => $s->description(),
-                    'group' => $s->group(),
-                ],
-                TokenScope::all()
-            ),
+            'availableScopes' => app(ScopeAvailability::class)->options(User::current()),
+            'httpProfile' => app(InstallationProfile::class)->name('http'),
+            'scopeRestrictions' => (object) app(ScopeAvailability::class)->httpProfileRestrictions(),
+            'capabilityOffer' => app(PersonalTokenConsent::class)->offer(request()),
             'availableUsers' => $availableUsers,
             'availableTools' => $toolNames,
+            'clients' => $this->configGenerator->getAvailableClients(),
             'systemStats' => $this->statsService->getSystemStats(),
             'webEnabled' => (bool) config('statamic.mcp.web.enabled', false),
             'mcpEndpoint' => $this->getMcpEndpoint(),
+            'maxTokenLifetimeDays' => McpConfig::optionalInt('security.max_token_lifetime_days', 365),
         ]);
     }
 
@@ -144,12 +142,14 @@ class DashboardController extends CpController
             'expires_at' => $token->expiresAt?->toIso8601String(),
             'created_at' => $token->createdAt->toIso8601String(),
             'is_expired' => $token->isExpired(),
+            // Only the owner may regenerate: it hands over the new secret.
+            'is_own' => $token->userId === $this->resolveUserId(),
         ];
 
         if ($includeUser) {
             $statamicUser = User::find($token->userId);
             $data['user_id'] = $token->userId;
-            $data['user_name'] = $statamicUser?->name() ?? 'Unknown';
+            $data['user_name'] = $statamicUser?->name() ?? __('statamic-mcp::messages.unknown_user');
             $data['user_email'] = $statamicUser?->email() ?? '';
         }
 

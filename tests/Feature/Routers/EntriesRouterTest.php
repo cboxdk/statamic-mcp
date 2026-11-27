@@ -47,6 +47,61 @@ class EntriesRouterTest extends TestCase
         Stache::refresh();
     }
 
+    public function test_sort_is_stable_across_pages_and_refuses_hidden_or_unknown_fields(): void
+    {
+        foreach (['c' => 'Alpha', 'b' => 'Zulu', 'a' => 'Zulu'] as $id => $title) {
+            Entry::make()->id($id)->collection($this->collectionHandle)->slug($id)->published(true)->data(['title' => $title])->save();
+        }
+        $call = ['action' => 'list', 'collection' => $this->collectionHandle, 'sort' => 'title:desc', 'limit' => 1];
+        $ids = [];
+        do {
+            $result = $this->router->execute($call);
+            $this->assertTrue($result['success'], json_encode($result));
+            $ids[] = $result['data']['items'][0]['id'];
+            $call['cursor'] = $result['data']['next_cursor'];
+        } while ($call['cursor'] !== null);
+        $this->assertSame(['a', 'b', 'c'], $ids);
+
+        config(['statamic.mcp.tools.entries.denied_fields' => ['title']]);
+        foreach (['title:asc', 'unknown:desc', 'id:sideways', 'title desc'] as $sort) {
+            $result = $this->router->execute(['action' => 'list', 'collection' => $this->collectionHandle, 'sort' => $sort]);
+            $this->assertFalse($result['success'], $sort);
+        }
+    }
+
+    public function test_create_selects_only_a_blueprint_assigned_to_the_collection(): void
+    {
+        foreach (['short', 'long', 'unassigned'] as $handle) {
+            Blueprint::make($handle)->setNamespace('collections.' . ($handle === 'unassigned' ? 'other' : $this->collectionHandle))->setContents([
+                'fields' => [
+                    ['handle' => 'title', 'field' => ['type' => 'text']],
+                    ['handle' => $handle . '_value', 'field' => ['type' => 'text']],
+                ],
+            ])->save();
+        }
+
+        foreach (['long', 'short'] as $handle) {
+            $result = $this->router->execute([
+                'action' => 'create', 'collection' => $this->collectionHandle, 'blueprint' => $handle,
+                'data' => ['title' => $handle, $handle . '_value' => 'Kept'],
+            ]);
+            $this->assertTrue($result['success'], json_encode($result));
+            $stored = Entry::find($result['data']['entry']['id']);
+            $this->assertSame($handle, $stored->blueprint()->handle());
+            $this->assertSame('Kept', $stored->get($handle . '_value'));
+        }
+
+        $before = Entry::query()->where('collection', $this->collectionHandle)->count();
+        foreach (['unassigned', '../long', 'missing'] as $handle) {
+            $result = $this->router->execute([
+                'action' => 'create', 'collection' => $this->collectionHandle, 'blueprint' => $handle,
+                'data' => ['title' => 'Refused'],
+            ]);
+            $this->assertFalse($result['success'], json_encode($result));
+        }
+        $this->assertSame($before, Entry::query()->where('collection', $this->collectionHandle)->count());
+    }
+
     public function test_nonexistent_collection_returns_error(): void
     {
         $result = $this->router->execute([
@@ -56,6 +111,45 @@ class EntriesRouterTest extends TestCase
 
         $this->assertFalse($result['success']);
         $this->assertStringContainsString('Collection not found: nonexistent-collection', $result['errors'][0]);
+    }
+
+    public function test_get_resolves_exactly_one_identifier_within_the_named_collection(): void
+    {
+        $entry = Entry::make()->collection($this->collectionHandle)->slug('same-slug')->data(['title' => 'Allowed']);
+        $entry->save();
+        Collection::make('elsewhere')->routes('/elsewhere/{slug}')->save();
+        Entry::make()->collection('elsewhere')->slug('same-slug')->data(['title' => 'Not ours'])->save();
+
+        foreach ([['id' => $entry->id()], ['slug' => 'same-slug'], ['uri' => '/posts-' . $this->testId . '/same-slug']] as $identifier) {
+            $result = $this->router->execute(['action' => 'get', 'collection' => $this->collectionHandle, ...$identifier]);
+            $this->assertTrue($result['success'], json_encode($result));
+            $this->assertSame($entry->id(), $result['data']['entry']['id']);
+        }
+        foreach ([['uri' => '/elsewhere/same-slug'], ['id' => $entry->id(), 'slug' => 'same-slug'], ['slug' => ['same-slug']]] as $identifier) {
+            $result = $this->router->execute(['action' => 'get', 'collection' => $this->collectionHandle, ...$identifier]);
+            $this->assertFalse($result['success'], json_encode($result));
+        }
+    }
+
+    public function test_unknown_fields_warn_on_write_and_replay_but_not_the_next_read(): void
+    {
+        Blueprint::make('pages')->setNamespace('collections.' . $this->collectionHandle)->setContents([
+            'fields' => [['handle' => 'title', 'field' => ['type' => 'text']]],
+        ])->save();
+        config(['statamic.mcp.tools.structures.denied_fields' => ['parent']]);
+        $arguments = ['action' => 'create', 'collection' => $this->collectionHandle, 'idempotency_key' => 'unknown-fields-example',
+            'data' => ['title' => 'Saved', 'typo' => 'Not saved']];
+        $created = $this->router->execute($arguments);
+        $this->assertTrue($created['success'], json_encode($created));
+        $this->assertStringContainsString('typo', implode(' ', $created['warnings']));
+        $this->assertArrayNotHasKey('typo', $created['data']['entry']['data']);
+        $this->assertArrayNotHasKey('parent', $created['data']['entry']);
+        $replayed = $this->router->execute($arguments);
+        $this->assertSame($created['warnings'], $replayed['warnings']);
+        $this->assertArrayNotHasKey('parent', $replayed['data']['entry']);
+        $this->assertSame(1, Entry::query()->where('collection', $this->collectionHandle)->count());
+        $read = $this->router->execute(['action' => 'get', 'collection' => $this->collectionHandle, 'id' => $created['data']['entry']['id']]);
+        $this->assertEmpty($read['warnings'] ?? []);
     }
 
     public function test_list_entries_with_pagination(): void
@@ -74,19 +168,18 @@ class EntriesRouterTest extends TestCase
             'action' => 'list',
             'collection' => $this->collectionHandle,
             'limit' => 2,
-            'offset' => 0,
             'include_unpublished' => true,
         ]);
 
         $this->assertTrue($result['success']);
-        $this->assertCount(2, $result['data']['entries']);
-        $this->assertEquals(5, $result['data']['pagination']['total']);
-        $this->assertTrue($result['data']['pagination']['has_more']);
+        $this->assertCount(2, $result['data']['items']);
+        $this->assertEquals(5, $result['data']['total']);
+        $this->assertIsString($result['data']['next_cursor']);
     }
 
-    public function test_list_entries_with_offset(): void
+    public function test_list_entries_resumes_with_a_cursor_and_allows_a_different_page_size(): void
     {
-        for ($i = 1; $i <= 5; $i++) {
+        foreach ([5, 2, 4, 1, 3] as $i) {
             Entry::make()
                 ->id("offset-{$i}-{$this->testId}")
                 ->collection($this->collectionHandle)
@@ -95,17 +188,20 @@ class EntriesRouterTest extends TestCase
                 ->save();
         }
 
-        $result = $this->router->execute([
+        $arguments = [
             'action' => 'list',
             'collection' => $this->collectionHandle,
-            'limit' => 2,
-            'offset' => 3,
+            'limit' => 3,
             'include_unpublished' => true,
-        ]);
+        ];
+        $first = $this->router->execute($arguments);
+        $this->assertTrue($first['success'], json_encode($first));
+        $this->assertSame(['Offset Entry 1', 'Offset Entry 2', 'Offset Entry 3'], array_column($first['data']['items'], 'title'));
+        $result = $this->router->execute([...$arguments, 'limit' => 2, 'cursor' => $first['data']['next_cursor']]);
 
         $this->assertTrue($result['success']);
-        $this->assertCount(2, $result['data']['entries']);
-        $this->assertFalse($result['data']['pagination']['has_more']);
+        $this->assertSame(['Offset Entry 4', 'Offset Entry 5'], array_column($result['data']['items'], 'title'));
+        $this->assertNull($result['data']['next_cursor']);
     }
 
     public function test_list_entries_excludes_unpublished_by_default(): void
@@ -133,7 +229,7 @@ class EntriesRouterTest extends TestCase
         ]);
 
         $this->assertTrue($result['success']);
-        $titles = collect($result['data']['entries'])->pluck('title')->toArray();
+        $titles = collect($result['data']['items'])->pluck('title')->toArray();
         $this->assertContains('Published', $titles);
         $this->assertNotContains('Draft', $titles);
     }
@@ -163,7 +259,7 @@ class EntriesRouterTest extends TestCase
         ]);
 
         $this->assertTrue($result['success']);
-        $titles = collect($result['data']['entries'])->pluck('title')->toArray();
+        $titles = collect($result['data']['items'])->pluck('title')->toArray();
         $this->assertContains('Published2', $titles);
         $this->assertContains('Draft2', $titles);
     }
@@ -660,7 +756,7 @@ class EntriesRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Entry ID is required for update action', $result['errors'][0]);
+        $this->assertStringContainsString('The update action needs id', $result['errors'][0]);
     }
 
     public function test_missing_id_for_delete(): void
@@ -671,7 +767,7 @@ class EntriesRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Entry ID is required for delete action', $result['errors'][0]);
+        $this->assertStringContainsString('The delete action needs id', $result['errors'][0]);
     }
 
     public function test_missing_id_for_publish(): void
@@ -682,7 +778,7 @@ class EntriesRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Entry ID is required for publish action', $result['errors'][0]);
+        $this->assertStringContainsString('The publish action needs id', $result['errors'][0]);
     }
 
     public function test_missing_id_for_unpublish(): void
@@ -693,6 +789,6 @@ class EntriesRouterTest extends TestCase
         ]);
 
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Entry ID is required for unpublish action', $result['errors'][0]);
+        $this->assertStringContainsString('The unpublish action needs id', $result['errors'][0]);
     }
 }

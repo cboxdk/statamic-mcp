@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Storage\Audit;
 
 use Carbon\Carbon;
-use Cboxdk\StatamicMcp\Contracts\AuditStore;
+use Cboxdk\StatamicMcp\Contracts\DurableAuditStore;
 
-class DatabaseAuditStore implements AuditStore
+class DatabaseAuditStore implements DurableAuditStore
 {
     /** @var list<string> */
     private const KNOWN_COLUMNS = ['level', 'message', 'tool', 'action', 'status', 'correlation_id', 'duration_ms'];
@@ -40,12 +40,40 @@ class DatabaseAuditStore implements AuditStore
             $data['context'] = $context;
         }
 
-        McpAuditEntry::create($data);
+        $model = McpAuditEntry::create($data);
+        if (! $model->exists) {
+            throw new \RuntimeException('Audit entry persistence was vetoed.');
+        }
     }
 
-    public function query(?string $tool, ?string $status, int $page, int $perPage): AuditResult
+    public function writeDurable(array $entry): void
+    {
+        $this->requireCommittedConnection();
+        $this->write($entry);
+        // Creating/saved listeners may have changed the connection's transaction state.
+        $this->requireCommittedConnection();
+    }
+
+    private function requireCommittedConnection(): void
+    {
+        $connection = (new McpAuditEntry)->getConnection();
+        if ($connection->transactionLevel() !== 0 || $connection->getPdo()->inTransaction()) {
+            throw new \LogicException('Durable audit cannot join an uncommitted transaction.');
+        }
+    }
+
+    public function query(?string $tool, ?string $status, int $page, int $perPage, ?string $actor = null): AuditResult
     {
         $query = McpAuditEntry::query()->orderByDesc('logged_at');
+
+        // Who made the call is stored in the context column (see write()).
+        if ($actor === 'cli') {
+            $query->whereNull('context->user_id')->where('context->context', 'cli');
+        } elseif ($actor !== null && str_starts_with($actor, 'user:')) {
+            $query->where('context->user_id', substr($actor, strlen('user:')));
+        } elseif ($actor !== null) {
+            $query->whereRaw('1 = 0');
+        }
 
         if ($tool !== null && $tool !== '') {
             $escapedTool = str_replace(['%', '_'], ['\\%', '\\_'], $tool);

@@ -31,6 +31,8 @@ security surface is:
   HMAC-bound confirmation token. Enabled in production by default.
 - **OAuth 2.1 with PKCE** — for browser-based MCP clients, including dynamic client
   registration and token revocation.
+- **Password-only access** — Basic Auth has been removed. Use scoped Bearer tokens or OAuth.
+- **OAuth grant lifecycle** — the shipped drivers preserve consumed refresh-token hashes until grant expiry, revoke the grant on replay, and stop refresh after scope/expiry changes. Multi-node deployments require a shared lock-capable `oauth.lock_store`.
 - **Transport** — plain HTTP is refused in production when `require_https` is on.
 
 ## What it is not responsible for
@@ -55,8 +57,3 @@ These are stated plainly because assuming otherwise would be a security mistake.
 - **Confirmation tokens are not single-use.** They are stateless HMACs bound to the
   tool and its canonicalized arguments, with a nonce and timestamp, but no replay
   store — within its validity window the same token confirms the same call again.
-- **`require_https` depends on the shipped config being present.** The config file
-  defaults it to `true`, but the middleware falls back to `false` when the key is
-  missing entirely — so a site running an older published `config/statamic/mcp.php`
-  silently accepts plain HTTP. Set `STATAMIC_MCP_WEB_REQUIRE_HTTPS=true` explicitly
-  rather than relying on the default.

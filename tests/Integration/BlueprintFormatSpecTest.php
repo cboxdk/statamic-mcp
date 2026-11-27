@@ -80,7 +80,7 @@ class BlueprintFormatSpecTest extends TestCase
             'action' => 'get',
             'handle' => $this->collectionHandle,
             'namespace' => 'collections',
-            'collection_handle' => $this->collectionHandle,
+            'collection' => $this->collectionHandle,
         ]);
 
         $this->assertTrue($result['success'], 'Expected blueprint get to succeed');
@@ -101,7 +101,7 @@ class BlueprintFormatSpecTest extends TestCase
             'action' => 'get',
             'handle' => $this->collectionHandle,
             'namespace' => 'collections',
-            'collection_handle' => $this->collectionHandle,
+            'collection' => $this->collectionHandle,
         ]);
 
         $fields = collect($result['data']['blueprint']['fields']);
@@ -119,7 +119,7 @@ class BlueprintFormatSpecTest extends TestCase
             'action' => 'get',
             'handle' => $this->collectionHandle,
             'namespace' => 'collections',
-            'collection_handle' => $this->collectionHandle,
+            'collection' => $this->collectionHandle,
             'include_format_spec' => false,
         ]);
 

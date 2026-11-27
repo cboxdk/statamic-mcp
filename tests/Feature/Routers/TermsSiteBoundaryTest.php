@@ -43,7 +43,12 @@ beforeEach(function () {
 function termsIn(string $action, string $site): array
 {
     return (new TermsRouter)->execute(['action' => $action, 'taxonomy' => 'site_tags', 'site' => $site]
-        + ($action === 'create' ? ['slug' => 'new-' . $site, 'data' => ['title' => 'New']] : ['slug' => 'one', 'data' => ['title' => 'Edited']]));
+        + match ($action) {
+            'create' => ['slug' => 'new-' . $site, 'data' => ['title' => 'New']],
+            'update' => ['slug' => 'one', 'data' => ['title' => 'Edited']],
+            'get' => ['slug' => 'one'],
+            default => [],
+        });
 }
 
 it('allows term actions in the users site and refuses them in another', function (string $action) {
@@ -51,7 +56,7 @@ it('allows term actions in the users site and refuses them in another', function
 
     $denied = termsIn($action, 'de');
     expect($denied['success'])->toBeFalse()
-        ->and(implode(' ', $denied['errors']))->toContain('Permission denied: Cannot access this site');
+        ->and($denied['error']['message'])->toContain('Permission denied: Cannot access this site');
 })->with(['list', 'get', 'update', 'create']);
 
 it('leaves the other sites terms untouched', function () {

@@ -1,7 +1,8 @@
 <?php
 
 use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
-use Laravel\Mcp\Facades\Mcp;
+use Cboxdk\StatamicMcp\Mcp\Transport\BoundedLocalRegistrar;
+use Laravel\Mcp\Server\Registrar;
 
 /*
 |--------------------------------------------------------------------------
@@ -14,12 +15,12 @@ use Laravel\Mcp\Facades\Mcp;
 |
 */
 
-// Only register if MCP is available and not in testing
-if (! app()->runningUnitTests() && class_exists('Laravel\Mcp\Facades\Mcp')) {
+// Registration is in memory and must run even when HTTP routes are cached.
+if (class_exists('Laravel\Mcp\Facades\Mcp')) {
     try {
         // Capture any output during registration
         ob_start();
-        Mcp::local('statamic', StatamicMcpServer::class);
+        BoundedLocalRegistrar::register(app(Registrar::class), 'statamic', StatamicMcpServer::class);
         $output = ob_get_clean();
 
         // Send any non-JSON output to stderr

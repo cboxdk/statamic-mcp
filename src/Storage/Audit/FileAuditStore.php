@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Storage\Audit;
 
 use Carbon\Carbon;
-use Cboxdk\StatamicMcp\Contracts\AuditStore;
+use Cboxdk\StatamicMcp\Contracts\DurableAuditStore;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -13,13 +13,15 @@ use Illuminate\Support\Facades\Log;
  *
  * Each entry is stored as a newline-delimited JSON line.
  */
-class FileAuditStore implements AuditStore
+class FileAuditStore implements DurableAuditStore
 {
     private const MAX_FILE_SIZE = 52428800; // 50MB
 
     private const MAX_BACKUP_FILES = 5;
 
     private string $path;
+
+    private bool $locked = false;
 
     public function __construct(?string $path = null)
     {
@@ -37,14 +39,49 @@ class FileAuditStore implements AuditStore
      */
     public function write(array $entry): void
     {
-        $dir = dirname($this->path);
+        $this->withLock(function () use ($entry): void {
+            $json = json_encode($entry, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
+            $this->rotateIfNeeded();
+            $handle = fopen($this->path, 'a+b');
+            if ($handle === false) {
+                throw new \RuntimeException('Cannot open audit log.');
+            }
+            try {
+                if (fseek($handle, 0, SEEK_END) !== 0) {
+                    throw new \RuntimeException('Cannot seek audit log.');
+                }
+                $size = ftell($handle);
+                if ($size === false) {
+                    throw new \RuntimeException('Cannot inspect audit log.');
+                }
+                if ($size > 0) {
+                    if (fseek($handle, -1, SEEK_END) !== 0) {
+                        throw new \RuntimeException('Cannot inspect audit tail.');
+                    }
+                    $last = fread($handle, 1);
+                    if (! is_string($last) || strlen($last) !== 1) {
+                        throw new \RuntimeException('Cannot inspect audit tail.');
+                    }
+                    // Preserve interrupted tail bytes as evidence, but never join
+                    // the next complete record to a partial JSON line.
+                    if ($last !== "\n") {
+                        $json = "\n" . $json;
+                    }
+                }
+                if (! chmod($this->path, 0600) || fwrite($handle, $json) !== strlen($json)
+                    || ! fflush($handle) || ! fsync($handle)) {
+                    throw new \RuntimeException('Cannot persist audit entry.');
+                }
+                $this->syncDirectory();
+            } finally {
+                fclose($handle);
+            }
+        });
+    }
 
-        if (! is_dir($dir)) {
-            mkdir($dir, 0755, true);
-        }
-
-        $this->rotateIfNeeded();
-        file_put_contents($this->path, json_encode($entry) . "\n", FILE_APPEND | LOCK_EX);
+    public function writeDurable(array $entry): void
+    {
+        $this->write($entry);
     }
 
     /**
@@ -54,47 +91,29 @@ class FileAuditStore implements AuditStore
         ?string $tool,
         ?string $status,
         int $page,
-        int $perPage
+        int $perPage,
+        ?string $actor = null,
     ): AuditResult {
-        $lines = $this->readLines();
-
-        // Reverse so newest entries (last written) come first
-        $lines = array_reverse($lines);
-
-        /** @var array<int, array<string, mixed>> $entries */
-        $entries = [];
-
-        foreach ($lines as $line) {
-            $decoded = json_decode($line, true);
-
-            if (! is_array($decoded)) {
-                continue;
-            }
-
-            /** @var array<string, mixed> $decoded */
-            $toolValue = isset($decoded['tool']) && is_string($decoded['tool']) ? $decoded['tool'] : '';
-            if ($tool !== null && ! str_contains($toolValue, $tool)) {
-                continue;
-            }
-
-            $statusValue = isset($decoded['status']) && is_string($decoded['status']) ? $decoded['status'] : '';
-            if ($status !== null && $statusValue !== $status) {
-                continue;
-            }
-
-            $entries[] = $decoded;
+        if ($page < 1 || $perPage < 1) {
+            throw new \InvalidArgumentException('Audit pagination must be positive.');
         }
-
-        $total = count($entries);
-        $lastPage = max(1, (int) ceil($total / $perPage));
-        $offset = ($page - 1) * $perPage;
-        $pageEntries = array_slice($entries, $offset, $perPage);
+        // One reverse pass, no writer lock. Exact totals still need the whole
+        // active log, but only this page is retained and no second scan runs.
+        $offset = $page - 1 > intdiv(PHP_INT_MAX, $perPage) ? PHP_INT_MAX : ($page - 1) * $perPage;
+        $total = 0;
+        $pageEntries = [];
+        foreach ($this->matchingEntries($tool, $status, $actor) as $entry) {
+            if ($total >= $offset && count($pageEntries) < $perPage) {
+                $pageEntries[] = $entry;
+            }
+            $total++;
+        }
 
         return new AuditResult(
             entries: $pageEntries,
             total: $total,
             currentPage: $page,
-            lastPage: $lastPage,
+            lastPage: max(1, (int) ceil($total / $perPage)),
             perPage: $perPage,
         );
     }
@@ -108,107 +127,163 @@ class FileAuditStore implements AuditStore
      */
     public function purge(?Carbon $before = null): int
     {
-        if (! file_exists($this->path)) {
-            return 0;
-        }
+        return $this->withLock(function () use ($before): int {
+            if (! file_exists($this->path)) {
+                return 0;
+            }
 
-        if ($before === null) {
-            $count = 0;
-            $file = new \SplFileObject($this->path, 'r');
-            while (! $file->eof()) {
-                $line = $file->fgets();
-                if (trim($line) !== '') {
-                    $count++;
+            if ($before === null) {
+                $count = 0;
+                $file = new \SplFileObject($this->path, 'r');
+                while (! $file->eof()) {
+                    $line = $file->fgets();
+                    if (trim($line) !== '') {
+                        $count++;
+                    }
+                }
+                unset($file);
+                $temporary = $this->path . '.tmp';
+                if (is_link($temporary)) {
+                    throw new \RuntimeException('Invalid audit temporary file.');
+                }
+                $handle = fopen($temporary, 'wb');
+                if ($handle === false) {
+                    throw new \RuntimeException('Cannot purge audit log.');
+                }
+                try {
+                    // Replace rather than truncate: a lock-free reader keeps
+                    // its original file descriptor and sees one snapshot.
+                    if (! chmod($temporary, 0600) || ! fflush($handle) || ! fsync($handle) || ! rename($temporary, $this->path)) {
+                        throw new \RuntimeException('Cannot persist audit purge.');
+                    }
+                    $this->syncDirectory();
+                } finally {
+                    fclose($handle);
+                }
+
+                return $count;
+            }
+
+            // Write kept lines to a temp file, then replace the original
+            $tempPath = $this->path . '.tmp';
+            if (is_link($tempPath)) {
+                throw new \RuntimeException('Invalid audit temporary file.');
+            }
+            $purgeCount = 0;
+
+            $reader = new \SplFileObject($this->path, 'r');
+            $writer = new \SplFileObject($tempPath, 'w');
+            if (! chmod($tempPath, 0600)) {
+                throw new \RuntimeException('Cannot restrict audit temporary file.');
+            }
+
+            while (! $reader->eof()) {
+                $line = $reader->fgets();
+                if (trim($line) === '') {
+                    continue;
+                }
+
+                $decoded = json_decode($line, true);
+
+                if (! is_array($decoded)) {
+                    $this->writePurgeLine($writer, rtrim($line, "\n\r") . "\n");
+
+                    continue;
+                }
+
+                /** @var array<string, mixed> $decoded */
+                $timestamp = isset($decoded['timestamp']) && is_string($decoded['timestamp']) ? Carbon::parse($decoded['timestamp']) : null;
+
+                if ($timestamp !== null && $timestamp->lt($before)) {
+                    $purgeCount++;
+                } else {
+                    $this->writePurgeLine($writer, rtrim($line, "\n\r") . "\n");
                 }
             }
-            unset($file);
-            file_put_contents($this->path, '', LOCK_EX);
 
-            return $count;
-        }
-
-        // Write kept lines to a temp file, then replace the original
-        $tempPath = $this->path . '.tmp.' . uniqid();
-        $purgeCount = 0;
-
-        $reader = new \SplFileObject($this->path, 'r');
-        $writer = new \SplFileObject($tempPath, 'w');
-
-        while (! $reader->eof()) {
-            $line = $reader->fgets();
-            if (trim($line) === '') {
-                continue;
+            if (! $writer->fflush()) {
+                throw new \RuntimeException('Cannot flush audit purge.');
+            }
+            unset($reader, $writer);
+            $handle = fopen($tempPath, 'r+b');
+            if ($handle === false) {
+                throw new \RuntimeException('Cannot open audit purge.');
+            }
+            try {
+                if (! fsync($handle) || ! rename($tempPath, $this->path)) {
+                    throw new \RuntimeException('Cannot commit audit purge.');
+                }
+                $this->syncDirectory();
+            } finally {
+                fclose($handle);
             }
 
-            $decoded = json_decode($line, true);
-
-            if (! is_array($decoded)) {
-                $writer->fwrite(rtrim($line, "\n\r") . "\n");
-
-                continue;
-            }
-
-            /** @var array<string, mixed> $decoded */
-            $timestamp = isset($decoded['timestamp']) && is_string($decoded['timestamp']) ? Carbon::parse($decoded['timestamp']) : null;
-
-            if ($timestamp !== null && $timestamp->lt($before)) {
-                $purgeCount++;
-            } else {
-                $writer->fwrite(rtrim($line, "\n\r") . "\n");
-            }
-        }
-
-        unset($reader, $writer);
-        rename($tempPath, $this->path);
-
-        return $purgeCount;
+            return $purgeCount;
+        });
     }
 
     /**
-     * Read all non-empty lines from the log file using line-by-line reading.
+     * Read complete lines newest first from a fixed-size snapshot of one inode.
      *
      * If the file exceeds MAX_FILE_SIZE, only the last MAX_FILE_SIZE bytes are read
      * to prevent out-of-memory errors on production servers with large audit logs.
      *
-     * @return array<int, string>
+     * @return \Generator<int, string>
      */
-    private function readLines(): array
+    private function readLines(): \Generator
     {
-        if (! file_exists($this->path)) {
-            return [];
+        clearstatcache(true, $this->path);
+        if (! is_file($this->path)) {
+            return;
         }
-
-        $fileSize = filesize($this->path);
-        if ($fileSize === false || $fileSize === 0) {
-            return [];
+        $file = @fopen($this->path, 'rb');
+        if ($file === false) {
+            return;
         }
-
-        $seekOffset = 0;
-        if ($fileSize > self::MAX_FILE_SIZE) {
-            Log::warning('Audit log file exceeds 50MB, reading only the last 50MB', [
-                'path' => $this->path,
-                'size_bytes' => $fileSize,
-            ]);
-            $seekOffset = $fileSize - self::MAX_FILE_SIZE;
-        }
-
-        $lines = [];
-        $file = new \SplFileObject($this->path, 'r');
-
-        if ($seekOffset > 0) {
-            $file->fseek($seekOffset);
-            // Discard partial first line after seeking
-            $file->fgets();
-        }
-
-        while (! $file->eof()) {
-            $line = $file->fgets();
-            if (trim($line) !== '') {
-                $lines[] = rtrim($line, "\n\r");
+        try {
+            $stat = fstat($file);
+            if ($stat === false || $stat['size'] === 0) {
+                return;
             }
+            $position = $stat['size'];
+            $floor = max(0, $position - self::MAX_FILE_SIZE);
+            if ($floor > 0) {
+                Log::warning('Audit log file exceeds 50MB, reading only the last 50MB', ['size_bytes' => $position]);
+            }
+            $pending = '';
+            $tail = true;
+            $remaining = $position - $floor;
+            while ($remaining > 0) {
+                $length = min(8192, $remaining);
+                $remaining -= $length;
+                $position -= $length;
+                if (fseek($file, $position) !== 0) {
+                    throw new \RuntimeException('Cannot seek audit snapshot.');
+                }
+                $chunk = fread($file, $length);
+                if ($chunk === false || strlen($chunk) !== $length) {
+                    throw new \RuntimeException('Cannot read audit snapshot.');
+                }
+                $lines = explode("\n", $chunk . $pending);
+                $pending = array_shift($lines);
+                foreach (array_reverse($lines) as $line) {
+                    // The bytes after the final newline may be an interrupted
+                    // or still-running append. They are not a complete record.
+                    if ($tail) {
+                        $tail = false;
+                        continue;
+                    }
+                    if (trim($line) !== '') {
+                        yield rtrim($line, "\r");
+                    }
+                }
+            }
+            if ($floor === 0 && ! $tail && trim($pending) !== '') {
+                yield rtrim($pending, "\r");
+            }
+        } finally {
+            fclose($file);
         }
-
-        return $lines;
     }
 
     /**
@@ -237,7 +312,9 @@ class FileAuditStore implements AuditStore
             $rotatedPath = $this->path . '.' . $date . '.bak.' . $suffix;
         }
 
-        @rename($this->path, $rotatedPath);
+        if (! rename($this->path, $rotatedPath)) {
+            throw new \RuntimeException('Cannot rotate audit log.');
+        }
         $this->pruneBackups();
     }
 
@@ -258,7 +335,107 @@ class FileAuditStore implements AuditStore
 
         // Delete everything beyond the retention limit
         foreach (array_slice($backups, self::MAX_BACKUP_FILES) as $oldBackup) {
-            @unlink($oldBackup);
+            if (! unlink($oldBackup)) {
+                throw new \RuntimeException('Cannot prune audit backup.');
+            }
+        }
+    }
+
+    private function writePurgeLine(\SplFileObject $writer, string $line): void
+    {
+        if ($writer->fwrite($line) !== strlen($line)) {
+            throw new \RuntimeException('Cannot write audit purge.');
+        }
+    }
+
+    /** @return \Generator<int, array<string, mixed>> */
+    private function matchingEntries(?string $tool, ?string $status, ?string $actor = null): \Generator
+    {
+        foreach ($this->readLines() as $line) {
+            $decoded = json_decode($line, true);
+            if (! is_array($decoded)) {
+                continue;
+            }
+            $entry = [];
+            foreach ($decoded as $key => $value) {
+                if (! is_string($key)) {
+                    continue 2;
+                }
+                $entry[$key] = $value;
+            }
+            $toolValue = is_string($entry['tool'] ?? null) ? $entry['tool'] : '';
+            if ($tool !== null && ! str_contains($toolValue, $tool)) {
+                continue;
+            }
+            if ($status !== null && ($entry['status'] ?? '') !== $status) {
+                continue;
+            }
+            if ($actor !== null && ! self::madeBy($entry, $actor)) {
+                continue;
+            }
+            yield $entry;
+        }
+    }
+
+    /** @param  array<string, mixed>  $entry */
+    private static function madeBy(array $entry, string $actor): bool
+    {
+        $userId = $entry['user_id'] ?? null;
+
+        return $actor === 'cli'
+            ? ($userId === null || $userId === '') && ($entry['context'] ?? null) === 'cli'
+            : is_string($userId) && $actor === 'user:' . $userId;
+    }
+
+    private function syncDirectory(): void
+    {
+        $handle = fopen(dirname($this->path), 'r');
+        if ($handle === false) {
+            throw new \RuntimeException('Cannot open audit directory.');
+        }
+        try {
+            if (! fsync($handle)) {
+                throw new \RuntimeException('Cannot persist audit directory.');
+            }
+        } finally {
+            fclose($handle);
+        }
+    }
+
+    /** @template T
+     * @param  callable(): T  $callback
+     *
+     * @return T
+     */
+    private function withLock(callable $callback): mixed
+    {
+        if ($this->locked) {
+            return $callback();
+        }
+        $directory = dirname($this->path);
+        if (! is_dir($directory) && ! mkdir($directory, 0700, true) && ! is_dir($directory)) {
+            throw new \RuntimeException('Cannot create audit directory.');
+        }
+        $handle = fopen($this->path . '.lock', 'c+b');
+        if ($handle === false) {
+            throw new \RuntimeException('Cannot open audit lock.');
+        }
+        try {
+            $deadline = hrtime(true) + 5_000_000_000;
+            while (! flock($handle, LOCK_EX | LOCK_NB)) {
+                if (hrtime(true) >= $deadline) {
+                    throw new \RuntimeException('Audit storage is busy.');
+                }
+                usleep(10000);
+            }
+            $this->locked = true;
+            clearstatcache();
+
+            return $callback();
+        } finally {
+            $this->locked = false;
+            flock($handle, LOCK_UN);
+            fclose($handle);
         }
     }
 }

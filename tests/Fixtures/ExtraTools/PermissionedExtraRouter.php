@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Tests\Fixtures\ExtraTools;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 
@@ -22,12 +23,9 @@ class PermissionedExtraRouter extends BaseRouter
         return 'system';
     }
 
-    /**
-     * @return array<string, string>
-     */
-    protected function getActions(): array
+    protected function actions(): array
     {
-        return ['get' => 'Get the site health'];
+        return [RouterAction::read('get', 'Get the site health')];
     }
 
     /**

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Tests\Feature\OAuth;
 
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
+use Cboxdk\StatamicMcp\Tests\Concerns\InteractsWithOAuthConsent;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
@@ -12,6 +13,8 @@ use Statamic\Facades\User;
 
 class CimdAuthorizeTest extends TestCase
 {
+    use InteractsWithOAuthConsent;
+
     private string $cimdClientId = 'https://app.example.com/oauth/metadata.json';
 
     private string $cimdRedirectUri = 'https://app.example.com/callback';
@@ -43,12 +46,13 @@ class CimdAuthorizeTest extends TestCase
     {
         return array_merge([
             'response_type' => 'code',
+            'resource' => 'http://localhost/mcp/statamic',
             'client_id' => $this->cimdClientId,
             'redirect_uri' => $this->cimdRedirectUri,
             'code_challenge' => 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
             'code_challenge_method' => 'S256',
             'state' => 'test-state-cimd',
-            'scope' => 'content:read',
+            'scope' => 'entries:read',
         ], $overrides);
     }
 
@@ -122,7 +126,7 @@ class CimdAuthorizeTest extends TestCase
             ->get($this->authorizeUrl(http_build_query($this->validParams())));
 
         $response->assertOk();
-        $response->assertSee('from app.example.com');
+        $this->assertSame('app.example.com', $response->viewData('page')['props']['client']['host']);
     }
 
     public function test_consent_screen_displays_client_logo_when_present(): void
@@ -134,7 +138,21 @@ class CimdAuthorizeTest extends TestCase
             ->get($this->authorizeUrl(http_build_query($this->validParams())));
 
         $response->assertOk();
-        $response->assertSee('https://app.example.com/logo.png');
+        $this->assertSame('https://app.example.com/logo.png', $response->viewData('page')['props']['client']['logo']);
+    }
+
+    public function test_a_logo_from_another_host_or_over_http_is_not_shown(): void
+    {
+        $user = $this->authenticatedUser('cimd-3b', 'cimd3b@example.com');
+
+        foreach (['https://tracker.example.net/pixel.png', 'http://app.example.com/logo.png'] as $logo) {
+            $this->fakeCimdMetadata(['logo_uri' => $logo]);
+
+            $this->actingAs($user, 'web')
+                ->get($this->authorizeUrl(http_build_query($this->validParams())))
+                ->assertOk()
+                ->assertDontSee($logo, false);
+        }
     }
 
     public function test_consent_screen_shows_localhost_warning_for_localhost_redirect_uris(): void
@@ -148,7 +166,7 @@ class CimdAuthorizeTest extends TestCase
             ->get($this->authorizeUrl(http_build_query($params)));
 
         $response->assertOk();
-        $response->assertSee('localhost redirect URIs');
+        $this->assertTrue($response->viewData('page')['props']['localRedirects']);
     }
 
     // --- Approval flow with CIMD client_id ---
@@ -159,16 +177,16 @@ class CimdAuthorizeTest extends TestCase
         $user = $this->authenticatedUser('cimd-5', 'cimd5@example.com');
 
         $response = $this->actingAs($user, 'web')
-            ->post($this->authorizeUrl(), [
+            ->post($this->authorizeUrl(), $this->withConsentOffer($this->authorizeUrl(), [
                 'client_id' => $this->cimdClientId,
                 'redirect_uri' => $this->cimdRedirectUri,
                 'state' => 'cimd-state-approve',
                 'code_challenge' => 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
                 'code_challenge_method' => 'S256',
-                'scope' => 'content:read',
-                'scopes' => ['content:read'],
+                'scope' => 'entries:read',
+                'scopes' => ['entries:read'],
                 'decision' => 'approve',
-            ]);
+            ]));
 
         $response->assertRedirect();
         $location = $response->headers->get('Location', '');
@@ -189,10 +207,11 @@ class CimdAuthorizeTest extends TestCase
                 'client_id' => $this->cimdClientId,
                 'redirect_uri' => $this->cimdRedirectUri,
                 'state' => 'cimd-state-deny',
+                'resource' => 'http://localhost/mcp/statamic',
                 'code_challenge' => 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
                 'code_challenge_method' => 'S256',
-                'scope' => 'content:read',
-                'scopes' => ['content:read'],
+                'scope' => 'entries:read',
+                'scopes' => ['entries:read'],
                 'decision' => 'deny',
             ]);
 
@@ -236,7 +255,9 @@ class CimdAuthorizeTest extends TestCase
         $response = $this->actingAs($user, 'web')
             ->get($this->authorizeUrl(http_build_query($this->validParams())));
 
-        $response->assertStatus(400);
+        // Why the fetch failed is not shown: it tells a prober what this
+        // server can reach.
+        $response->assertStatus(400)->assertDontSee('Connection refused');
     }
 
     // --- CIMD validation failure (mismatched client_id) returns 400 ---
@@ -329,12 +350,13 @@ class CimdAuthorizeTest extends TestCase
 
         $params = [
             'response_type' => 'code',
+            'resource' => 'http://localhost/mcp/statamic',
             'client_id' => $dcrClient->clientId,
             'redirect_uri' => 'https://dcr.example.com/callback',
             'code_challenge' => 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
             'code_challenge_method' => 'S256',
             'state' => 'dcr-state',
-            'scope' => 'content:read',
+            'scope' => 'entries:read',
         ];
 
         $response = $this->actingAs($user, 'web')
@@ -343,6 +365,6 @@ class CimdAuthorizeTest extends TestCase
         $response->assertOk();
         $response->assertSee('DCR Test Client');
         // DCR client should NOT show CIMD-specific hostname display
-        $response->assertDontSee('from ');
+        $this->assertNull($response->viewData('page')['props']['client']['host']);
     }
 }

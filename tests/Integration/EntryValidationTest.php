@@ -51,7 +51,7 @@ class EntryValidationTest extends TestCase
         // The router requires data for create action
         $this->assertFalse($result['success']);
         $error = $result['errors'][0];
-        $this->assertStringContainsString('Data is required', $error);
+        $this->assertStringContainsString('The create action needs data', $error);
     }
 
     public function test_update_with_partial_data_changes_only_provided_fields(): void

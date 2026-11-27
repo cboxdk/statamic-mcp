@@ -70,7 +70,7 @@ class EntryStatusTest extends TestCase
      */
     private function slugs(array $filters): array
     {
-        $slugs = array_column($this->entries(['action' => 'list', 'filters' => $filters])['entries'], 'slug');
+        $slugs = array_column($this->entries(['action' => 'list', 'filters' => $filters])['items'], 'slug');
         sort($slugs);
 
         return $slugs;
@@ -78,7 +78,7 @@ class EntryStatusTest extends TestCase
 
     public function test_list_and_get_report_the_status(): void
     {
-        $entries = collect($this->entries(['action' => 'list', 'include_unpublished' => true])['entries'])->keyBy('slug');
+        $entries = collect($this->entries(['action' => 'list', 'include_unpublished' => true])['items'])->keyBy('slug');
 
         $this->assertSame('published', $entries['live']['status']);
         $this->assertSame('scheduled', $entries['later']['status']);

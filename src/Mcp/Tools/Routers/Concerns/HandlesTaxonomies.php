@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns;
 
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
+use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
 use Statamic\Contracts\Taxonomies\Taxonomy as TaxonomyContract;
 use Statamic\Facades\Taxonomy;
 
@@ -28,7 +29,6 @@ trait HandlesTaxonomies
             'create' => $this->createTaxonomy($arguments),
             'update' => $this->updateTaxonomy($arguments),
             'delete' => $this->deleteTaxonomy($arguments),
-            'configure' => $this->configureTaxonomy($arguments),
             default => $this->createErrorResponse("Unknown taxonomy action: {$action}")->toArray(),
         };
     }
@@ -40,45 +40,35 @@ trait HandlesTaxonomies
      */
     private function listTaxonomies(array $arguments): array
     {
-        try {
-            $includeDetails = $this->getBooleanArgument($arguments, 'include_details', true);
-            $pagination = $this->getPaginationArgs($arguments);
-            $limit = $pagination['limit'];
-            $offset = $pagination['offset'];
-
-            $policy = app(ResourcePolicy::class);
-            $allTaxonomies = Taxonomy::all()->filter(
-                fn ($taxonomy): bool => $taxonomy instanceof TaxonomyContract
-                    && $policy->canAccess('structures', $taxonomy->handle(), 'read')
-            );
-            $total = $allTaxonomies->count();
-
-            $taxonomies = $allTaxonomies->skip($offset)->take($limit)->map(function ($taxonomy) use ($includeDetails) {
-                /** @var TaxonomyContract $taxonomy */
-                $data = [
-                    'handle' => $taxonomy->handle(),
-                    'title' => $taxonomy->title(),
-                ];
-
-                if ($includeDetails) {
-                    $data = array_merge($data, [
-                        'blueprint' => $taxonomy->termBlueprints()->first()?->handle(),
-                        'sites' => $taxonomy->sites()->all(),
-                        'collections' => $taxonomy->collections()->map->handle()->all(),
-                    ]);
-                }
-
-                return $data;
-            })->values()->all();
-
-            return [
-                'taxonomies' => $taxonomies,
-                'total' => $total,
-                'pagination' => $this->buildPaginationMeta($total, $limit, $offset),
+        $includeDetails = $this->getBooleanArgument($arguments, 'include_details', true);
+        $pagination = $this->getPaginationArgs($arguments);
+        $limit = $pagination['limit'];
+        $offset = $pagination['offset'];
+        $policy = app(ResourcePolicy::class);
+        $allTaxonomies = Taxonomy::all()->filter(
+            fn ($taxonomy): bool => $taxonomy instanceof TaxonomyContract
+                && $policy->canAccess('structures', $taxonomy->handle(), 'read')
+        );
+        $total = $allTaxonomies->count();
+        $taxonomies = $allTaxonomies->sortBy(fn (TaxonomyContract $taxonomy): string => $taxonomy->handle())->skip($offset)->take($limit)->map(function ($taxonomy) use ($includeDetails) {
+            /** @var TaxonomyContract $taxonomy */
+            $data = [
+                'handle' => $taxonomy->handle(),
+                'title' => $taxonomy->title(),
             ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to list taxonomies: {$e->getMessage()}")->toArray();
-        }
+
+            if ($includeDetails) {
+                $data = array_merge($data, [
+                    'blueprint' => $taxonomy->termBlueprints()->first()?->handle(),
+                    'sites' => $taxonomy->sites()->all(),
+                    'collections' => $taxonomy->collections()->map->handle()->all(),
+                ]);
+            }
+
+            return $data;
+        })->values()->all();
+
+        return $this->buildPage($taxonomies, $total, $offset, $arguments);
     }
 
     /**
@@ -88,27 +78,28 @@ trait HandlesTaxonomies
      */
     private function getTaxonomy(array $arguments): array
     {
-        try {
-            $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
-            $taxonomy = Taxonomy::find($handle);
-
-            if (! $taxonomy) {
-                return $this->createErrorResponse("Taxonomy not found: {$handle}")->toArray();
-            }
-
-            $data = [
-                'handle' => $taxonomy->handle(),
-                'title' => $taxonomy->title(),
-                'blueprints' => $taxonomy->termBlueprints()->map->handle()->all(),
-                'sites' => $taxonomy->sites()->all(),
-                'collections' => $taxonomy->collections()->map->handle()->all(),
-                'term_count' => $taxonomy->queryTerms()->count(),
-            ];
-
-            return ['taxonomy' => $data];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to get taxonomy: {$e->getMessage()}")->toArray();
+        $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
+        $taxonomy = Taxonomy::find($handle);
+        if (! $taxonomy) {
+            return $this->missingResource('Taxonomy', $handle, candidates: Taxonomy::all()->map->handle()->all(), arguments: $arguments)->toArray();
         }
+
+        return ['taxonomy' => [...$this->taxonomyRecord($taxonomy), 'term_count' => $taxonomy->queryTerms()->count()]];
+    }
+
+    /** @return array<string, mixed> */
+    private function taxonomyRecord(TaxonomyContract $taxonomy): array
+    {
+        $data = [
+            'handle' => $taxonomy->handle(),
+            'title' => $taxonomy->title(),
+            'blueprints' => $taxonomy->termBlueprints()->map->handle()->all(),
+            'sites' => $taxonomy->sites()->all(),
+            'collections' => $taxonomy->collections()->map->handle()->all(),
+            'preview_targets' => $taxonomy->previewTargets()->all(),
+        ];
+
+        return [...$data, 'version' => self::resourceVersion($taxonomy->fileData())];
     }
 
     /**
@@ -119,49 +110,40 @@ trait HandlesTaxonomies
     private function createTaxonomy(array $arguments): array
     {
         if (! $this->hasPermission('create', 'taxonomies')) {
-            return $this->createErrorResponse('Permission denied: Cannot create taxonomies')->toArray();
+            return $this->createErrorResponse('Permission denied: Cannot create taxonomies', code: ErrorCode::Forbidden)->toArray();
         }
-
-        try {
-            $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
-            $handle = is_string($data['handle'] ?? null) ? $data['handle'] : (is_string($arguments['handle'] ?? null) ? $arguments['handle'] : null);
-
-            if (! $handle) {
-                return $this->createErrorResponse('Taxonomy handle is required')->toArray();
-            }
-
-            $existsError = $this->checkHandleNotExists(Taxonomy::find($handle), 'Taxonomy', $handle);
-            if ($existsError !== null) {
-                return $existsError;
-            }
-
-            $taxonomy = Taxonomy::make($handle);
-
-            if (isset($data['title'])) {
-                $taxonomy->title($data['title']);
-            }
-            if (isset($data['preview_targets'])) {
-                $taxonomy->previewTargets($data['preview_targets']);
-            }
-            if (isset($data['default_status'])) {
-                $taxonomy->defaultStatus($data['default_status']);
-            }
-
-            $taxonomy->save();
-
-            // Clear caches
-            $this->clearCachesAfterWrite(['stache', 'static']);
-
-            return [
-                'taxonomy' => [
-                    'handle' => $taxonomy->handle(),
-                    'title' => $taxonomy->title(),
-                    'created' => true,
-                ],
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to create taxonomy: {$e->getMessage()}")->toArray();
+        $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
+        $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : null;
+        if (! $handle) {
+            return $this->createErrorResponse('Taxonomy handle is required')->toArray();
         }
+        if (array_key_exists('handle', $data) && $data['handle'] !== $handle) {
+            return $this->createErrorResponse('The new taxonomy\'s handle is the handle argument; data.handle may only repeat it.')->toArray();
+        }
+        $existsError = $this->checkHandleNotExists(Taxonomy::find($handle), 'Taxonomy', $handle);
+        if ($existsError !== null) {
+            return $existsError;
+        }
+        $taxonomy = Taxonomy::make($handle);
+        if (isset($data['title'])) {
+            $taxonomy->title($data['title']);
+        }
+        if (isset($data['preview_targets'])) {
+            $taxonomy->previewTargets($data['preview_targets']);
+        }
+        if (isset($data['default_status'])) {
+            $taxonomy->defaultStatus($data['default_status']);
+        }
+        $this->persistStatamic(fn () => $taxonomy->save());
+        // Clear caches
+        $this->clearCachesAfterWrite(['stache', 'static']);
+
+        return [
+            'taxonomy' => [
+                ...$this->taxonomyRecord($taxonomy),
+                'created' => true,
+            ],
+        ];
     }
 
     /**
@@ -172,43 +154,33 @@ trait HandlesTaxonomies
     private function updateTaxonomy(array $arguments): array
     {
         if (! $this->hasPermission('edit', 'taxonomies')) {
-            return $this->createErrorResponse('Permission denied: Cannot update taxonomies')->toArray();
+            return $this->createErrorResponse('Permission denied: Cannot update taxonomies', code: ErrorCode::Forbidden)->toArray();
         }
-
-        try {
-            $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
-            $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
-
-            $taxonomy = Taxonomy::find($handle);
-            if (! $taxonomy) {
-                return $this->createErrorResponse("Taxonomy not found: {$handle}")->toArray();
-            }
-
-            if (isset($data['title'])) {
-                $taxonomy->title($data['title']);
-            }
-            if (isset($data['preview_targets'])) {
-                $taxonomy->previewTargets($data['preview_targets']);
-            }
-            if (isset($data['default_status'])) {
-                $taxonomy->defaultStatus($data['default_status']);
-            }
-
-            $taxonomy->save();
-
-            // Clear caches
-            $this->clearCachesAfterWrite(['stache', 'static']);
-
-            return [
-                'taxonomy' => [
-                    'handle' => $taxonomy->handle(),
-                    'title' => $taxonomy->title(),
-                    'updated' => true,
-                ],
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to update taxonomy: {$e->getMessage()}")->toArray();
+        $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
+        $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
+        $taxonomy = Taxonomy::find($handle);
+        if (! $taxonomy) {
+            return $this->missingResource('Taxonomy', $handle, candidates: Taxonomy::all()->map->handle()->all(), arguments: $arguments)->toArray();
         }
+        if (isset($data['title'])) {
+            $taxonomy->title($data['title']);
+        }
+        if (isset($data['preview_targets'])) {
+            $taxonomy->previewTargets($data['preview_targets']);
+        }
+        if (isset($data['default_status'])) {
+            $taxonomy->defaultStatus($data['default_status']);
+        }
+        $this->persistStatamic(fn () => $taxonomy->save());
+        // Clear caches
+        $this->clearCachesAfterWrite(['stache', 'static']);
+
+        return [
+            'taxonomy' => [
+                ...$this->taxonomyRecord($taxonomy),
+                'updated' => true,
+            ],
+        ];
     }
 
     /**
@@ -219,102 +191,36 @@ trait HandlesTaxonomies
     private function deleteTaxonomy(array $arguments): array
     {
         if (! $this->hasPermission('delete', 'taxonomies')) {
-            return $this->createErrorResponse('Permission denied: Cannot delete taxonomies')->toArray();
+            return $this->createErrorResponse('Permission denied: Cannot delete taxonomies', code: ErrorCode::Forbidden)->toArray();
         }
-
-        try {
-            $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
-            $taxonomy = Taxonomy::find($handle);
-
-            if (! $taxonomy) {
-                return $this->createErrorResponse("Taxonomy not found: {$handle}")->toArray();
-            }
-
-            $force = $this->getBooleanArgument($arguments, 'force', false);
-            $termCount = $taxonomy->queryTerms()->count();
-
-            if ($termCount > 0 && ! $force) {
-                return $this->createErrorResponse(
-                    "Cannot delete taxonomy '{$handle}' — it contains {$termCount} terms. "
-                    . 'Use force: true to delete the taxonomy with all its terms and blueprints.'
-                )->toArray();
-            }
-
-            // Cascade: delete terms first
-            if ($termCount > 0) {
-                $taxonomy->queryTerms()->get()->each->delete();
-            }
-
-            // Cascade: delete blueprints
-            foreach ($taxonomy->termBlueprints() as $blueprint) {
-                $blueprint->delete();
-            }
-
-            $taxonomy->delete();
-
-            // Clear caches
-            $this->clearCachesAfterWrite(['stache', 'static']);
-
-            return [
-                'taxonomy' => [
-                    'handle' => $handle,
-                    'deleted' => true,
-                ],
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to delete taxonomy: {$e->getMessage()}")->toArray();
+        $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
+        $taxonomy = Taxonomy::find($handle);
+        if (! $taxonomy) {
+            return $this->missingResource('Taxonomy', $handle, candidates: Taxonomy::all()->map->handle()->all(), arguments: $arguments)->toArray();
         }
-    }
-
-    /**
-     * @param  array<string, mixed>  $arguments
-     *
-     * @return array<string, mixed>
-     */
-    private function configureTaxonomy(array $arguments): array
-    {
-        try {
-            $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
-            $config = is_array($arguments['config'] ?? null) ? $arguments['config'] : [];
-
-            $taxonomy = Taxonomy::find($handle);
-            if (! $taxonomy) {
-                return $this->createErrorResponse("Taxonomy not found: {$handle}")->toArray();
-            }
-
-            // Handle specific configuration options
-            if (isset($config['title'])) {
-                $taxonomy->title($config['title']);
-            }
-
-            if (isset($config['preview_targets'])) {
-                $taxonomy->previewTargets($config['preview_targets']);
-            }
-
-            if (isset($config['default_status'])) {
-                $taxonomy->defaultStatus($config['default_status']);
-            }
-
-            // Note: Taxonomy→Collection association is stored on the collection
-            // side ($collection->taxonomies()), not on the taxonomy. Use the
-            // statamic-structures collection update to associate taxonomies.
-
-            // Save the taxonomy
-            $taxonomy->save();
-
-            // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
-
-            return [
-                'taxonomy' => [
-                    'handle' => $taxonomy->handle(),
-                    'title' => $taxonomy->title(),
-                    'config' => $taxonomy->toArray(),
-                ],
-                'configured' => true,
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to configure taxonomy: {$e->getMessage()}")->toArray();
+        $termCount = $taxonomy->queryTerms()->count();
+        if ($termCount > 0) {
+            return $this->createErrorResponse(
+                "Cannot delete taxonomy '{$handle}' — it contains {$termCount} terms. "
+                . 'Delete its content explicitly first. V4 does not support forced cascading deletion.'
+            )->toArray();
         }
+        // Resolve blueprints before removing their parent, but preserve them
+        // when the native parent deletion is vetoed or throws.
+        $blueprints = $taxonomy->termBlueprints();
+        $snapshot = $this->taxonomyRecord($taxonomy);
+        $this->persistStatamic(fn () => $taxonomy->delete());
+        foreach ($blueprints as $blueprint) {
+            $this->persistStatamic(fn () => $blueprint->delete());
+        }
+        // Clear caches
+        $this->clearCachesAfterWrite(['stache', 'static']);
+
+        return [
+            'taxonomy' => [
+                ...$snapshot,
+                'deleted' => true,
+            ],
+        ];
     }
 }

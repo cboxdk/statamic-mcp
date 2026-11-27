@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp;
 
 use Cboxdk\StatamicMcp\Auth\AuthServiceProvider;
-use Cboxdk\StatamicMcp\Auth\ConfirmationTokenManager;
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Console\InstallCommand;
 use Cboxdk\StatamicMcp\Console\MigrateStoreCommand;
@@ -16,12 +15,14 @@ use Cboxdk\StatamicMcp\Contracts\AuditStore;
 use Cboxdk\StatamicMcp\Contracts\CollectionTreeEditor;
 use Cboxdk\StatamicMcp\Http\Controllers\OAuth\AuthorizeController;
 use Cboxdk\StatamicMcp\Http\Middleware\AuthenticateForMcp;
+use Cboxdk\StatamicMcp\Http\Middleware\BoundMcpInput;
 use Cboxdk\StatamicMcp\Http\Middleware\EnsureSecureTransport;
 use Cboxdk\StatamicMcp\Http\Middleware\HandleMcpCors;
 use Cboxdk\StatamicMcp\Http\Middleware\RequireMcpPermission;
 use Cboxdk\StatamicMcp\Http\Middleware\SetOAuthWwwAuthenticate;
 use Cboxdk\StatamicMcp\Http\Middleware\ValidateMcpOrigin;
 use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
+use Cboxdk\StatamicMcp\Mcp\Support\StacheRepair;
 use Cboxdk\StatamicMcp\OAuth\Cimd\CimdResolver;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
 use Cboxdk\StatamicMcp\OAuth\Drivers\BuiltInOAuthDriver;
@@ -30,18 +31,26 @@ use Cboxdk\StatamicMcp\Storage\Audit\DatabaseAuditStore;
 use Cboxdk\StatamicMcp\Storage\Audit\FileAuditStore;
 use Cboxdk\StatamicMcp\Storage\Tokens\DatabaseTokenStore;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
+use Cboxdk\StatamicMcp\Support\McpConfig;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Contracts\Encryption\Encrypter;
 use Illuminate\Contracts\Foundation\Application;
+use Illuminate\Contracts\Http\Kernel;
+use Illuminate\Database\DatabaseManager;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Laravel\Mcp\Facades\Mcp;
 use Laravel\Mcp\Server\Middleware\AddWwwAuthenticateHeader;
 use Laravel\Mcp\Server\Middleware\ValidateOrigin;
+use Psr\Log\LoggerInterface;
 use Statamic\CP\Navigation\NavItem;
+use Statamic\Facades\Addon;
 use Statamic\Facades\CP\Nav;
 use Statamic\Facades\Git;
 use Statamic\Facades\Permission;
+use Statamic\Http\Middleware\CP\Localize;
 use Statamic\Providers\AddonServiceProvider;
 use Statamic\Statamic;
 
@@ -74,14 +83,24 @@ class ServiceProvider extends AddonServiceProvider
 
         $this->alignToolSearchOutputBudget();
 
+        if (Statamic::formsProInstalled()) {
+            Integration\FormsPro::register();
+        }
+        if (Addon::all()->has('statamic/seo-pro')) {
+            Integration\SeoPro::register();
+        }
+
+        // Writes made through MCP repair the Stache indexes they leave stale.
+        Event::listen(StacheRepair::EVENTS,
+            fn (object $event) => $this->app->make(StacheRepair::class)->record($event));
+
         // Only load routes if MCP is available
         if (class_exists('Laravel\Mcp\Facades\Mcp')) {
-            $this->loadRoutesFrom(__DIR__ . '/../routes/ai.php');
+            $this->registerLocalMcp();
 
             // Register per-token rate limiter
             RateLimiter::for('mcp', function (Request $request) {
-                /** @var int $maxAttempts */
-                $maxAttempts = config('statamic.mcp.rate_limit.max_attempts', 60);
+                $maxAttempts = McpConfig::int('rate_limit.max_attempts', 60);
 
                 // Use token ID if available, fall back to IP
                 $mcpToken = $request->attributes->get('mcp_token');
@@ -114,6 +133,7 @@ class ServiceProvider extends AddonServiceProvider
         $this->loadMigrationsIfDatabaseDriver('statamic.mcp.stores.tokens', DatabaseTokenStore::class, 'tokens');
         $this->loadMigrationsIfDatabaseDriver('statamic.mcp.stores.audit', DatabaseAuditStore::class, 'audit');
         $this->loadMigrationsIfDatabaseDriver('statamic.mcp.oauth.driver', DatabaseOAuthDriver::class, 'oauth');
+        $this->loadMigrationsIfDatabaseDriver('statamic.mcp.stores.operations', Actions\Operations\DatabaseOperationStore::class, 'operations');
 
         if ($this->app->runningInConsole()) {
             $this->commands([
@@ -122,10 +142,17 @@ class ServiceProvider extends AddonServiceProvider
                 PruneExpiredTokensCommand::class,
                 PruneAuditCommand::class,
                 PruneOAuthCommand::class,
+                Console\PruneOperationsCommand::class,
+                Console\RepairOperationCapacityCommand::class,
+                Console\InspectOperationCommand::class,
+                Console\DoctorCommand::class,
+                Console\MigrateV4Command::class,
+                Console\ReconcileOperationCommand::class,
             ]);
         }
 
-        $this->registerPermissions();
+        // Resolve descriptions after Statamic selects the Control Panel locale.
+        Permission::extend(fn () => $this->registerPermissions());
         $this->registerCpNavigation();
         $this->registerDashboardRoutes();
     }
@@ -150,6 +177,34 @@ class ServiceProvider extends AddonServiceProvider
             AddWwwAuthenticateHeader::class,
             SetOAuthWwwAuthenticate::class
         );
+
+        // Before TrimStrings / ConvertEmptyStringsToNull: both parse JSON globally.
+        $this->callAfterResolving(Kernel::class, function (Kernel $kernel): void {
+            if (! $kernel instanceof \Illuminate\Foundation\Http\Kernel) {
+                throw new \LogicException('MCP input protection requires the Laravel HTTP kernel.');
+            }
+            $kernel->prependMiddleware(BoundMcpInput::class);
+        });
+        $this->app->bind(Support\InputBudget::class, fn (): Support\InputBudget => new Support\InputBudget(
+            config()->integer('statamic.mcp.security.max_input_bytes', 16777216),
+            config()->integer('statamic.mcp.security.max_input_values', 20000),
+            config()->integer('statamic.mcp.security.max_input_depth', 64),
+        ));
+        $this->app->bind(Actions\SchemaValidator::class, fn (): Actions\SchemaValidator => new Actions\SchemaValidator(
+            $this->app->make(Support\InputBudget::class),
+            config()->integer('statamic.mcp.security.max_input_bytes', 16777216),
+        ));
+        $this->app->bind(Support\WireInputBudget::class, function (): Support\WireInputBudget {
+            $values = config()->integer('statamic.mcp.security.max_input_values', 20000);
+            $depth = config()->integer('statamic.mcp.security.max_input_depth', 64);
+            if ($values < 1 || $values > 1000000 || $depth < 1 || $depth > 256) {
+                throw new \LogicException('Invalid MCP input value or nesting budget.');
+            }
+
+            return new Support\WireInputBudget(
+                config()->integer('statamic.mcp.security.max_input_bytes', 16777216), $values * 2 + 32, $depth + 8,
+            );
+        });
 
         // Register audit store from configured driver
         $this->app->singleton(AuditStore::class, function (Application $app): AuditStore {
@@ -180,11 +235,68 @@ class ServiceProvider extends AddonServiceProvider
             return $instance;
         });
 
+        $this->app->bind(Actions\Operations\FileOperationStore::class, function (): Actions\Operations\FileOperationStore {
+            if (config('statamic.mcp.operations.multi_node', false)) {
+                throw new \LogicException('Multi-node MCP operations require shared database storage.');
+            }
+
+            return new Actions\Operations\FileOperationStore(
+                config()->string('statamic.mcp.storage.operations_path', storage_path('statamic-mcp/operations')),
+                config()->integer('statamic.mcp.operations.max_records', 256),
+            );
+        });
+        $this->app->bind(Actions\Operations\DatabaseOperationStore::class, fn (): Actions\Operations\DatabaseOperationStore => new Actions\Operations\DatabaseOperationStore(
+            $this->app->make(DatabaseManager::class)->connection(),
+            config()->integer('statamic.mcp.operations.max_records', 256),
+        ));
+        $this->app->bind(Actions\Contracts\OperationStore::class, function (): Actions\Contracts\OperationStore {
+            $driver = config()->string('statamic.mcp.stores.operations', Actions\Operations\FileOperationStore::class);
+            if (! is_subclass_of($driver, Actions\Contracts\OperationStore::class)) {
+                throw new \LogicException('Invalid operation storage driver.');
+            }
+
+            return $this->app->make($driver);
+        });
+        $this->app->bind(Actions\Operations\OperationCoordinator::class, fn (): Actions\Operations\OperationCoordinator => new Actions\Operations\OperationCoordinator(
+            $this->app->make(Actions\Contracts\OperationStore::class), $this->app->make(Encrypter::class),
+            config()->integer('statamic.mcp.operations.retry_seconds', 3600),
+        ));
+
+        $this->app->bind(Actions\Contracts\Authorizer::class, Authorization\GrantAuthorizer::class);
+        $this->app->scoped(Actions\Contracts\ActorScope::class, Authorization\ExecutionActorScope::class);
+        $this->app->singleton(Actions\ObserverRegistry::class);
+        $this->app->bind(Actions\LifecycleObservers::class, fn (): Actions\LifecycleObservers => Actions\LifecycleObservers::fromRegistry(
+            $this->app->make(Actions\ObserverRegistry::class), $this->app, $this->app->make(LoggerInterface::class),
+        ));
+        $this->app->singleton(Actions\ScopeRegistry::class);
+        $this->app->singleton(StacheRepair::class);
+        $this->app->singleton(Actions\CapabilityRegistry::class);
+        $this->app->singleton(Integration\IntegrationRegistry::class);
+        $this->app->booted(function (): void {
+            // AddonServiceProvider defers bootAddon to Statamic's booted queue.
+            // Append after all provider boot methods have registered their callbacks,
+            // but before Statamic drains that queue. Addons can register normally.
+            Statamic::booted(function (): void {
+                $this->app->make(Integration\IntegrationRegistry::class)->freeze();
+                $this->app->make(Actions\CapabilityRegistry::class)->freeze();
+                $this->app->make(Actions\ObserverRegistry::class)->freeze();
+            });
+        });
+
         // Register CIMD resolver
         $this->app->singleton(CimdResolver::class);
 
-        // Register confirmation token manager
-        $this->app->singleton(ConfirmationTokenManager::class);
+        $this->app->bind(Actions\Operations\IdempotentWrite::class, fn (): Actions\Operations\IdempotentWrite => new Actions\Operations\IdempotentWrite(
+            $this->app->make(Actions\Contracts\OperationStore::class), $this->app->make(Encrypter::class),
+            config()->integer('statamic.mcp.operations.retry_seconds', 3600),
+        ));
+        $this->app->bind(Approvals\Approvals::class, fn (): Approvals\Approvals => new Approvals\Approvals(
+            $this->app->make(Actions\Contracts\OperationStore::class), $this->app->make(Actions\Operations\OperationCoordinator::class),
+            $this->app->make(Actions\Operations\IdempotentWrite::class), $this->app->make(Encrypter::class),
+            config()->integer('statamic.mcp.confirmation.ttl', 900),
+            $this->app->make(Approvals\ApprovalChannels::class),
+        ));
+        $this->app->bind(Approvals\ApprovalChannels::class, fn (): Approvals\ApprovalChannels => Approvals\ApprovalChannels::fromConfig($this->app));
 
         // Register resource policy
         $this->app->singleton(ResourcePolicy::class);
@@ -202,40 +314,40 @@ class ServiceProvider extends AddonServiceProvider
     {
         Permission::group('mcp', 'MCP', function () {
             Permission::register('view mcp dashboard')
-                ->label('View MCP Dashboard')
-                ->description('Access the MCP dashboard and connection setup');
+                ->label('statamic-mcp::messages.permissions.view_dashboard')
+                ->description(__('statamic-mcp::messages.permissions.view_dashboard_help'));
 
             Permission::register('manage mcp tokens', function ($permission) {
                 $permission
-                    ->label('Manage Own MCP Tokens')
-                    ->description('Create, view, and revoke own MCP tokens')
+                    ->label('statamic-mcp::messages.permissions.manage_own')
+                    ->description(__('statamic-mcp::messages.permissions.manage_own_help'))
                     ->children([
                         Permission::make('create mcp tokens')
-                            ->label('Create MCP Tokens'),
+                            ->label('statamic-mcp::messages.permissions.create'),
                         Permission::make('revoke mcp tokens')
-                            ->label('Revoke Own MCP Tokens'),
+                            ->label('statamic-mcp::messages.permissions.revoke_own'),
                     ]);
             });
 
             Permission::register('manage all mcp tokens', function ($permission) {
                 $permission
-                    ->label('Manage All MCP Tokens')
-                    ->description('View and manage all users\' MCP tokens')
+                    ->label('statamic-mcp::messages.permissions.manage_all')
+                    ->description(__('statamic-mcp::messages.permissions.manage_all_help'))
                     ->children([
                         Permission::make('view all mcp tokens')
-                            ->label('View All MCP Tokens'),
+                            ->label('statamic-mcp::messages.permissions.view_all'),
                         Permission::make('revoke all mcp tokens')
-                            ->label('Revoke All MCP Tokens'),
+                            ->label('statamic-mcp::messages.permissions.revoke_all'),
                     ]);
             });
 
             Permission::register('view mcp audit log')
-                ->label('View MCP Audit Log')
-                ->description('View MCP tool call activity and audit logs');
+                ->label('statamic-mcp::messages.permissions.view_audit')
+                ->description(__('statamic-mcp::messages.permissions.view_audit_help'));
 
             Permission::register('manage mcp settings')
-                ->label('Manage MCP Settings')
-                ->description('Configure MCP addon settings');
+                ->label('statamic-mcp::messages.permissions.manage_settings')
+                ->description(__('statamic-mcp::messages.permissions.manage_settings_help'));
         });
     }
 
@@ -252,11 +364,16 @@ class ServiceProvider extends AddonServiceProvider
         }
 
         Nav::extend(function ($nav): void {
+            $children = $this->adminNavChildren();
             $nav->tools('MCP')
                 ->route('statamic-mcp.dashboard')
                 ->icon('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><circle cx="12" cy="16" r="1"/></svg>')
                 ->can('view mcp dashboard')
-                ->children($this->adminNavChildren());
+                ->children($children);
+            // Keep the existing preference IDs, which children() derives from
+            // the English names, before replacing only their display labels.
+            $children[0]->display('statamic-mcp::messages.nav.approvals');
+            $children[1]->display('statamic-mcp::messages.nav.admin');
         });
     }
 
@@ -318,6 +435,9 @@ class ServiceProvider extends AddonServiceProvider
             ->group(function (): void {
                 // GET: Controller handles auth check itself (no statamic.cp.authenticated)
                 Route::get('/oauth/authorize', [AuthorizeController::class, 'show'])
+                    // Localize is normally in the authenticated group. Consent
+                    // needs the user's locale without that group's login redirect.
+                    ->middleware(Localize::class)
                     ->name('oauth.authorize');
 
                 // POST: Requires authenticated user (consent form submission)
@@ -389,6 +509,12 @@ class ServiceProvider extends AddonServiceProvider
         }
 
         return $ceiling > 0 ? $ceiling * 3 + 4096 : PHP_INT_MAX;
+    }
+
+    /** Local registrar state is not part of Laravel's cached HTTP routes. */
+    protected function registerLocalMcp(): void
+    {
+        require __DIR__ . '/../routes/ai.php';
     }
 
     /**
@@ -475,6 +601,10 @@ class ServiceProvider extends AddonServiceProvider
      */
     private function adminNavChildren(): array
     {
+        $approvals = Nav::item('Approvals');
+        $approvalsRouted = $approvals->route('statamic-mcp.approvals.index');
+        $approvalsItem = $approvalsRouted instanceof NavItem ? $approvalsRouted : $approvals;
+
         $admin = Nav::item('Admin');
 
         // NavItem's fluent setters come from FluentlyGetsAndSets and are untyped,
@@ -482,11 +612,11 @@ class ServiceProvider extends AddonServiceProvider
         $routed = $admin->route('statamic-mcp.admin');
 
         if (! $routed instanceof NavItem) {
-            return [$admin];
+            return [$approvalsItem, $admin];
         }
 
         $gated = $routed->can('manage all mcp tokens');
 
-        return [$gated instanceof NavItem ? $gated : $routed];
+        return [$approvalsItem, $gated instanceof NavItem ? $gated : $routed];
     }
 }

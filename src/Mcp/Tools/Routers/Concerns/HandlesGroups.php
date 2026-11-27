@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns;
 
+use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
 use Statamic\Contracts\Auth\User;
 use Statamic\Facades\Role;
 use Statamic\Facades\UserGroup;
@@ -39,28 +40,20 @@ trait HandlesGroups
      */
     private function listGroups(array $arguments): array
     {
-        if (! $this->hasPermission('view', 'user_groups')) {
-            return $this->createErrorResponse('Permission denied: Cannot list user groups')->toArray();
+        if (! $this->hasPermission('edit', 'user_groups')) {
+            return $this->createErrorResponse('Permission denied: Cannot list user groups', code: ErrorCode::Forbidden)->toArray();
         }
-
-        try {
-            $groups = UserGroup::all()->map(function ($group) {
-                /** @var \Statamic\Contracts\Auth\UserGroup $group */
-                return [
-                    'handle' => $group->handle(),
-                    'title' => $group->title(),
-                    'roles' => $group->roles()->map->handle()->all(),
-                    'user_count' => $group->queryUsers()->count(),
-                ];
-            })->all();
-
+        $groups = UserGroup::all()->map(function ($group) {
+            /** @var \Statamic\Contracts\Auth\UserGroup $group */
             return [
-                'groups' => $groups,
-                'total' => count($groups),
+                'handle' => $group->handle(),
+                'title' => $group->title(),
+                'roles' => $group->roles()->map->handle()->all(),
+                'user_count' => $group->queryUsers()->count(),
             ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to list groups: {$e->getMessage()}")->toArray();
-        }
+        })->all();
+
+        return $this->paginateItems($groups, $arguments);
     }
 
     /**
@@ -70,40 +63,30 @@ trait HandlesGroups
      */
     private function getGroup(array $arguments): array
     {
-        if (! $this->hasPermission('view', 'user_groups')) {
-            return $this->createErrorResponse('Permission denied: Cannot view user groups')->toArray();
+        if (! $this->hasPermission('edit', 'user_groups')) {
+            return $this->createErrorResponse('Permission denied: Cannot view user groups', code: ErrorCode::Forbidden)->toArray();
         }
-
-        try {
-            $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : null;
-
-            if (! $handle) {
-                return $this->createErrorResponse('Group handle is required')->toArray();
-            }
-
-            $group = UserGroup::find($handle);
-            if (! $group) {
-                return $this->createErrorResponse("User group not found: {$handle}")->toArray();
-            }
-
-            $data = [
-                'handle' => $group->handle(),
-                'title' => $group->title(),
-                'roles' => $group->roles()->map->handle()->all(),
-                'users' => $group->queryUsers()->get()->map(function ($user) {
-                    /** @var User $user */
-                    return [
-                        'id' => $user->id(),
-                        'email' => $user->email(),
-                        'name' => $user->name(),
-                    ];
-                })->all(),
-            ];
-
-            return ['group' => $data];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to get group: {$e->getMessage()}")->toArray();
+        $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : null;
+        if (! $handle) {
+            return $this->createErrorResponse('Group handle is required')->toArray();
         }
+        $group = UserGroup::find($handle);
+        if (! $group) {
+            return $this->missingResource('User group', $handle, candidates: UserGroup::all()->map->handle()->all(), arguments: $arguments)->toArray();
+        }
+        $data = [
+            ...$this->groupRecord($group),
+            'users' => $group->queryUsers()->get()->map(function ($user) {
+                /** @var User $user */
+                return [
+                    'id' => $user->id(),
+                    'email' => $user->email(),
+                    'name' => $user->name(),
+                ];
+            })->all(),
+        ];
+
+        return ['group' => $data];
     }
 
     /**
@@ -113,58 +96,48 @@ trait HandlesGroups
      */
     private function createGroup(array $arguments): array
     {
-        if (! $this->hasPermission('create', 'user_groups')) {
-            return $this->createErrorResponse('Permission denied: Cannot create user groups')->toArray();
+        if (! $this->hasPermission('edit', 'user_groups')) {
+            return $this->createErrorResponse('Permission denied: Cannot create user groups', code: ErrorCode::Forbidden)->toArray();
         }
-
-        try {
-            $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
-            $handle = is_string($data['handle'] ?? null) ? $data['handle'] : (is_string($arguments['handle'] ?? null) ? $arguments['handle'] : null);
-
-            if (! $handle) {
-                return $this->createErrorResponse('Group handle is required')->toArray();
-            }
-
-            $existsError = $this->checkHandleNotExists(UserGroup::find($handle), 'Group', $handle);
-            if ($existsError !== null) {
-                return $existsError;
-            }
-
-            $group = UserGroup::make()->handle($handle);
-
-            if (isset($data['title']) && is_string($data['title'])) {
-                $group->title($data['title']);
-            }
-
-            if (isset($data['roles']) && is_array($data['roles'])) {
-                // Binding roles to a group is 'assign roles', not 'edit user
-                // groups' — members inherit the group's roles.
-                if ($data['roles'] !== [] && ! $this->hasPermission('assign', 'roles')) {
-                    return $this->createErrorResponse('Permission denied: Assigning roles to a group requires the assign roles permission')->toArray();
-                }
-
-                $roles = collect($data['roles'])->map(function ($roleHandle) {
-                    return is_string($roleHandle) ? Role::find($roleHandle) : null;
-                })->filter();
-
-                $group->roles($roles);
-            }
-
-            $group->save();
-
-            // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
-
-            return [
-                'group' => [
-                    'handle' => $group->handle(),
-                    'title' => $group->title(),
-                    'created' => true,
-                ],
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to create group: {$e->getMessage()}")->toArray();
+        $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
+        $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : null;
+        if (! $handle) {
+            return $this->createErrorResponse('Group handle is required')->toArray();
         }
+        if (array_key_exists('handle', $data) && $data['handle'] !== $handle) {
+            return $this->createErrorResponse('The new group\'s handle is the handle argument; data.handle may only repeat it.')->toArray();
+        }
+        $existsError = $this->checkHandleNotExists(UserGroup::find($handle), 'Group', $handle);
+        if ($existsError !== null) {
+            return $existsError;
+        }
+        $group = UserGroup::make()->handle($handle);
+        if (isset($data['title']) && is_string($data['title'])) {
+            $group->title($data['title']);
+        }
+        if (isset($data['roles']) && is_array($data['roles'])) {
+            // Binding roles to a group is 'assign roles', not 'edit user
+            // groups' — members inherit the group's roles.
+            if ($data['roles'] !== [] && ! $this->hasPermission('assign', 'roles')) {
+                return $this->createErrorResponse('Permission denied: Assigning roles to a group requires the assign roles permission', code: ErrorCode::Forbidden)->toArray();
+            }
+
+            $roles = collect($data['roles'])->map(function ($roleHandle) {
+                return is_string($roleHandle) ? Role::find($roleHandle) : null;
+            })->filter();
+
+            $group->roles($roles);
+        }
+        $this->persistStatamic(fn () => $group->save(), ['stache']);
+        // Clear caches
+        $this->clearCachesAfterWrite(['stache']);
+
+        return [
+            'group' => [
+                ...$this->groupRecord($group),
+                'created' => true,
+            ],
+        ];
     }
 
     /**
@@ -175,55 +148,43 @@ trait HandlesGroups
     private function updateGroup(array $arguments): array
     {
         if (! $this->hasPermission('edit', 'user_groups')) {
-            return $this->createErrorResponse('Permission denied: Cannot update user groups')->toArray();
+            return $this->createErrorResponse('Permission denied: Cannot update user groups', code: ErrorCode::Forbidden)->toArray();
         }
-
-        try {
-            $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : null;
-            $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
-
-            if (! $handle) {
-                return $this->createErrorResponse('Group handle is required')->toArray();
-            }
-
-            $group = UserGroup::find($handle);
-            if (! $group) {
-                return $this->createErrorResponse("User group not found: {$handle}")->toArray();
-            }
-
-            if (isset($data['title']) && is_string($data['title'])) {
-                $group->title($data['title']);
-            }
-
-            if (isset($data['roles']) && is_array($data['roles'])) {
-                // Binding roles to a group is 'assign roles', not 'edit user
-                // groups' — members inherit the group's roles.
-                if ($data['roles'] !== [] && ! $this->hasPermission('assign', 'roles')) {
-                    return $this->createErrorResponse('Permission denied: Assigning roles to a group requires the assign roles permission')->toArray();
-                }
-
-                $roles = collect($data['roles'])->map(function ($roleHandle) {
-                    return is_string($roleHandle) ? Role::find($roleHandle) : null;
-                })->filter();
-
-                $group->roles($roles);
-            }
-
-            $group->save();
-
-            // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
-
-            return [
-                'group' => [
-                    'handle' => $group->handle(),
-                    'title' => $group->title(),
-                    'updated' => true,
-                ],
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to update group: {$e->getMessage()}")->toArray();
+        $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : null;
+        $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
+        if (! $handle) {
+            return $this->createErrorResponse('Group handle is required')->toArray();
         }
+        $group = UserGroup::find($handle);
+        if (! $group) {
+            return $this->missingResource('User group', $handle, candidates: UserGroup::all()->map->handle()->all(), arguments: $arguments)->toArray();
+        }
+        if (isset($data['title']) && is_string($data['title'])) {
+            $group->title($data['title']);
+        }
+        if (isset($data['roles']) && is_array($data['roles'])) {
+            // Binding roles to a group is 'assign roles', not 'edit user
+            // groups' — members inherit the group's roles.
+            if ($data['roles'] !== [] && ! $this->hasPermission('assign', 'roles')) {
+                return $this->createErrorResponse('Permission denied: Assigning roles to a group requires the assign roles permission', code: ErrorCode::Forbidden)->toArray();
+            }
+
+            $roles = collect($data['roles'])->map(function ($roleHandle) {
+                return is_string($roleHandle) ? Role::find($roleHandle) : null;
+            })->filter();
+
+            $group->roles($roles);
+        }
+        $this->persistStatamic(fn () => $group->save(), ['stache']);
+        // Clear caches
+        $this->clearCachesAfterWrite(['stache']);
+
+        return [
+            'group' => [
+                ...$this->groupRecord($group),
+                'updated' => true,
+            ],
+        ];
     }
 
     /**
@@ -233,35 +194,39 @@ trait HandlesGroups
      */
     private function deleteGroup(array $arguments): array
     {
-        if (! $this->hasPermission('delete', 'user_groups')) {
-            return $this->createErrorResponse('Permission denied: Cannot delete user groups')->toArray();
+        if (! $this->hasPermission('edit', 'user_groups')) {
+            return $this->createErrorResponse('Permission denied: Cannot delete user groups', code: ErrorCode::Forbidden)->toArray();
         }
-
-        try {
-            $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : null;
-
-            if (! $handle) {
-                return $this->createErrorResponse('Group handle is required')->toArray();
-            }
-
-            $group = UserGroup::find($handle);
-            if (! $group) {
-                return $this->createErrorResponse("User group not found: {$handle}")->toArray();
-            }
-
-            $group->delete();
-
-            // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
-
-            return [
-                'group' => [
-                    'handle' => $handle,
-                    'deleted' => true,
-                ],
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to delete group: {$e->getMessage()}")->toArray();
+        $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : null;
+        if (! $handle) {
+            return $this->createErrorResponse('Group handle is required')->toArray();
         }
+        $group = UserGroup::find($handle);
+        if (! $group) {
+            return $this->missingResource('User group', $handle, candidates: UserGroup::all()->map->handle()->all(), arguments: $arguments)->toArray();
+        }
+        $snapshot = $this->groupRecord($group);
+        $this->persistStatamic(fn () => $group->delete(), ['stache']);
+        // Clear caches
+        $this->clearCachesAfterWrite(['stache']);
+
+        return [
+            'group' => [
+                ...$snapshot,
+                'deleted' => true,
+            ],
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function groupRecord(\Statamic\Contracts\Auth\UserGroup $group): array
+    {
+        $data = [
+            'handle' => $group->handle(),
+            'title' => $group->title(),
+            'roles' => $group->roles()->map->handle()->values()->all(),
+        ];
+
+        return [...$data, 'version' => self::resourceVersion($data)];
     }
 }

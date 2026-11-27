@@ -6,18 +6,19 @@ use Carbon\Carbon;
 use Cboxdk\StatamicMcp\Auth\McpToken;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\BlueprintsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\ContentFacadeRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\EntriesRouter;
-use Cboxdk\StatamicMcp\Mcp\Tools\Routers\FormsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\GlobalsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\TermsRouter;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
-use Illuminate\Support\Facades\File;
 use Statamic\Facades\Collection;
+use Statamic\Facades\Role;
+use Statamic\Facades\User;
 
 uses(RefreshDatabase::class);
 
@@ -41,56 +42,16 @@ afterEach(function () {
 // ---------------------------------------------------------------------------
 function createMockUser(bool $isSuper = false, array $permissions = []): Authenticatable
 {
-    return new class($isSuper, $permissions) implements Authenticatable
-    {
-        /** @param array<string> $permissions */
-        public function __construct(
-            private readonly bool $isSuper,
-            private readonly array $permissions,
-        ) {}
+    config(['statamic.editions.pro' => true]);
+    $handle = 'permission-test-' . bin2hex(random_bytes(4));
+    Role::make()->handle($handle)->permissions($permissions)->save();
+    $user = User::make()->id('test-user-id')->email('permissions@example.test')->assignRole($handle);
+    if ($isSuper) {
+        $user->makeSuper();
+    }
+    $user->save();
 
-        public function isSuper(): bool
-        {
-            return $this->isSuper;
-        }
-
-        public function hasPermission(string $permission): bool
-        {
-            return in_array($permission, $this->permissions, true);
-        }
-
-        public function getAuthIdentifierName(): string
-        {
-            return 'id';
-        }
-
-        public function getAuthIdentifier(): string
-        {
-            return 'test-user-id';
-        }
-
-        public function getAuthPasswordName(): string
-        {
-            return 'password';
-        }
-
-        public function getAuthPassword(): string
-        {
-            return 'hashed-password';
-        }
-
-        public function getRememberToken(): ?string
-        {
-            return null;
-        }
-
-        public function setRememberToken($value): void {}
-
-        public function getRememberTokenName(): string
-        {
-            return 'remember_token';
-        }
-    };
+    return $user;
 }
 
 // ---------------------------------------------------------------------------
@@ -233,9 +194,9 @@ describe('Token Scope Mapping', function () {
                 return 'nonexistent';
             }
 
-            protected function getActions(): array
+            protected function actions(): array
             {
-                return ['list' => 'List'];
+                return [RouterAction::read('list', 'List')];
             }
 
             protected function getTypes(): array
@@ -259,11 +220,6 @@ describe('Token Scope Mapping', function () {
         $routersAndScopes = [
             [new GlobalsRouter, 'list', TokenScope::GlobalsRead],
             [new GlobalsRouter, 'update', TokenScope::GlobalsWrite],
-            [new FormsRouter, 'list', TokenScope::FormsRead],
-            [new FormsRouter, 'get', TokenScope::FormsRead],
-            [new FormsRouter, 'create', TokenScope::FormsWrite],
-            [new FormsRouter, 'update', TokenScope::FormsWrite],
-            [new FormsRouter, 'delete', TokenScope::FormsWrite],
             [new TermsRouter, 'get', TokenScope::TermsRead],
             [new TermsRouter, 'create', TokenScope::TermsWrite],
         ];
@@ -342,10 +298,10 @@ describe('Nested Permission Flow', function () {
         ]);
 
         expect($result['success'])->toBeTrue();
-        expect($result['data'])->toHaveKey('entries');
+        expect($result['data'])->toHaveKey('items');
     });
 
-    it('passes Layer 1 with wildcard * scope', function () {
+    it('refuses a legacy wildcard * scope at Layer 1', function () {
         $user = createMockUser(isSuper: true);
         actAsUser($user);
 
@@ -357,8 +313,8 @@ describe('Nested Permission Flow', function () {
             'collection' => $this->collectionHandle,
         ]);
 
-        expect($result['success'])->toBeTrue();
-        expect($result['data'])->toHaveKey('entries');
+        expect($result['success'])->toBeFalse();
+        expect(json_encode($result['errors']))->toContain('must be approved again');
     });
 
     it('skips token scope check when no mcp_token on request (Basic Auth)', function () {
@@ -374,7 +330,7 @@ describe('Nested Permission Flow', function () {
         ]);
 
         expect($result['success'])->toBeTrue();
-        expect($result['data'])->toHaveKey('entries');
+        expect($result['data'])->toHaveKey('items');
     });
 
     it('allows super admin to bypass all Statamic permissions (Layer 2)', function () {
@@ -425,7 +381,7 @@ describe('Nested Permission Flow', function () {
         ]);
 
         expect($result['success'])->toBeTrue();
-        expect($result['data'])->toHaveKey('entries');
+        expect($result['data'])->toHaveKey('items');
     });
 
     it('rejects when token scope is correct but Statamic permission missing (both layers must pass)', function () {
@@ -599,45 +555,6 @@ describe('TermsRouter Permission Definitions', function () {
     });
 });
 
-describe('FormsRouter Permission Definitions', function () {
-    it('requires configure forms for every action, as FormPolicy does', function () {
-        $router = new FormsRouter;
-        $method = new ReflectionMethod($router, 'getRequiredPermissions');
-
-        foreach (['list', 'get', 'create', 'update', 'delete'] as $action) {
-            expect($method->invoke($router, $action, ['handle' => 'contact']))->toBe(['configure forms'], $action);
-        }
-    });
-
-    it('refuses an editor without configure forms, and a token without forms:write', function () {
-        $formsPath = sys_get_temp_dir() . '/statamic-mcp-forms-' . bin2hex(random_bytes(6));
-        config(['statamic.forms.forms' => $formsPath, 'statamic.editions.pro' => true]);
-
-        try {
-            actAsUser(createMockUser(permissions: ['view contact form submissions']));
-            setMcpTokenOnRequest(createToken([TokenScope::FormsRead->value, TokenScope::FormsWrite->value]));
-
-            $result = (new FormsRouter)->execute(['action' => 'create', 'data' => ['title' => 'Contact']]);
-            expect($result['success'])->toBeFalse()
-                ->and($result['errors'][0])->toContain('Permission denied');
-
-            actAsUser(createMockUser(permissions: ['configure forms']));
-            setMcpTokenOnRequest(createToken([TokenScope::FormsRead->value]));
-
-            $result = (new FormsRouter)->execute(['action' => 'create', 'data' => ['title' => 'Contact']]);
-            expect($result['success'])->toBeFalse()
-                ->and($result['errors'][0])->toContain('forms:write');
-
-            setMcpTokenOnRequest(createToken([TokenScope::FormsRead->value, TokenScope::FormsWrite->value]));
-
-            $result = (new FormsRouter)->execute(['action' => 'create', 'data' => ['title' => 'Contact']]);
-            expect($result['success'])->toBeTrue(json_encode($result['errors'] ?? []));
-        } finally {
-            File::deleteDirectory($formsPath);
-        }
-    });
-});
-
 describe('GlobalsRouter Permission Definitions', function () {
     it('requires correct Statamic permissions for each action', function () {
         $router = new GlobalsRouter;
@@ -655,7 +572,7 @@ describe('GlobalsRouter Permission Definitions', function () {
         $perms = $method->invoke($router, 'get', ['handle' => 'settings']);
         expect($perms)->toBe(['edit settings globals']);
 
-        $perms = $method->invoke($router, 'update', ['global_set' => 'footer']);
+        $perms = $method->invoke($router, 'update', ['handle' => 'footer']);
         expect($perms)->toBe(['edit footer globals']);
     });
 
@@ -748,7 +665,7 @@ describe('BlueprintsRouter Permission Definitions', function () {
     it('still denies a write to that editor with require_statamic_permission off', function () {
         Config::set('statamic.mcp.resources.require_statamic_permission', false);
         actAsUser(createMockUser(permissions: ['view blog entries', 'edit blog entries']));
-        setMcpTokenOnRequest(createToken([TokenScope::BlueprintsWrite->value]));
+        setMcpTokenOnRequest(createToken([TokenScope::BlueprintsAdmin->value]));
 
         $result = $this->router->execute([
             'action' => 'create',

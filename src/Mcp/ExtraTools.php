@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp;
 
+use Cboxdk\StatamicMcp\Integration\IntegrationRegistry;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use InvalidArgumentException;
 
@@ -17,20 +18,13 @@ use InvalidArgumentException;
  * policy, confirmation gate and audit log — because they must be routers.
  *
  * A router's token scope is derived from its domain (`{domain}:read|write`).
- * A domain this package has no scope for would otherwise require none, so an
- * extra tool whose domain has no scope requires a full-access token instead:
- * a third-party tool can never be reachable by a token that was not meant for it.
+ * A domain this package has no scope for would otherwise require none, so a
+ * token can never reach an extra tool whose domain has no scope: a third-party
+ * tool must not be reachable by a token that was not meant for it. (In v3 a
+ * full-access token could; v4 has no wildcard scope, see TokenService::hasScope.)
  */
 final class ExtraTools
 {
-    /**
-     * Tools registered at runtime, keyed by class, valued by whether the tool
-     * is reached through search_tools (true) or listed in the catalog (false).
-     *
-     * @var array<class-string<BaseRouter>, bool>
-     */
-    private static array $registered = [];
-
     /**
      * Register a tool.
      *
@@ -41,7 +35,7 @@ final class ExtraTools
      */
     public static function register(string $class, bool $searchable = true): void
     {
-        self::$registered[self::canonical($class)] = $searchable;
+        self::registry()->registerLegacy(self::canonical($class), $searchable);
     }
 
     /**
@@ -73,7 +67,7 @@ final class ExtraTools
      */
     public static function all(): array
     {
-        return [...self::fromConfig(), ...self::$registered];
+        return [...self::fromConfig(), ...self::registry()->tools()];
     }
 
     /**
@@ -95,7 +89,16 @@ final class ExtraTools
      */
     public static function flush(): void
     {
-        self::$registered = [];
+        self::registry()->flushLegacy();
+    }
+
+    private static function registry(): IntegrationRegistry
+    {
+        if (! app()->bound(IntegrationRegistry::class)) {
+            app()->singleton(IntegrationRegistry::class);
+        }
+
+        return app(IntegrationRegistry::class);
     }
 
     /**

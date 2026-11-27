@@ -9,6 +9,7 @@ use Cboxdk\StatamicMcp\Storage\Audit\FileAuditStore;
 use Cboxdk\StatamicMcp\Tests\Concerns\CreatesAuthenticatedUser;
 use Cboxdk\StatamicMcp\Tests\Concerns\CreatesTestContent;
 use Cboxdk\StatamicMcp\Tests\TestCase;
+use Statamic\Facades\Role;
 
 class ActivityLogTest extends TestCase
 {
@@ -58,6 +59,25 @@ class ActivityLogTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.0.tool', 'statamic-entries')
             ->assertJsonPath('data.0.status', 'success');
+    }
+
+    public function test_personal_activity_cannot_be_changed_to_another_actor_or_cli(): void
+    {
+        $user = $this->createRegularUser();
+        Role::make('mcp-editor')->permissions(['access cp', 'view mcp dashboard'])->save();
+        $user->assignRole('mcp-editor')->save();
+        $this->actingAs($user);
+        $store = app(AuditStore::class);
+        foreach ([(string) $user->id(), 'someone-else', null] as $id) {
+            $store->write(['level' => 'info', 'message' => 'm', 'tool' => 'statamic-entries-read', 'status' => 'success',
+                'timestamp' => now()->toIso8601String(), 'user_id' => $id, 'context' => $id ? 'web' : 'cli']);
+        }
+        foreach (['', 'user:someone-else', 'cli'] as $actor) {
+            $this->getJson(cp_route('statamic-mcp.audit.mine', ['actor' => $actor]))
+                ->assertOk()->assertJsonPath('meta.total', 1)
+                ->assertJsonPath('data.0.user_id', (string) $user->id());
+        }
+        $this->getJson(cp_route('statamic-mcp.audit.index'))->assertForbidden();
     }
 
     public function test_audit_endpoint_filters_by_tool(): void
@@ -154,5 +174,21 @@ class ActivityLogTest extends TestCase
         $this->assertArrayHasKey('status', $entry);
         $this->assertArrayHasKey('duration_ms', $entry);
         $this->assertArrayHasKey('timestamp', $entry);
+    }
+
+    public function test_audit_endpoint_filters_by_who_made_the_call(): void
+    {
+        /** @var AuditStore $store */
+        $store = app(AuditStore::class);
+        foreach (['alice-id', 'bob-id', 'alice-id'] as $userId) {
+            $store->write(['level' => 'info', 'message' => 'm', 'tool' => 'statamic-entries', 'status' => 'success',
+                'timestamp' => now()->toIso8601String(), 'user_id' => $userId, 'context' => 'web']);
+        }
+
+        $this->actingAsAdmin()
+            ->getJson(cp_route('statamic-mcp.audit.index', ['actor' => 'user:alice-id', 'per_page' => 10]))
+            ->assertOk()
+            ->assertJsonPath('meta.total', 2)
+            ->assertJsonCount(2, 'data');
     }
 }

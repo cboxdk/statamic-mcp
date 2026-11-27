@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Storage\Tokens;
 
 use Carbon\Carbon;
+use Cboxdk\StatamicMcp\Actions\CapabilitySnapshot;
 use Cboxdk\StatamicMcp\Contracts\TokenStore;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -12,30 +13,16 @@ use Symfony\Component\Yaml\Exception\ParseException;
 use Symfony\Component\Yaml\Yaml;
 
 /**
- * File-based token store that persists tokens as YAML files on disk.
- *
- * Token files: every write goes to a sibling temporary file that is then
- * rename()d over the token file. Readers parse token files without a lock, so
- * an in-place rewrite (truncate, then write) let a concurrent request read an
- * empty file: every authenticated request rewrites its token to record
- * last_used_at, and MCP clients send several requests at once. Replacing the
- * file whole means a reader sees either the previous or the new file, never a
- * partial one. A token file that still cannot be read as a record (empty or
- * damaged on disk) is treated as missing rather than raising a TypeError.
- *
- * Index: the index file uses an exclusive lock for every read-modify-write
- * cycle. rebuildIndex() writes to a sibling .index.tmp file first and then
- * calls rename().
- *
- * rename() is atomic on local POSIX filesystems. On NFS mounts it is NOT
- * guaranteed to be atomic — two concurrent writers may interleave. If you are
- * running on NFS, prefer the DatabaseTokenStore instead.
+ * Single-node token storage. A permanent store lock protects complete read/modify/
+ * write operations, including last-used updates, revocation and index rebuilding.
+ * Token files are replaced atomically so a failed write preserves the old record.
+ * Use DatabaseTokenStore with shared SQL for multi-node deployments.
  */
 class FileTokenStore extends BaseTokenStore implements TokenStore
 {
     private readonly string $storagePath;
 
-    private bool $holdsMutationLock = false;
+    private bool $locked = false;
 
     public function __construct(?string $storagePath = null)
     {
@@ -63,75 +50,89 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
         ?Carbon $expiresAt,
         ?string $oauthClientId = null,
         ?string $oauthClientName = null,
+        ?CapabilitySnapshot $capabilities = null,
     ): McpTokenData {
-        $id = (string) Str::uuid();
-        $now = Carbon::now();
+        return $this->withLock(function () use ($userId, $name, $tokenHash, $scopes, $expiresAt, $oauthClientId, $oauthClientName, $capabilities): McpTokenData {
+            $id = (string) Str::uuid();
+            $now = Carbon::now();
 
-        $data = [
-            'id' => $id,
-            'user_id' => $userId,
-            'name' => $name,
-            'token_hash' => $tokenHash,
-            'scopes' => $scopes,
-            'oauth_client_id' => $oauthClientId,
-            'oauth_client_name' => $oauthClientName,
-            'last_used_at' => null,
-            'expires_at' => $expiresAt?->toIso8601String(),
-            'created_at' => $now->toIso8601String(),
-            'updated_at' => null,
-        ];
+            $data = [
+                'id' => $id,
+                'user_id' => $userId,
+                'name' => $name,
+                'token_hash' => $tokenHash,
+                'scopes' => $scopes,
+                'capabilities' => $capabilities?->toStored(),
+                'oauth_client_id' => $oauthClientId,
+                'oauth_client_name' => $oauthClientName,
+                'last_used_at' => null,
+                'expires_at' => $expiresAt?->toIso8601String(),
+                'created_at' => $now->toIso8601String(),
+                'updated_at' => null,
+            ];
 
-        $this->withMutationLock(function () use ($id, $data, $tokenHash): void {
             $this->writeYamlFile($id, $data);
             $this->updateIndex($tokenHash, $id);
-        });
 
-        return $this->arrayToTokenData($data);
+            return $this->arrayToTokenData($data);
+        });
     }
 
     public function findByHash(string $tokenHash): ?McpTokenData
     {
-        $index = $this->readIndex();
-
-        if (! isset($index[$tokenHash])) {
-            // Index might be stale or missing, rebuild
-            $this->rebuildIndex();
+        return $this->withLock(function () use ($tokenHash): ?McpTokenData {
             $index = $this->readIndex();
 
             if (! isset($index[$tokenHash])) {
-                return null;
+                // A rejected credential must not parse every token again. Compare
+                // the catalog, including replacement inodes, across requests.
+                $fingerprint = $this->catalogFingerprint();
+                $stamp = $this->indexFilePath() . '.catalog';
+                if ($index === null || ! is_file($stamp) || file_get_contents($stamp) !== $fingerprint) {
+                    $this->rebuildIndex();
+                    if (file_put_contents($stamp, $fingerprint) === false) {
+                        throw new \RuntimeException('Cannot record token catalog fingerprint.');
+                    }
+                }
+                $index = $this->readIndex();
+
+                if (! isset($index[$tokenHash])) {
+                    return null;
+                }
             }
-        }
 
-        /** @var string $id */
-        $id = $index[$tokenHash];
+            /** @var string $id */
+            $id = $index[$tokenHash];
 
-        return $this->find($id);
+            $token = $this->find($id);
+
+            // An index is a hint, never evidence that the file still has this hash.
+            return $token !== null && hash_equals($token->tokenHash, $tokenHash) ? $token : null;
+        });
     }
 
     public function find(string $id): ?McpTokenData
     {
-        $filePath = $this->tokenFilePath($id);
+        return $this->withLock(function () use ($id): ?McpTokenData {
+            $filePath = $this->tokenFilePath($id);
 
-        if (! file_exists($filePath)) {
-            return null;
-        }
+            if (! file_exists($filePath)) {
+                return null;
+            }
 
-        $data = $this->readTokenFile($filePath);
+            $data = $this->readTokenFile($filePath);
 
-        if ($data === null) {
-            return null;
-        }
-
-        return $this->arrayToTokenData($data);
+            return $data === null ? null : $this->arrayToTokenData($data);
+        });
     }
 
     /**
      * @param  array<string, mixed>  $data
+     * @param  list<string>|null  $expectedScopes
      */
-    public function update(string $id, array $data): ?McpTokenData
+    public function update(string $id, array $data, ?array $expectedScopes = null): ?McpTokenData
     {
-        return $this->withMutationLock(function () use ($id, $data) {
+        return $this->withLock(function () use ($id, $data, $expectedScopes): ?McpTokenData {
             $filePath = $this->tokenFilePath($id);
 
             if (! file_exists($filePath)) {
@@ -144,6 +145,10 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
                 return null;
             }
 
+            if ($expectedScopes !== null && $this->scopesChanged($expectedScopes, $existing['scopes'] ?? [])) {
+                throw new \RuntimeException('Token changed since planning.');
+            }
+
             $oldHash = is_string($existing['token_hash'] ?? null) ? $existing['token_hash'] : '';
 
             // Map camelCase keys to snake_case YAML keys
@@ -153,7 +158,13 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
                 'lastUsedAt' => 'last_used_at',
             ];
 
+            if (array_key_exists('scopes', $data) && $this->scopesChanged($data['scopes'], $existing['scopes'] ?? [])) {
+                $existing['capabilities'] = null;
+            }
             foreach ($data as $key => $value) {
+                if (! in_array($key, ['name', 'scopes', 'tokenHash', 'expiresAt', 'lastUsedAt'], true)) {
+                    continue;
+                }
                 $yamlKey = $keyMap[$key] ?? $key;
 
                 if ($value instanceof Carbon) {
@@ -178,13 +189,12 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
             }
 
             return $this->arrayToTokenData($existing);
-
         });
     }
 
     public function delete(string $id): bool
     {
-        return $this->withMutationLock(function () use ($id) {
+        return $this->withLock(function () use ($id): bool {
             $filePath = $this->tokenFilePath($id);
 
             if (! file_exists($filePath)) {
@@ -194,17 +204,18 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
             $data = $this->readTokenFile($filePath) ?? [];
             $hash = is_string($data['token_hash'] ?? null) ? $data['token_hash'] : '';
 
-            unlink($filePath);
+            if (! unlink($filePath)) {
+                throw new \RuntimeException('Cannot revoke token.');
+            }
             $this->removeFromIndex($hash);
 
             return true;
-
         });
     }
 
     public function deleteForUser(string $userId): int
     {
-        return $this->withMutationLock(function () use ($userId) {
+        return $this->withLock(function () use ($userId): int {
             $deleted = 0;
             /** @var list<string> $removedHashes */
             $removedHashes = [];
@@ -216,7 +227,9 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
 
                     $filePath = $this->tokenFilePath($id);
                     if (file_exists($filePath)) {
-                        unlink($filePath);
+                        if (! unlink($filePath)) {
+                            throw new \RuntimeException('Cannot remove token.');
+                        }
                     }
 
                     $removedHashes[] = $hash;
@@ -227,7 +240,6 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
             $this->removeManyFromIndex($removedHashes);
 
             return $deleted;
-
         });
     }
 
@@ -236,10 +248,12 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
      */
     public function listForUser(string $userId): Collection
     {
-        return $this->scanAllAsData()
-            ->filter(fn (McpTokenData $token): bool => $token->userId === $userId)
-            ->sortByDesc(fn (McpTokenData $token): string => $token->createdAt->toIso8601String())
-            ->values();
+        return $this->withLock(function () use ($userId): Collection {
+            return $this->scanAllAsData()
+                ->filter(fn (McpTokenData $token): bool => $token->userId === $userId)
+                ->sortByDesc(fn (McpTokenData $token): string => $token->createdAt->toIso8601String())
+                ->values();
+        });
     }
 
     /**
@@ -247,38 +261,41 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
      */
     public function listAll(): Collection
     {
-        return $this->scanAllAsData()
-            ->sortByDesc(fn (McpTokenData $token): string => $token->createdAt->toIso8601String())
-            ->values();
+        return $this->withLock(function (): Collection {
+            return $this->scanAllAsData()
+                ->sortByDesc(fn (McpTokenData $token): string => $token->createdAt->toIso8601String())
+                ->values();
+        });
     }
 
     public function import(McpTokenData $token): McpTokenData
     {
-        $data = [
-            'id' => $token->id,
-            'user_id' => $token->userId,
-            'name' => $token->name,
-            'token_hash' => $token->tokenHash,
-            'scopes' => $token->scopes,
-            'oauth_client_id' => $token->oauthClientId,
-            'oauth_client_name' => $token->oauthClientName,
-            'last_used_at' => $token->lastUsedAt?->toIso8601String(),
-            'expires_at' => $token->expiresAt?->toIso8601String(),
-            'created_at' => $token->createdAt->toIso8601String(),
-            'updated_at' => $token->updatedAt?->toIso8601String(),
-        ];
+        return $this->withLock(function () use ($token): McpTokenData {
+            $data = [
+                'id' => $token->id,
+                'user_id' => $token->userId,
+                'name' => $token->name,
+                'token_hash' => $token->tokenHash,
+                'scopes' => $token->scopes,
+                'capabilities' => $token->capabilities?->toStored(),
+                'oauth_client_id' => $token->oauthClientId,
+                'oauth_client_name' => $token->oauthClientName,
+                'last_used_at' => $token->lastUsedAt?->toIso8601String(),
+                'expires_at' => $token->expiresAt?->toIso8601String(),
+                'created_at' => $token->createdAt->toIso8601String(),
+                'updated_at' => $token->updatedAt?->toIso8601String(),
+            ];
 
-        $this->withMutationLock(function () use ($token, $data): void {
             $this->writeYamlFile($token->id, $data);
             $this->updateIndex($token->tokenHash, $token->id);
-        });
 
-        return $this->arrayToTokenData($data);
+            return $this->arrayToTokenData($data);
+        });
     }
 
     public function pruneExpired(): int
     {
-        return $this->withMutationLock(function () {
+        return $this->withLock(function (): int {
             $pruned = 0;
             /** @var list<string> $removedHashes */
             $removedHashes = [];
@@ -302,7 +319,9 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
 
                     $filePath = $this->tokenFilePath($id);
                     if (file_exists($filePath)) {
-                        unlink($filePath);
+                        if (! unlink($filePath)) {
+                            throw new \RuntimeException('Cannot remove token.');
+                        }
                     }
 
                     $removedHashes[] = $hash;
@@ -313,18 +332,14 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
             $this->removeManyFromIndex($removedHashes);
 
             return $pruned;
-
         });
     }
 
     public function markAsUsed(string $id): void
     {
-        $filePath = $this->tokenFilePath($id);
+        $this->withLock(function () use ($id): void {
+            $filePath = $this->tokenFilePath($id);
 
-        $this->withMutationLock(function () use ($id, $filePath): void {
-            // Read under the lock: a revoke, regenerate or scope change that
-            // landed after this request authenticated must not be overwritten
-            // with the record it authenticated against.
             if (! file_exists($filePath)) {
                 return;
             }
@@ -337,12 +352,27 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
                 return;
             }
 
+            $lastUsed = $data['last_used_at'] ?? null;
+            if (is_string($lastUsed) && Carbon::parse($lastUsed)->greaterThan(Carbon::now()->subMinute())) {
+                return;
+            }
             $data['last_used_at'] = Carbon::now()->toIso8601String();
 
-            // Recording use is best effort: a token file that can't be written
-            // (a full disk) keeps its previous record, and the request goes on.
+            // Recording use is best effort: a token file that cannot be
+            // replaced (a full disk) keeps its previous record, and the request
+            // goes on. Every other mutation still reports the failure.
             try {
-                $this->writeYamlFile($id, $data);
+                $stamp = $this->indexFilePath() . '.catalog';
+                $catalog = is_file($stamp) ? $this->tokenCatalog() : [];
+                $catalogCurrent = isset($catalog[$id . '.yaml']) && file_get_contents($stamp) === $this->catalogFingerprint($catalog);
+                $replacement = $this->writeYamlFile($id, $data);
+                // Predict only our own replacement, from its open descriptor.
+                // Never stamp a fresh directory scan: an external restore may
+                // have added credentials that the index has not seen yet.
+                if ($catalogCurrent) {
+                    $catalog[$id . '.yaml'] = $replacement;
+                    file_put_contents($stamp, $this->catalogFingerprint($catalog));
+                }
             } catch (\RuntimeException) {
                 return;
             }
@@ -350,56 +380,9 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
     }
 
     /**
-     * Run a read-modify-write of token files under a store-wide exclusive lock.
-     *
-     * Every authenticated request rewrites its token to record last_used_at.
-     * Without this lock that rewrite raced every other mutation: a request
-     * that read the record before a revoke, regenerate or scope change wrote
-     * the old record back afterwards, so a deleted token reappeared (and
-     * findByHash() re-indexes it on the next miss), a regenerated one accepted
-     * its old secret again, and narrowed scopes widened back. Readers stay
-     * lock-free; whole-file replacement in writeYamlFile() covers them.
-     *
-     * Falls back to running unlocked when the lock file cannot be opened or
-     * locked (some virtual filesystems used in tests), as the old per-file
-     * lock did.
-     *
-     * @template T
-     *
-     * @param  callable(): T  $callback
-     *
-     * @return T
-     */
-    private function withMutationLock(callable $callback): mixed
-    {
-        if ($this->holdsMutationLock) {
-            return $callback();
-        }
-
-        $handle = @fopen($this->storagePath . '/.mutation.lock', 'c');
-
-        if ($handle === false || ! flock($handle, LOCK_EX)) {
-            if ($handle !== false) {
-                fclose($handle);
-            }
-
-            return $callback();
-        }
-
-        $this->holdsMutationLock = true;
-
-        try {
-            return $callback();
-        } finally {
-            $this->holdsMutationLock = false;
-            flock($handle, LOCK_UN);
-            fclose($handle);
-        }
-    }
-
-    /**
      * Parse a token file, or return null when it does not hold a record:
-     * empty, damaged (not valid YAML), or gone since it was found.
+     * empty or damaged (not valid YAML). Such a token is treated as missing,
+     * which denies access, instead of failing every request with a 500.
      *
      * @return array<string, mixed>|null
      */
@@ -419,47 +402,72 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
         return $data;
     }
 
-    /**
-     * Replace a token's YAML file as a whole.
-     *
-     * The YAML is written to a uniquely named sibling file (ending in .tmp, so
-     * scanAllTokens() never reads it) and rename()d over the token file. A
-     * concurrent reader sees the previous file or the new one, never an empty
-     * or half-written file.
-     *
-     * If the temporary file cannot be written whole (a full disk, a directory
-     * that can't be written), the token file is left exactly as it was and a
-     * RuntimeException is thrown: writing it directly would fail the same way
-     * and could leave it truncated. Only when the temporary file is whole but
-     * cannot be renamed (e.g. some virtual filesystems used in tests) is the
-     * token file written directly.
-     *
-     * @param  array<string, mixed>  $data
-     *
-     * @throws \RuntimeException
-     */
-    private function writeYamlFile(string $id, array $data): void
+    /** @param array<string, mixed> $data */
+    private function writeYamlFile(string $id, array $data): string
     {
         $filePath = $this->tokenFilePath($id);
         $yaml = Yaml::dump($data, 2, 4, Yaml::DUMP_NULL_AS_TILDE);
-        $tmpPath = $filePath . '.' . bin2hex(random_bytes(8)) . '.tmp';
-
-        if (@file_put_contents($tmpPath, $yaml) !== strlen($yaml)) {
-            if (file_exists($tmpPath)) {
-                @unlink($tmpPath);
+        $temporary = $this->storagePath . '/.token.tmp';
+        if (is_link($temporary)) {
+            throw new \RuntimeException('Invalid token temporary file.');
+        }
+        $handle = fopen($temporary, 'w+b');
+        if ($handle === false) {
+            throw new \RuntimeException('Cannot create token temporary file.');
+        }
+        try {
+            if (! chmod($temporary, 0600) || fwrite($handle, $yaml) !== strlen($yaml) || ! fflush($handle)) {
+                throw new \RuntimeException('Cannot persist token record.');
+            }
+            $stat = fstat($handle);
+            if ($stat === false) {
+                throw new \RuntimeException('Cannot inspect token replacement.');
+            }
+            if (! rename($temporary, $filePath)) {
+                throw new \RuntimeException('Cannot replace token record.');
             }
 
-            throw new \RuntimeException("Could not write the MCP token file for token {$id}.");
+            return $stat['ino'] . ':' . $stat['mtime'] . ':' . $stat['size'];
+        } finally {
+            fclose($handle);
+            if (is_file($temporary)) {
+                unlink($temporary);
+            }
         }
+    }
 
-        if (@rename($tmpPath, $filePath)) {
-            return;
+    /** @template T
+     * @param  callable(): T  $callback
+     *
+     * @return T
+     */
+    private function withLock(callable $callback): mixed
+    {
+        if ($this->locked) {
+            return $callback();
         }
+        $handle = fopen($this->storagePath . '/.store.lock', 'c+b');
+        if ($handle === false) {
+            throw new \RuntimeException('Cannot open token store lock.');
+        }
+        try {
+            $deadline = hrtime(true) + 5_000_000_000;
+            while (! flock($handle, LOCK_EX | LOCK_NB)) {
+                if (hrtime(true) >= $deadline) {
+                    throw new \RuntimeException('Token storage is busy.');
+                }
+                usleep(10000);
+            }
+            $this->locked = true;
+            // Other workers may have renamed or removed a previously statted file.
+            clearstatcache();
 
-        @unlink($tmpPath);
-
-        // Fallback: direct write (filesystems without rename support)
-        file_put_contents($filePath, $yaml);
+            return $callback();
+        } finally {
+            $this->locked = false;
+            flock($handle, LOCK_UN);
+            fclose($handle);
+        }
     }
 
     /**
@@ -490,26 +498,69 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
     }
 
     /**
-     * @return array<string, string>
+     * @return array<string, string>|null
      */
-    private function readIndex(): array
+    private function readIndex(): ?array
     {
         $indexPath = $this->indexFilePath();
 
         if (! file_exists($indexPath)) {
-            return [];
+            return null;
         }
 
         $content = file_get_contents($indexPath);
 
         if ($content === false || $content === '') {
-            return [];
+            return null;
         }
 
-        /** @var array<string, string>|null $decoded */
         $decoded = json_decode($content, true);
+        if (! is_array($decoded)) {
+            return null;
+        }
+        $index = [];
+        foreach ($decoded as $hash => $id) {
+            if (! is_string($hash) || ! is_string($id)) {
+                return null;
+            }
+            $index[$hash] = $id;
+        }
 
-        return $decoded ?? [];
+        return $index;
+    }
+
+    /** @param array<string, string>|null $catalog */
+    private function catalogFingerprint(?array $catalog = null): string
+    {
+        return hash('sha256', serialize($catalog ?? $this->tokenCatalog()));
+    }
+
+    /**
+     * Metadata hint, not a content hash. External restores must invalidate the
+     * index during maintenance; same-size in-place writes can preserve metadata.
+     *
+     * @return array<string, string>
+     */
+    private function tokenCatalog(): array
+    {
+        $files = scandir($this->storagePath);
+        if ($files === false) {
+            throw new \RuntimeException('Cannot inspect token catalog.');
+        }
+        $catalog = [];
+        foreach ($files as $file) {
+            if (! str_ends_with($file, '.yaml')) {
+                continue;
+            }
+            clearstatcache(true, $this->storagePath . '/' . $file);
+            $stat = stat($this->storagePath . '/' . $file);
+            if ($stat === false) {
+                throw new \RuntimeException('Cannot inspect token file.');
+            }
+            $catalog[$file] = $stat['ino'] . ':' . $stat['mtime'] . ':' . $stat['size'];
+        }
+
+        return $catalog;
     }
 
     private function updateIndex(string $hash, string $id): void
@@ -680,7 +731,7 @@ class FileTokenStore extends BaseTokenStore implements TokenStore
         foreach ($files as $file) {
             $data = $this->readTokenFile($file);
 
-            if ($data !== null && isset($data['id'])) {
+            if (is_array($data) && isset($data['id'])) {
                 $tokens[] = $data;
             }
         }

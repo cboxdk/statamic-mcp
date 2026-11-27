@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Concerns;
 
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
+use Cboxdk\StatamicMcp\Integration\IntegrationRegistry;
 
 /**
  * Enforces resource-level access control and field filtering on router actions.
@@ -14,38 +15,6 @@ use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
  */
 trait EnforcesResourcePolicy
 {
-    /**
-     * Check if the current action is allowed on the target resource.
-     *
-     * Returns an error response array if denied, or null if allowed.
-     *
-     * @param  array<string, mixed>  $arguments
-     *
-     * @return array<string, mixed>|null
-     */
-    protected function checkResourceAccess(string $action, array $arguments): ?array
-    {
-        $handle = $this->resolveResourceHandle($arguments);
-
-        // No handle to check (e.g., list without collection filter) — allow
-        if ($handle === null) {
-            return null;
-        }
-
-        $mode = $this->isWriteAction($action) ? 'write' : 'read';
-
-        /** @var ResourcePolicy $policy */
-        $policy = app(ResourcePolicy::class);
-
-        if (! $policy->canAccess($this->getDomain(), $handle, $mode)) {
-            return $this->createErrorResponse(
-                ucfirst($mode) . " access to '{$handle}' is not permitted by resource policy"
-            )->toArray();
-        }
-
-        return null;
-    }
-
     /**
      * Filter denied fields from input arguments.
      *
@@ -117,6 +86,14 @@ trait EnforcesResourcePolicy
      */
     protected function filterOutputFields(array $result): array
     {
+        if (isset($result['success'], $result['meta']) && is_array($result['data'] ?? null) && ! array_is_list($result['data'])) {
+            // Operation replays and warning-bearing writes are already wrapped.
+            // Run the router's full policy on their payload, including metadata.
+            $result['data'] = $this->filterOutputFields(array_filter($result['data'], is_string(...), ARRAY_FILTER_USE_KEY));
+
+            return $result;
+        }
+
         /** @var ResourcePolicy $policy */
         $policy = app(ResourcePolicy::class);
 
@@ -126,6 +103,13 @@ trait EnforcesResourcePolicy
             return $result;
         }
 
+        // Blueprint definitions expose configuration and format specs outside
+        // record.data, including selected subtrees and list/scan results.
+        if ($domain === 'blueprints' || (! isset($result['success'], $result['meta'])
+            && app(IntegrationRegistry::class)->package(static::class) !== null)) {
+            return $policy->filterFields($domain, $result);
+        }
+
         // Filter the 'data' key in the result (single-item responses)
         if (isset($result['data']) && is_array($result['data'])) {
             /** @var array<string, mixed> $resultData */
@@ -133,8 +117,8 @@ trait EnforcesResourcePolicy
             $result['data'] = $policy->filterFields($domain, $resultData);
         }
 
-        // Filter nested 'data' within domain-specific wrapper keys (e.g. entry.data, term.data, form.data)
-        foreach (['entry', 'term', 'global', 'asset', 'user', 'form'] as $wrapper) {
+        // Filter nested 'data' within domain-specific wrapper keys (e.g. entry.data, term.data)
+        foreach (['entry', 'term', 'global', 'asset', 'copy', 'user', 'form'] as $wrapper) {
             if (! isset($result[$wrapper]) || ! is_array($result[$wrapper])) {
                 continue;
             }
@@ -150,15 +134,19 @@ trait EnforcesResourcePolicy
             }
         }
 
-        // Filter list responses where items live under domain-specific keys
-        foreach (['entries', 'terms', 'globals', 'assets', 'users'] as $listKey) {
-            if (! isset($result[$listKey]) || ! is_array($result[$listKey])) {
-                continue;
+        // Configuration records and asset metadata also expose fields directly
+        // on the record. Apply the same policy to read and write snapshots.
+        foreach (['collection', 'taxonomy', 'navigation', 'globalset', 'site', 'container', 'asset', 'copy', 'role', 'group'] as $wrapper) {
+            if (isset($result[$wrapper]) && is_array($result[$wrapper])) {
+                $result[$wrapper] = $policy->filterFields($domain, $result[$wrapper]);
             }
+        }
 
+        // The items page uses the same policy as single-record responses.
+        if (isset($result['items']) && is_array($result['items'])) {
             /** @var array<int, mixed> $items */
-            $items = $result[$listKey];
-            $result[$listKey] = array_map(function (mixed $item) use ($policy, $domain): mixed {
+            $items = $result['items'];
+            $result['items'] = array_map(function (mixed $item) use ($policy, $domain): mixed {
                 if (! is_array($item)) {
                     return $item;
                 }
@@ -194,19 +182,5 @@ trait EnforcesResourcePolicy
         }
 
         return null;
-    }
-
-    /**
-     * Check if an action is a write action.
-     */
-    private function isWriteAction(string $action): bool
-    {
-        return in_array($action, [
-            'create', 'generate', 'update', 'delete', 'publish', 'unpublish', 'localize',
-            'activate', 'deactivate', 'assign_role', 'remove_role',
-            'move', 'copy', 'upload', 'configure',
-            'cache_clear', 'cache_warm', 'config_set',
-            'restore_revision', 'publish_working_copy',
-        ], true);
     }
 }

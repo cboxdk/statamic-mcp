@@ -4,22 +4,31 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
+use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
+use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
+use Cboxdk\StatamicMcp\Mcp\Exceptions\ToolFailure;
 use Cboxdk\StatamicMcp\Mcp\Support\ConditionalFieldsValidator;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ChecksResourceVersions;
 use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\SanitizesFieldData;
+use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Attributes\Title;
+use Statamic\Contracts\Globals\Variables;
+use Statamic\Facades\Blink;
 use Statamic\Facades\GlobalSet;
 
 #[Name('statamic-globals')]
 #[Title('Statamic Global Sets')]
-#[Description('Manage Statamic global sets and their values. Use statamic-blueprints get to see field structure before updating. Actions: list, get, update.')]
+#[Description('Statamic global set values: site-wide content such as footer text or contact details, per site. Field values follow the global set blueprint\'s _format_spec.')]
 class GlobalsRouter extends BaseRouter
 {
+    use ChecksResourceVersions;
     use SanitizesFieldData;
 
     protected function getDomain(): string
@@ -30,18 +39,6 @@ class GlobalsRouter extends BaseRouter
     protected function defineSchema(JsonSchemaContract $schema): array
     {
         return array_merge(parent::defineSchema($schema), [
-            'action' => JsonSchema::string()
-                ->description(
-                    'Action to perform. Required params per action: '
-                    . 'list (optional: limit, offset), '
-                    . 'get (handle), '
-                    . 'update (handle, data)'
-                )
-                ->enum(['list', 'get', 'update'])
-                ->required(),
-
-            'global_set' => JsonSchema::string()
-                ->description('Deprecated — use "handle" instead. Global set handle'),
 
             'handle' => JsonSchema::string()
                 ->description('Global set handle in snake_case. Required for get and update. Example: "site_settings", "seo"'),
@@ -52,14 +49,17 @@ class GlobalsRouter extends BaseRouter
             'data' => JsonSchema::object()
                 ->description(
                     'Global set field values. Structure must match the global set blueprint. '
-                    . 'Use statamic-blueprints action "get" to see field types before sending data.'
+                    . 'Each field\'s shape is in the global set blueprint\'s _format_spec (statamic-blueprints-read get).'
                 ),
 
-            'limit' => JsonSchema::integer()
-                ->description('Maximum results to return (default: 100, max: 500)'),
+            'expected_version' => JsonSchema::string()
+                ->description('Update: version from the last get/update of this global set in this site. Any intervening change causes VERSION_CONFLICT without saving; reread and redo. Omit for an unconditional write.'),
 
-            'offset' => JsonSchema::integer()
-                ->description('Number of results to skip for pagination. Use with limit for paging'),
+            'limit' => JsonSchema::integer()
+                ->description('Maximum results to return (default: 50, max: 1000)'),
+
+            'cursor' => JsonSchema::string()
+                ->description('next_cursor from the previous page. Keep the other arguments unchanged. Omit to start again.'),
         ]);
     }
 
@@ -80,13 +80,97 @@ class GlobalsRouter extends BaseRouter
             return $validationError;
         }
 
-        // Execute action
+        if ($action === 'update' && array_key_exists('expected_version', $arguments)) {
+            $handle = $this->globalSetHandle($arguments);
+            $site = $this->resolveSiteHandle($arguments);
+
+            return $this->writeIfVersionMatches(
+                $arguments['expected_version'],
+                'global set',
+                $handle . '@' . $site,
+                function () use ($handle, $site): string|array {
+                    $variables = GlobalSet::find($handle)?->in($site);
+
+                    return $variables === null
+                        ? $this->createErrorResponse("Global set not available in site: {$site}", code: ErrorCode::NotFound, field: 'site')->toArray()
+                        : $this->globalVersion($variables);
+                },
+                fn (): array => $this->withGlobalVersion($this->updateGlobal($arguments), $handle, $site),
+            );
+        }
+
         return match ($action) {
             'list' => $this->listGlobals($arguments),
-            'get' => $this->getGlobal($arguments),
-            'update' => $this->updateGlobal($arguments),
+            'get' => $this->withGlobalVersion($this->getGlobal($arguments), $this->globalSetHandle($arguments), $this->resolveSiteHandle($arguments)),
+            'update' => $this->withGlobalVersion($this->updateGlobal($arguments), $this->globalSetHandle($arguments), $this->resolveSiteHandle($arguments)),
             default => $this->createErrorResponse("Action {$action} not supported for globals")->toArray(),
         };
+    }
+
+    /** @param  array<string, mixed>  $arguments */
+    private function globalSetHandle(array $arguments): string
+    {
+        $handle = $arguments['handle'] ?? null;
+
+        return is_string($handle) ? $handle : '';
+    }
+
+    /**
+     * One site's stored values as an opaque token. Statamic keeps each site's
+     * values in their own file, so a write in another site does not change it.
+     */
+    private function globalVersion(Variables $variables): string
+    {
+        return self::resourceVersion(['data' => $variables->data()->all()]);
+    }
+
+    protected function currentResourceVersion(array $arguments): ?string
+    {
+        $variables = GlobalSet::find($this->globalSetHandle($arguments))?->in($this->resolveSiteHandle($arguments));
+
+        return $variables === null ? null : $this->globalVersion($variables);
+    }
+
+    protected function authorizeReplay(string $action, array $result): void
+    {
+        if (! $this->isWebContext() || ! is_array($record = $result['global'] ?? null)) {
+            return;
+        }
+        $handle = is_string($record['handle'] ?? null) ? $record['handle'] : '';
+        $site = is_string($record['site'] ?? null) ? $record['site'] : '';
+        $variables = GlobalSet::find($handle)?->in($site);
+        if ($variables === null || ! Gate::forUser(auth()->user())->allows('edit', $variables)) {
+            throw new ToolFailure(ErrorCode::Forbidden, 'Permission denied: Cannot access this stored global set site.');
+        }
+    }
+
+    /**
+     * Report the site's version after a successful get or update, so a caller
+     * can pass it back as expected_version on its next update.
+     *
+     * @param  array<string, mixed>  $result
+     *
+     * @return array<string, mixed>
+     */
+    private function withGlobalVersion(array $result, string $handle, string $site): array
+    {
+        if (($result['success'] ?? true) === false || ! is_array($result['global'] ?? null)) {
+            return $result;
+        }
+
+        Blink::flush();
+        $globalSet = GlobalSet::find($handle);
+        $variables = $globalSet?->in($site);
+        if ($variables !== null) {
+            $result['global']['localized'] = $globalSet->sites()->count() > 1;
+            $result['global']['sites'] = $globalSet->sites()->all();
+            $blueprint = $globalSet->blueprint();
+            $result['global']['blueprint'] = $blueprint === null ? null : ['handle' => $blueprint->handle(), 'title' => $blueprint->title()];
+            $result['global']['data'] = $variables->data()->all();
+            $result['global']['version'] = $this->globalVersion($variables);
+        }
+
+        return $result;
     }
 
     /**
@@ -100,19 +184,15 @@ class GlobalsRouter extends BaseRouter
     {
         // Global set handle required for get and update operations
         if (in_array($action, ['get', 'update'])) {
-            $rawHandle = $arguments['global_set'] ?? $arguments['handle'] ?? null;
-            if (! is_string($rawHandle) || empty($rawHandle)) {
-                return $this->createErrorResponse('Global set handle is required for global operations')->toArray();
-            }
-            $globalSetHandle = $rawHandle;
+            $globalSetHandle = $this->globalSetHandle($arguments);
             if (! GlobalSet::find($globalSetHandle)) {
-                return $this->createErrorResponse("Global set not found: {$globalSetHandle}")->toArray();
-            }
-        }
+                $site = $this->resolveSiteHandle($arguments);
 
-        // Data required for update actions
-        if ($action === 'update' && empty($arguments['data'])) {
-            return $this->createErrorResponse('Data is required for update action')->toArray();
+                return $this->missingResource('Global set', $globalSetHandle, candidates: GlobalSet::all()->filter(fn ($set): bool => $set instanceof \Statamic\Contracts\Globals\GlobalSet && ($this->isCliContext()
+                        || (($variables = $set->in($site)) !== null && Gate::forUser(auth()->user())->allows('edit', $variables))))->map->handle()->all(),
+                    arguments: $arguments,
+                )->toArray();
+            }
         }
 
         // Site validation
@@ -132,7 +212,7 @@ class GlobalsRouter extends BaseRouter
     protected function getRequiredPermissions(string $action, array $arguments): array
     {
         // Statamic scopes global permissions per set: 'edit {handle} globals'
-        $rawHandle = $arguments['global_set'] ?? $arguments['handle'] ?? null;
+        $rawHandle = $arguments['handle'] ?? null;
         $handle = is_string($rawHandle) ? $rawHandle : '';
 
         return match ($action) {
@@ -155,36 +235,34 @@ class GlobalsRouter extends BaseRouter
         $pagination = $this->getPaginationArgs($arguments, 50, 1000);
         $limit = $pagination['limit'];
         $offset = $pagination['offset'];
+        $globalSets = collect(GlobalSet::all()->all())->filter(function ($set) use ($site) {
+            if (! $set instanceof \Statamic\Contracts\Globals\GlobalSet) {
+                return false;
+            }
 
-        try {
-            $globalSets = GlobalSet::all();
-            $total = $globalSets->count();
-
-            $paginatedSets = $globalSets->skip($offset)->take($limit);
-
-            $data = $paginatedSets->map(function ($globalSet) use ($site) {
-                /** @var \Statamic\Contracts\Globals\GlobalSet $globalSet */
-                $variables = $globalSet->in($site);
-
-                return [
-                    'handle' => $globalSet->handle(),
-                    'title' => $globalSet->title(),
-                    'site' => $site,
-                    'localized' => $globalSet->sites()->count() > 1,
-                    'sites' => $globalSet->sites()->all(),
-                    'has_values' => $variables ? $variables->data()->isNotEmpty() : false,
-                ];
-            })->all();
+            return app(ResourcePolicy::class)->canAccess('globals', $set->handle(), 'read')
+                && (! $this->isWebContext() || ($set->in($site) !== null && Gate::forUser(auth()->user())->allows('edit', $set->in($site))));
+        });
+        $total = $globalSets->count();
+        $paginatedSets = $globalSets->sortBy->handle()->skip($offset)->take($limit);
+        $data = $paginatedSets->map(function ($globalSet) use ($site): array {
+            /** @var \Statamic\Contracts\Globals\GlobalSet $globalSet */
+            $variables = $globalSet->in($site);
 
             return [
-                'globals' => $data,
-                'pagination' => $this->buildPaginationMeta($total, $limit, $offset),
+                'handle' => $globalSet->handle(),
+                'title' => $globalSet->title(),
                 'site' => $site,
+                'localized' => $globalSet->sites()->count() > 1,
+                'sites' => $globalSet->sites()->all(),
+                'has_values' => $variables ? $variables->data()->isNotEmpty() : false,
             ];
+        })->all();
 
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to list globals: {$e->getMessage()}")->toArray();
-        }
+        return [
+            ...$this->buildPage($data, $total, $offset, $arguments),
+            'site' => $site,
+        ];
     }
 
     /**
@@ -196,42 +274,36 @@ class GlobalsRouter extends BaseRouter
      */
     private function getGlobal(array $arguments): array
     {
-        // Accept both 'global_set' and 'handle' parameters
-        $rawHandle = $arguments['global_set'] ?? $arguments['handle'] ?? null;
+        $rawHandle = $arguments['handle'] ?? null;
         if (! is_string($rawHandle)) {
             return $this->createErrorResponse('Global set handle must be a string')->toArray();
         }
         $globalSetHandle = $rawHandle;
         $site = $this->resolveSiteHandle($arguments);
-
-        try {
-            /** @var \Statamic\Contracts\Globals\GlobalSet|null $globalSet */
-            $globalSet = GlobalSet::find($globalSetHandle);
-
-            if ($globalSet === null) {
-                return $this->createErrorResponse('Global set not found: ' . $globalSetHandle)->toArray();
-            }
-
-            $variables = $globalSet->in($site);
-
-            return [
-                'global' => [
-                    'handle' => $globalSet->handle(),
-                    'title' => $globalSet->title(),
-                    'site' => $site,
-                    'localized' => $globalSet->sites()->count() > 1,
-                    'sites' => $globalSet->sites()->all(),
-                    'data' => $variables ? $variables->data()->all() : [],
-                    'blueprint' => $globalSet->blueprint() ? [
-                        'handle' => $globalSet->blueprint()->handle(),
-                        'title' => $globalSet->blueprint()->title(),
-                    ] : null,
-                ],
-            ];
-
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to get global: {$e->getMessage()}")->toArray();
+        /** @var \Statamic\Contracts\Globals\GlobalSet|null $globalSet */
+        $globalSet = GlobalSet::find($globalSetHandle);
+        if ($globalSet === null) {
+            return $this->missingResource('Global set', $globalSetHandle)->toArray();
         }
+        $variables = $globalSet->in($site);
+        if ($this->isWebContext() && ($variables === null || ! Gate::forUser(auth()->user())->allows('edit', $variables))) {
+            return $this->createErrorResponse('Permission denied: Cannot access this global set site.', code: ErrorCode::Forbidden)->toArray();
+        }
+
+        return [
+            'global' => [
+                'handle' => $globalSet->handle(),
+                'title' => $globalSet->title(),
+                'site' => $site,
+                'localized' => $globalSet->sites()->count() > 1,
+                'sites' => $globalSet->sites()->all(),
+                'data' => $variables ? $variables->data()->all() : [],
+                'blueprint' => $globalSet->blueprint() ? [
+                    'handle' => $globalSet->blueprint()->handle(),
+                    'title' => $globalSet->blueprint()->title(),
+                ] : null,
+            ],
+        ];
     }
 
     /**
@@ -243,139 +315,128 @@ class GlobalsRouter extends BaseRouter
      */
     private function updateGlobal(array $arguments): array
     {
-        // Accept both 'global_set' and 'handle' parameters
-        $rawHandle = $arguments['global_set'] ?? $arguments['handle'] ?? null;
+        $rawHandle = $arguments['handle'] ?? null;
         if (! is_string($rawHandle)) {
             return $this->createErrorResponse('Global set handle must be a string')->toArray();
         }
         $globalSetHandle = $rawHandle;
         $site = $this->resolveSiteHandle($arguments);
         $data = is_array($arguments['data'] ?? []) ? ($arguments['data'] ?? []) : [];
+        /** @var \Statamic\Contracts\Globals\GlobalSet|null $globalSet */
+        $globalSet = GlobalSet::find($globalSetHandle);
+        if ($globalSet === null) {
+            return $this->missingResource('Global set', $globalSetHandle)->toArray();
+        }
+        $variables = $globalSet->in($site);
+        if ($this->isWebContext() && ($variables === null || ! Gate::forUser(auth()->user())->allows('edit', $variables))) {
+            return $this->createErrorResponse('Permission denied: Cannot access this global set site.', code: ErrorCode::Forbidden)->toArray();
+        }
+        if (! $variables) {
+            return $this->createErrorResponse("Global set not available in site: {$site}", code: ErrorCode::NotFound, field: 'site')->toArray();
+        }
+        if (! $variables instanceof Variables) {
+            return $this->createErrorResponse('Unsupported global variables implementation.', code: ErrorCode::Internal)->toArray();
+        }
+        $variables = clone $variables;
+        // Validate data against blueprint before saving
+        $blueprint = $globalSet->blueprint();
+        if (! $blueprint) {
+            return $this->createErrorResponse('Cannot update global set: Blueprint not found. A blueprint is required for data validation.', code: ErrorCode::NotFound)->toArray();
+        }
+        if (! empty($data)) {
+            // Strip entry-level metadata and coerce values to expected types
+            $data = $this->sanitizeIncomingFieldData($blueprint, $data);
 
-        try {
-            /** @var \Statamic\Contracts\Globals\GlobalSet|null $globalSet */
-            $globalSet = GlobalSet::find($globalSetHandle);
+            // Merge new data with existing for full blueprint validation,
+            // minus stored nulls (see mergeStoredDataForValidation).
+            $mergedData = $this->mergeStoredDataForValidation($variables->data()->all(), $data);
 
-            if ($globalSet === null) {
-                return $this->createErrorResponse('Global set not found: ' . $globalSetHandle)->toArray();
-            }
+            // Backward compat: globals saved by MCP prior to v2.1 may have
+            // raw strings in structured fields. Safe to remove once all
+            // MCP-created content has been re-saved.
+            $mergedData = $this->sanitizeStoredFieldDataForValidation($blueprint, $mergedData);
 
-            $variables = $globalSet->in($site);
+            $validationContext = [
+                'global_set' => $globalSet,
+                'site' => $site,
+            ];
 
-            if (! $variables) {
-                return $this->createErrorResponse("Global set not available in site: {$site}")->toArray();
-            }
-
-            // Validate data against blueprint before saving
-            $blueprint = $globalSet->blueprint();
-
-            if (! $blueprint) {
-                return $this->createErrorResponse('Cannot update global set: Blueprint not found. A blueprint is required for data validation.')->toArray();
-            }
-
-            if (! empty($data)) {
-                // Strip entry-level metadata and coerce values to expected types
-                $data = $this->sanitizeIncomingFieldData($blueprint, $data);
-
-                // Merge new data with existing for full blueprint validation,
-                // minus stored nulls (see mergeStoredDataForValidation).
-                $mergedData = $this->mergeStoredDataForValidation($variables->data()->all(), $data);
-
-                // Backward compat: globals saved by MCP prior to v2.1 may have
-                // raw strings in structured fields. Safe to remove once all
-                // MCP-created content has been re-saved.
-                $mergedData = $this->sanitizeStoredFieldDataForValidation($blueprint, $mergedData);
-
-                $validationContext = [
-                    'global_set' => $globalSet,
-                    'site' => $site,
-                ];
-
+            try {
+                (new ConditionalFieldsValidator)
+                    ->fields($blueprint->fields()->addValues($mergedData))
+                    ->withConditionValues($mergedData)
+                    ->withContext($validationContext)
+                    ->validate();
+            } catch (ValidationException $e) {
+                return $this->formatValidationError($e);
+            } catch (\TypeError $e) {
+                // Third-party fieldtype validation crash — fall back to
+                // validating only the incoming fields.
                 try {
                     (new ConditionalFieldsValidator)
-                        ->fields($blueprint->fields()->addValues($mergedData))
+                        ->fields($blueprint->fields()->addValues($data))
                         ->withConditionValues($mergedData)
                         ->withContext($validationContext)
                         ->validate();
-                } catch (ValidationException $e) {
-                    return $this->formatValidationError($e);
-                } catch (\TypeError $e) {
-                    // Third-party fieldtype validation crash — fall back to
-                    // validating only the incoming fields.
-                    try {
-                        (new ConditionalFieldsValidator)
-                            ->fields($blueprint->fields()->addValues($data))
-                            ->withConditionValues($mergedData)
-                            ->withContext($validationContext)
-                            ->validate();
-                    } catch (ValidationException $inner) {
-                        return $this->formatValidationError($inner);
-                    } catch (\Throwable $inner) {
-                        return $this->createErrorResponse('Failed to process global data: ' . $inner->getMessage())->toArray();
-                    }
-                } catch (\Throwable $e) {
-                    return $this->createErrorResponse('Failed to process global data: ' . $e->getMessage())->toArray();
+                } catch (ValidationException $inner) {
+                    return $this->formatValidationError($inner);
+                } catch (\Throwable $inner) {
+                    throw $inner;
                 }
-
-                // Process incoming data through fieldtypes for storage format
-                $incomingKeys = array_keys($data);
-                /** @var array<string, mixed> $processedData */
-                $processedData = $blueprint->fields()->addValues($data)
-                    ->process()->values()
-                    ->only($incomingKeys)
-                    ->all();
-
-                $data = $processedData;
+            } catch (\Throwable $e) {
+                throw $e;
             }
 
-            $variables->merge($data)->save();
+            // Process incoming data through fieldtypes for storage format
+            $incomingKeys = array_keys($data);
+            /** @var array<string, mixed> $processedData */
+            $processedData = $blueprint->fields()->addValues($data)
+                ->process()->values()
+                ->only($incomingKeys)
+                ->all();
 
-            // Clear relevant caches
-            $this->clearCachesAfterWrite(['stache', 'static']);
-
-            return [
-                'global' => [
-                    'handle' => $globalSet->handle(),
-                    'title' => $globalSet->title(),
-                    'site' => $site,
-                    'updated_fields' => array_keys($data),
-                ],
-                'updated' => true,
-            ];
-
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to update global: {$e->getMessage()}")->toArray();
+            $data = $processedData;
         }
+        $this->persistStatamic(fn () => $variables->merge($data)->save());
+        // Clear relevant caches
+        $this->clearCachesAfterWrite(['stache', 'static']);
+
+        return [
+            'global' => [
+                'handle' => $globalSet->handle(),
+                'title' => $globalSet->title(),
+                'site' => $site,
+                'updated_fields' => array_keys($data),
+            ],
+            'updated' => true,
+        ];
     }
 
-    public function getActions(): array
+    protected function actions(): array
     {
         return [
-            'list' => 'List global sets with values and pagination',
-            'get' => 'Get specific global set with values',
-            'update' => 'Update global set values',
+            RouterAction::read('list', 'List global sets with their values', optional: ['site', 'limit', 'cursor']),
+            RouterAction::read('get', 'Get one global set\'s values and version', needs: ['handle'], optional: ['site', 'fields']),
+            RouterAction::edit('update', 'Update a global set\'s values in one site', needs: ['handle', 'data'], optional: ['site', 'expected_version']),
         ];
     }
 
     public function getTypes(): array
     {
-        return [
-            'GlobalSet' => 'Global set configuration object',
-            'GlobalValues' => 'Global set values for a specific site',
-        ];
+        return [];
     }
 
     /**
-     * The resource policy must see the same global set the action resolves,
-     * which is `global_set ?? handle`. The default resolver only reads `handle`,
-     * so a `global_set` alone slipped past the policy and a `global_set` paired
-     * with an allowed `handle` let the policy approve the wrong set.
+     * The resource policy must see the global set the action resolves, which
+     * is `handle` and nothing else. In v3 a `global_set` alias let the policy
+     * approve one set while the action changed another; pinning the key here
+     * keeps that from coming back through the default resolver's list.
      *
      * @param  array<string, mixed>  $arguments
      */
     protected function resolveResourceHandle(array $arguments): ?string
     {
-        $raw = $arguments['global_set'] ?? $arguments['handle'] ?? null;
+        $raw = $arguments['handle'] ?? null;
 
         return is_string($raw) && $raw !== '' ? $raw : null;
     }

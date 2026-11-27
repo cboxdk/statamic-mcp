@@ -4,12 +4,18 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Auth;
 
+use Cboxdk\StatamicMcp\Actions\ScopeRegistry;
+use Cboxdk\StatamicMcp\Authorization\InstallationProfile;
+use Cboxdk\StatamicMcp\Mcp\ExtraTools;
+use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
+use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Statamic\Contracts\Assets\AssetContainer as AssetContainerContract;
 use Statamic\Contracts\Auth\User;
 use Statamic\Contracts\Globals\GlobalSet as GlobalSetContract;
 use Statamic\Contracts\Structures\Nav as NavContract;
 use Statamic\Facades\AssetContainer;
 use Statamic\Facades\Collection;
+use Statamic\Facades\Form;
 use Statamic\Facades\GlobalSet;
 use Statamic\Facades\Nav;
 use Statamic\Facades\Taxonomy;
@@ -27,6 +33,98 @@ use Statamic\Facades\Taxonomy;
  */
 class ScopeAvailability
 {
+    /** @return list<string> */
+    public function names(): array
+    {
+        return array_values(array_unique(array_merge(
+            array_map(fn (TokenScope $scope): string => $scope->value, TokenScope::cases()),
+            app(ScopeRegistry::class)->names(),
+        )));
+    }
+
+    /**
+     * What a client may ask for: every scope but the retired v3 ones, which
+     * still load on old tokens but grant nothing. `*` stays: consent expands it.
+     *
+     * @return list<string>
+     */
+    public function advertised(): array
+    {
+        return array_values(array_filter($this->names(), fn (string $name): bool => TokenScope::tryFrom($name)?->isRetired() !== true));
+    }
+
+    /** @return list<array{value: string, label: string, description: string, group: string}> */
+    public function options(?User $user): array
+    {
+        return array_map(function (string $value): array {
+            $core = TokenScope::tryFrom($value);
+
+            return ['value' => $value, 'label' => $this->label($value),
+                'description' => $core?->description() ?? __('statamic-mcp::cp.integration_access'),
+                'group' => $core?->group() ?? 'integrations'];
+        }, $this->filterValues($user, $this->names()));
+    }
+
+    public function label(string $value): string
+    {
+        return TokenScope::tryFrom($value)?->label()
+            ?? app(ScopeRegistry::class)->label($value)
+            ?? throw new \InvalidArgumentException('Unknown scope.');
+    }
+
+    /**
+     * Explain scopes that the HTTP profile leaves with no usable action.
+     * This is presentation only; the authorizer still checks every call.
+     *
+     * @return array<string, string>
+     */
+    public function httpProfileRestrictions(): array
+    {
+        $profile = app(InstallationProfile::class);
+        if ($profile->name('http') === 'operator') {
+            return [];
+        }
+        $allowed = [];
+        foreach ([...StatamicMcpServer::CORE_TOOLS, ...StatamicMcpServer::SEARCHABLE_TOOLS, ...array_keys(ExtraTools::all())] as $class) {
+            try {
+                $router = app($class);
+                if (! $router instanceof BaseRouter) {
+                    continue;
+                }
+                foreach ($router->declaredActions() as $action) {
+                    foreach ($action->types ?: [null] as $type) {
+                        $arguments = ['resource_type' => $type, 'data' => ['published' => false]];
+                        $call = $router->describeCall($action->name, $arguments);
+                        if ($profile->denial($call->domain, $action->name, $arguments, $action->writes(), 'http') !== null) {
+                            continue;
+                        }
+                        foreach ($call->scopes as $scope) {
+                            $allowed[$scope instanceof TokenScope ? $scope->value : $scope] = true;
+                        }
+                    }
+                }
+            } catch (\Throwable $error) {
+                // A broken extension must not prevent the token page from loading.
+                report($error);
+            }
+        }
+        $blocked = [];
+        foreach ($this->advertised() as $scope) {
+            if ($scope !== '*' && ! isset($allowed[$scope])) {
+                $blocked[$scope] = __('statamic-mcp::cp.profile_blocked', ['profile' => $profile->name('http')]);
+            }
+        }
+
+        return $blocked;
+    }
+
+    public function allowsValue(?User $user, string $value): bool
+    {
+        $scope = TokenScope::tryFrom($value);
+
+        return $scope !== null ? $this->allows($user, $scope) : app(ScopeRegistry::class)->allows($user, $value);
+    }
+
     public function enabled(): bool
     {
         return (bool) config('statamic.mcp.security.scopes_follow_permissions', true);
@@ -64,51 +162,66 @@ class ScopeAvailability
      *
      * @param  array<int, string>  $values
      *
-     * @return array<int, string>
+     * @return list<string>
      */
     public function filterValues(?User $user, array $values): array
     {
-        return array_values(array_filter($values, function (string $value) use ($user): bool {
-            $scope = TokenScope::tryFrom($value);
-
-            return $scope !== null && $this->allows($user, $scope);
-        }));
+        return array_values(array_filter($values, fn (string $value): bool => $this->allowsValue($user, $value)));
     }
 
     /**
      * Scope strings a grant may carry for this user, in the order given.
      *
-     * Unlike filterValues(), a `*` the user cannot hold is narrowed to every
-     * scope they can rather than dropped: a client asking for everything is
-     * asking for the user's full reach, and an editor should be offered that
-     * on the consent screen, not turned away with invalid_scope.
+     * Unlike filterValues(), a `*` is expanded to every scope the user can
+     * hold rather than dropped: a client asking for everything is asking for
+     * the user's full reach, and an editor should be offered that on the
+     * consent screen, not turned away with invalid_scope.
      *
      * @param  array<int, string>  $values
      *
-     * @return array<int, string>
+     * @return list<string>
      */
     public function grantable(?User $user, array $values): array
+    {
+        return array_values(array_unique($this->filterValues($user, $this->expandFullAccess($user, $values))));
+    }
+
+    /**
+     * Replace `*` with the explicit scopes the user can hold right now.
+     *
+     * A stored `*` would silently grow to cover every scope added in a later
+     * release, which is a grant nobody approved. Issuing full access
+     * therefore fixes it to today's list.
+     *
+     * @param  array<int, string>  $values
+     *
+     * @return list<string>
+     */
+    public function expandFullAccess(?User $user, array $values): array
     {
         $expanded = [];
 
         foreach ($values as $value) {
-            if ($value === TokenScope::FullAccess->value && ! $this->allows($user, TokenScope::FullAccess)) {
-                foreach ($this->forUser($user) as $scope) {
-                    $expanded[] = $scope->value;
-                }
+            if ($value !== TokenScope::FullAccess->value) {
+                $expanded[] = $value;
 
                 continue;
             }
 
-            $expanded[] = $value;
+            foreach ($this->forUser($user) as $scope) {
+                if ($scope !== TokenScope::FullAccess) {
+                    $expanded[] = $scope->value;
+                }
+            }
         }
 
-        return array_values(array_unique($this->filterValues($user, $expanded)));
+        return array_values(array_unique($expanded));
     }
 
     public function allows(?User $user, TokenScope $scope): bool
     {
-        if ($user === null) {
+        // A retired scope grants nothing, so nobody is offered it.
+        if ($user === null || $scope->isRetired()) {
             return false;
         }
 
@@ -116,8 +229,23 @@ class ScopeAvailability
             return true;
         }
 
-        // The site rules first: a switched-off tool and an empty resource
-        // allowlist refuse every call, super admins included.
+        // Collection trees belong to structures, but also require entry scopes.
+        // Disabling the entries tool does not disable this path; closing either
+        // resource policy does. Per-record and site policies still run on calls.
+        if (in_array($scope, [TokenScope::EntriesRead, TokenScope::EntriesWrite], true)) {
+            $write = $scope === TokenScope::EntriesWrite;
+            $mode = $write ? 'write' : 'read';
+            $permission = $write ? 'reorder' : 'view';
+            if (config("statamic.mcp.tools.entries.resources.{$mode}") !== []
+                && ! $this->ruledOutBySite($write ? TokenScope::StructuresAdmin : TokenScope::StructuresRead)
+                && ($user->isSuper() || $user->hasPermission('configure collections')
+                    || $this->holdsForAny($user, $this->collectionHandles(), fn (string $h): array => ["{$permission} {$h} entries"]))) {
+                return true;
+            }
+        }
+
+        // For the scope's own domain, check site rules before permissions:
+        // disabled tools and empty allowlists refuse super admins too.
         if ($this->ruledOutBySite($scope)) {
             return false;
         }
@@ -128,7 +256,7 @@ class ScopeAvailability
 
         return match ($scope) {
             TokenScope::FullAccess,
-            TokenScope::SystemWrite,
+            TokenScope::SystemAdmin,
             TokenScope::ContentFacadeRead,
             TokenScope::ContentFacadeWrite => false,
 
@@ -136,18 +264,17 @@ class ScopeAvailability
             TokenScope::EntriesWrite => $this->holdsForAny($user, $this->collectionHandles(), fn (string $h): array => [
                 "create {$h} entries", "edit {$h} entries", "delete {$h} entries", "publish {$h} entries",
             ]),
+            TokenScope::EntriesPublish => $this->holdsForAny($user, $this->collectionHandles(), fn (string $h): array => ["publish {$h} entries"]),
+            TokenScope::EntriesDelete => $this->holdsForAny($user, $this->collectionHandles(), fn (string $h): array => ["delete {$h} entries"]),
 
             TokenScope::TermsRead => $this->holdsForAny($user, $this->taxonomyHandles(), fn (string $h): array => ["view {$h} terms"]),
             TokenScope::TermsWrite => $this->holdsForAny($user, $this->taxonomyHandles(), fn (string $h): array => ["create {$h} terms", "edit {$h} terms", "delete {$h} terms"]),
+            TokenScope::TermsDelete => $this->holdsForAny($user, $this->taxonomyHandles(), fn (string $h): array => ["delete {$h} terms"]),
 
             // The globals router asks for the edit permission on reads too.
             TokenScope::GlobalsRead,
             TokenScope::GlobalsWrite => $user->hasPermission('configure globals')
                 || $this->holdsForAny($user, $this->globalHandles(), fn (string $h): array => ["edit {$h} globals"]),
-
-            // FormPolicy grants every form action through one permission.
-            TokenScope::FormsRead,
-            TokenScope::FormsWrite => $user->hasPermission('configure forms'),
 
             TokenScope::AssetsRead => $user->hasPermission('configure asset containers')
                 || $this->holdsForAny($user, $this->containerHandles(), fn (string $h): array => ["view {$h} assets"]),
@@ -155,11 +282,14 @@ class ScopeAvailability
                 || $this->holdsForAny($user, $this->containerHandles(), fn (string $h): array => [
                     "upload {$h} assets", "edit {$h} assets", "move {$h} assets", "rename {$h} assets", "delete {$h} assets",
                 ]),
+            TokenScope::AssetsDelete => $user->hasPermission('configure asset containers')
+                || $this->holdsForAny($user, $this->containerHandles(), fn (string $h): array => ["delete {$h} assets"]),
 
             TokenScope::StructuresRead => $this->holdsAny($user, ['configure collections', 'configure taxonomies', 'configure navs', 'configure sites', 'configure globals'])
                 || $this->holdsForAny($user, $this->collectionHandles(), fn (string $h): array => ["view {$h} entries"])
                 || $this->holdsForAny($user, $this->navHandles(), fn (string $h): array => ["view {$h} nav"]),
-            TokenScope::StructuresWrite => $this->holdsAny($user, ['configure collections', 'configure taxonomies', 'configure navs', 'configure sites', 'configure globals'])
+            // Sites are read-only over MCP, so configure sites gives no admin scope.
+            TokenScope::StructuresAdmin => $this->holdsAny($user, ['configure collections', 'configure taxonomies', 'configure navs', 'configure globals'])
                 || $this->holdsForAny($user, $this->collectionHandles(), fn (string $h): array => ["reorder {$h} entries"])
                 || $this->holdsForAny($user, $this->navHandles(), fn (string $h): array => ["edit {$h} nav"]),
 
@@ -167,19 +297,33 @@ class ScopeAvailability
             // permission, or the scope alone once the site waives that.
             TokenScope::BlueprintsRead => ! config('statamic.mcp.resources.require_statamic_permission', true)
                 || $this->holdsAny($user, ['configure fields', 'configure collections', 'configure taxonomies']),
-            TokenScope::BlueprintsWrite => $user->hasPermission('configure fields'),
+            TokenScope::BlueprintsAdmin => $user->hasPermission('configure fields'),
 
-            TokenScope::UsersRead => $user->hasPermission('view users'),
-            TokenScope::UsersWrite => $this->holdsAny($user, [
+            // Roles and groups are read with the permission that edits them.
+            TokenScope::UsersRead => $this->holdsAny($user, ['view users', 'edit roles', 'edit user groups']),
+            TokenScope::UsersAdmin => $this->holdsAny($user, [
                 'create users', 'edit users', 'delete users', 'assign roles', 'edit roles', 'edit user groups',
             ]),
 
             TokenScope::SystemRead => $user->hasPermission('access utilities'),
 
-            // Legacy umbrella scopes: no router asks for them, but a token
-            // may still carry them. Available when their content is.
-            TokenScope::ContentRead => $this->allows($user, TokenScope::EntriesRead) || $this->allows($user, TokenScope::TermsRead),
-            TokenScope::ContentWrite => $this->allows($user, TokenScope::EntriesWrite) || $this->allows($user, TokenScope::TermsWrite),
+            TokenScope::FormsRead => $this->holdsAny($user, ['configure forms', 'edit forms', 'configure form fields', 'view form submissions'])
+                || $this->holdsForAny($user, Form::all()->map->handle()->all(), fn (string $h): array => ["edit {$h} form", "view {$h} form submissions"]),
+            TokenScope::FormsWrite => $this->holdsAny($user, ['configure forms', 'create forms', 'edit forms', 'configure form fields'])
+                || $this->holdsForAny($user, Form::all()->map->handle()->all(), fn (string $h): array => ["edit {$h} form"])
+                || $this->canManageFormSpam($user),
+            TokenScope::SubmissionsRead => $user->hasPermission('configure forms') || $user->hasPermission('view form submissions')
+                || $this->holdsForAny($user, Form::all()->map->handle()->all(), fn (string $h): array => ["view {$h} form submissions"]),
+            TokenScope::SubmissionsDelete => $user->hasPermission('configure forms') || $user->hasPermission('delete form submissions')
+                || $this->holdsForAny($user, Form::all()->map->handle()->all(), fn (string $h): array => ["delete {$h} form submissions"]),
+
+            // Retired; refused above.
+            TokenScope::ContentRead,
+            TokenScope::ContentWrite,
+            TokenScope::StructuresWrite,
+            TokenScope::BlueprintsWrite,
+            TokenScope::UsersWrite,
+            TokenScope::SystemWrite => false,
         };
     }
 
@@ -188,30 +332,15 @@ class ScopeAvailability
      * tool switched off (`tools.{domain}.enabled`), or the resource policy
      * allowing no handle at all (`tools.{domain}.resources.{mode}` set to
      * `[]`). Both refuse every call regardless of who makes it, so the
-     * scope is dead weight for everyone. The legacy content scopes cover
-     * entries and terms, and go only when both are ruled out.
+     * scope is dead weight for everyone.
      */
     private function ruledOutBySite(TokenScope $scope): bool
     {
-        $domains = match ($scope) {
-            TokenScope::FullAccess => [],
-            TokenScope::ContentRead, TokenScope::ContentWrite => ['entries', 'terms'],
-            default => [$scope->group()],
-        };
-
-        if ($domains === []) {
+        if ($scope === TokenScope::FullAccess) {
             return false;
         }
 
-        $mode = str_ends_with($scope->value, ':write') ? 'write' : 'read';
-
-        foreach ($domains as $domain) {
-            if (! $this->domainRuledOut($domain, $mode)) {
-                return false;
-            }
-        }
-
-        return true;
+        return $this->domainRuledOut($scope->group(), str_ends_with($scope->value, ':read') ? 'read' : 'write');
     }
 
     private function domainRuledOut(string $domain, string $mode): bool
@@ -221,6 +350,20 @@ class ScopeAvailability
         }
 
         return config("statamic.mcp.tools.{$domain}.resources.{$mode}") === [];
+    }
+
+    private function canManageFormSpam(User $user): bool
+    {
+        if ($user->hasPermission('manage form spam') && $user->hasPermission('view form submissions')) {
+            return true;
+        }
+        foreach (Form::all() as $form) {
+            if ($user->can('manageSpam', $form) && $user->can('viewSubmissions', $form)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

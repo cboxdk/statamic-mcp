@@ -1,10 +1,21 @@
 <?php
 
+use Cboxdk\StatamicMcp\Actions\Operations\FileOperationStore;
 use Cboxdk\StatamicMcp\OAuth\Drivers\BuiltInOAuthDriver;
 use Cboxdk\StatamicMcp\Storage\Audit\FileAuditStore;
 use Cboxdk\StatamicMcp\Storage\Tokens\FileTokenStore;
 
 return [
+
+    // Registered v4 actions require explicit consent over either transport.
+    'stdio' => ['token' => env('STATAMIC_MCP_STDIO_TOKEN')],
+    // Explicit transport limits. Unknown/missing values disable execution.
+    // Profiles restrict access; HTTP still requires a token and Statamic rights.
+    'profiles' => [
+        'http' => env('STATAMIC_MCP_HTTP_PROFILE'),
+        'stdio' => env('STATAMIC_MCP_STDIO_PROFILE'),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Statamic MCP Server v2.0 Configuration
@@ -24,7 +35,7 @@ return [
     |
     */
     'web' => [
-        'enabled' => env('STATAMIC_MCP_WEB_ENABLED', true),
+        'enabled' => filter_var(env('STATAMIC_MCP_WEB_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
         'path' => env('STATAMIC_MCP_WEB_PATH', '/mcp/statamic'),
 
         // Reject plain HTTP requests to the MCP endpoint (skipped in local/testing)
@@ -51,6 +62,7 @@ return [
     'stores' => [
         'tokens' => FileTokenStore::class,
         'audit' => FileAuditStore::class,
+        'operations' => FileOperationStore::class,
     ],
 
     /*
@@ -61,12 +73,22 @@ return [
     | File paths used by the file-based storage drivers.
     |
     */
+    'operations' => [
+        'max_records' => 256,
+        'retry_seconds' => 3600,
+        // Shared deployments must select DatabaseOperationStore.
+        'multi_node' => false,
+    ],
+
     'storage' => [
+        'operations_path' => storage_path('statamic-mcp/operations'),
         'tokens_path' => storage_path('statamic-mcp/tokens'),
         'audit_path' => storage_path('statamic-mcp/audit.log'),
         'oauth_clients_path' => storage_path('statamic-mcp/oauth/clients'),
         'oauth_codes_path' => storage_path('statamic-mcp/oauth/codes'),
         'oauth_refresh_path' => storage_path('statamic-mcp/oauth/refresh'),
+        // Journals of mcp:migrate-v4 runs (scopes before/after, never secrets).
+        'migrations_path' => storage_path('statamic-mcp/migrations'),
     ],
 
     /*
@@ -98,7 +120,12 @@ return [
         'audit_logging' => env('STATAMIC_MCP_AUDIT_LOGGING', true),
 
         // Maximum upload size in bytes (default: 10MB)
-        'max_upload_size' => env('STATAMIC_MCP_MAX_UPLOAD_SIZE', 10 * 1024 * 1024),
+        // Includes base64 expansion for the default 10 MiB upload limit.
+        'max_input_bytes' => 16 * 1024 * 1024,
+        'max_input_values' => 20000,
+        'max_input_depth' => 64,
+
+        'max_upload_size' => (int) env('STATAMIC_MCP_MAX_UPLOAD_SIZE', 10 * 1024 * 1024),
 
         // statamic-assets upload can fetch the file from a URL (source_url),
         // for remote clients that cannot send megabytes of base64. The server
@@ -115,13 +142,13 @@ return [
             'block_private_ips' => env('STATAMIC_MCP_URL_IMPORT_BLOCK_PRIVATE_IPS', true),
         ],
 
-        // Include version information in API responses (enable for debugging, disable in production)
+        // Include framework versions in server/discover only (off in production).
         'expose_versions' => env('STATAMIC_MCP_EXPOSE_VERSIONS', false),
 
         // Maximum token lifetime in days (null = unlimited)
-        'max_token_lifetime_days' => env('STATAMIC_MCP_MAX_TOKEN_LIFETIME', 365),
+        'max_token_lifetime_days' => env('STATAMIC_MCP_MAX_TOKEN_LIFETIME', 365) === null ? null : (int) env('STATAMIC_MCP_MAX_TOKEN_LIFETIME', 365),
 
-        'tool_timeout_seconds' => env('STATAMIC_MCP_TOOL_TIMEOUT', 30),
+        'tool_timeout_seconds' => (int) env('STATAMIC_MCP_TOOL_TIMEOUT', 30),
 
         // Largest tool response, in bytes, before it is refused as too large.
         // The limit exists to protect the client's context window, so the right
@@ -149,41 +176,86 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Confirmation Tokens
+    | Approvals
     |--------------------------------------------------------------------------
     |
-    | Require a two-step confirmation flow for destructive operations.
-    | Uses stateless HMAC-SHA256 tokens bound to the exact operation.
+    | Gated actions over HTTP wait for the person the call acts as to approve
+    | them in the Control Panel (Tools → MCP → Approvals). An approval covers
+    | one exact call, once, and expires after `ttl` seconds. Approving asks for
+    | Statamic's elevated session. The local stdio server is not gated.
     |
-    | When enabled is null (default), confirmation is auto-detected:
-    | enabled in production, disabled in local/development/testing/staging.
+    | When enabled is null (default), approvals are on in production only.
     | Set to true/false to override.
     |
     */
     'confirmation' => [
         'enabled' => env('STATAMIC_MCP_CONFIRMATION_ENABLED', null),
-        'ttl' => (int) env('STATAMIC_MCP_CONFIRMATION_TTL', 300),
+        'ttl' => (int) env('STATAMIC_MCP_CONFIRMATION_TTL', 900),
 
         /*
-        | Per-domain list of actions that require the confirmation-token flow.
+        | Per-domain list of actions that need a person's approval.
         | Domains not listed fall back to 'default'. An empty array disables
         | the gate for that domain. The '*' wildcard gates every action.
         |
-        | Defaults preserve historical behaviour: 'delete' everywhere plus
-        | create/generate/update on blueprints, and destructive revision actions on
-        | entries. Operators can widen the gate per domain — e.g. require
-        | confirmation on entries.update — without forking the package.
+        | Defaults: 'delete' everywhere, create/generate/update on blueprints,
+        | destructive revision actions on entries, and every users action that
+        | can hand an account to someone else. Operators can widen the gate per
+        | domain — e.g. require approval on entries.update — without forking
+        | the package. A config without a 'users' key still gates users
+        | create, update, activate and assign_role; set 'users' => [] to stop.
         */
         'actions' => [
             'default' => ['delete'],
-            'blueprints' => ['create', 'generate', 'update', 'delete'],
+            'blueprints' => ['create', 'generate', 'update', 'delete', 'create_fieldset', 'update_fieldset', 'delete_fieldset'],
             'entries' => ['delete', 'restore_revision', 'publish_working_copy'],
+            'forms' => ['delete_submission'],
+            'users' => ['create', 'update', 'delete', 'activate', 'assign_role'],
             // 'entries' => ['create', 'update', 'delete', 'publish', 'unpublish', 'restore_revision', 'publish_working_copy'],
             // 'globals' => ['update'],
-            // 'forms'   => ['create', 'update', 'delete'],
             // 'terms'   => ['create', 'update', 'delete'],
             // 'assets'  => ['upload', 'update', 'delete', 'move', 'copy'],
-            // 'users'   => ['create', 'update', 'delete', 'assign-role'],
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Approval channels
+    |--------------------------------------------------------------------------
+    |
+    | Where a waiting approval is announced, besides the Approvals page.
+    | 'auto' (default) picks what this site has:
+    |   - Cbox Relay (cboxrelay.com) when cboxdk/laravel-relay-client is
+    |     configured: mail, web push to the person's browsers and a webhook
+    |     event (statamic_mcp.approval.requested) for Slack, Teams, n8n…
+    |   - otherwise the site's own mailer.
+    |   - Cbox ID (cboxid.com) when cboxdk/laravel-id-client is configured:
+    |     the person approves on their phone (OpenID CIBA). Needs a client an
+    |     operator registered at Cbox ID.
+    | Or list them: 'mail', 'relay', 'cbox_id', or the class name of your own
+    | ApprovalNotifier / ApprovalAuthority. 'none' turns them all off.
+    |
+    | Notifiers only tell; they link to the Approvals page and never approve.
+    |
+    */
+    'approvals' => [
+        'channels' => env('STATAMIC_MCP_APPROVAL_CHANNELS', 'auto'),
+
+        // Mention Cbox Relay and Cbox ID in mails sent without them, and on
+        // the Approvals page.
+        'promote_cbox' => (bool) env('STATAMIC_MCP_PROMOTE_CBOX', true),
+
+        'relay' => [
+            'mail' => (bool) env('STATAMIC_MCP_APPROVAL_RELAY_MAIL', true),
+            'push' => (bool) env('STATAMIC_MCP_APPROVAL_RELAY_PUSH', true),
+            'webhook' => (bool) env('STATAMIC_MCP_APPROVAL_RELAY_WEBHOOK', true),
+        ],
+
+        'cbox_id' => [
+            // The user field holding the person's Cbox ID user id (usr_…);
+            // without it, their email is used (Cbox ID needs it confirmed).
+            'user_field' => env('STATAMIC_MCP_APPROVAL_CBOX_ID_FIELD', 'cbox_id'),
+            'scope' => env('STATAMIC_MCP_APPROVAL_CBOX_ID_SCOPE', 'openid'),
+            'resource' => env('STATAMIC_MCP_APPROVAL_CBOX_ID_RESOURCE'),
         ],
     ],
 
@@ -197,7 +269,7 @@ return [
     |
     */
     'rate_limit' => [
-        'max_attempts' => env('STATAMIC_MCP_RATE_LIMIT_MAX', 60),
+        'max_attempts' => (int) env('STATAMIC_MCP_RATE_LIMIT_MAX', 60),
     ],
 
     /*
@@ -210,14 +282,19 @@ return [
     |
     */
     'oauth' => [
+        // Must be shared across nodes; supports Laravel atomic locks.
+        'lock_store' => env('STATAMIC_MCP_OAUTH_LOCK_STORE'),
         'enabled' => env('STATAMIC_MCP_OAUTH_ENABLED', true),
         'driver' => env('STATAMIC_MCP_OAUTH_DRIVER', BuiltInOAuthDriver::class),
         'code_ttl' => (int) env('STATAMIC_MCP_OAUTH_CODE_TTL', 600),
         'client_ttl' => (int) env('STATAMIC_MCP_OAUTH_CLIENT_TTL', 2592000),
         'token_ttl' => (int) env('STATAMIC_MCP_OAUTH_TOKEN_TTL', 604800), // 7 days
         'refresh_token_ttl' => (int) env('STATAMIC_MCP_OAUTH_REFRESH_TOKEN_TTL', 2592000), // 30 days
-        'default_scopes' => array_filter(explode(',', env('STATAMIC_MCP_OAUTH_DEFAULT_SCOPES', 'content:read,blueprints:read,structures:read,entries:read,terms:read,globals:read,forms:read,assets:read,system:read,content-facade:read'))),
+        'default_scopes' => array_filter(explode(',', env('STATAMIC_MCP_OAUTH_DEFAULT_SCOPES', 'blueprints:read,structures:read,entries:read,terms:read,globals:read,assets:read,system:read,content-facade:read'))),
         'max_clients' => (int) env('STATAMIC_MCP_OAUTH_MAX_CLIENTS', 50),
+        // A registered client that has not been authorized within this many
+        // seconds is removed and stops counting toward max_clients.
+        'unused_client_ttl' => (int) env('STATAMIC_MCP_OAUTH_UNUSED_CLIENT_TTL', 86400),
         'max_clients_per_ip' => (int) env('STATAMIC_MCP_OAUTH_MAX_CLIENTS_PER_IP', 5),
 
         // Client ID Metadata Document (CIMD) support
@@ -265,27 +342,35 @@ return [
     | Cache
     |--------------------------------------------------------------------------
     |
-    | Whether a write clears Statamic's caches, and it does — because Statamic
-    | does not rebuild the indexes that DEPEND on a write. Change a field's
-    | max_items and its index keeps the old shape until a query throws on it;
-    | change a collection's mount and every entry 404s; remove a taxonomy and
-    | whereTaxonomy() goes on returning entries. That list is long and version
-    | dependent, so it is not worth enumerating by hand.
+    | What a write does to Statamic's caches once the tool call is finished.
     |
-    | What changed in 3.1.0 is WHEN. The clear used to run through Artisan in
-    | the middle of the request, resetting the in-memory stores while the call
-    | was still using them: on a live multisite the tree repository returned
-    | nothing, Statamic padded the empty tree with every entry at root, and a
-    | random entry became the homepage (issue #53). It now runs once the tool
-    | call is finished, when the response is built and nothing further reads
-    | Statamic — same coverage, without the mechanism that did the damage.
+    | Statamic keeps the store of the item it saves current, but not indexes
+    | elsewhere that depend on the write: a deleted entry's term usage, the
+    | order of a moved page's siblings, the URIs of a collection mounted on a
+    | deleted page, every index of a collection whose route, mount or
+    | taxonomies changed, users' role membership when a group changes.
     |
-    | Turn either off if you would rather trade index freshness for speed on a
-    | large site, and rely on your own invalidation rules.
+    | stache_after_write:
+    |   'repair' (default) — bring exactly those indexes up to date. The result
+    |            equals a rebuild from disk (tests/Feature/Cache/
+    |            StacheConsistencyTest) and a write costs what a Statamic save
+    |            costs, not a rebuild of the whole site.
+    |   'clear'  — clear the whole Stache, as 3.x did. About 1 ms per entry on
+    |            the site, on every write.
+    |   'none'   — leave the Stache alone and rely on your own invalidation.
+    |
+    | The static cache is flushed in full by default: listing pages, globals
+    | and navigation render other records than the one written.
+    |
+    | Either runs after the call, never in the middle of it: a clear mid-call
+    | emptied a live site's collection tree (issue #53).
     |
     */
     'cache' => [
-        'clear_stache_after_write' => env('STATAMIC_MCP_CLEAR_STACHE_AFTER_WRITE', true),
+        'stache_after_write' => env('STATAMIC_MCP_STACHE_AFTER_WRITE', 'repair'),
+        // full: clear; statamic: native rules only; refresh: clear, then queue
+        // previously cached pages. Null preserves the legacy switch below.
+        'static_after_write' => env('STATAMIC_MCP_STATIC_AFTER_WRITE'),
         'clear_static_after_write' => env('STATAMIC_MCP_CLEAR_STATIC_AFTER_WRITE', true),
     ],
 
@@ -296,19 +381,20 @@ return [
     |
     | How the tool list is presented to clients at connect time.
     |
-    | With 'searchable' on, only the tools a session usually opens with are
-    | listed — entries, blueprints and discovery. The rest are reached through
-    | search_tools and execute_tools. The full catalog is ~31 KB of schema that
-    | every client pays for on every connection before it has asked anything;
-    | withholding the rest cuts that by about 60%. They stay fully available and
-    | fully gated — only their schemas wait until a client asks for them.
+    | Every tool is listed by default, each area as a -read tool and a -write
+    | or -admin tool, and only the tools the caller's token can use. Claude
+    | Code, Cursor and claude.ai search large catalogs themselves, and a listed
+    | tool keeps its own name and annotations, which their permission rules use.
     |
-    | Turn it off if your MCP client handles search_tools poorly and you would
-    | rather it saw every tool listed directly.
+    | Turn 'searchable' on for a client that loads every schema up front and
+    | has no tool search of its own: only discovery, entries and blueprints are
+    | listed, and the rest are reached through search_tools and execute_tools.
+    | They stay fully gated, but a client then sees one execute_tools tool, so
+    | it cannot tell reads from writes.
     |
     */
     'catalog' => [
-        'searchable' => env('STATAMIC_MCP_SEARCHABLE_CATALOG', true),
+        'searchable' => (bool) env('STATAMIC_MCP_SEARCHABLE_CATALOG', false),
     ],
 
     /*
@@ -341,6 +427,12 @@ return [
     |
     */
     'tools' => [
+        'forms' => [
+            'enabled' => env('STATAMIC_MCP_TOOL_FORMS_ENABLED', true),
+            'resources' => ['read' => ['*'], 'write' => ['*']],
+            // Applies to definitions, submission reads and exports.
+            'denied_fields' => [],
+        ],
         'blueprints' => [
             'enabled' => env('STATAMIC_MCP_TOOL_BLUEPRINTS_ENABLED', true),
             'resources' => [
@@ -367,14 +459,6 @@ return [
         ],
         'globals' => [
             'enabled' => env('STATAMIC_MCP_TOOL_GLOBALS_ENABLED', true),
-            'resources' => [
-                'read' => ['*'],
-                'write' => ['*'],
-            ],
-            'denied_fields' => [],
-        ],
-        'forms' => [
-            'enabled' => env('STATAMIC_MCP_TOOL_FORMS_ENABLED', true),
             'resources' => [
                 'read' => ['*'],
                 'write' => ['*'],

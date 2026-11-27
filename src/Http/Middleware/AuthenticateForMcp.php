@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Http\Middleware;
 
 use Cboxdk\StatamicMcp\Auth\TokenService;
+use Cboxdk\StatamicMcp\OAuth\ResourceIndicator;
+use Cboxdk\StatamicMcp\OAuth\ScopeChallenge;
 use Cboxdk\StatamicMcp\Support\McpContext;
 use Closure;
 use Illuminate\Http\Request;
@@ -34,29 +36,20 @@ class AuthenticateForMcp
             : Str::uuid()->toString();
         $request->attributes->set('mcp_correlation_id', $correlationId);
 
-        // IP-level rate limiting for brute-force auth protection
-        // Per-request throttling is handled by the separate throttle:mcp middleware
-        $ip = $request->ip() ?? 'unknown';
-        $rateLimitKey = "mcp_auth:{$ip}";
-        if (RateLimiter::tooManyAttempts($rateLimitKey, 5)) {
-            return response()->json([
-                'error' => 'Too many authentication attempts',
-                'message' => 'Please wait before trying again',
-            ], 429, [
-                'Retry-After' => (string) RateLimiter::availableIn($rateLimitKey),
-            ]);
-        }
-
         // Mark this as a web request authoritatively, so context detection does
         // not depend on the process SAPI (Octane/Swoole workers report console).
         $request->attributes->set(McpContext::WEB_ATTRIBUTE, true);
 
-        // Try Bearer token first (scoped MCP API tokens)
+        // Try Bearer token first (scoped MCP API tokens). A valid token always
+        // gets through: only failed attempts are counted, so a scanner or a
+        // stale client behind a shared address (an office, a cloud egress)
+        // cannot lock out everyone else there. Per-request throttling is the
+        // separate throttle:mcp middleware.
         $plainToken = $request->bearerToken();
         if ($plainToken) {
             $mcpToken = $this->tokenService->validateToken($plainToken);
 
-            if ($mcpToken) {
+            if ($mcpToken && ($mcpToken->oauthClientId === null || $mcpToken->capabilities?->resource === ResourceIndicator::identifier($request))) {
                 $statamicUser = User::find($mcpToken->userId);
 
                 if ($statamicUser && ! $this->isDeactivated($statamicUser)) {
@@ -67,35 +60,21 @@ class AuthenticateForMcp
                     return $next($request);
                 }
             }
-
-            // Bearer token was provided but invalid — rate limit
-            RateLimiter::hit($rateLimitKey, 60);
         }
 
-        // Try Basic Auth as fallback
-        $credentials = $this->getBasicAuthCredentials($request);
-        if ($credentials) {
-            $user = $this->authenticateWithCredentials($credentials['email'], $credentials['password']);
-
-            if ($user) {
-                $request->attributes->set('statamic_user', $user);
-                Auth::setUser($user);
-
-                return $next($request);
+        // Password-only access was removed in v4, even with legacy config.
+        if ($plainToken || $request->hasHeader('Authorization')) {
+            if ($limited = $this->countFailure($request, (string) $request->header('Authorization'))) {
+                return $limited;
             }
-
-            // Basic Auth credentials were provided but invalid — rate limit
-            RateLimiter::hit($rateLimitKey, 60);
         }
 
-        $wwwAuth = 'Bearer realm="Statamic MCP"';
-        if (config('statamic.mcp.oauth.enabled', true)) {
-            $wwwAuth = 'Bearer resource_metadata="' . url('/.well-known/oauth-protected-resource') . '"';
-        }
+        $challenge = app(ScopeChallenge::class);
+        $wwwAuth = $challenge->header($request, $challenge->forRequest($request) ?: ScopeChallenge::initialScopes());
 
         return response()->json([
             'error' => 'Authentication required',
-            'message' => 'Provide a Bearer token or Basic Auth credentials',
+            'message' => 'Provide a Bearer token or authenticate through OAuth',
             'hint' => 'Create an API token in the Statamic MCP dashboard',
         ], 401, [
             'WWW-Authenticate' => $wwwAuth,
@@ -103,62 +82,30 @@ class AuthenticateForMcp
     }
 
     /**
-     * Get Basic Auth credentials from request.
-     *
-     * @return array{email: string, password: string}|null
+     * Counts a failed credential against the credential itself (a stale
+     * token retried in a loop) and against the address (many guesses), and
+     * answers 429 once either is over its limit.
      */
-    private function getBasicAuthCredentials(Request $request): ?array
+    private function countFailure(Request $request, string $credential): ?Response
     {
-        $header = $request->header('Authorization');
+        $keys = [
+            'mcp_auth:credential:' . substr(hash('sha256', $credential), 0, 32) => 5,
+            'mcp_auth:ip:' . ($request->ip() ?? 'unknown') => 30,
+        ];
 
-        if (! $header || ! str_starts_with($header, 'Basic ')) {
-            return null;
-        }
-
-        $decoded = base64_decode(substr($header, 6), true);
-
-        if ($decoded === false || ! str_contains($decoded, ':')) {
-            return null;
-        }
-
-        // Reject credentials containing null bytes
-        if (str_contains($decoded, "\x00")) {
-            return null;
-        }
-
-        [$email, $password] = explode(':', $decoded, 2);
-
-        return ['email' => $email, 'password' => $password];
-    }
-
-    /**
-     * Authenticate user with email and password using Statamic's auth system.
-     */
-    private function authenticateWithCredentials(string $email, #[\SensitiveParameter] string $password): ?\Statamic\Contracts\Auth\User
-    {
-        // Dummy hash used to ensure constant-time response when user doesn't exist,
-        // preventing account enumeration via timing analysis.
-        $dummyHash = '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi';
-
-        try {
-            $user = User::findByEmail($email);
-
-            $userPassword = $user?->password() ?? $dummyHash;
-
-            // Always run password_verify to prevent timing-based user enumeration
-            $passwordValid = password_verify($password, $userPassword);
-
-            if (! $user || ! $passwordValid || ! $user->hasPermission('access cp') || $this->isDeactivated($user)) {
-                return null;
+        foreach ($keys as $key => $limit) {
+            if (RateLimiter::tooManyAttempts($key, $limit)) {
+                return response()->json([
+                    'error' => 'Too many authentication attempts',
+                    'message' => 'Please wait before trying again',
+                ], 429, ['Retry-After' => (string) RateLimiter::availableIn($key)]);
             }
-
-            return $user;
-        } catch (\Exception $e) {
-            // Constant-time path on exception
-            password_verify($password, $dummyHash);
-
-            return null;
         }
+        foreach (array_keys($keys) as $key) {
+            RateLimiter::hit($key, 60);
+        }
+
+        return null;
     }
 
     /**

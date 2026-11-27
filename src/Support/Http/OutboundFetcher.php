@@ -74,8 +74,12 @@ final class OutboundFetcher
                 throw new FetchRefused(FetchRefused::BAD_URL, "{$host} is not on this site's list of hosts files may be fetched from.");
             }
 
-            $options = ['allow_redirects' => false, 'stream' => true, 'connect_timeout' => $timeout, 'http_errors' => false];
+            $sink = new BoundedStream($maxBytes);
+            $options = ['allow_redirects' => false, 'stream' => true, 'connect_timeout' => $timeout, 'http_errors' => false, 'sink' => $sink];
             $pending = Http::withHeaders($headers)->timeout($timeout);
+            if (extension_loaded('curl')) {
+                $pending = $pending->setHandler(new CurlHandler);
+            }
 
             if ($address !== null) {
                 // Pin the connection to the address vet() checked, and force the cURL
@@ -97,7 +101,12 @@ final class OutboundFetcher
 
             try {
                 $response = $pending->withOptions($options)->get($url);
+            } catch (FetchRefused $e) {
+                throw $e;
             } catch (\Throwable $e) {
+                if ($sink->exceeded) {
+                    throw new FetchRefused(FetchRefused::TOO_LARGE, "Response exceeds the {$maxBytes}-byte limit.", $e);
+                }
                 throw new FetchRefused(FetchRefused::FAILED, "Could not fetch {$url}: {$e->getMessage()}", $e);
             }
 

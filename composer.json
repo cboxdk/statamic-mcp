@@ -25,9 +25,10 @@
     },
     "require": {
         "php": "^8.3",
-        "statamic/cms": "^6.6",
-        "laravel/mcp": "^1.0",
-        "symfony/yaml": "^7.0 || ^8.0"
+        "statamic/cms": "^6.44",
+        "laravel/mcp": "^1.3",
+        "symfony/yaml": "^7.0 || ^8.0",
+        "opis/json-schema": "^2.6.1"
     },
     "require-dev": {
         "orchestra/testbench": "^10.0|^11.0",
@@ -76,7 +77,11 @@
         }
     },
     "suggest": {
-        "laravel/boost": "Enhances the development experience when working with this Statamic MCP server by providing powerful Laravel-specific tools and debugging capabilities"
+        "statamic/forms-pro": "Forms Pro reference integration: Automagic settings, page logic and Address fields (^1.0.1; separately licensed)",
+        "statamic/seo-pro": "SEO Pro reference integration: defaults, redirects, errors, reports and sitemap (^7.16; separately licensed)",
+        "laravel/boost": "Enhances the development experience when working with this Statamic MCP server by providing powerful Laravel-specific tools and debugging capabilities",
+        "cboxdk/laravel-relay-client": "Cbox Relay (cboxrelay.com): approval requests by mail, web push and webhooks (^0.2.3, PHP 8.4)",
+        "cboxdk/laravel-id-client": "Cbox ID (cboxid.com): approve agent actions on your phone with OpenID CIBA (^0.19.8, PHP 8.4)"
     },
     "minimum-stability": "stable",
     "prefer-stable": true

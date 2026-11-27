@@ -25,7 +25,7 @@ class DiscoveryEndpointTest extends TestCase
         $this->assertSame(['header'], $data['bearer_methods_supported']);
     }
 
-    public function test_protected_resource_contains_all_scopes(): void
+    public function test_protected_resource_advertises_only_initial_read_scopes(): void
     {
         $response = $this->getJson('/.well-known/oauth-protected-resource');
 
@@ -34,14 +34,9 @@ class DiscoveryEndpointTest extends TestCase
         $data = $response->json();
         $scopes = $data['scopes_supported'];
 
-        // Ensure all TokenScope values are present
-        foreach (TokenScope::cases() as $scope) {
-            $this->assertContains($scope->value, $scopes, "Scope {$scope->value} should be present");
-        }
-
-        $this->assertContains('*', $scopes);
-        $this->assertContains('content:read', $scopes);
-        $this->assertContains('content:write', $scopes);
+        $this->assertSame(['blueprints:read', 'entries:read'], $scopes);
+        config(['statamic.mcp.tools.entries.enabled' => false]);
+        $this->assertSame(['blueprints:read'], $this->getJson('/.well-known/oauth-protected-resource')->json('scopes_supported'));
     }
 
     public function test_authorization_server_returns_correct_structure(): void
@@ -53,6 +48,7 @@ class DiscoveryEndpointTest extends TestCase
 
         // The controller derives endpoints from the request URL, not config('app.url')
         $this->assertArrayHasKey('issuer', $data);
+        $this->assertTrue($data['authorization_response_iss_parameter_supported']);
         $this->assertStringEndsWith('/cp/mcp/oauth/authorize', $data['authorization_endpoint']);
         $this->assertStringEndsWith('/mcp/oauth/token', $data['token_endpoint']);
         $this->assertStringEndsWith('/mcp/oauth/register', $data['registration_endpoint']);
@@ -72,8 +68,11 @@ class DiscoveryEndpointTest extends TestCase
         $scopes = $data['scopes_supported'];
 
         foreach (TokenScope::cases() as $scope) {
-            $this->assertContains($scope->value, $scopes, "Scope {$scope->value} should be present");
+            ! $scope->isRetired()
+                ? $this->assertContains($scope->value, $scopes, "Scope {$scope->value} should be present")
+                : $this->assertNotContains($scope->value, $scopes, "Retired scope {$scope->value} must not be advertised");
         }
+        $this->assertContains('structures:admin', $scopes);
     }
 
     public function test_authorization_server_includes_s256_code_challenge(): void

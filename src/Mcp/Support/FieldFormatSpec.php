@@ -11,6 +11,7 @@ use Statamic\Fieldtypes\Bard;
 use Statamic\Fieldtypes\Grid;
 use Statamic\Fieldtypes\Group;
 use Statamic\Fieldtypes\Replicator;
+use Statamic\Fieldtypes\Terms;
 
 /**
  * Derives an agent-friendly wire-format specification from a Statamic Field.
@@ -50,12 +51,17 @@ class FieldFormatSpec
             return [
                 'wire_format' => 'truncated',
                 'shape' => 'truncated',
-                'rules' => ["Recursion truncated at depth {$this->maxDepth}. Re-fetch scoped to this field — statamic-blueprints get with the `field` path — rather than raising max_format_depth on the whole blueprint, which on a large one exceeds the response limit."],
+                'rules' => ["Recursion truncated at depth {$this->maxDepth}. Re-fetch scoped to this field — statamic-blueprints-read get with the `field` path — rather than raising max_format_depth on the whole blueprint, which on a large one exceeds the response limit."],
             ];
         }
 
+        // A site's registered format must not stop matching its sanitizer when
+        // this package adds built-in support for the same fieldtype.
+        if (($registered = FieldtypeExtensions::resolveSpec($field)) !== null) {
+            return $registered;
+        }
+
         return match ($field->type()) {
-            'seo_pro', 'seo_pro_source' => SeoProFieldData::spec($field),
             'bard' => $this->bardSpec($field, $depth),
             'replicator' => $this->replicatorSpec($field, $depth),
             'grid' => $this->gridSpec($field, $depth),
@@ -67,10 +73,34 @@ class FieldFormatSpec
             'float' => ['wire_format' => 'number', 'shape' => 'number'],
             'toggle' => ['wire_format' => 'boolean', 'shape' => 'boolean'],
             'select', 'radio', 'button_group' => $this->selectSpec($field),
+            'width' => $this->widthSpec($field),
+            'range' => $this->rangeSpec($field),
+            'dictionary' => $this->dictionarySpec($field),
+            'list' => [
+                'wire_format' => 'array', 'shape' => 'scalar_list',
+                'rules' => ['A list of scalar values. Statamic removes empty strings and nulls, and converts numeric strings to numbers.'],
+                'example' => ['First', 23, 'Last'],
+            ],
+            'array' => [
+                'wire_format' => 'object', 'shape' => 'key_value', 'expanded' => (bool) $field->get('expand', false),
+                'rules' => ['Send a key/value object. With expand enabled, storage returns [{key, value, hidden?}]; that form can also be sent back unchanged.'],
+                'example' => ['first' => 'One', 'second' => 23],
+            ],
             'checkboxes' => $this->checkboxesSpec($field),
             'entries', 'terms', 'users', 'taxonomy' => $this->relationshipSpec($field),
+            'collections', 'navs', 'sites', 'form', 'user_roles', 'user_groups' => [
+                'wire_format' => 'array', 'shape' => 'handles',
+                'max_items' => $field->fieldtype()->config('max_items'),
+                'rules' => ['Use existing resource handles, not titles or IDs. Send an array; a stored single handle is also accepted.',
+                    'When max_items is explicitly 1, Statamic stores a single handle; otherwise it stores the array.'],
+            ],
             'assets' => $this->assetsSpec($field),
-            'date' => [
+            'date' => $field->get('mode') === 'range' ? [
+                'wire_format' => 'object', 'shape' => 'date_range',
+                'rules' => ['An object with start and end dates. Both accept the same date/datetime formats as a single date.',
+                    'Dates without an offset are wall-clock values in the app timezone; ISO 8601 offsets describe instants. Storage follows the field format.'],
+                'example' => ['start' => '2026-01-03', 'end' => '2026-02-15'],
+            ] : [
                 'wire_format' => 'string_or_object',
                 'shape' => 'date',
                 'rules' => [
@@ -91,7 +121,7 @@ class FieldFormatSpec
             ],
             'table' => $this->tableSpec(),
             'link' => $this->linkSpec(),
-            default => FieldtypeExtensions::resolveSpec($field),
+            default => null,
         };
     }
 
@@ -131,12 +161,13 @@ class FieldFormatSpec
 
         $config = $field->config();
         $isInline = (bool) ($config['inline'] ?? false);
-        /** @var array<int, mixed> $rawButtons */
-        $rawButtons = is_array($config['buttons'] ?? null) ? $config['buttons'] : [];
+        $configuredButtons = $fieldtype->config('buttons');
+        $rawButtons = is_array($configuredButtons) ? $configuredButtons : [];
         $buttons = array_values(array_filter($rawButtons, 'is_string'));
 
         $marks = $this->bardMarksFromButtons($buttons);
         $allowedHeadings = $this->bardHeadingsFromButtons($buttons);
+        $vocabulary = $fieldtype instanceof Bard ? new BardNodes($fieldtype) : null;
 
         if ($isInline) {
             return [
@@ -149,13 +180,13 @@ class FieldFormatSpec
                 ],
                 'allowed_node_types' => ['text', 'hardBreak'],
                 'allowed_marks' => $marks,
+                'registered_marks' => $vocabulary->marks ?? [],
                 'common_mistakes' => [
                     'Wrapping nodes in a paragraph — inline bard rejects block-level wrappers.',
                     'Sending a plain string instead of an array of inline nodes.',
                 ],
                 'example' => [
-                    ['type' => 'text', 'text' => 'Hello '],
-                    ['type' => 'text', 'marks' => [['type' => 'bold']], 'text' => 'world'],
+                    ['type' => 'text', 'text' => 'Hello world'],
                 ],
             ];
         }
@@ -188,8 +219,10 @@ class FieldFormatSpec
                 'Set handle goes inside attrs.values.type, NOT on the outer node.',
                 'Inside set fields, the same wire-format rules apply per fieldtype (markdown is a string, nested bard is nodes, etc.).',
             ],
-            'allowed_node_types' => ['paragraph', 'heading', 'bulletList', 'orderedList', 'listItem', 'set', 'hardBreak'],
+            'allowed_node_types' => $vocabulary->nodes ?? [],
             'allowed_marks' => $marks,
+            'registered_marks' => $vocabulary->marks ?? [],
+            'rules_for_toolbar' => 'Marks and heading levels describe the toolbar. Registered nodes and marks already in stored content remain writable even if their toolbar button is hidden.',
             'allowed_heading_levels' => $allowedHeadings,
             'allowed_set_types' => $allowedSetTypes,
             'set_node_shape' => [
@@ -209,14 +242,6 @@ class FieldFormatSpec
             ],
             'example' => [
                 ['type' => 'paragraph', 'content' => [['type' => 'text', 'text' => 'Body paragraph']]],
-                [
-                    'type' => 'set',
-                    'attrs' => [
-                        'values' => [
-                            'type' => '<set_handle>',
-                        ],
-                    ],
-                ],
             ],
         ];
 
@@ -544,23 +569,55 @@ class FieldFormatSpec
     private function relationshipSpec(Field $field): array
     {
         $config = $field->config();
-        $maxItems = $config['max_items'] ?? null;
-        $singular = $maxItems === 1;
+        $singular = ($config['max_items'] ?? null) === 1;
+        $wrap = $singular ? 'Single-relationship field. The wire format is still an array: wrap the one value in [].' : null;
 
-        return [
+        if (in_array($field->type(), ['terms', 'taxonomy'], true)) {
+            $fieldtype = $field->fieldtype();
+            $taxonomies = $fieldtype instanceof Terms
+                ? array_values(array_filter($fieldtype->taxonomies(), 'is_string'))
+                : [];
+            $single = count($taxonomies) === 1;
+
+            return array_filter([
+                'wire_format' => 'array',
+                'shape' => 'term_references',
+                'taxonomies' => $taxonomies,
+                'item_format' => $single ? 'term_slug' : 'taxonomy::slug',
+                'rules' => array_values(array_filter([
+                    $wrap,
+                    $single
+                        ? "Each value is the slug of an existing term in {$taxonomies[0]} (\"php\"), or {$taxonomies[0]}::slug."
+                        : 'Each value is taxonomy::slug of an existing term ("tags::php").',
+                    'The term must exist. Create a new term with the terms tool first; an unknown value is refused, not created.',
+                ])),
+                'examples' => [$single ? ['php', 'laravel'] : ['tags::php', 'topics::news']],
+                'common_mistakes' => ['Sending a UUID: term ids are taxonomy::slug, not UUIDs.'],
+            ], fn (mixed $v): bool => $v !== []);
+        }
+
+        if ($field->type() === 'users') {
+            return [
+                'wire_format' => 'array',
+                'shape' => 'user_ids',
+                'item_format' => 'user_id',
+                'rules' => array_values(array_filter([$wrap, 'Each value is the id of an existing user (from the users tool).'])),
+            ];
+        }
+
+        $collections = array_values(array_filter((array) ($config['collections'] ?? []), 'is_string'));
+
+        return array_filter([
             'wire_format' => 'array',
-            'shape' => 'relationship_ids',
-            'rules' => [
-                $singular
-                    ? 'Single-relationship field. Wire format is still an array — wrap the single UUID in [].'
-                    : 'Array of UUIDs referencing the related resources.',
-            ],
-            'item_format' => 'uuid_string',
-            'common_mistakes' => [
-                'Sending a bare string — relationship fields always expect arrays.',
-                'Including a prefix like "entry::" — pass the UUID directly.',
-            ],
-        ];
+            'shape' => 'entry_ids',
+            'collections' => $collections,
+            'item_format' => 'entry_id',
+            'rules' => array_values(array_filter([
+                $wrap,
+                'Each value is the id of an existing entry' . ($collections === [] ? '.' : ' in ' . implode(', ', $collections) . '.'),
+            ])),
+            'common_mistakes' => ['Including a prefix like "entry::": pass the id directly.'],
+        ], fn (mixed $v): bool => $v !== []);
     }
 
     /**
@@ -575,11 +632,53 @@ class FieldFormatSpec
         return [
             'wire_format' => $singular ? 'string' : 'array',
             'shape' => $singular ? 'asset_path' : 'asset_paths',
+            'container' => $field->fieldtype()->config('container'),
+            'max_files' => $maxFiles,
             'rules' => [
                 $singular
-                    ? 'Single asset path string, e.g. "/assets/foo.png".'
-                    : 'Array of asset path strings.',
+                    ? 'Single existing asset path relative to the configured container, e.g. "images/photo.jpg".'
+                    : 'Array of existing asset paths relative to the configured container.',
+                'Use container::path when no container is configured. Public URLs and /assets/ prefixes are not storage paths.',
             ],
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function rangeSpec(Field $field): array
+    {
+        $type = $field->fieldtype();
+        $bounds = [];
+        $decimal = false;
+        foreach (['min', 'max', 'step'] as $key) {
+            $value = $type->config($key);
+            $bounds[$key] = is_numeric($value) ? $value + 0 : $value;
+            $decimal = $decimal || (is_numeric($value) && floor((float) $value) != (float) $value);
+        }
+
+        return ['wire_format' => $decimal ? 'number' : 'integer', 'shape' => 'range', ...$bounds,
+            'example' => $decimal ? (float) $bounds['min'] : (int) $bounds['min']];
+    }
+
+    /** @return array<string, mixed> */
+    private function widthSpec(Field $field): array
+    {
+        $type = $field->fieldtype();
+        $options = $type->config('options');
+        $values = is_array($options) ? array_map(fn (array $option): mixed => $option['value'], $type->preload()['options']) : [];
+        $multiple = (bool) $type->config('multiple');
+
+        return ['wire_format' => $multiple ? 'array' : 'scalar', 'shape' => $multiple ? 'enum_array' : 'enum',
+            'allowed_values' => $values, 'example' => $multiple ? array_slice($values, 0, 1) : ($values[0] ?? null)];
+    }
+
+    /** @return array<string, mixed> */
+    private function dictionarySpec(Field $field): array
+    {
+        $single = $field->get('max_items') === 1;
+
+        return ['wire_format' => $single ? 'scalar' : 'array', 'shape' => 'dictionary_keys',
+            'dictionary' => $field->get('dictionary'), 'max_items' => $field->get('max_items'),
+            'rules' => ['Use dictionary keys, not labels or objects. For countries, Denmark is DNK, not DK or Denmark.'],
         ];
     }
 

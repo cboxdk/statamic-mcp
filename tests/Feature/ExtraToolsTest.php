@@ -7,13 +7,14 @@ use Cboxdk\StatamicMcp\Auth\McpToken;
 use Cboxdk\StatamicMcp\Mcp\ExtraTools;
 use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
 use Cboxdk\StatamicMcp\Mcp\Tools\System\DiscoveryTool;
-use Cboxdk\StatamicMcp\Mcp\Tools\System\SchemaTool;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Cboxdk\StatamicMcp\Tests\Fixtures\ExtraTools\BrokenKeywordsExtraRouter;
 use Cboxdk\StatamicMcp\Tests\Fixtures\ExtraTools\KeywordedExtraRouter;
 use Cboxdk\StatamicMcp\Tests\Fixtures\ExtraTools\PermissionedExtraRouter;
 use Cboxdk\StatamicMcp\Tests\Fixtures\ExtraTools\SystemScopedExtraRouter;
 use Cboxdk\StatamicMcp\Tests\Fixtures\ExtraTools\UnscopedExtraRouter;
+use Illuminate\Config\Repository;
+use Illuminate\Container\Container;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Mcp\Server\Contracts\Transport;
 use Laravel\Mcp\Server\ServerContext;
@@ -50,7 +51,7 @@ function extraToolsCatalog(): array
     $searchable = $tools[ToolSearch::class] ?? [];
     unset($tools[ToolSearch::class]);
 
-    $name = fn (string $class): string => app($class)->name();
+    $name = fn (string|Tool $tool): string => (is_string($tool) ? app($tool) : $tool)->name();
 
     return [
         'listed' => array_values(array_map($name, $tools)),
@@ -116,25 +117,28 @@ function callAsWebClient(string $class, array $scopes, ?array $permissions = nul
     return app($class)->execute(['action' => 'get']);
 }
 
-it('serves a registered tool through search_tools by default', function () {
+it('serves a registered tool through search_tools when the split catalog is on', function () {
+    config()->set('statamic.mcp.catalog.searchable', true);
     StatamicMcpServer::registerTool(UnscopedExtraRouter::class);
 
     $catalog = extraToolsCatalog();
 
-    expect($catalog['searchable'])->toContain('fixture-site-health')
-        ->and($catalog['listed'])->not->toContain('fixture-site-health');
+    expect($catalog['searchable'])->toContain('fixture-site-health-read')
+        ->and($catalog['listed'])->not->toContain('fixture-site-health-read');
 });
 
 it('lists a registered tool at connect time when it is not searchable', function () {
+    config()->set('statamic.mcp.catalog.searchable', true);
     StatamicMcpServer::registerTool(UnscopedExtraRouter::class, searchable: false);
 
     $catalog = extraToolsCatalog();
 
-    expect($catalog['listed'])->toContain('fixture-site-health')
-        ->and($catalog['searchable'])->not->toContain('fixture-site-health');
+    expect($catalog['listed'])->toContain('fixture-site-health-read')
+        ->and($catalog['searchable'])->not->toContain('fixture-site-health-read');
 });
 
 it('reads extra tools from config', function () {
+    config()->set('statamic.mcp.catalog.searchable', true);
     config()->set('statamic.mcp.extra_tools', [
         UnscopedExtraRouter::class,
         ['class' => SystemScopedExtraRouter::class, 'searchable' => false],
@@ -142,15 +146,15 @@ it('reads extra tools from config', function () {
 
     $catalog = extraToolsCatalog();
 
-    expect($catalog['searchable'])->toContain('fixture-site-health')
-        ->and($catalog['listed'])->toContain('fixture-system-health');
+    expect($catalog['searchable'])->toContain('fixture-site-health-read')
+        ->and($catalog['listed'])->toContain('fixture-system-health-read');
 });
 
 it('lists every tool directly when the searchable catalog is off', function () {
     config()->set('statamic.mcp.catalog.searchable', false);
     StatamicMcpServer::registerTool(UnscopedExtraRouter::class);
 
-    expect(extraToolsCatalog()['listed'])->toContain('fixture-site-health');
+    expect(extraToolsCatalog()['listed'])->toContain('fixture-site-health-read');
 });
 
 it('keeps the flat tool list complete', function () {
@@ -162,18 +166,21 @@ it('keeps the flat tool list complete', function () {
         ->and($tools)->toContain(...StatamicMcpServer::CORE_TOOLS);
 });
 
-it('names searchable extra tools in the instructions', function () {
+it('does not advertise extension names in universal instructions', function () {
+    config()->set('statamic.mcp.catalog.searchable', true);
     StatamicMcpServer::registerTool(UnscopedExtraRouter::class);
 
-    expect(app(StatamicMcpServer::class)->createContext()->instructions)->toContain('fixture-site-health');
+    expect(app(StatamicMcpServer::class)->createContext()->instructions)->not->toContain('fixture-site-health-read');
 });
 
 it('tells the discovery tool about a listed extra tool', function () {
+    config()->set('statamic.mcp.catalog.searchable', true);
     StatamicMcpServer::registerTool(UnscopedExtraRouter::class, searchable: false);
 
-    $names = (new ReflectionMethod(DiscoveryTool::class, 'catalogToolNames'))->invoke(app(DiscoveryTool::class));
+    $result = app(DiscoveryTool::class)->execute([]);
+    $names = array_keys($result['data']['discovery']['available_tools']);
 
-    expect($names)->toContain('fixture-site-health');
+    expect($names)->toContain('fixture-site-health-read');
 });
 
 /**
@@ -190,12 +197,13 @@ function discoverRecommends(string $intent): array
 }
 
 it('recommends an extra tool for an intent that matches its keywords', function () {
+    config()->set('statamic.mcp.catalog.searchable', true);
     StatamicMcpServer::registerTool(KeywordedExtraRouter::class);
 
     $recommended = discoverRecommends('Change the SEO title and meta description of a page');
 
     expect($recommended[0])->toBe([
-        'tool' => 'fixture-seo',
+        'tool' => 'fixture-seo-read',
         'reason' => 'Fixture: a page\'s SEO title and meta description.',
         'access' => 'via_execute_tools',
     ]);
@@ -208,38 +216,39 @@ it('ranks an extra tool by how many of its keywords the intent contains', functi
     // "seo" and "canonical" (declared in capitals) are two for the extra tool.
     $tools = array_column(discoverRecommends('fix the seo canonical of a page'), 'tool');
 
-    expect($tools[0])->toBe('fixture-seo')
-        ->and($tools)->toContain('statamic-entries', 'statamic-globals');
+    expect($tools[0])->toBe('fixture-seo-read')
+        ->and($tools)->toContain('statamic-entries-read', 'statamic-globals-read');
 
     // One point each: the built-in routers keep their place ahead of a tie.
     $tied = array_column(discoverRecommends('seo of a page'), 'tool');
 
-    expect($tied)->toBe(['statamic-entries', 'statamic-globals', 'fixture-seo']);
+    expect($tied)->toBe(['statamic-entries-read', 'statamic-globals-read', 'fixture-seo-read']);
 });
 
 it('says an extra tool listed at connect time is in the catalog', function () {
+    config()->set('statamic.mcp.catalog.searchable', true);
     StatamicMcpServer::registerTool(KeywordedExtraRouter::class, searchable: false);
 
-    expect(discoverRecommends('seo canonical')[0])->toMatchArray(['tool' => 'fixture-seo', 'access' => 'listed_in_catalog']);
+    expect(discoverRecommends('seo canonical')[0])->toMatchArray(['tool' => 'fixture-seo-read', 'access' => 'listed_in_catalog']);
 });
 
 it('never recommends an extra tool that is switched off', function () {
     StatamicMcpServer::registerTool(KeywordedExtraRouter::class);
     config()->set('statamic.mcp.tools.fixture-seo.enabled', false);
 
-    expect(array_column(discoverRecommends('seo canonical'), 'tool'))->not->toContain('fixture-seo');
+    expect(array_column(discoverRecommends('seo canonical'), 'tool'))->not->toContain('fixture-seo-read');
 });
 
 it('recommends no extra tool that declares no keywords', function () {
     StatamicMcpServer::registerTool(UnscopedExtraRouter::class);
 
-    expect(array_column(discoverRecommends('fixture site health get'), 'tool'))->not->toContain('fixture-site-health');
+    expect(array_column(discoverRecommends('fixture site health get'), 'tool'))->not->toContain('fixture-site-health-read');
 });
 
 it('ignores a blank keyword', function () {
     StatamicMcpServer::registerTool(KeywordedExtraRouter::class);
 
-    expect(array_column(discoverRecommends('manage blog entries'), 'tool'))->not->toContain('fixture-seo');
+    expect(array_column(discoverRecommends('manage blog entries'), 'tool'))->not->toContain('fixture-seo-read');
 });
 
 it('leaves out an extra tool whose keywords throw, and keeps recommending the rest', function () {
@@ -248,8 +257,8 @@ it('leaves out an extra tool whose keywords throw, and keeps recommending the re
 
     $tools = array_column(discoverRecommends('fix the seo canonical of a page'), 'tool');
 
-    expect($tools[0])->toBe('fixture-seo')
-        ->and($tools)->toContain('statamic-entries');
+    expect($tools[0])->toBe('fixture-seo-read')
+        ->and($tools)->toContain('statamic-entries-read');
 });
 
 it('gives the whole description as the reason when it has no sentence end', function () {
@@ -278,23 +287,22 @@ it('refuses a config entry that is not a router', function () {
     ExtraTools::all();
 })->throws(InvalidArgumentException::class);
 
-it('requires a full-access token for an extra tool whose domain has no scope', function () {
+it('refuses every token for an extra tool whose domain has no scope', function () {
     StatamicMcpServer::registerTool(UnscopedExtraRouter::class);
 
-    $denied = callAsWebClient(UnscopedExtraRouter::class, ['system:read', 'content:read']);
+    $denied = callAsWebClient(UnscopedExtraRouter::class, ['system:read', 'entries:read']);
 
     expect($denied['success'])->toBeFalse()
-        ->and(json_encode($denied['errors']))->toContain('Token missing required scope: *');
+        ->and(json_encode($denied['errors']))->toContain('declares no token scope');
 
-    $allowed = callAsWebClient(UnscopedExtraRouter::class, ['*']);
-
-    expect($allowed['success'])->toBeTrue();
+    // A v3 full-access token reached it; v4 has no wildcard.
+    expect(callAsWebClient(UnscopedExtraRouter::class, ['*'])['success'])->toBeFalse();
 });
 
 it('gates an extra tool in a known domain by that domain\'s scope', function () {
     StatamicMcpServer::registerTool(SystemScopedExtraRouter::class);
 
-    expect(callAsWebClient(SystemScopedExtraRouter::class, ['content:read'])['success'])->toBeFalse()
+    expect(callAsWebClient(SystemScopedExtraRouter::class, ['entries:read'])['success'])->toBeFalse()
         ->and(callAsWebClient(SystemScopedExtraRouter::class, ['system:read'])['success'])->toBeTrue();
 });
 
@@ -314,27 +322,44 @@ it('lets a user through once the extra tool names the permission it needs', func
         ->and(callAsWebClient(PermissionedExtraRouter::class, ['system:read'], [])['success'])->toBeFalse();
 });
 
-it('describes an extra tool in statamic-system-schema', function () {
+it('describes an extra tool in statamic-discover', function () {
     StatamicMcpServer::registerTool(UnscopedExtraRouter::class);
 
-    $result = app(SchemaTool::class)->execute(['tool_name' => 'fixture-site-health']);
+    $result = app(DiscoveryTool::class)->execute(['tool_name' => 'fixture-site-health-read']);
 
     expect($result['success'])->toBeTrue()
-        ->and($result['data']['tool'])->toBe(['domain' => 'site-health', 'actions' => ['get'], 'provided_by' => 'extension']);
+        ->and($result['data']['tool'])->toMatchArray(['domain' => 'site-health', 'actions' => ['get'], 'resource_types' => [], 'provided_by' => 'extension'])
+        ->and($result['data']['tool']['arguments'])->toContain('action')->not->toContain('approval_id', 'idempotency_key');
 });
 
 it('still fails closed when an extra tool is registered under a non-canonical class name', function (string $spelling) {
     ExtraTools::flush();
     StatamicMcpServer::registerTool($spelling);
 
-    // The unscoped tool's domain has no scope, so the fail-closed rule needs a
-    // '*' token. A content:read token must still be refused even though the
+    // The unscoped tool's domain has no scope, so the fail-closed rule refuses
+    // every token. An entries:read token must still be refused even though the
     // class was registered with a leading backslash or the wrong case.
-    $denied = callAsWebClient(UnscopedExtraRouter::class, ['content:read']);
+    $denied = callAsWebClient(UnscopedExtraRouter::class, ['entries:read']);
 
     expect($denied['success'])->toBeFalse()
-        ->and(json_encode($denied['errors']))->toContain('*');
+        ->and(json_encode($denied['errors']))->toContain('declares no token scope');
 })->with([
     'leading backslash' => ['\\' . UnscopedExtraRouter::class],
     'lowercase' => [strtolower(UnscopedExtraRouter::class)],
 ]);
+
+it('isolates runtime tool registrations between application containers', function () {
+    ExtraTools::register(UnscopedExtraRouter::class);
+    $original = app();
+    $other = new Container;
+    $other->instance('config', new Repository);
+    try {
+        Container::setInstance($other);
+        expect(ExtraTools::all())->toBe([]);
+        ExtraTools::register(PermissionedExtraRouter::class);
+        expect(array_keys(ExtraTools::all()))->toBe([PermissionedExtraRouter::class]);
+    } finally {
+        Container::setInstance($original);
+    }
+    expect(array_keys(ExtraTools::all()))->toBe([UnscopedExtraRouter::class]);
+});

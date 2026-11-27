@@ -44,9 +44,11 @@ class ResourcePolicy
     /**
      * Recursively strip denied fields from data.
      *
-     * @param  array<string, mixed>  $data
+     * @template TKey of array-key
      *
-     * @return array<string, mixed>
+     * @param  array<TKey, mixed>  $data
+     *
+     * @return array<TKey, mixed>
      */
     public function filterFields(string $domain, array $data): array
     {
@@ -62,10 +64,12 @@ class ResourcePolicy
     /**
      * Recursively remove denied keys from an array structure.
      *
-     * @param  array<mixed>  $data
+     * @template TKey of array-key
+     *
+     * @param  array<TKey, mixed>  $data
      * @param  array<int, string>  $deniedFields
      *
-     * @return array<mixed>
+     * @return array<TKey, mixed>
      */
     private function recursiveFilter(array $data, array $deniedFields): array
     {

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Storage\Tokens;
 
 use Carbon\Carbon;
+use Cboxdk\StatamicMcp\Actions\CapabilitySnapshot;
 
 /**
  * Immutable data transfer object for MCP tokens.
@@ -29,13 +30,20 @@ class McpTokenData
         public readonly ?Carbon $updatedAt = null,
         public readonly ?string $oauthClientId = null,
         public readonly ?string $oauthClientName = null,
+        public readonly ?CapabilitySnapshot $capabilities = null,
     ) {}
+
+    /** Transport-private credential revision; never include in events or durable intent. */
+    public function credentialRevision(): string
+    {
+        return hash('sha256', 'mcp-credential:' . $this->id . ':' . $this->tokenHash);
+    }
 
     /**
      * Check whether this token has expired.
      */
     public function isExpired(): bool
     {
-        return $this->expiresAt !== null && now()->greaterThan($this->expiresAt);
+        return $this->expiresAt !== null && now()->greaterThanOrEqualTo($this->expiresAt);
     }
 }

@@ -6,12 +6,15 @@ namespace Cboxdk\StatamicMcp\Http\Controllers\CP;
 
 use Carbon\Carbon;
 use Cboxdk\StatamicMcp\Auth\ScopeAvailability;
+use Cboxdk\StatamicMcp\Auth\TokenExpiryRefused;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
+use Cboxdk\StatamicMcp\Authorization\PersonalTokenConsent;
 use Cboxdk\StatamicMcp\Http\Controllers\CP\Concerns\ResolvesUserId;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Statamic\Facades\User;
 use Statamic\Http\Controllers\CP\CpController;
 
@@ -38,24 +41,18 @@ class TokenController extends CpController
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'scopes' => ['required', 'array', 'min:1'],
-            'scopes.*' => ['required', 'string'],
+            'scopes.*' => ['required', 'string', Rule::in(app(ScopeAvailability::class)->names())],
             'expires_at' => ['nullable', 'date', 'after:now'],
         ]);
 
-        $scopes = TokenScope::resolveMany($validated['scopes']);
-
-        if ($scopes === []) {
-            return response()->json([
-                'message' => 'Invalid scopes provided. Valid scopes: ' . implode(', ', array_map(
-                    fn (TokenScope $s): string => $s->value,
-                    TokenScope::all()
-                )),
-            ], 422);
-        }
+        $scopes = array_values(array_unique($validated['scopes']));
 
         if ($refused = $this->refuseUnavailableScopes(User::current(), $scopes)) {
             return $refused;
         }
+
+        // Full access is fixed to the scopes the user holds today.
+        $scopes = app(ScopeAvailability::class)->expandFullAccess(User::current(), $scopes);
 
         $expiresAt = isset($validated['expires_at'])
             ? Carbon::parse($validated['expires_at'])
@@ -68,6 +65,7 @@ class TokenController extends CpController
             $validated['name'],
             $scopes,
             $expiresAt,
+            capabilities: app(PersonalTokenConsent::class)->approve($request, $scopes),
         );
 
         return response()->json([
@@ -79,7 +77,7 @@ class TokenController extends CpController
                 'expires_at' => $result['model']->expiresAt?->toIso8601String(),
                 'created_at' => $result['model']->createdAt->toIso8601String(),
             ],
-            'message' => 'Token created successfully. Copy your token now -- it will not be shown again.',
+            'message' => __('statamic-mcp::messages.token_created'),
         ], 201);
     }
 
@@ -94,14 +92,14 @@ class TokenController extends CpController
 
         if ($token === null) {
             return response()->json([
-                'message' => 'Token not found.',
+                'message' => __('statamic-mcp::messages.token_not_found'),
             ], 404);
         }
 
         $validated = $request->validate([
             'name' => ['sometimes', 'required', 'string', 'max:255'],
             'scopes' => ['sometimes', 'required', 'array', 'min:1'],
-            'scopes.*' => ['required', 'string'],
+            'scopes.*' => ['required', 'string', Rule::in(array_merge(app(ScopeAvailability::class)->names(), $token->scopes))],
             'expires_at' => ['nullable', 'date', 'after:now'],
             'clear_expiry' => ['sometimes', 'boolean'],
         ]);
@@ -109,16 +107,7 @@ class TokenController extends CpController
         $scopes = null;
 
         if (isset($validated['scopes'])) {
-            $scopes = TokenScope::resolveMany($validated['scopes']);
-
-            if ($scopes === []) {
-                return response()->json([
-                    'message' => 'Invalid scopes provided. Valid scopes: ' . implode(', ', array_map(
-                        fn (TokenScope $s): string => $s->value,
-                        TokenScope::all()
-                    )),
-                ], 422);
-            }
+            $scopes = array_values(array_unique($validated['scopes']));
 
             // Only scopes being added are checked: the edit form resends every
             // scope the token holds, so checking all of them would leave a
@@ -127,7 +116,7 @@ class TokenController extends CpController
             // stripping it.
             $added = array_values(array_filter(
                 $scopes,
-                fn (TokenScope $scope): bool => ! in_array($scope->value, $token->scopes, true),
+                fn (string $scope): bool => ! in_array($scope, $token->scopes, true),
             ));
 
             $owner = User::find($token->userId);
@@ -142,7 +131,7 @@ class TokenController extends CpController
             if ($token->userId !== $this->resolveUserId()) {
                 if ($owner !== null && $owner->isSuper() && ($current === null || ! $current->isSuper())) {
                     return response()->json([
-                        'message' => "Only a super admin can modify a super admin's token.",
+                        'message' => __('statamic-mcp::messages.super_token'),
                     ], 403);
                 }
 
@@ -154,6 +143,13 @@ class TokenController extends CpController
             if ($refused = $this->refuseUnavailableScopes($owner ?? $current, $added)) {
                 return $refused;
             }
+
+            // Adding full access fixes it to the owner's scopes today. A `*`
+            // the token already carries is kept as it is: it no longer
+            // authorizes anything, and must be approved again to work.
+            if (in_array(TokenScope::FullAccess->value, $added, true)) {
+                $scopes = app(ScopeAvailability::class)->expandFullAccess($owner ?? $current, $scopes);
+            }
         }
 
         $expiresAt = isset($validated['expires_at'])
@@ -162,17 +158,21 @@ class TokenController extends CpController
 
         $clearExpiry = (bool) ($validated['clear_expiry'] ?? false);
 
-        $updated = $this->tokenService->updateToken(
-            $tokenId,
-            $validated['name'] ?? null,
-            $scopes,
-            $expiresAt,
-            $clearExpiry,
-        );
+        try {
+            $updated = $this->tokenService->updateToken(
+                $tokenId,
+                $validated['name'] ?? null,
+                $scopes,
+                $expiresAt,
+                $clearExpiry,
+            );
+        } catch (TokenExpiryRefused $e) {
+            return response()->json(['message' => $e->getMessage(), 'errors' => ['expires_at' => [$e->getMessage()]]], 422);
+        }
 
         if ($updated === null) {
             return response()->json([
-                'message' => 'Failed to update token.',
+                'message' => __('statamic-mcp::messages.update_failed'),
             ], 500);
         }
 
@@ -186,7 +186,7 @@ class TokenController extends CpController
                 'last_used_at' => $updated->lastUsedAt?->toIso8601String(),
                 'is_expired' => $updated->isExpired(),
             ],
-            'message' => 'Token updated successfully.',
+            'message' => __('statamic-mcp::messages.token_updated'),
         ]);
     }
 
@@ -201,7 +201,7 @@ class TokenController extends CpController
 
         if ($token === null) {
             return response()->json([
-                'message' => 'Token not found.',
+                'message' => __('statamic-mcp::messages.token_not_found'),
             ], 404);
         }
 
@@ -212,13 +212,13 @@ class TokenController extends CpController
         // another user's token, never obtaining a working credential for it.
         if ($token->userId !== $this->resolveUserId()) {
             return response()->json([
-                'message' => 'A token owned by another user cannot be regenerated — its secret would be disclosed to you. Revoke it instead and ask the owner to create a new one.',
+                'message' => __('statamic-mcp::messages.other_token_regenerate'),
             ], 403);
         }
 
         if ($token->oauthClientId !== null || str_contains($token->name, '(OAuth)')) {
             return response()->json([
-                'message' => 'OAuth tokens cannot be regenerated. The integration would lose access. Revoke the token and re-authorize instead.',
+                'message' => __('statamic-mcp::messages.oauth_regenerate'),
             ], 403);
         }
 
@@ -226,7 +226,7 @@ class TokenController extends CpController
 
         if ($result === null) {
             return response()->json([
-                'message' => 'Failed to regenerate token.',
+                'message' => __('statamic-mcp::messages.regenerate_failed'),
             ], 500);
         }
 
@@ -241,7 +241,7 @@ class TokenController extends CpController
                 'last_used_at' => $result['model']->lastUsedAt?->toIso8601String(),
                 'is_expired' => $result['model']->isExpired(),
             ],
-            'message' => 'Token regenerated. Copy your new token now — it will not be shown again.',
+            'message' => __('statamic-mcp::messages.token_regenerated'),
         ]);
     }
 
@@ -259,14 +259,14 @@ class TokenController extends CpController
 
         if ($token === null) {
             return response()->json([
-                'message' => 'Token not found.',
+                'message' => __('statamic-mcp::messages.token_not_found'),
             ], 404);
         }
 
         $this->tokenService->revokeToken($tokenId);
 
         return response()->json([
-            'message' => 'Token revoked successfully.',
+            'message' => __('statamic-mcp::messages.token_revoked'),
         ]);
     }
 
@@ -274,22 +274,22 @@ class TokenController extends CpController
      * A 422 naming the scopes the user cannot exercise, or null when every
      * scope is available to them.
      *
-     * @param  array<int, TokenScope>  $scopes
+     * @param  list<string>  $scopes
      */
     private function refuseUnavailableScopes(?\Statamic\Contracts\Auth\User $user, array $scopes): ?JsonResponse
     {
         $availability = app(ScopeAvailability::class);
-        $unavailable = $availability->reject($user, $scopes);
+        $unavailable = array_values(array_diff($scopes, $availability->filterValues($user, $scopes)));
 
         if ($unavailable === []) {
             return null;
         }
 
-        $list = fn (array $list): string => implode(', ', array_map(fn (TokenScope $s): string => $s->value, $list));
-
         return response()->json([
-            'message' => 'These scopes are not available to this user: ' . $list($unavailable)
-                . '. Available scopes: ' . $list($availability->forUser($user)),
+            'message' => __('statamic-mcp::messages.scopes_unavailable', [
+                'scopes' => implode(', ', $unavailable),
+                'available' => implode(', ', $availability->filterValues($user, $availability->names())),
+            ]),
         ], 422);
     }
 

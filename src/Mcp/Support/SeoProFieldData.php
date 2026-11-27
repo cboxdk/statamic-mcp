@@ -11,6 +11,7 @@ use Statamic\Fields\Blueprint;
 use Statamic\Fields\Field;
 use Statamic\Fields\Fields;
 use Statamic\SeoPro\Fields as SeoFields;
+use Statamic\SeoPro\Fieldtypes\OpeningHoursFieldtype;
 
 /** Converts SEO Pro's stored representation to its publish-form input. */
 final class SeoProFieldData
@@ -101,6 +102,9 @@ final class SeoProFieldData
 
     public static function sanitize(Field $field, mixed $value, string $path): mixed
     {
+        if ($field->type() === 'seo_pro_opening_hours') {
+            return self::openingHours($value, $path);
+        }
         if ($field->type() === 'seo_pro_source') {
             return self::source($field, $value, $path);
         }
@@ -129,6 +133,37 @@ final class SeoProFieldData
         }
 
         return $result;
+    }
+
+    /** @return array<string, array{opening: string|null, closing: string|null}>|null */
+    private static function openingHours(mixed $value, string $path): ?array
+    {
+        if ($value === null) {
+            return null;
+        }
+        if (! is_array($value) || array_diff(array_keys($value), OpeningHoursFieldtype::DAYS) !== []) {
+            throw new FieldFormatException("Field [{$path}] expects an object keyed by weekday, or null to clear it.");
+        }
+        $hours = [];
+        foreach ($value as $day => $times) {
+            if (! is_string($day) || ! is_array($times) || array_diff(array_keys($times), ['opening', 'closing']) !== []) {
+                throw new FieldFormatException("Field [{$path}.{$day}] expects opening and closing times.");
+            }
+            $pair = ['opening' => null, 'closing' => null];
+            foreach (['opening', 'closing'] as $key) {
+                $time = $times[$key] ?? null;
+                if ($time !== null && (! is_string($time) || preg_match('/^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/D', $time) !== 1)) {
+                    throw new FieldFormatException("Field [{$path}.{$day}.{$key}] expects HH:MM or null.");
+                }
+                $pair[$key] = $time;
+            }
+            if (($pair['opening'] === null) !== ($pair['closing'] === null)) {
+                throw new FieldFormatException("Field [{$path}.{$day}] needs both opening and closing times.");
+            }
+            $hours[$day] = $pair;
+        }
+
+        return $hours;
     }
 
     private static function source(Field $field, mixed $value, string $path): mixed
@@ -183,6 +218,14 @@ final class SeoProFieldData
     /** @return array<string, mixed> */
     public static function spec(Field $field): array
     {
+        if ($field->type() === 'seo_pro_opening_hours') {
+            return [
+                'wire_format' => 'object_or_null',
+                'days' => OpeningHoursFieldtype::DAYS,
+                'rules' => ['Each day has opening and closing in HH:MM. Both are required together; null clears the schedule.'],
+                'examples' => [['monday' => ['opening' => '09:00', 'closing' => '17:30']]],
+            ];
+        }
         $handles = [];
         if ($field->type() === 'seo_pro' && class_exists(SeoFields::class)) {
             $handles = self::fields($field)->all()->keys()->all();

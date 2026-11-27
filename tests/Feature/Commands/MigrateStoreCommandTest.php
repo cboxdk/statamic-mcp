@@ -125,7 +125,7 @@ it('migrates tokens between file stores when confirmed', function (): void {
     // Create tokens in source
     $source = new FileTokenStore($sourceDir);
     $source->create('user-1', 'Token A', hash('sha256', 'secret-a'), ['*'], null);
-    $source->create('user-2', 'Token B', hash('sha256', 'secret-b'), ['content:read'], Carbon::now()->addDays(30));
+    $source->create('user-2', 'Token B', hash('sha256', 'secret-b'), ['entries:read'], Carbon::now()->addDays(30));
 
     $target = new FileTokenStore($targetDir);
 

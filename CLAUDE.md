@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Statamic addon that functions as an MCP (Model Context Protocol) server, built on top of Laravel's MCP server. The addon extends Statamic CMS v6.6+ and requires `laravel/mcp` ^1.0 as a runtime dependency. It includes scoped API token authentication, a Vue 3 CP dashboard, and web MCP endpoints.
+This is a Statamic addon that functions as an MCP (Model Context Protocol) server, built on top of Laravel's MCP server. The addon extends Statamic CMS v6.44+ and requires `laravel/mcp` ^1.3 as a runtime dependency. It includes scoped API token authentication, a Vue 3 CP dashboard, and web MCP endpoints.
 
 ## Key Dependencies
 
 - **PHP**: ^8.3
-- **Statamic CMS**: ^6.6 (v6 only — v5 support was removed in v2.0)
+- **Statamic CMS**: ^6.44 (Forms 2 storage; v6 only)
 - **Laravel**: ^12.0 || ^13.0 (via Statamic v6)
-- **Laravel MCP**: ^1.0 (required - must be in `require` section, not `require-dev`)
+- **Laravel MCP**: ^1.3 (required - must be in `require` section, not `require-dev`)
 - **Orchestra Testbench**: ^10.0 || ^11.0 (dev dependency for testing)
 - **Pest**: ^4.1 (stable release with PHP 8.3 requirement)
 - **Symfony YAML**: ^7.0 || ^8.0 (for YAML processing)
@@ -24,7 +24,28 @@ The addon provides scoped API tokens for fine-grained MCP access control:
 - **Token Management**: Via Statamic CP dashboard (Tools → MCP → Tokens)
 - **Token Storage**: Eloquent model (`McpToken`) with SHA-256 hashed tokens
 - **Guard**: Custom `McpTokenGuard` registered as the `mcp` auth guard
-- **Scopes**: 23 granular scopes via `TokenScope` enum (e.g., `content:read`, `content:write`, `*`)
+- **Scopes**: 29 scopes via `TokenScope` enum (e.g., `entries:read`, `entries:write`, `entries:publish`, `*`)
+- **Publish and delete are their own grants** in the entries, terms and assets domains
+  (an action declared `RouterAction::publish()`/`delete()`): the call needs them on top of `{domain}:write`,
+  and `EntriesRouter::authorizeResolvedEntry()` requires `entries:publish` for a `published`
+  flag on create/update too.
+- **Admin domains use `{domain}:admin`** (structures, blueprints, users, system), resolved by
+  `TokenScope::writeFor()`. Their v3 `:write` cases stay in the enum so old tokens load, but
+  `replacedBy()` marks them and they grant nothing; `TokenScope::v3Changes()` is the single
+  description of what v4 changed for a token (used by `mcp:doctor`, the installer's upgrade
+  review and the OAuth refresh refusal).
+- **Retired scopes** (`TokenScope::isRetired()`): the replaced admin `:write` cases and
+  `content:read`/`content:write`, which no tool ever asked for. They load but grant nothing,
+  `ScopeAvailability` never offers or advertises them, the migration drops them and an OAuth
+  refresh drops them silently. Never put one in a preset, default or test token again.
+- **`mcp:migrate-v4`** (`Auth\V4TokenMigration`) is the one place stored tokens are brought to
+  v4 (and back with `--rollback`); the installer shows the same plan. It only narrows or
+  revokes, never adds a scope, journals before changing anything and is safe to rerun.
+- **`*` is not a wildcard** (`TokenService::hasScope()`). It is expanded to an explicit list at
+  issuance (`ScopeAvailability::expandFullAccess()`, called by the CP and OAuth consent paths);
+  `createToken()` refuses a raw `*`, and a v3 token or refresh grant carrying one is refused so the
+  user approves again. Do not reintroduce a wildcard: it silently grants every scope a later
+  release adds.
 
 ### Key Auth Classes
 - `src/Auth/TokenScope.php` — Backed string enum with scope helpers
@@ -37,35 +58,52 @@ The addon provides scoped API tokens for fine-grained MCP access control:
 `src/Auth/ScopeAvailability.php` decides which scopes a user is *offered* (dashboard picker,
 token create/edit, OAuth consent). It mirrors every router's `getRequiredPermissions()` by
 hand — **a router that changes its permissions must change the matching line there too**, or
-editors get offered dead scopes or lose live ones. It never grants access; the per-call
+editors get offered dead scopes or lose live ones. `ScopeAvailabilityTest` ("offers exactly the
+scopes the routers let a permission set use") checks the mirror against the routers themselves
+in both directions; it found `configure sites` offering `structures:admin` and role/group
+editors missing `users:read`. It never grants access; the per-call
 check in `checkWebPermissions()` still runs. `getRequiredPermissions()` may return a nested
 list, meaning "any one of these" (used by the blueprint read actions).
 
 ### Extra tools
-`src/Mcp/ExtraTools.php` holds tools other packages register (`StatamicMcpServer::registerTool()`
-or `statamic.mcp.extra_tools`). They must extend `BaseRouter`, and `RouterHelpers::checkWebPermissions()`
-fails closed for them twice: a domain with no `TokenScope` requires `*`, and an empty
-`getRequiredPermissions()` requires a super admin. Built-in routers are not affected by
-either rule. `statamic-system-schema` describes extra tools from `BaseRouter::catalogEntry()`,
-and `statamic-system-discover` recommends one only when it declares `discoveryKeywords()`.
-Discovery calls that third-party code inside a `try/catch`, so one faulty tool is skipped
-instead of failing discovery for every client.
+- New package domains use `StatamicMcp::integration()` and `BaseRouter`; see `docs/extending/tools.md`. Use the router's existing approvals/idempotency pipeline rather than adding another executor. Every integration action declares owned scopes and an output schema, and the router implements `authorizeAction()` for exact-record and site authorization. Persist through `persistStatamic()` so the grant and actor are rechecked before saving.
+- `IntegrationRegistry` owns both integrations and legacy `ExtraTools` registrations. `registerTool()`/`extra_tools` remain compatibility paths: a domain with no core scope is refused, and an empty `getRequiredPermissions()` requires super. Integration calls instead require a current capability snapshot on both HTTP and stdio. Increment the integration version when semantics change without changing declarations; never retrofit existing consent.
+- Keep callback and tool registration state application-local. Two Testbench applications share a PHP process; process-static registrations leak ownership and consent between them. `guidance` is reserved because the installation profile exempts it; an integration must never inherit that exemption.
+- `statamic-discover` derives extra tools from `BaseRouter::catalogEntry()` and recommends them only with `discoveryKeywords()`. Third-party discovery runs inside a `try/catch` so a faulty tool cannot break discovery for every client.
 
 ### Middleware
-- `HandleMcpCors` — CORS headers for browser-based clients (only when `allowed_origins` configured)
+- `HandleMcpCors` — Origin validation against app.url and allowed_origins, plus CORS response headers
 - `EnsureSecureTransport` — Rejects plain HTTP in production (when `require_https` enabled)
-- `AuthenticateForMcp` — Bearer token + Basic Auth fallback
+- `AuthenticateForMcp` — Bearer token authentication (Basic Auth removed in v4)
 - `RequireMcpPermission` — Validates token scopes and expiry
 
-### Confirmation Tokens
-Destructive MCP operations require a two-step confirmation flow in production:
-- **ConfirmationTokenManager** (`src/Auth/ConfirmationTokenManager.php`) — Stateless HMAC-SHA256 tokens bound to tool + arguments
-- **ConfirmationActionGate** (`src/Auth/ConfirmationActionGate.php`) — Resolves `(domain, action)` → gated? from `confirmation.actions` config
-- **RequiresConfirmation trait** (`src/Mcp/Tools/Concerns/RequiresConfirmation.php`) — Integrated into BaseRouter
-- **Operations requiring confirmation (defaults):** `delete` on every domain + `create`/`update` on blueprints
-- **Per-domain configurable:** `confirmation.actions.<domain>` lists the actions that trigger the gate. Domains not listed fall back to `default`. `*` gates every action. `[]` disables the gate for that domain. Operators can widen the gate (e.g. `entries => [create, update, delete, publish, unpublish]`) without forking.
-- **Environment-aware:** Auto-enabled in production, disabled in local/dev/testing (configurable via `STATAMIC_MCP_CONFIRMATION_ENABLED`)
-- **CLI bypass:** Confirmation is skipped in CLI context
+### Approvals (V05)
+Gated actions over HTTP wait for a person's approval in the Control Panel. The v3
+stateless confirmation token is gone; a v3 `confirmation_token` is ignored.
+- **ConfirmationActionGate** (`src/Auth/ConfirmationActionGate.php`) — `(domain, action)` → gated? from `confirmation.actions`; `enabled()` is on in production unless configured
+- **Approvals** (`src/Approvals/Approvals.php`) — an approval *is* an operation in the OperationStore: `awaiting_approval` = pending, `ready` = approved, `cancelled` = rejected, `executing` onwards = claimed/consumed. Claiming the approval and the write is one atomic transition, so a crash leaves it spent.
+- **BaseRouter::executeWithApproval()** — without `approval_id` it records the call (random opaque id, binding over actor, grant, action, site, profile and canonical input; preview with the record's `expected_version`) and answers `APPROVAL_REQUIRED`. With it, the call is authorized again in full *before* the claim; a different call, a changed record (`APPROVAL_STALE`), expiry or rejection runs nothing.
+- **CP** (`ApprovalController`, `McpApprovalsPage.vue`, Tools → MCP → Approvals) — only the user the call acts as sees and decides it; decisions are POST with CSRF; **approve needs Statamic's elevated session**, which is what stops a browser agent driving the same CP tab. It proves a fresh re-authentication, not that a human clicked.
+- **Users floor:** `ConfirmationActionGate::FLOOR` gates users create/update/activate/assign_role
+  even when the config has no `users` key (`'users' => []` is the explicit opt-out). Changing your
+  own email or password over HTTP also needs `data.current_password`. The stored preview goes
+  through `BaseRouter::withoutSecrets()`; the binding hash still covers the full input.
+- **Defaults:** `delete` on every domain, blueprint writes, entry `restore_revision`/`publish_working_copy`. `[]` disables a domain, `*` gates every action. Stdio is never gated (the local operator is the person).
+- Tests: `tests/Feature/Approvals/ApprovalFlowTest.php` (binding, CSRF/elevation, expiry, stale, no grant) and `ApprovalConcurrencyTest.php` (process races and crash on file, SQLite, MySQL).
+- **Channels** (`ApprovalChannels`, config `approvals.channels`, default `auto`). **Notifiers** (`Contracts\ApprovalNotifier`) only tell: they get a `PendingApproval` (description + CP link, *never the arguments*) and must not offer anything that decides. **Authorities** (`Contracts\ApprovalAuthority`, e.g. Cbox ID CIBA) answer `settle()`, and `Approvals` records the answer through `approve()`/`reject()` — never let an authority transition the operation itself, or the owner binding and single use stop holding. A throwing channel is reported and skipped. Built in: `mail` (site mailer), `relay` (Cbox Relay: mail, web push, webhook event `statamic_mcp.approval.requested`), `cbox_id` (CIBA). The Cbox clients need PHP 8.4, so they are `suggest`, referenced only from `src/Approvals/Cbox/` behind `CboxRelay::available()`/`CboxId::available()`; CI's Code Quality and `cbox-integrations` jobs install them. `approvals.promote_cbox` mentions Cbox Relay/ID in mails and on the page (Sylvester's call: built in, with a little promotion).
+
+### Lifecycle events (V06)
+`src/Actions/Events/` + `LifecycleEvents::dispatch()` → `LifecycleObservers` (from the frozen `ObserverRegistry`).
+- Built-in routers: `BaseRouter::observedAction()` wraps the handler. `execution.started` is emitted **only there**, after
+  authorization and after any approval/idempotency claim, so a refused call (`execution.denied`, from the
+  `McpAuthorizer` denial) never looks like an execution. Terminal event is `completed`, or `failed` when the
+  envelope says `success: false` or the handler throws; `effects` comes from `writeEffectsSoFar()`. A stored
+  result handed back is `execution.replayed`, never a second `started`/`completed`.
+- Approvals (`Approvals::emit()`): `requested`, `approved`/`rejected` (`via` control_panel|authority, `reason`
+  person|stale), `consumed` after the approved call ran. Emitted after the state change is durable.
+- Events carry metadata only (`metadata()`), never arguments, results, descriptions or actor ids. Observers
+  cannot veto; a throwing observer is logged and skipped. `BuiltInLifecycleEventsTest` pins order, no content
+  and observer failure after a write.
 
 ### Resource Policy
 Granular resource-level access control configured in `config/statamic/mcp.php`:
@@ -76,11 +114,15 @@ Granular resource-level access control configured in `config/statamic/mcp.php`:
 - **Field filtering:** Denied fields silently stripped from both input and output
 
 ### Authorization Evaluation Order (Web Context)
+Steps 2–4 are one decision, `Authorization\McpAuthorizer::denial(McpCall)`, asked by both tools
+(`BaseRouter` via `RouterHelpers::describeCall()`) and resources (`AuthorizesResourceAccess`).
+Add a gate there, not in one surface, or tools and resources drift apart again.
+
 1. Tool enabled? → `config: tools.{domain}.enabled`
 2. Token scope? → `TokenScope: {domain}:{read|write}`
 3. Resource allowed? → `ResourcePolicy::canAccess(domain, handle, mode)`
 4. Statamic permissions? → `User::hasPermission()`
-5. Confirmation required? → `ConfirmationActionGate` (configurable per domain; defaults: deletes + blueprint writes) → `ConfirmationTokenManager`
+5. Approval required? → `ConfirmationActionGate` (configurable per domain; defaults: deletes + blueprint writes) → `Approvals` (CP approval, one exact call, once)
 6. Field filtering → `ResourcePolicy::filterFields()` on input + output
 
 ### Authorization invariants (don't regress these)
@@ -94,12 +136,25 @@ A 3.3.0 security audit hardened the tool layer. Keep these when touching routers
   `taxonomyHandle()` like `get` does. A new id-addressed action needs the same
   binding, or a caller allowed on one collection/taxonomy reaches another's
   records.
+- **Every content action checks the site it reaches** over HTTP: entries
+  (`authorizeEntrySite`/`authorizeResolvedEntry`), terms (`authorizeTermSite`, because
+  Statamic's `TermPolicy` only checks the site on create) and globals (Gate on the
+  localized variables). `tests/Feature/Authorization/SiteAndFieldPolicyMatrixTest.php`
+  is the matrix; a new content domain gets a row there.
 - **`resolveResourceHandle()` must name the same resource the handler acts on.**
-  `GlobalsRouter` (`global_set ?? handle`), `StructuresRouter` and `AssetsRouter`
-  (`container` for assets; `handle` for containers, `data.handle` only on
-  create) override it for exactly this reason; the default priority list would
-  otherwise let an unrelated allowed argument satisfy the policy for a denied
-  target.
+  In v4 every router names its target with one argument: `handle` (globals,
+  structures, blueprints, roles, groups) or `container` (assets, containers
+  included). A create takes the new name there too and refuses a `data.handle`
+  that differs. `GlobalsRouter`, `StructuresRouter`, `BlueprintsRouter` and
+  `AssetsRouter` override it to pin that argument; the default priority list
+  would otherwise let an unrelated allowed argument satisfy the policy for a
+  denied target.
+- **Every built-in action declares its arguments** (`RouterAction` `needs`/`optional`,
+  `a|b` for alternatives). That declaration builds the tool's schema (the union of its
+  actions' arguments), the action description, the missing-argument error and the
+  refusal of any argument the action does not take, reads included. A router must not
+  re-check a need itself. `ArgumentNamesTest` holds the vocabulary; a new name is added
+  there deliberately, never a synonym.
 - **A router's permission check is `getRequiredPermissions()`, and it names
   real Statamic permissions.** `AssetsRouter`'s handlers once re-checked
   invented ones (`create assets`, `edit asset_containers`) and locked every
@@ -107,6 +162,32 @@ A 3.3.0 security audit hardened the tool layer. Keep these when touching routers
   `configure asset containers` satisfies every asset action, as in
   `AssetPolicy::before()`, and `copy` needs `upload` like `DuplicateAsset`.
   An unscoped `list` has no handle to check, so it filters per item.
+- **Every action is declared once, in the router's `actions()`** as a `RouterAction`
+  (`read`, `edit`, `publish`, `delete`, `admin`, optionally limited to resource types). The
+  effect decides write mode, token scopes, idempotency, unknown-argument refusal and the
+  operation record; the schema's action enum is derived from it. An undeclared action or a
+  `resource_type` the declaration does not list is refused before authorization. A declared
+  action must reach a real handler (`ActionCoverageInventoryTest`), so no placeholder action
+  can sit in a schema.
+- **Every built-in action is in the coverage inventory**
+  (`tests/Feature/Authorization/ActionCoverageInventoryTest.php`): mode, token
+  scopes and a Statamic permission per action and resource type. Its read
+  actions are listed by hand, so a new action is treated as a write until it is
+  listed there, a second opinion on each declaration.
+- **The built-in writes are tested on `statamic/eloquent-driver`**
+  (`tests/Integration/EloquentDriverTest.php`, its own CI job; skips locally without
+  the driver). Every repository MCP touches runs on the driver there (entries, trees,
+  terms, globals, navs, collections, blueprints, assets, revisions, forms). Read back from the tables, not from Statamic's objects. What it found:
+  a new `NavTree`'s first save is stored as `[]` by the driver (the router now writes
+  the items onto the stored tree and verifies the read-back); the collection tree's
+  version hashed a file that does not exist there, so concurrent tree changes were
+  never noticed (now the stored tree's `fileData()`, read before planning — not
+  `tree()`, which drops ids it cannot find); and an entry's returned `version` came
+  from the Blink copy just saved, not the stored row.
+- **Every Statamic write goes through `persistStatamic()`**, tree moves
+  included. It registers the cache clear before the write, turns Statamic's
+  `false` veto into an error and records `write_effects`; a `save()` outside it
+  answers success for a write a listener refused (blueprints did, until V08).
 - **`statamic-users` must not exceed the caller's own authority:** only a super
   admin grants `super` (in a role or via the flag); attaching `data.roles`
   (user create, group create/update) requires `assign roles`; changing another
@@ -170,17 +251,17 @@ Token operations dispatch events for Statamic's Git automation:
 
 ## Web MCP Endpoint
 
-This addon supports web-accessible MCP endpoints for browser-based integrations. The web endpoint is enabled by default. See the configuration reference for customization options.
+This addon supports web-accessible MCP endpoints for browser-based integrations. The web endpoint requires explicit activation. See the configuration reference for customization options.
 
 ### Quick Setup
 
 ```env
-# Web MCP endpoint (enabled by default)
+# Enable the web MCP endpoint explicitly
 STATAMIC_MCP_WEB_ENABLED=true
 STATAMIC_MCP_WEB_PATH="/mcp/statamic"
 ```
 
-The endpoint will be available at `https://your-site.test/mcp/statamic` with Bearer token or Basic Auth authentication.
+The endpoint will be available at `https://your-site.test/mcp/statamic` with Bearer token authentication, including OAuth-issued tokens.
 
 ### MCP Client Configuration
 
@@ -778,7 +859,6 @@ class StatamicExportStrategy extends BaseStatamicTool
 - `statamic-entries` - Entry CRUD with filtering and publishing workflows
 - `statamic-terms` - Taxonomy term management router
 - `statamic-globals` - Global set structure and values router
-- `statamic-forms` - Form settings router (title, honeypot, storage, email notifications)
 - `statamic-structures` - Structural elements router (collections, taxonomies, navigations)
 - `statamic-assets` - Asset management router
 - `statamic-users` - User management router
@@ -788,43 +868,60 @@ class StatamicExportStrategy extends BaseStatamicTool
 - `statamic-system-discover` - Intent-based tool discovery
 - `statamic-system-schema` - Tool schema inspection
 
-Note: only `statamic-system-discover`, `statamic-entries` and `statamic-blueprints` are
-listed in the catalog by default. See "The tool catalog is deliberately partial" below.
+Clients see each router as a `-read` and a `-write`/`-admin` tool. See "Each router is
+two tools" below.
 
 #### Workflow Facades
 - `statamic-content-facade` - Common content workflows
 
-### The tool catalog is deliberately partial
+### Each router is two tools: `-read` and `-write`/`-admin`
 
-`tools/list` costs every client ~31 KB of schema on every connection, before it has
-asked anything — the routers carry large schemas and there are eleven of them. So
-`StatamicMcpServer` splits them:
+A router mixing reads and writes reads as a destructive tool to every client (no
+`readOnlyHint` means destructive), so clients ask about every read and nobody can allow
+reading alone. `StatamicMcpServer::presented()` therefore serves each router as two
+facets of the same class (`BaseRouter::facet('read'|'write')`):
 
-- **`CORE_TOOLS`** stay in the catalog: `statamic-system-discover`, `statamic-entries`,
-  `statamic-blueprints`. They cover what a session actually opens with.
-- **`SEARCHABLE_TOOLS`** are handed to `Laravel\Mcp\Server\Tools\ToolSearch`, which
-  exposes them through `search_tools` and `execute_tools` instead. Catalog drops to
-  ~12.6 KB, a ~60% cut.
+- **Name**: `statamic-{domain}-read`, and `-admin` when any action is `RouterAction::admin()`,
+  else `-write`. A router with no write action has no write tool (content-facade).
+- **Annotations**: all four hints explicit. Read: read-only, not destructive, idempotent,
+  closed world. Write: destructive, not idempotent; `openWorldHint` from
+  `writesReachOutside()` (assets, because upload fetches `source_url`).
+- **Schema**: only that side's actions in the `action` enum (the description is built from
+  the declarations), only resource types an action of that side applies to, and only the
+  arguments that side's actions declare. `approval_id`/`idempotency_key` are write-only.
+- **Calls**: a read tool given a write action (or the reverse) is refused, naming the
+  other tool. The unfaceted router (`$router->execute()`) still runs every action; tests
+  use it, `InteractsWithMcp::mcpTool()` picks the facet from the action.
 
-**This does not weaken authorization.** ToolSearch honours `shouldRegister()`, so a
-disabled domain stays invisible, and `execute_tools` invokes the tool's own `handle()`
-— token scope, resource policy, Statamic permissions and the confirmation gate all
-apply exactly as on a direct call. A searchable tool is hidden, never ungated.
+`tools/list` goes through `Mcp\Methods\ListPermittedTools`: a router facet is listed
+only when the installation profile allows its kind of action
+(`InstallationProfile::allowsAny()`) and, over HTTP, the token holds `{domain}:read` or
+the domain's write scope. A hidden tool can still be called and is refused with the
+missing scope, never "tool not found".
 
-Two consequences worth knowing:
+The profile reads whether an action writes from the declaration (`denial(..., writes:)`).
+It used to keep its own read list and refused blueprint `scan`/`types`/`validate` under
+`read_only`.
+
+### The searchable catalog is opt-in
+
+`catalog.searchable` (default **false**) moves every tool but `CORE_TOOLS`
+(`statamic-system-discover` and the entries and blueprints pairs) behind
+`Laravel\Mcp\Server\Tools\ToolSearch` (`search_tools`/`execute_tools`). Off by default
+because a client then sees one `execute_tools` tool with no annotations, so it cannot tell
+reads from writes, and `Mcp-Name` names `execute_tools` instead of the tool. Claude Code,
+Cursor and claude.ai search large catalogs themselves.
+
+It is still fully gated: ToolSearch honours `shouldRegister()`, and `execute_tools`
+invokes the tool's own `handle()`. When it is on:
 
 - `execute_tools` yields progress notifications before its result, so the endpoint
-  answers as an **SSE stream**, not a single JSON body. Tests must read
-  `streamedContent()` and parse `data:` frames.
-- The split is config-driven (`catalog.searchable`, default true) because some
-  clients handle `search_tools` badly. `createContext()` — not `boot()`, not a property
-  initializer — resolves both the catalog and the instructions describing it, so the
-  two can never disagree. **If you change the split, the instructions must change with
-  it**: an agent told to use `search_tools` when it is off will simply fail.
+  answers as an **SSE stream**. Tests read `streamedContent()` and parse `data:` frames.
+- `createContext()` resolves the catalog and the instructions describing it together.
+  **If you change the split, the instructions must change with it.**
 
-`DiscoveryTool` reads `StatamicMcpServer::CORE_TOOLS` to tell clients whether a
-recommended tool is `listed_in_catalog` or reachable `via_execute_tools`. Do not restate
-the split there — it must stay derived, or the two drift.
+`DiscoveryTool` derives `listed_in_catalog`/`via_execute_tools` and each router's `tool`
+and `write_tool` names from `StatamicMcpServer::presented()`. Do not restate them there.
 
 ### CORS and the preflight route
 
@@ -920,6 +1017,26 @@ path lists the valid segments at the level it failed.
 **`statamic-entries`** — list, get, create, update, localize, delete, publish, unpublish,
 list_revisions, get_revision, restore_revision, publish_working_copy
 
+Entry responses carry a `version` (`EntriesRouter::entryVersion()`: file data, slug, date and working
+copy, canonicalized), and single-entry writes accept `expected_version`, checked under a per-entry
+cache lock right before the action runs (`withExpectedVersion()`). The lock only serializes MCP
+writers; a CP save is caught when it landed before the check. Tree position is not in the version.
+Terms and globals do the same through the shared `ChecksResourceVersions` concern: a term's version
+is its whole file (all sites), a global set's is one site's variables. A new versioned record type
+uses that concern rather than its own lock.
+
+Every write action accepts an optional `idempotency_key` (`BaseRouter::executeIdempotently()`, after
+authorization and confirmation). `Actions\Operations\IdempotentWrite` creates the operation record
+*before* the write, so a retry always finds it: succeeded replays, failed-no-effect is spent, anything
+started but unfinished is `OUTCOME_UNKNOWN` and never runs again. The operation id is derived from actor
++ key only, so a reused key with other input is found and refused. Routers that version a record
+override `currentResourceVersion()` so the unknown answer carries it.
+`tests/Feature/Actions/IdempotentWriteConcurrencyTest.php` races and kills real processes against both
+stores; keep it when touching the flow. Its `mysql` cases (and those of the admission and claim
+races) only run when the suite runs on MySQL, as the MySQL CI job does; worker processes open
+their store through `tests/Support/operation-store.php`. Locally: a `mysql:8.0` container and
+`DB_CONNECTION=mysql DB_HOST=127.0.0.1 DB_DATABASE=testing DB_USERNAME=root DB_PASSWORD=password`.
+
 `update` accepts `merge_sets`: when true, a top-level replicator field in `data` is merged
 into the stored array by item `id` rather than replacing it, so one section of a page
 builder can change without resending the rest. Every item sent must carry an `id`;
@@ -953,9 +1070,8 @@ silent junk writes `reject_unknown_fields` prevents. `parent` is deliberately ex
 
 `localize` creates an entry's localization in another site via Statamic's
 `makeLocalization()`, so the origin is set and untranslated fields keep falling back. It
-is a **write** action — it appears in the write lists in both `EnforcesResourcePolicy`
-and `RouterHelpers`, which is what makes it require `entries:write` and a write-mode
-resource policy check. Any new write action must be added to both.
+is a **write** action — declared `RouterAction::edit()`, which is what makes it require
+`entries:write` and a write-mode resource policy check.
 
 Date fields are converted once, in `SanitizesFieldData::sanitizeDateValue()`, at every
 level of a record. Statamic validates a date in the Control Panel's wire format (ISO 8601
@@ -978,33 +1094,23 @@ in a write path** — a conditionally required field would block every write aga
 
 **`statamic-terms`** — list, get, create, update, delete
 
+List `filters` go through `RouterHelpers::validateListFilters()`: blueprint field handles plus
+the router's `FILTER_PROPERTIES`, scalar values only. **Never pass a client's filter key to
+`where()` unchecked** — an unknown key makes the Stache build a permanent index on that key,
+which every later save of the store keeps up to date.
+
 **`statamic-globals`** — list, get, update (global set values with multi-site support)
-
-**`statamic-forms`** — list, get, create, update, delete
-
-Form *settings* only — the ones the CP's Configure Form screen edits (`title`, `honeypot`,
-`store`, `email`, plus addon fields from `Form::appendConfigFields()`, validated against
-their own field configs). A form's fields are its blueprint and stay with
-`statamic-blueprints` (namespace `forms`), behind that domain's scope and confirmation
-gate — do not accept `fields` here, or `forms:write` becomes a way round them.
-Submissions are deliberately not exposed: they are personal data and need their own
-permission model. Every action requires `configure forms`, as `FormPolicy::before()` does.
-
-`Form::find()` builds a file path from the handle, so every handle passes Statamic's
-`Handle` rule before any lookup. `resolveResourceHandle()` returns the handle `create`
-derives from the title when none is sent, so the policy sees the form actually written.
-Settings travel in `data` (input and `form.data` output) so `denied_fields` cover them.
-Forms are plain files outside the Stache, and Statamic's invalidator already handles
-`FormSaved`/`FormDeleted`, so writes queue no cache clear. Tests must point
-`statamic.forms.forms` at a temp dir, or forms leak into Testbench's skeleton app.
 
 **`statamic-structures`** — list/get/create for collections, taxonomies, navigations, and sites (via `resource_type` param)
 
-Navigation `create`, `update` and `configure` share `HandlesNavigations::applyNavigationData()`.
+Navigation `create` and `update` share `HandlesNavigations::applyNavigationData()`.
 It takes trees in the shape `get` returns (`trees: [{site, items}]`), validates the whole
 payload, then writes — and **refuses unknown keys**. Both actions used to drop what they did
 not understand and report success, which is how a tree write saved nothing for months (#65).
-`configure` still reads the undeclared `config` argument for old callers; new code uses `data`.
+`configure` is removed in v4; settings go in `update.data`. Collection `move` alone takes
+`data.entry` and `data.parent`; collection `update` only changes settings. Navigation and
+global-set updates rely on the router's real Statamic permissions, not invented inner checks
+such as `edit navigation` or `edit globals`.
 
 **`statamic-assets`** — list/get/create/update/delete/upload/move/copy for containers and assets (via `resource_type` param)
 
@@ -1048,7 +1154,7 @@ trees are additionally checked for menu items pointing at deleted entries.
 
 ## Extending fieldtypes
 
-`src/Mcp/Support/FieldtypeExtensions.php` is a static registry letting a site or addon
+`src/Mcp/Support/FieldtypeExtensions.php` is an application-local registry with a static API letting a site or addon
 teach the server about a fieldtype this package does not ship support for. An unknown
 fieldtype otherwise gets no wire-format guidance and no input coercion, so a client
 guesses at the shape and the guess reaches a `process()` written for Control Panel input.
@@ -1060,7 +1166,7 @@ guesses at the shape and the guess reaches a `process()` written for Control Pan
   `process()`. Throw `FieldFormatException` to reject, and include `$path` in the message.
 
 Both are keyed by fieldtype handle; a later registration replaces an earlier one. The
-registry is static, so tests that register must `flush()` in setUp and tearDown. Register
+integration builder additionally enforces unique ownership and freezes it at boot. Register
 from a service provider's `boot()`. Documented for users in `docs/extending/fieldtypes.md`.
 
 ## MCP Resources
@@ -1105,19 +1211,33 @@ Legacy `initialize` clients (2025-06-18, 2025-11-25) still connect and skip head
 validation entirely. There is a test pinning that, because it is the compatibility
 promise most likely to be broken by accident.
 
-## Cache clearing is deferred, not removed
+## The Stache is repaired after a write, late
 
-A write asks for a cache clear; `BaseStatamicTool::execute()` runs it in a `finally`,
-once the call is over. Both halves of that matter.
+A write asks for its caches to be brought up to date; `BaseStatamicTool::execute()` does
+it in a `finally`, once the call is over.
 
-**It still clears**, because Statamic does not rebuild the indexes that *depend* on a
-write: a changed `max_items` leaves an index whose shape later throws, a changed mount
-leaves every entry 404ing, a removed taxonomy leaves `whereTaxonomy()` returning entries,
-a group's roles leave its members' role indexes stale. Repeated passes over the code kept
-turning up more — the set is not enumerable, so do not try to replace the clear with a
-list of special cases. That was tried and abandoned.
+**Repaired, not cleared** (v4, `cache.stache_after_write = repair`). Statamic keeps the
+store of the item it saves current, but not indexes elsewhere that depend on the write.
+`Mcp\Support\StacheRepair` records Statamic's own events during the call (entry deleted,
+collection tree saved, collection/taxonomy/group/role/container saved or deleted) and
+fixes exactly those indexes afterwards. The full clear it replaces cost every write ~1 ms
+per entry on the site (1.5 s per update at 1,500 entries).
 
-**It clears late**, because clearing mid-call is what broke a live site (#53).
+**Do not decide by reading code what a write leaves stale.** That was tried in 3.x and
+abandoned after nine review passes each found more. The oracle is
+`tests/Feature/Cache/StacheConsistencyTest`: each write runs with no clear, then every index
+of every store, as the next request reads it, must equal a rebuild from disk. A new kind
+of write gets a row there; a failing row gets a repair in `StacheRepair`. With the repair
+off, 13 of its 33 rows fail — that is the control.
+
+Two things it found that reading code would not: `CollectionSaved` fires after the
+collection stops reporting itself dirty, so Statamic's own `isDirty('route')` URI update
+never runs (every collection save repairs its entries); and a group's deleted index must
+be cleared, not rebuilt.
+
+A repair that throws falls back to the full clear. `clear` and `none` remain as modes.
+
+**It runs late**, because clearing mid-call is what broke a live site (#53).
 `statamic:stache:clear` goes through Artisan and resets the in-memory stores immediately,
 so the rest of the call reads emptied stores — a structured collection's tree came back
 empty, Statamic padded it with every entry at root, and a random entry became the
@@ -1136,9 +1256,17 @@ assumption — the request ends, the cache goes away. This server is long-lived,
 without intervention every tool call inherits whatever the last one memoized and
 answers with state that was true several calls ago.
 
-`BaseStatamicTool::execute()` therefore flushes Blink at the start of every call. That
+`BaseStatamicTool::execute()` therefore resets Blink at the start of every call. That
 is the single seam every tool goes through, and it makes each call begin the way a fresh
 request would. Nothing durable is lost: Blink holds only what can be read again.
+
+**Reset every store, not just the default.** `Blink::flush()` reaches only the default
+store, while Statamic also memoizes in named ones (`entry-uris`, `structure-uris`,
+`collection-mounts`, the blueprint repository's `found`/`from-file`). With only a flush,
+a long-lived stdio server kept serving a blueprint the Control Panel had changed, and a
+collection's old URIs after a route change, until it restarted. The call start swaps in
+a fresh `Statamic\Support\Blink` (`StatamicWriteContractTest`:
+`each_call_reads_what_another_process_changed_since_the_last`).
 
 This is not hygiene, it is correctness. Three separate bugs were this cache:
 
@@ -1223,7 +1351,8 @@ bypasses stream wrappers and silently returns nothing under a wrapped path.
 - Validation against blueprint field definitions
 
 ### Automatic Cache Purging
-Writes queue a clear of what their change invalidates. Content and structure writes that
+Writes queue an update of what their change invalidates (the Stache is repaired, the
+static cache cleared). Content and structure writes that
 can change a rendered page — entries, terms, collections, taxonomies, navigations, global
 sets, revisions — queue **stache + static**. Writes that cannot — blueprints, assets,
 users, roles, groups — queue **stache** only, since Statamic's own invalidator already
@@ -1231,12 +1360,24 @@ subscribes to `BlueprintSaved` and `AssetSaved`. Collection writes additionally 
 their own static URLs directly, because `CollectionSaved` is not in that subscriber list.
 
 **The clear is deferred**, and that matters more than the list above: see
-"Cache clearing is deferred, not removed". It runs once the response is built, never
+"The Stache is repaired after a write, late". It runs once the response is built, never
 mid-call. Queue it with `clearCachesAfterWrite()`; `clearStatamicCaches()` is the
 immediate version and belongs only to the system router's `cache_clear` action.
 
 The result is not reported in the response — it is not known until after the envelope is
 assembled, and a cache rebuild is not something the caller acts on.
+
+**The matrix is measured on rendered pages** (`tests/Feature/Cache/RenderedCacheMatrixTest.php`):
+a site with a layout showing a global and a navigation, a home page listing the blog, posts
+showing their tags, and the REST API. Each write is followed by reading every affected URL
+with the half-measure static cache warm, then again with the Stache and static cache cold.
+With MCP's clear switched off, Statamic's own invalidator refreshes only the written
+entry's URL: listing pages, a post showing a renamed tag, globals and navigation on every
+page, and old URLs after a slug or route change all stay stale. **The full static clear
+is load-bearing; do not narrow it to the record's own URL.** A spy on `Artisan::call`
+cannot show this, which is why the matrix renders pages. GraphQL is in the matrix too; its response cache is
+invalidated by Statamic's own events, so there MCP's clear is not what makes it fresh.
+Mount changes and a renamed mount page are not covered by Statamic's invalidator.
 
 ### Performance Optimizations
 - **Pagination support** in all content extraction tools

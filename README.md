@@ -6,8 +6,8 @@ A comprehensive MCP (Model Context Protocol) server for Statamic CMS v6 that pro
 
 - PHP 8.3+
 - Laravel 12+
-- Statamic 6.6+
-- Laravel MCP ^1.0
+- Statamic 6.44+
+- Laravel MCP ^1.3
 
 ## Installation
 
@@ -16,7 +16,7 @@ A comprehensive MCP (Model Context Protocol) server for Statamic CMS v6 that pro
 composer require cboxdk/statamic-mcp
 
 # Run the installation command
-php artisan mcp:statamic:install
+php artisan mcp:statamic:install --profile=read_only
 ```
 
 ### Recommended: Laravel Boost Integration
@@ -31,13 +31,16 @@ composer require laravel/boost --dev
 
 ## Web MCP Endpoint
 
-The web MCP endpoint is **enabled by default** after installation. To customize the path:
+The web MCP endpoint is **disabled by default**. Enable it explicitly and choose the path:
 
 ```env
+STATAMIC_MCP_WEB_ENABLED=true
+STATAMIC_MCP_HTTP_PROFILE=read_only
 STATAMIC_MCP_WEB_PATH="/mcp/statamic"
 ```
 
-Create a token in the CP dashboard (Tools > MCP > Tokens), then configure your AI client:
+Create a token in the CP dashboard (Tools > MCP > Tokens), then configure Cursor
+with the following `.cursor/mcp.json`. Other clients use their own formats below.
 
 ```json
 {
@@ -56,107 +59,106 @@ See [Getting Started](docs/quickstart.md) for detailed setup or [AI Client Setup
 
 ## Features
 
-The MCP server organizes Statamic's capabilities into domain routers with action-based routing:
+The MCP server organizes capabilities into domain routers. Clients see separate
+`-read` and `-write`/`-admin` tools, with an `action` parameter on each.
 
-### Blueprint Management — `statamic-blueprints`
-Actions: `list`, `get`, `create`, `update`, `delete`, `scan`, `generate`, `types`, `validate`
+### Blueprints and fieldsets — `statamic-blueprints-read` / `statamic-blueprints-admin`
+Actions: `list`, `get`, `create`, `update`, `delete`, `scan`, `generate`, `types`, `validate`, `list_fieldsets`, `get_fieldset`, `create_fieldset`, `update_fieldset`, `delete_fieldset`, `fieldtypes`
 
-List, inspect, create, and modify blueprints. Generate TypeScript/PHP types from field definitions. Validate blueprints for conflicts and structural integrity. `get` accepts a `field` dot path that scopes the response to one field or set, so a deep format spec fits in a reply.
+Read and edit native definitions without flattening tabs, sections, imports or field references. Resolved fields report their source; fieldset updates and deletes support version checks. Inspect installed fieldtypes, generate types, or scope a blueprint `get` to one `field` dot path. See the [blueprint and fieldset reference](docs/tools/overview.md#statamic-blueprints).
 
-### Entry Management — `statamic-entries`
+### Entry Management — `statamic-entries-read` / `statamic-entries-write`
 Actions: `list`, `get`, `create`, `update`, `localize`, `delete`, `publish`, `unpublish`, `list_revisions`, `get_revision`, `restore_revision`, `publish_working_copy`
 
-Entry operations with filtering and pagination, revision workflows, and localization into other sites. `update` can merge replicator items by id instead of replacing the whole array.
+Entry operations with filtering, safe sorting, cursor pagination, revisions and localization. `get` accepts an id, slug or URI within a collection and site; localized reads distinguish local overrides from inherited values. `update` can merge replicator items by id instead of replacing the whole array.
 
-### Term Management — `statamic-terms`
+### Term Management — `statamic-terms-read` / `statamic-terms-write`
 Taxonomy term operations with slug conflict prevention, dependency validation, and relationship mapping.
 
-### Global Management — `statamic-globals`
-Global set structure and values management with multi-site support, change tracking, and field-level filtering.
+### Global Management — `statamic-globals-read` / `statamic-globals-write`
+Read and update localized global values with version checks and field filtering. Manage set definitions through structures.
 
-### Form Management — `statamic-forms`
-Actions: `list`, `get`, `create`, `update`, `delete`
+### Structure Management — `statamic-structures-read` / `statamic-structures-admin`
+Collection, taxonomy, navigation and global-set configuration; sites are read-only.
 
-Create forms and change their settings: title, honeypot, submission storage, email notifications, and any settings addons register. Form fields are edited through `statamic-blueprints` (namespace `forms`).
-
-### Structure Management — `statamic-structures`
-Collection, taxonomy, navigation, and site configuration management.
-
-### Asset Management — `statamic-assets`
+### Asset Management — `statamic-assets-read` / `statamic-assets-write`
 Asset container and file operations: upload (from a URL, base64 or a local file), move, copy and delete, with metadata management.
 
-### User Management — `statamic-users`
+### User Management — `statamic-users-read` / `statamic-users-admin`
 User CRUD, role assignment, group management with RBAC support.
 
-### System Management — `statamic-system`
+### Forms — `statamic-forms-read` / `statamic-forms-write`
+Forms 2 definitions and site-bound submissions, with separate submission scopes and write-only connector configuration. See [Forms](docs/tools/forms.md).
+
+### System Management — `statamic-system-read` / `statamic-system-admin`
 System info, health checks, cache management (clear/warm), and configuration access.
 
-### Content Workflow Facade — `statamic-content-facade`
-High-level workflow operations: `content_audit`, `content_validate`, and `cross_reference`.
+### Content Workflow Facade — `statamic-content-facade-read`
+Read-only analysis: `content_audit`, paginated `content_validate`, and `cross_reference`. Cross-reference refuses more than 5,000 readable entries and terms rather than reporting incomplete orphan results.
 
 ### Finding the tools
 
-Three tools are listed when a client connects — `statamic-entries`, `statamic-blueprints`
-and `statamic-system-discover`. The rest are found with `search_tools` and run with
-`execute_tools`, which keeps ~18 KB of JSON schema out of your context window on every
-connection. They are fully available and fully gated either way; only their schemas wait
-until you ask. Set `STATAMIC_MCP_SEARCHABLE_CATALOG=false` to list all of them directly.
+By default, the catalog lists the tool facets allowed by the caller's scopes and
+installation profile. `statamic-discover` finds authorized tools by intent or
+returns a tool's input/output schemas. Set `STATAMIC_MCP_SEARCHABLE_CATALOG=true`
+to opt into `search_tools` / `execute_tools` for less-used tools; this changes
+discovery, not authorization.
+
+Read-only [resources and completions](docs/tools/overview.md#resources) expose
+blueprints, collections, sites, fieldtypes and record URIs. Following a resource
+link from a write is a new authorized read, not an additional grant.
 
 ### Adding your own tools
 
-Another package can serve its own tools from this server. Write a router — a class
-extending `Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter` — and register it from your service
-provider:
+Another package can serve a `BaseRouter` with its own scopes and consent through
+the integration API. Register from its service provider:
 
 ```php
-use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
+use Cboxdk\StatamicMcp\StatamicMcp;
 
 public function boot(): void
 {
-    StatamicMcpServer::registerTool(SiteHealthRouter::class);                    // via search_tools
-    StatamicMcpServer::registerTool(OtherRouter::class, searchable: false);      // listed at connect time
+    StatamicMcp::integration('vendor/notes')
+        ->scope('notes:read', 'Read notes', ['view notes'])
+        ->router(NotesRouter::class, version: 1);
 }
 ```
 
-Or list them in `config/statamic/mcp.php` under `extra_tools`.
+The package must define its native permission, action contracts and exact-record
+authorization. Integrations share the approval, idempotency and audit pipeline;
+HTTP and stdio both require current capability consent. `registerTool()` and
+`extra_tools` remain compatibility paths for existing scoped domains. An unscoped
+custom domain is refused for every token, including legacy `*` tokens. See
+[Extending: tools](docs/extending/tools.md) for the complete contract.
 
-Extra tools are gated exactly like the built-in ones: the per-domain web toggle
-(`statamic.mcp.tools.{domain}.enabled`), the token scope for the router's domain
-(`{domain}:read` / `{domain}:write`), Statamic permissions, the resource policy, the
-confirmation gate and the audit log. A router in a domain this package has no token scope
-for requires a full-access (`*`) token, so a third-party tool is never reachable by a token
-that was not issued for it. A router that declares no Statamic permission
-(`getRequiredPermissions()` returns nothing) is reachable by super admins only. Anything
-that is not a `BaseRouter` is refused at registration. See
-[Extending: tools](docs/extending/tools.md).
-
-### Agent Education Tools
-- `statamic-system-discover` — Intent-based tool discovery
-- `statamic-system-schema` — Tool schema inspection
+### Workflow prompts
+`write_entry`, `translate_entry`, `edit_page_builder` and `model_content` prepare
+authorized live context. They do not write or approve changes.
 
 ## Architecture
 
 ### Router-Based Design
-- **11 domain routers** instead of 140+ individual tools
+- Domain routers with separate read and write/admin facets
 - **Action-based routing**: Each router handles multiple related operations
 - **Better AI performance**: Fewer tools to choose from, clearer purposes
 - **Single file per domain**: Easy maintenance and testing
 
 ### Security
-- Scoped API tokens with 21 granular permissions
+- Scoped API tokens with separate read, edit, publish, delete and administration grants
 - OAuth 2.1 authorization server with PKCE and dynamic client registration
-- Bearer token + Basic Auth authentication
+- Bearer tokens and OAuth
 - Rate limiting per token
 - Audit logging for all operations
 - Path traversal protection
 - PHPStan Level 9 strict typing
 
 ### CP Dashboard
-Vue 3 dashboard in the Statamic CP (Tools > MCP) with:
-- **Connect** — Endpoint URL, client config snippets for Claude/Cursor/ChatGPT/Windsurf
-- **Tokens** — Create, list, and revoke API tokens with scope selection
-- **Activity** — Audit log of MCP tool calls
-- **Settings** — System stats, endpoint status, rate limiting
+The native Statamic CP pages under Tools > MCP provide connection snippets,
+personal tokens and your own activity. The separate admin page exposes all tokens,
+the site-wide audit log and system information according to the user's permissions.
+Approvals have their own page. OAuth consent and token scope selection share
+permission-filtered choices; administration and deletion need explicit selection
+on OAuth consent. Interface copy is translated through Laravel language files.
 
 ## Configuration
 
@@ -205,7 +207,7 @@ composer quality
 "Create a new blog entry with title and content fields"
 "List all global sets and their current values"
 "Clear all caches and show me the status"
-"Analyze this Antlers template for performance issues"
+"Validate stored content against its blueprints"
 ```
 
 ## Contributing

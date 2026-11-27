@@ -6,8 +6,10 @@ namespace Cboxdk\StatamicMcp\Tests\Feature\CP;
 
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 use Cboxdk\StatamicMcp\Auth\TokenService;
+use Cboxdk\StatamicMcp\Contracts\TokenStore;
 use Cboxdk\StatamicMcp\OAuth\Contracts\OAuthDriver;
 use Cboxdk\StatamicMcp\OAuth\OAuthClient;
+use Cboxdk\StatamicMcp\Tests\Concerns\InteractsWithOAuthConsent;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Inertia\Testing\AssertableInertia;
 use Statamic\Contracts\Auth\User as UserContract;
@@ -22,6 +24,8 @@ use Statamic\Facades\User;
  */
 class ScopesFollowPermissionsTest extends TestCase
 {
+    use InteractsWithOAuthConsent;
+
     /** RFC 7636 appendix B pair. */
     private const CODE_VERIFIER = 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk';
 
@@ -70,6 +74,7 @@ class ScopesFollowPermissionsTest extends TestCase
     {
         return [
             'response_type' => 'code',
+            'resource' => 'http://localhost/mcp/statamic',
             'client_id' => $this->client->clientId,
             'redirect_uri' => $this->redirectUri,
             'code_challenge' => self::CODE_CHALLENGE,
@@ -88,7 +93,7 @@ class ScopesFollowPermissionsTest extends TestCase
         // @phpstan-ignore-next-line (assertInertia is a TestResponse macro registered by Inertia)
         $response->assertInertia(fn (AssertableInertia $page) => $page
             ->where('availableScopes', fn ($scopes) => collect($scopes)->pluck('value')->all() === [
-                'content:read', 'content:write', 'structures:read', 'entries:read', 'entries:write',
+                'structures:read', 'entries:read', 'entries:write',
             ])
         );
     }
@@ -103,7 +108,7 @@ class ScopesFollowPermissionsTest extends TestCase
 
         // @phpstan-ignore-next-line
         $response->assertInertia(fn (AssertableInertia $page) => $page
-            ->where('availableScopes', fn ($scopes) => count($scopes) === count(TokenScope::cases()))
+            ->where('availableScopes', fn ($scopes) => count($scopes) === count(TokenScope::cases()) - 6)
         );
     }
 
@@ -112,10 +117,10 @@ class ScopesFollowPermissionsTest extends TestCase
         $this->actingAs($this->editor)
             ->postJson(cp_route('statamic-mcp.tokens.store'), [
                 'name' => 'Desk',
-                'scopes' => ['entries:read', 'users:write'],
+                'scopes' => ['entries:read', 'users:admin'],
             ])
             ->assertStatus(422)
-            ->assertJsonFragment(['message' => 'These scopes are not available to this user: users:write. Available scopes: content:read, content:write, structures:read, entries:read, entries:write']);
+            ->assertJsonFragment(['message' => 'These scopes are not available to this user: users:admin. Available scopes: structures:read, entries:read, entries:write']);
 
         $this->actingAs($this->editor)
             ->postJson(cp_route('statamic-mcp.tokens.store'), [
@@ -136,7 +141,7 @@ class ScopesFollowPermissionsTest extends TestCase
         $admin->save();
 
         $this->actingAs($admin)
-            ->putJson(cp_route('statamic-mcp.tokens.update', ['token' => $token->id]), ['scopes' => ['users:write']])
+            ->putJson(cp_route('statamic-mcp.tokens.update', ['token' => $token->id]), ['scopes' => ['users:admin']])
             ->assertStatus(422);
 
         $this->actingAs($admin)
@@ -147,37 +152,37 @@ class ScopesFollowPermissionsTest extends TestCase
     public function test_the_consent_screen_shows_an_editor_only_the_scopes_they_can_use(): void
     {
         $response = $this->actingAs($this->editor, 'web')
-            ->get($this->authorizeUrl() . '?' . http_build_query($this->oauthParams('entries:read users:write *')))
+            ->get($this->authorizeUrl() . '?' . http_build_query($this->oauthParams('entries:read users:admin *')))
             ->assertOk();
 
-        $response->assertSee('Read Entries');
-        $response->assertSee('Read Structures');
-        $response->assertDontSee('Write Users');
-        $response->assertDontSee('Full Access');
+        // The page also carries the complete translation catalog; the offer,
+        // not the presence of a translated label, determines selectable scopes.
+        $scopes = $response->viewData('page')['props']['scopes'];
+        $this->assertEqualsCanonicalizing(['entries:read', 'entries:write', 'structures:read'], array_column($scopes, 'value'));
     }
 
     public function test_a_client_asking_only_for_scopes_the_editor_lacks_is_refused(): void
     {
         $response = $this->actingAs($this->editor, 'web')
-            ->get($this->authorizeUrl() . '?' . http_build_query($this->oauthParams('users:write')));
+            ->get($this->authorizeUrl() . '?' . http_build_query($this->oauthParams('users:admin')));
 
-        $response->assertRedirect();
-        $this->assertStringContainsString('error=invalid_scope', $response->headers->get('Location', ''));
+        // Before consent nothing is sent to the client: an error page instead.
+        $response->assertStatus(400)->assertSee('invalid_scope')->assertHeaderMissing('Location');
     }
 
     public function test_approval_cannot_grant_more_than_was_offered(): void
     {
         $approve = $this->actingAs($this->editor, 'web')
-            ->post($this->authorizeUrl(), [
+            ->post($this->authorizeUrl(), $this->withConsentOffer($this->authorizeUrl(), [
                 'decision' => 'approve',
                 'client_id' => $this->client->clientId,
                 'redirect_uri' => $this->redirectUri,
                 'state' => 'st',
                 'code_challenge' => self::CODE_CHALLENGE,
                 'code_challenge_method' => 'S256',
-                'scope' => 'entries:read users:write *',
-                'scopes' => ['*', 'users:write', 'entries:read'],
-            ]);
+                'scope' => 'entries:read users:admin *',
+                'scopes' => ['*', 'users:admin', 'entries:read'],
+            ]));
 
         $approve->assertRedirect();
         parse_str((string) parse_url($approve->headers->get('Location', ''), PHP_URL_QUERY), $query);
@@ -185,6 +190,7 @@ class ScopesFollowPermissionsTest extends TestCase
 
         $exchange = $this->post('/mcp/oauth/token', [
             'grant_type' => 'authorization_code',
+            'resource' => 'http://localhost/mcp/statamic',
             'code' => $query['code'],
             'redirect_uri' => $this->redirectUri,
             'client_id' => $this->client->clientId,
@@ -203,9 +209,9 @@ class ScopesFollowPermissionsTest extends TestCase
 
     public function test_a_token_minted_before_the_cap_can_still_be_edited(): void
     {
-        /** @var TokenService $tokens */
-        $tokens = $this->app->make(TokenService::class);
-        $token = $tokens->createToken('editor-1', 'Legacy', [TokenScope::FullAccess])['model'];
+        // A v3 token: written to the store directly, since v4 no longer issues `*`.
+        $token = $this->app->make(TokenStore::class)
+            ->create('editor-1', 'Legacy', hash('sha256', 'legacy-secret'), ['*'], null);
 
         // The edit form resends every scope the token holds.
         $this->actingAs($this->editor)
@@ -218,10 +224,10 @@ class ScopesFollowPermissionsTest extends TestCase
         // Adding a scope the editor cannot hold is still refused.
         $this->actingAs($this->editor)
             ->putJson(cp_route('statamic-mcp.tokens.update', ['token' => $token->id]), [
-                'scopes' => ['*', 'users:write'],
+                'scopes' => ['*', 'users:admin'],
             ])
             ->assertStatus(422)
-            ->assertJsonFragment(['message' => 'These scopes are not available to this user: users:write. Available scopes: content:read, content:write, structures:read, entries:read, entries:write']);
+            ->assertJsonFragment(['message' => 'These scopes are not available to this user: users:admin. Available scopes: structures:read, entries:read, entries:write']);
     }
 
     public function test_a_client_asking_for_everything_is_offered_the_editors_reach(): void
@@ -230,17 +236,17 @@ class ScopesFollowPermissionsTest extends TestCase
             ->get($this->authorizeUrl() . '?' . http_build_query($this->oauthParams('*')))
             ->assertOk();
 
-        $response->assertSee('Read Entries');
-        $response->assertSee('Read Structures');
-        $response->assertSee('Write Entries');
-        $response->assertDontSee('Full Access');
-        $response->assertDontSee('Write Users');
+        // `*` expands to the editor's reach; this editor has neither delete
+        // nor admin scopes, which must never start selected.
+        $props = $response->viewData('page')['props'];
+        $this->assertEqualsCanonicalizing(['entries:read', 'entries:write', 'structures:read'], array_column($props['scopes'], 'value'));
+        $this->assertEqualsCanonicalizing(['entries:read', 'entries:write', 'structures:read'], $props['defaultScopes']);
     }
 
     public function test_approving_a_wildcard_grants_the_editors_reach_not_more(): void
     {
         $approve = $this->actingAs($this->editor, 'web')
-            ->post($this->authorizeUrl(), [
+            ->post($this->authorizeUrl(), $this->withConsentOffer($this->authorizeUrl(), [
                 'decision' => 'approve',
                 'client_id' => $this->client->clientId,
                 'redirect_uri' => $this->redirectUri,
@@ -248,7 +254,8 @@ class ScopesFollowPermissionsTest extends TestCase
                 'code_challenge' => self::CODE_CHALLENGE,
                 'code_challenge_method' => 'S256',
                 'scope' => '*',
-            ]);
+                'scopes' => ['structures:read', 'entries:read', 'entries:write'],
+            ]));
 
         $approve->assertRedirect();
         parse_str((string) parse_url($approve->headers->get('Location', ''), PHP_URL_QUERY), $query);
@@ -256,12 +263,18 @@ class ScopesFollowPermissionsTest extends TestCase
 
         $exchange = $this->post('/mcp/oauth/token', [
             'grant_type' => 'authorization_code',
+            'resource' => 'http://localhost/mcp/statamic',
             'code' => $query['code'],
             'redirect_uri' => $this->redirectUri,
             'client_id' => $this->client->clientId,
             'code_verifier' => self::CODE_VERIFIER,
         ])->assertOk();
 
-        $this->assertSame('content:read content:write structures:read entries:read entries:write', $exchange->json('scope'));
+        // The approved list is the editor's concrete reach, stored explicitly.
+        $this->assertSame('structures:read entries:read entries:write', $exchange->json('scope'));
+
+        $issued = $this->app->make(TokenService::class)->validateToken((string) $exchange->json('access_token'));
+        $this->assertNotNull($issued);
+        $this->assertNotContains('*', $issued->scopes);
     }
 }

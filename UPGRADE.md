@@ -1,3 +1,312 @@
+# Upgrading from v3.x to v4.0
+
+v4 never widens what an existing token or OAuth grant may do. A credential
+whose meaning changed is narrowed or must be approved again. Content is not
+touched by any step below.
+
+v4 requires Statamic **6.44+** and Laravel MCP **1.3+**.
+
+This guide describes the unreleased v4 branch. Do not treat it as confirmation
+that a v4 package has been published or the release verification is complete.
+
+## Forms 2
+
+Use `statamic-forms-read` / `statamic-forms-write`, with the `form` argument.
+Form fields are stored in `data.fields.sections` (or `data.fields.pages` for
+multi-page forms). The `forms` namespace is no longer accepted by the blueprint
+tools or resources; Statamic deletes legacy form blueprints on saving the form.
+Follow Statamic's Forms 2 upgrade procedure before changing existing forms.
+
+Grant `forms:read` / `forms:write` for definitions, and separately
+`submissions:read` for submission data or `submissions:delete` for deletion.
+Existing tokens do not gain these scopes. Deletion requires approval by default;
+spam marking requires both `forms:write` and `submissions:read`. Connector
+configuration is write-only, including in approval previews and audit logs.
+See [Forms](docs/tools/forms.md) for actions and input shapes.
+
+## Steps
+
+1. Back up `storage/statamic-mcp/` (or the MCP tables) and your config.
+2. `composer require cboxdk/statamic-mcp:^4.0`
+3. `php artisan mcp:statamic:install --upgrade` keeps your config, asks for the
+   stdio profile (`read_only`, `editor` or `operator`), runs migrations and shows
+   the token plan below. It separately asks before migrating project-local client permissions.
+4. `php artisan mcp:doctor` checks HTTPS, origins, debug mode, trusted proxies,
+   profiles, storage contracts and how many tokens v4 affects. It changes nothing.
+5. `php artisan mcp:migrate-v4` shows token and client-permission changes as a dry run. Run it again
+   with `--apply` to carry it out. `--json` prints the plan for scripts.
+
+## Control Panel assets
+
+The dashboard now uses Statamic 6's native UI kit. Publish the updated JavaScript
+and CSS with `php artisan vendor:publish --tag=statamic-mcp --force` if your deployment
+does not publish addon assets automatically, then reload the Control Panel.
+Forms Pro is not required. Token ownership, scopes and approval permissions are unchanged.
+
+Personal activity now lives alongside your tokens; it cannot be switched to
+another actor. The admin log still requires `view mcp audit log`. OAuth consent
+uses the native CP and shared scope descriptions; admin, delete and integration
+scopes are not preselected. Review the selected scopes when reconnecting a client.
+English and Danish interface translations do not change protocol identifiers.
+
+## Content models and reads
+
+- Blueprints preserve native tabs, sections, fieldset imports, prefixes and field
+  references. Resolved fields report their source. Use the explicit fieldset
+  actions on the blueprint facets; updates/deletes accept `expected_version` and
+  deletion refuses fieldsets still in use. Existing blueprint approval settings
+  apply to the matching fieldset writes. See [the reference](docs/tools/overview.md#statamic-blueprints).
+- Entry `get` accepts exactly one of `id`, `slug` or `uri`, within `collection`
+  and the selected `site`. Localized reads distinguish local `data` from inherited
+  `merged_data`; do not write the latter back as local overrides. Origin and
+  localization links expose only readable records. The `blueprint` argument on
+  entry `create` must belong to the collection. Unrecognized top-level content keys
+  produce warnings, not a promise that those keys were stored.
+- Entry and term `sort` accepts one readable field/property with `asc` or `desc`;
+  arbitrary query expressions and denied fields are refused. Keep it unchanged
+  between cursor pages. `cross_reference` refuses more than 5,000 readable entries
+  and terms rather than presenting incomplete orphan results.
+- New [resource catalogs, templates and completions](docs/tools/overview.md#resources)
+  expose authorized records. A link returned by a write does not grant read access.
+  Blueprint resources still have an independent enable switch; other resources
+  retain their read router's tool toggle and authorization.
+
+## Installer, stores and observers
+
+The installer merges Claude Code/Cursor configuration, preserves unrelated rules,
+and leaves invalid JSON untouched. A failing `mcp:doctor` now fails installation
+even if configuration was written; correct the reported setting and run doctor
+again. Disabled transports are not warnings, local/test loopback HTTP is accepted,
+and built-in stdio tools do not need an integration token. See
+[installation](docs/getting-started/installation.md) for the limits of preflight.
+
+File-token `last_used_at` is coalesced to at most once a minute, not an exact
+request timestamp. File-audit queries read complete records from a snapshot
+without blocking writers; totals still scan the active log (at most its last
+50 MiB), not archived history. See [audit reads](docs/configuration/reference.md#activity-and-audit-reads).
+
+Observer consumers must account for terminal events after response sizing and
+cache work, with `approval.consumed` before `execution.completed`. The unreleased
+contract adds `approval.expired`, middleware-level `request.rejected`, and bounded
+diagnostic/timing metadata. `response_bytes` measures the encoded envelope, not
+network traffic. This implementation is still under test; see
+[lifecycle events](docs/extending/lifecycle-events.md) before changing consumers.
+
+## Addon integrations
+
+New integrations register through `StatamicMcp::integration('vendor/package')`.
+Declare owned scopes, a domain router, per-action argument and result contracts,
+and an exact-resource authorization policy. HTTP and stdio both require a current
+capability grant; configure `statamic.mcp.stdio.token` for integration calls over
+stdio. Built-in stdio behavior is unchanged.
+
+`StatamicMcpServer::registerTool()` and `extra_tools` remain compatibility paths
+for existing routers, but do not confer custom scopes or consent. Moving a router
+to the integration API requires fresh consent. Contract or version changes also
+require re-authorization rather than expanding an existing token. See
+[extending tools](docs/extending/tools.md) for the migration and deferred cache effects.
+
+Forms Pro and SEO Pro are optional reference integrations, installed and licensed
+separately. Neither is a runtime dependency. Grant their package-owned scopes through
+fresh consent; existing tokens remain unchanged. SEO redirect creation also needs
+delete authority because the native save deletes matching 404 errors. Reports and
+sitemap require separate site-wide authority. See [Forms Pro](docs/extending/forms-pro.md)
+and [SEO Pro](docs/extending/seo-pro.md).
+
+## Search and cache
+
+System `search` reads only built-in local indexes and filters by the content scopes,
+permissions, sites and resource policies. Missing indexes are not created by reads.
+`reindex` requires a super user and approval by default. Domains with denied fields
+are omitted from search to prevent revealing protected values through hit presence.
+
+`cache.static_after_write` accepts `full`, `statamic` or `refresh`. Leaving it unset
+preserves `clear_static_after_write`. `refresh` needs an asynchronous Statamic warm
+queue and worker: it clears first, then queues previously cached pages. Explicit
+`cache_warm` can now warm static pages, and `cache_clear all` now includes Glide.
+See [search and cache](docs/tools/search-and-cache.md) before changing these settings.
+
+## What the token plan does
+
+| v3 token | v4 |
+|---|---|
+| `*` (full access) | Refused by v4. Revoked; the owner creates a new token or authorizes the client again |
+| `structures:write`, `blueprints:write`, `users:write`, `system:write` | Replaced by `{domain}:admin` and grant nothing. A personal token keeps its other scopes and loses these; an OAuth grant, or a token with nothing else, is revoked |
+| `entries:write`, `terms:write`, `assets:write` | Still edit. Publishing and deleting need `entries:publish`, `entries:delete`, `terms:delete`, `assets:delete`. Kept as is; add the scopes in Tools → MCP where they belong |
+| `content:read`, `content:write` | Never granted anything and are retired. A personal token loses them (revoked if nothing else is left); an OAuth grant drops them at its next refresh |
+| Read scopes | Unchanged |
+
+No scope is ever added. The plan acts only on a token that still looks the way
+it did when planned, and a second run finds only what is left. Before changing
+anything it writes a journal (mode `0600`) to `storage/statamic-mcp/migrations/`
+(`storage.migrations_path`) with each token's scopes before and after. The
+journal never holds secrets or hashes. If it cannot be written, no tokens change.
+
+## Client permission migration
+
+The command and installer inspect `.claude/settings.json`, `.claude/settings.local.json`
+and `.cursor/cli.json` in the site's project root. Only exact tool rules for the
+server named `statamic` are migrated:
+
+- An old mixed router in `permissions.allow` becomes its read tool only. Writes need a new decision in the client.
+- Rules in `permissions.ask` and `permissions.deny` cover both new tools, preserving the restriction on writing.
+- Allows for the old discovery/schema tools are removed, rather than silently granting the combined `statamic-discover`. Ask/deny rules move to the combined tool.
+
+Every changed file gets an exclusive `.pre-mcp-v4` backup with mode `0600`. Other
+settings are preserved. Invalid JSON, symlinks and existing backups stop that file's
+migration. The command reports which files changed and stops before token changes
+if a client file failed. If the token journal fails later, already migrated client
+files stay migrated. Re-running after success changes nothing.
+
+Global settings, wildcard permissions and servers with other names need manual
+review. In particular, an existing server-wide allow still allows writes; the
+migration does not claim to narrow it. Never restore a backup automatically on
+rollback: review its grants against the version you are returning to. Backups may
+contain other client configuration secrets; keep them out of version control.
+
+## Clients
+
+- Replace `statamic-system-discover` and `statamic-system-schema` with `statamic-discover`. Omit arguments for `data.discovery.available_tools`, use `intent` for recommendations, or `tool_name` for input/output schemas. Discovery reflects scopes and installation profiles; it does not grant record access.
+- Replace saved uses of `statamic_agent` and `statamic_contract` with a task prompt: `write_entry`, `translate_entry`, `edit_page_builder` or `model_content`. Supply `collection`, an existing `blueprint` handle and `task`. Translation also needs `id` and `target_site`; page-builder edits need `id` and the top-level `field`. Prompts read live context through the normal authorization checks; they do not grant write access or run writes.
+- Tool failures now use `error: {code, message, field?, valid_values?, hint?}` alongside MCP `isError: true`. Replace reads of `errors[0]`, a string `error`, or `data.code` with `error.message` and `error.code`. Recovery data such as `approval_id` and `current_version` stays in `data`; unexpected exceptions include `meta.correlation_id`. See [error codes](docs/tools/overview.md#error-codes). Internal PHP `execute()` callers still receive the legacy `errors` list, but the protocol does not.
+- Basic Auth is gone. Use a Bearer token or OAuth.
+- OAuth authorization and both token exchanges (code and refresh) require `resource`,
+  the exact endpoint identifier from protected-resource metadata, including any
+  non-default port. The audience is bound through code, refresh and access tokens;
+  a token for another endpoint is refused. OAuth grants issued without that binding
+  must authorize again; personal tokens are unaffected. Authorization responses include
+  `iss`, matching discovery's `issuer`.
+- HTTP 401 challenges include initial or action-specific scopes. HTTP 403
+  `insufficient_scope` includes all required scopes in `WWW-Authenticate`, before
+  execution (including every call in `execute_tools`). Reauthorize with those scopes
+  and retry only after consent. Protected-resource discovery lists minimal initial
+  read scopes; authorization-server discovery lists the available scopes. A resource
+  policy or Statamic permission refusal is not fixed by requesting more token scopes.
+- Dynamic client registration accepts `application_type: "web"` or `"native"`.
+  Both use the same safe redirect validation; this does not enable OIDC or bypass PKCE.
+- The HTTP endpoint must be enabled explicitly (`STATAMIC_MCP_WEB_ENABLED=true`).
+- Remove `confirmation_token`; a non-null value is refused as an unknown argument.
+  A gated action answers `APPROVAL_REQUIRED`
+  with an `approval_id`; the person approves it in Tools → MCP → Approvals and
+  the client repeats the call with that id.
+- Users `create`, `update`, `activate`, `assign_role` and `delete` need an
+  approval over HTTP by default (`confirmation.actions.users`). Changing your
+  own email or password over HTTP also needs `data.current_password`.
+- List `filters` accept only blueprint field handles and the named properties
+  (entries: `id`, `slug`, `title`, `published`, `status`, `date`, `uri`,
+  `parent`, `origin`; terms: `id`, `slug`, `title`, `uri`), with scalar values.
+  Other keys are refused with the valid ones.
+- Relationship fields must name records that exist: term slugs, entry ids, user
+  ids. Unknown terms are no longer created.
+- OAuth authorize errors before consent show an error page instead of
+  redirecting to the client.
+- Every tool is split in two. Rename the tools in your client's permission rules
+  and saved prompts:
+
+  | v3 tool | v4 read tool | v4 tool that changes the site |
+  |---|---|---|
+  | `statamic-entries` | `statamic-entries-read` | `statamic-entries-write` |
+  | `statamic-terms` | `statamic-terms-read` | `statamic-terms-write` |
+  | `statamic-globals` | `statamic-globals-read` | `statamic-globals-write` |
+  | `statamic-assets` | `statamic-assets-read` | `statamic-assets-write` |
+  | `statamic-blueprints` | `statamic-blueprints-read` | `statamic-blueprints-admin` |
+  | `statamic-structures` | `statamic-structures-read` | `statamic-structures-admin` |
+  | `statamic-users` | `statamic-users-read` | `statamic-users-admin` |
+  | `statamic-system` | `statamic-system-read` | `statamic-system-admin` |
+  | `statamic-content-facade` | `statamic-content-facade-read` | – |
+
+  To let a client read without asking: `mcp__statamic__*-read` in Claude Code's
+  `permissions.allow`, `Mcp(statamic:*-read)` in Cursor CLI's `permissions.allow`.
+  These patterns exclude `statamic-discover`; approve that tool separately.
+  Other clients may use the tools' read-only hints; their approval policy remains theirs.
+- Arguments have one name each, and an action refuses an argument it does not
+  take (v3 ignored it) and names what it does take. Rename these in saved
+  prompts and scripts:
+
+  | Tool | v3 argument | v4 argument |
+  |---|---|---|
+  | entries | `version` (get) | `revision_state` |
+  | globals | `global_set` | `handle` |
+  | blueprints | `collection_handle`, `taxonomy_handle` | `collection`, `taxonomy` |
+  | assets | `handle` (containers) | `container` |
+  | assets | `filters.folder` | `folder` |
+  | structures | `config` on `configure` | `data` on `update` |
+  | assets, structures, users | `data.handle` on create | `handle` (`container` for assets); `data.handle` may only repeat it |
+  | system | `resource_type` | – (system has no resource types) |
+
+  `filters` is gone from users, structures and content-facade, where nothing
+  read it.
+- Lists return `data.items`, `data.next_cursor` and `data.total` instead of
+  domain-specific arrays (`entries`, `terms`, etc.) and `pagination`.
+  Replace `offset` with the opaque `next_cursor` from the preceding response;
+  stop when it is `null`. Keep the query arguments unchanged; `limit` may change.
+  Cursors are authenticated positions, not snapshots or access grants: each page
+  checks current permissions, and concurrent edits can shift the result set.
+  Invalid cursors and cursors from a different query return `VALIDATION`.
+  Configuration catalogs and `list_revisions` are paginated too.
+  `content_validate` retains `findings` and `summary`; its `next_cursor` and
+  `total` refer to the records scanned, not the number of findings.
+- Size-limited list pages set `truncated: true` and resume with `next_cursor` at
+  the first record not returned. A single oversized record is not skipped.
+  For large records, `get` accepts `fields` as dot paths into the result, such as
+  `entry.data.page_builder.0`. This returns `{projection: true, fields: [{path, value}]}`,
+  not a partial record to send back as a replacement. Blueprint writes still take
+  field definitions in `fields`; blueprint reads take result paths.
+- Record writes return the full permitted record and its `version`; deletes return
+  its last snapshot. A collection `move` includes the saved tree, without exposing
+  configuration to users who may only reorder. `version` fingerprints the record;
+  supported writes for entries, terms, globals, forms and fieldsets accept
+  `expected_version`. System operations have no record version. User IDs are strings, including
+  Eloquent integer primary keys. Each tool's `outputSchema` describes successful
+  records, list pages, failures and reduced successful write results.
+- Framework versions move out of tool metadata and system `info` to
+  `server/discover`, under `result._meta["statamic-mcp/versions"]`, still opt-in
+  through `security.expose_versions`. Stored-record `version` tokens do not change.
+- Structures `configure` is removed. Use `update` with `data` for settings,
+  including collection `structure` and `orderable`. To move a collection page,
+  use `statamic-structures-admin` with `action: "move"`, `resource_type: "collection"`, `handle`, `site` and
+  `data: {entry: "CHILD_ID", parent: "PARENT_ID"}` (`null` moves to the top level).
+  Collection `update` no longer accepts `entry`, `parent`, `tree` or `trees`.
+  Moves still need both `entries:write` and `structures:admin`, and reorder rights.
+- System `config_set` is removed. Change the site's configuration files instead;
+  MCP no longer changes its own tool configuration at runtime.
+- `tools/list` shows only what the token can use, and `search_tools`/`execute_tools`
+  are gone unless `catalog.searchable` is turned on.
+- Stdio needs an explicit profile, and registered actions over stdio need a
+  configured v4 token (`statamic.mcp.stdio.token`).
+
+## Custom drivers and tools
+
+- Token stores must keep the capability snapshot fields and accept the optional
+  `expectedScopes` argument on `update()`. Compare it with the current scopes
+  under the same lock or transaction as the write, throwing on a mismatch.
+  OAuth drivers must implement user-wide and owner/client grant revocation,
+  plus `pendingGrants()` independently of access-token records; audit drivers must implement
+  `DurableAuditStore`. `mcp:doctor` reports the last two.
+- `AuditStore::query()` gained an `?string $actor` filter (`user:{id}` or
+  `cli`); a custom audit store must accept and apply it.
+- A tool from another package in a domain with no scope of its own is refused
+  for every token. Make it a registered action with its own scope.
+
+## Rolling back to v3
+
+A rollback is a procedure, not only `composer require` of an older version.
+Stop MCP traffic and token/consent creation for the duration of the downgrade;
+the migration plans existing credentials, not credentials issued afterwards.
+
+1. While v4 is still installed: `php artisan mcp:migrate-v4 --rollback`, then
+   again with `--apply`. It revokes every token that v3 would let publish or
+   delete although v4 did not (an `{entries,terms,assets}:write` token without
+   the matching publish/delete scopes), OAuth grants included. Pending codes and
+   refresh tokens are inspected even when their access token expired or was pruned.
+   A grant selected for revocation is ended for its owner/client pair, including
+   access and refresh successors issued since planning. Do not downgrade if the
+   command reports a failed step; fix it and rerun first.
+2. `composer require cboxdk/statamic-mcp:^3.6`
+3. Do not restore tokens from the backup. A token revoked during the upgrade or
+   the rollback stays revoked; its owner creates a new one. Pending approvals
+   are not carried back, and content changed under v4 stays changed.
+
 # Upgrading from v1.x to v2.0
 
 ## Requirements Changed

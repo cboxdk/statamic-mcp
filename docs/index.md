@@ -10,7 +10,10 @@ weight: 1
 
 ## Overview
 
-The server registers a set of domain routers — each handling a specific Statamic concern — and makes them available over both CLI (`php artisan mcp:serve`) and web (HTTP endpoint) transports. All web access is gated by scoped API tokens with 21 granular permissions.
+The server registers domain routers over local stdio (`php artisan mcp:start statamic`)
+and an opt-in HTTP endpoint. Both require an explicit installation profile. HTTP
+uses scoped Bearer tokens, including OAuth grants. This example is for Cursor's
+`.cursor/mcp.json`; see [client setup](getting-started/ai-clients.md) for other formats.
 
 ```json
 {
@@ -28,23 +31,22 @@ The server registers a set of domain routers — each handling a specific Statam
 ## Key Features
 
 ### Router-Based Architecture
-- **11 MCP tools** instead of 140+ individual tools
+- Separate read and write/admin tools for each domain
 - Each router handles multiple actions via an `action` parameter
 - Fewer tools for the LLM to reason about, clearer purpose per tool
 - Single file per domain for easy maintenance
 
 ### Scoped API Tokens
-- 21 granular scopes in `domain:permission` format (plus `*` for full access)
+- Scopes in `domain:permission` format, plus `*` for full access (expanded to an explicit list when issued)
 - SHA-256 hashed storage, configurable expiry, max tokens per user
-- Bearer token authentication with Basic Auth fallback
+- Bearer tokens and OAuth
 - Created and managed in the Statamic Control Panel
 
 ### CP Dashboard
-- Unified Vue 3 dashboard at **Tools > MCP** with four tabs:
-  - **Connect** — Endpoint URL and copy-paste config for Claude, Cursor, ChatGPT, Windsurf
-  - **Tokens** — Create, list, and revoke API tokens with scope selection
-  - **Activity** — Audit log of all MCP tool calls
-  - **Settings** — System stats, endpoint status, rate limiting
+- **Tools > MCP** — Connection snippets, personal tokens and your own activity
+- **MCP Admin** — All tokens, site-wide activity and system information, permission-gated
+- **Approvals** — Review one exact requested operation; approval requires elevated authentication
+- Native consent and shared scope selection with English and Danish interface translations
 
 ### Security
 - Rate limiting per token (configurable)
@@ -55,33 +57,36 @@ The server registers a set of domain routers — each handling a specific Statam
 
 ## Available Tools
 
-| Tool | Actions | Description |
-|------|---------|-------------|
-| `statamic-blueprints` | list, get, create, update, delete, scan, generate, types, validate | Blueprint management and type generation; `get` can be scoped to one field or set |
-| `statamic-entries` | list, get, create, update, localize, delete, publish, unpublish, list_revisions, get_revision, restore_revision, publish_working_copy | Entry operations with filtering, localization, and revisions |
-| `statamic-terms` | list, get, create, update, delete | Taxonomy term operations with slug conflict prevention |
-| `statamic-globals` | list, get, update | Global set structure and values with multi-site support |
-| `statamic-forms` | list, get, create, update, delete | Form settings: title, honeypot, submission storage, email notifications |
-| `statamic-structures` | list, get, create, update, delete, configure | Collections, taxonomies, navigations, sites |
-| `statamic-assets` | list, get, create, update, delete, upload, move, copy | Asset container and file operations |
-| `statamic-users` | list, get, create, update, delete, assign-role | User CRUD with role and group management |
-| `statamic-system` | info, health, cache_status, cache_clear, cache_warm, config_get, config_set | System info, health checks, cache management |
-| `statamic-content-facade` | content_audit, content_validate, cross_reference | High-level workflow orchestration |
-| `statamic-system-discover` | — | Intent-based tool discovery for AI agents |
-| `statamic-system-schema` | — | Tool schema inspection |
+| Read tool | Write tool | Purpose |
+|---|---|---|
+| `statamic-blueprints-read` | `statamic-blueprints-admin` | Blueprints, reusable fieldsets, native layout/imports, field provenance and type generation |
+| `statamic-entries-read` | `statamic-entries-write` | Entries by id/slug/URI, safe sorting, localizations and revisions |
+| `statamic-terms-read` | `statamic-terms-write` | Taxonomy terms |
+| `statamic-globals-read` | `statamic-globals-write` | Localized global values |
+| `statamic-structures-read` | `statamic-structures-admin` | Collections, taxonomies, navigation and global-set definitions; read-only sites |
+| `statamic-assets-read` | `statamic-assets-write` | Asset containers and files |
+| `statamic-forms-read` | `statamic-forms-write` | Forms 2 definitions and separately scoped submissions |
+| `statamic-users-read` | `statamic-users-admin` | Users, roles and groups |
+| `statamic-system-read` | `statamic-system-admin` | System info, search and cache operations |
+| `statamic-content-facade-read` | — | Content audit, paginated validation and bounded cross-reference |
+
+`statamic-discover` maps an intent to authorized actions or returns a tool's live
+schemas. The default catalog lists permitted facets directly; searchable tools
+are an opt-in configuration. Read-only [resources and completions](tools/overview.md#resources)
+provide content-model catalogs and record links under the same access boundaries.
 
 ## Requirements
 
 - **PHP** 8.3+
-- **Statamic** v6.6+
+- **Statamic** ^6.44
 - **Laravel** 12.0+
-- **laravel/mcp** ^1.0
+- **laravel/mcp** ^1.3
 
 ## Quick Links
 
 - [Installation](getting-started/installation.md) — Install and configure the package
 - [Quick Start](quickstart.md) — Connect your first AI assistant in 2 minutes
-- [Token Scopes](authentication/token-scopes.md) — All 21 scopes explained
+- [Token Scopes](authentication/token-scopes.md) — Available scopes and common combinations
 - [AI Client Setup](getting-started/ai-clients.md) — Config for Claude, Cursor, ChatGPT, Windsurf
 - [Configuration Reference](configuration/reference.md) — All config options and env variables
 - [Tool Reference](tools/overview.md) — Detailed documentation for each tool

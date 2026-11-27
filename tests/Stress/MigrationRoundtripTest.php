@@ -10,12 +10,9 @@ use Cboxdk\StatamicMcp\Storage\Audit\FileAuditStore;
 use Cboxdk\StatamicMcp\Storage\Tokens\DatabaseTokenStore;
 use Cboxdk\StatamicMcp\Storage\Tokens\FileTokenStore;
 use Cboxdk\StatamicMcp\Tests\TestCase;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 
 class MigrationRoundtripTest extends TestCase
 {
-    use RefreshDatabase;
-
     private string $tempDir;
 
     private string $tempAuditPath;
@@ -56,7 +53,7 @@ class MigrationRoundtripTest extends TestCase
                 'user-roundtrip',
                 "Token {$i}",
                 'roundtrip_hash_' . $i,
-                ['content:read', 'content:write'],
+                ['entries:read', 'entries:write'],
                 $i % 2 === 0 ? Carbon::now()->addDay() : null,
             );
             $originalTokens[$token->id] = $token;

@@ -4,823 +4,424 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
-use Cboxdk\StatamicMcp\Mcp\Support\ConditionalFieldsValidator;
+use Carbon\Carbon;
+use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
+use Cboxdk\StatamicMcp\Auth\TokenScope;
+use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
+use Cboxdk\StatamicMcp\Mcp\Exceptions\ToolFailure;
+use Cboxdk\StatamicMcp\Mcp\Support\FormDefinition;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
-use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\SanitizesFieldData;
+use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ChecksResourceVersions;
+use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Validator;
-use Illuminate\Support\Str;
-use Illuminate\Validation\ValidationException;
+use Illuminate\Validation\Rule;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Attributes\Title;
-use Statamic\Facades\Blueprint;
-use Statamic\Facades\Form as FormFacade;
-use Statamic\Fields\Blueprint as BlueprintObject;
+use Statamic\Facades\Form as Forms;
+use Statamic\Facades\FormConnector;
+use Statamic\Facades\Site;
 use Statamic\Forms\Form;
-use Statamic\Rules\Handle;
+use Statamic\Forms\Submission;
 use Statamic\Statamic;
 
-/**
- * Form configuration: the settings the Control Panel's "Configure Form"
- * screen edits. A form's fields are its blueprint, which stays with
- * statamic-blueprints (namespace "forms") and its own scope and gate.
- *
- * Submissions are deliberately not reachable here: they are personal data
- * and need their own permission model.
- */
 #[Name('statamic-forms')]
 #[Title('Statamic Forms')]
-#[Description('Manage Statamic forms and their settings (title, honeypot, store submissions, email notifications, and any settings addons add). Form fields live in the form\'s blueprint: use statamic-blueprints with namespace "forms". Actions: list, get, create, update, delete.')]
+#[Description('Forms 2 definitions and stored submissions. Form fields live in data.fields (sections or pages), not forms.* blueprints. Connections are write-only; reads show connector handles and counts, never their configuration. Submission reads require submissions:read, independently of forms:read.')]
 class FormsRouter extends BaseRouter
 {
-    use SanitizesFieldData;
-
-    /**
-     * Settings Statamic stores as form properties rather than data. Every
-     * other setting key is an addon-registered config field.
-     */
-    private const CORE_SETTINGS = ['title', 'honeypot', 'store', 'email'];
-
-    private const EMAIL_STRING_KEYS = ['to', 'cc', 'bcc', 'from', 'reply_to', 'subject', 'html', 'text', 'mailer'];
-
-    private const EMAIL_BOOLEAN_KEYS = ['markdown', 'attachments'];
+    use ChecksResourceVersions;
 
     protected function getDomain(): string
     {
         return 'forms';
     }
 
-    protected function defineSchema(JsonSchemaContract $schema): array
-    {
-        return array_merge(parent::defineSchema($schema), [
-            'action' => JsonSchema::string()
-                ->description(
-                    'Action to perform. Required params per action: '
-                    . 'list (optional: limit, offset), '
-                    . 'get (handle), '
-                    . 'create (data.title; optional: handle, other data settings), '
-                    . 'update (handle, data), '
-                    . 'delete (handle — also deletes every stored submission)'
-                )
-                ->enum(['list', 'get', 'create', 'update', 'delete'])
-                ->required(),
-
-            'handle' => JsonSchema::string()
-                ->description('Form handle in snake_case. Required for get, update, delete. Optional for create, where it defaults to the snake_cased title. Example: "contact"'),
-
-            'data' => JsonSchema::object()
-                ->description(
-                    'Form settings. update changes only the keys sent. Keys: '
-                    . 'title (string), '
-                    . 'honeypot (string — name of the hidden anti-spam field, must not match a blueprint field; null resets to "honeypot"), '
-                    . 'store (boolean — store submissions), '
-                    . 'email (array of notification objects, replaces the whole list: '
-                    . 'to (required), cc, bcc, from, reply_to, subject, html, text, mailer as strings; markdown, attachments as booleans). '
-                    . 'Addon-registered settings are also accepted; action "get" lists them under extra_settings.'
-                ),
-
-            'limit' => JsonSchema::integer()
-                ->description('Maximum results to return (default: 50, max: 500)'),
-
-            'offset' => JsonSchema::integer()
-                ->description('Number of results to skip for pagination'),
-        ]);
-    }
-
-    /**
-     * @param  array<string, mixed>  $arguments
-     *
-     * @return array<string, mixed>
-     */
-    protected function executeAction(array $arguments): array
-    {
-        $action = is_string($arguments['action'] ?? null) ? $arguments['action'] : '';
-
-        if (in_array($action, ['get', 'update', 'delete'], true)) {
-            $handle = $arguments['handle'] ?? null;
-
-            if (! is_string($handle) || $handle === '') {
-                return $this->createErrorResponse("Form handle is required for {$action} action")->toArray();
-            }
-
-            // Form::find() builds a file path from the handle, so it is
-            // checked before anything looks it up.
-            if ($error = $this->validateHandle($handle)) {
-                return $error;
-            }
-        }
-
-        return match ($action) {
-            'list' => $this->listForms($arguments),
-            'get' => $this->getForm($arguments),
-            'create' => $this->createForm($arguments),
-            'update' => $this->updateForm($arguments),
-            'delete' => $this->deleteForm($arguments),
-            default => $this->createErrorResponse("Action {$action} not supported for forms")->toArray(),
-        };
-    }
-
-    /**
-     * Statamic's FormPolicy grants every form action — create, edit, delete
-     * and reading the configuration — through `configure forms`. The per-form
-     * `view {handle} form submissions` permission covers submissions only,
-     * which this router does not expose.
-     *
-     * @param  array<string, mixed>  $arguments
-     *
-     * @return array<int, string|array<int, string>>
-     */
-    protected function getRequiredPermissions(string $action, array $arguments): array
-    {
-        return match ($action) {
-            'list', 'get', 'create', 'update', 'delete' => ['configure forms'],
-            default => [],
-        };
-    }
-
-    /**
-     * The policy must see the form the action acts on. For create without a
-     * handle that is the one derived from the title, otherwise a caller
-     * restricted to some forms could create any other by omitting it.
-     *
-     * @param  array<string, mixed>  $arguments
-     */
-    protected function resolveResourceHandle(array $arguments): ?string
-    {
-        $handle = $arguments['handle'] ?? null;
-
-        if (is_string($handle) && $handle !== '') {
-            return $handle;
-        }
-
-        if (($arguments['action'] ?? null) === 'create') {
-            $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
-            $title = $data['title'] ?? null;
-
-            if (is_string($title) && trim($title) !== '') {
-                return Str::snake(trim($title));
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * @param  array<string, mixed>  $arguments
-     */
-    protected function buildConfirmationDescription(string $action, array $arguments): string
-    {
-        if ($action === 'delete') {
-            $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : 'unknown';
-
-            return "Delete form '{$handle}' and every submission stored for it. This action cannot be undone.";
-        }
-
-        return parent::buildConfirmationDescription($action, $arguments);
-    }
-
-    /**
-     * @param  array<string, mixed>  $arguments
-     *
-     * @return array<string, mixed>
-     */
-    private function listForms(array $arguments): array
-    {
-        $pagination = $this->getPaginationArgs($arguments, 50, 500);
-
-        try {
-            $forms = $this->allForms();
-            $total = count($forms);
-
-            $items = array_map(function (Form $form): array {
-                $email = $form->email();
-
-                return [
-                    'handle' => $this->formHandle($form),
-                    'title' => $form->title(),
-                    'store' => $form->store(),
-                    'email_notifications' => is_array($email) ? count($this->normalizeEmailList($email)) : 0,
-                    'has_blueprint' => Blueprint::find('forms.' . $this->formHandle($form)) !== null,
-                ];
-            }, array_slice($forms, $pagination['offset'], $pagination['limit']));
-
-            return [
-                'forms' => $items,
-                'pagination' => $this->buildPaginationMeta($total, $pagination['limit'], $pagination['offset']),
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to list forms: {$e->getMessage()}")->toArray();
-        }
-    }
-
-    /**
-     * @param  array<string, mixed>  $arguments
-     *
-     * @return array<string, mixed>
-     */
-    private function getForm(array $arguments): array
-    {
-        /** @var string $handle */
-        $handle = $arguments['handle'];
-
-        $form = $this->findForm($handle);
-
-        if ($form === null) {
-            return $this->createErrorResponse("Form not found: {$handle}")->toArray();
-        }
-
-        $extraSettings = [];
-        foreach ($this->extraConfigFields($handle) as $fieldHandle => $config) {
-            $extraSettings[$fieldHandle] = array_filter([
-                'type' => $config['type'] ?? 'text',
-                'display' => $config['display'] ?? null,
-                'instructions' => $config['instructions'] ?? null,
-                'validate' => $config['validate'] ?? null,
-                'options' => $config['options'] ?? null,
-            ], fn (mixed $value): bool => $value !== null);
-        }
-
-        return [
-            'form' => $this->presentForm($form) + [
-                'extra_settings' => $extraSettings,
-                'available_mailers' => $this->mailerNames(),
-            ],
-        ];
-    }
-
-    /**
-     * @param  array<string, mixed>  $arguments
-     *
-     * @return array<string, mixed>
-     */
-    private function createForm(array $arguments): array
-    {
-        $data = $arguments['data'] ?? [];
-
-        if (! is_array($data)) {
-            return $this->createErrorResponse('data must be an object of form settings')->toArray();
-        }
-
-        /** @var array<string, mixed> $data */
-        $title = $data['title'] ?? null;
-
-        if (! is_string($title) || trim($title) === '') {
-            return $this->createErrorResponse('data.title is required to create a form')->toArray();
-        }
-
-        $rawHandle = $arguments['handle'] ?? null;
-        $handle = is_string($rawHandle) && $rawHandle !== '' ? $rawHandle : Str::snake(trim($title));
-
-        if ($error = $this->validateHandle($handle)) {
-            return $error;
-        }
-
-        if ($this->findForm($handle) !== null) {
-            return $this->createErrorResponse("Form '{$handle}' already exists")->toArray();
-        }
-
-        // Mirrors FormsController::store(): Statamic Solo allows one form.
-        if (! Statamic::pro() && count($this->allForms()) >= 1) {
-            return $this->createErrorResponse('Statamic Pro is required to create more than one form')->toArray();
-        }
-
-        $form = FormFacade::make($handle);
-
-        if (! $form instanceof Form) {
-            return $this->createErrorResponse('Unsupported form implementation: ' . get_class($form))->toArray();
-        }
-
-        $error = $this->applySettings($form, $data);
-
-        if ($error !== null) {
-            return $error;
-        }
-
-        try {
-            $form->save();
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to create form: {$e->getMessage()}")->toArray();
-        }
-
-        return [
-            'form' => $this->presentForm($form),
-            'created' => true,
-        ];
-    }
-
-    /**
-     * @param  array<string, mixed>  $arguments
-     *
-     * @return array<string, mixed>
-     */
-    private function updateForm(array $arguments): array
-    {
-        /** @var string $handle */
-        $handle = $arguments['handle'];
-        $data = $arguments['data'] ?? null;
-
-        if (! is_array($data) || $data === []) {
-            return $this->createErrorResponse('data is required for update action')->toArray();
-        }
-
-        /** @var array<string, mixed> $data */
-        $form = $this->findForm($handle);
-
-        if ($form === null) {
-            return $this->createErrorResponse("Form not found: {$handle}")->toArray();
-        }
-
-        $error = $this->applySettings($form, $data);
-
-        if ($error !== null) {
-            return $error;
-        }
-
-        try {
-            $form->save();
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to update form: {$e->getMessage()}")->toArray();
-        }
-
-        return [
-            'form' => $this->presentForm($form),
-            'updated_settings' => array_keys($data),
-            'updated' => true,
-        ];
-    }
-
-    /**
-     * @param  array<string, mixed>  $arguments
-     *
-     * @return array<string, mixed>
-     */
-    private function deleteForm(array $arguments): array
-    {
-        /** @var string $handle */
-        $handle = $arguments['handle'];
-
-        $form = $this->findForm($handle);
-
-        if ($form === null) {
-            return $this->createErrorResponse("Form not found: {$handle}")->toArray();
-        }
-
-        try {
-            $submissions = $form->submissions()->count();
-
-            if ($form->delete() === false) {
-                return $this->createErrorResponse("Deleting form '{$handle}' was cancelled by a FormDeleting listener")->toArray();
-            }
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to delete form: {$e->getMessage()}")->toArray();
-        }
-
-        return [
-            'deleted' => true,
-            'handle' => $handle,
-            'submissions_deleted' => $submissions,
-        ];
-    }
-
-    /**
-     * Validate every setting in the payload, then apply them to the form.
-     * Nothing is applied unless the whole payload is valid.
-     *
-     * @param  array<string, mixed>  $data
-     *
-     * @return array<string, mixed>|null error response, or null on success
-     */
-    private function applySettings(Form $form, array $data): ?array
-    {
-        $handle = $this->formHandle($form);
-        $extraFields = $this->extraConfigFields($handle);
-
-        $unknown = array_values(array_diff(array_keys($data), self::CORE_SETTINGS, array_keys($extraFields)));
-
-        if ($unknown !== []) {
-            return $this->createErrorResponse(
-                'Unknown form setting(s): ' . implode(', ', $unknown)
-                . '. Known settings: ' . implode(', ', [...self::CORE_SETTINGS, ...array_keys($extraFields)])
-            )->toArray();
-        }
-
-        $errors = [];
-
-        if (array_key_exists('title', $data)) {
-            if (! is_string($data['title']) || trim($data['title']) === '') {
-                $errors[] = 'title must be a non-empty string';
-            }
-        }
-
-        if (array_key_exists('honeypot', $data)) {
-            $honeypot = $data['honeypot'];
-
-            if ($honeypot !== null && (! is_string($honeypot) || trim($honeypot) === '')) {
-                $errors[] = 'honeypot must be a non-empty string, or null to reset it to "honeypot"';
-            } elseif (is_string($honeypot) && in_array($honeypot, $this->blueprintFieldHandles($form), true)) {
-                // Statamic discards any submission that fills the honeypot,
-                // so naming a real field would silently drop every one.
-                $errors[] = "honeypot '{$honeypot}' is a field in the form's blueprint; every submission filling that field would be discarded as spam";
-            }
-        }
-
-        if (array_key_exists('store', $data) && ! is_bool($data['store'])) {
-            $errors[] = 'store must be a boolean';
-        }
-
-        $emails = null;
-
-        if (array_key_exists('email', $data)) {
-            $emails = $this->validateEmails($data['email'], $errors);
-        }
-
-        $extraData = array_intersect_key($data, $extraFields);
-        $processedExtra = [];
-
-        if ($errors === [] && $extraData !== []) {
-            $result = $this->processExtraSettings($form, $extraFields, $extraData);
-
-            if (is_string($result)) {
-                $errors[] = $result;
-            } else {
-                $processedExtra = $result;
-            }
-        }
-
-        if ($errors !== []) {
-            return $this->createErrorResponse('Invalid form settings: ' . implode('; ', $errors))->toArray();
-        }
-
-        if (array_key_exists('title', $data) && is_string($data['title'])) {
-            $form->title(trim($data['title']));
-        }
-
-        if (array_key_exists('honeypot', $data)) {
-            // The setter stores the default name as null.
-            $form->honeypot(is_string($data['honeypot']) ? trim($data['honeypot']) : 'honeypot');
-        }
-
-        if (array_key_exists('store', $data)) {
-            $form->store($data['store']);
-        }
-
-        if ($emails !== null) {
-            $form->email($emails);
-        }
-
-        foreach ($processedExtra as $key => $value) {
-            if ($value === null) {
-                $form->remove($key);
-            } else {
-                $form->set($key, $value);
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * @param  array<int, string>  $errors
-     *
-     * @return array<int, array<string, mixed>>|null
-     */
-    private function validateEmails(mixed $value, array &$errors): ?array
-    {
-        if ($value === null) {
-            return [];
-        }
-
-        if (! is_array($value)) {
-            $errors[] = 'email must be an array of notification objects';
-
-            return null;
-        }
-
-        // A single notification object is accepted as a list of one, as
-        // Statamic itself does when it saves.
-        $list = array_key_exists('to', $value) ? [$value] : $value;
-
-        if (! array_is_list($list)) {
-            $errors[] = 'email must be an array of notification objects';
-
-            return null;
-        }
-
-        $mailers = $this->mailerNames();
-        $allowed = [...self::EMAIL_STRING_KEYS, ...self::EMAIL_BOOLEAN_KEYS];
-        $emails = [];
-
-        foreach ($list as $index => $email) {
-            $path = "email.{$index}";
-
-            if (! is_array($email)) {
-                $errors[] = "{$path} must be an object";
-
-                continue;
-            }
-
-            $unknown = array_diff(array_keys($email), $allowed);
-
-            if ($unknown !== []) {
-                $errors[] = "{$path} has unknown key(s): " . implode(', ', $unknown) . '. Allowed: ' . implode(', ', $allowed);
-
-                continue;
-            }
-
-            $to = $email['to'] ?? null;
-
-            if (! is_string($to) || trim($to) === '') {
-                $errors[] = "{$path}.to is required";
-            }
-
-            $clean = [];
-
-            foreach (self::EMAIL_STRING_KEYS as $key) {
-                $item = $email[$key] ?? null;
-
-                if ($item === null || $item === '') {
-                    continue;
-                }
-
-                if (! is_string($item)) {
-                    $errors[] = "{$path}.{$key} must be a string";
-
-                    continue;
-                }
-
-                $clean[$key] = $item;
-            }
-
-            foreach (['html', 'text'] as $key) {
-                if (isset($clean[$key]) && (str_contains($clean[$key], '..') || str_starts_with($clean[$key], '/'))) {
-                    $errors[] = "{$path}.{$key} must be a view name, not a path";
-                }
-            }
-
-            if (isset($clean['mailer']) && ! in_array($clean['mailer'], $mailers, true)) {
-                $errors[] = "{$path}.mailer '{$clean['mailer']}' is not a configured mailer. Available: " . implode(', ', $mailers);
-            }
-
-            foreach (self::EMAIL_BOOLEAN_KEYS as $key) {
-                $item = $email[$key] ?? null;
-
-                if ($item === null) {
-                    continue;
-                }
-
-                if (! is_bool($item)) {
-                    $errors[] = "{$path}.{$key} must be a boolean";
-
-                    continue;
-                }
-
-                $clean[$key] = $item;
-            }
-
-            $emails[] = $clean;
-        }
-
-        return $emails;
-    }
-
-    /**
-     * Validate addon-registered settings against their own field configs,
-     * the same way the Control Panel's config screen does, and return them
-     * in storage format.
-     *
-     * @param  array<string, array<string, mixed>>  $extraFields
-     * @param  array<string, mixed>  $incoming
-     *
-     * @return array<string, mixed>|string processed values, or an error message
-     */
-    private function processExtraSettings(Form $form, array $extraFields, array $incoming): array|string
-    {
-        $blueprint = $this->extraSettingsBlueprint($extraFields);
-
-        try {
-            $incoming = $this->sanitizeIncomingFieldData($blueprint, $incoming);
-
-            /** @var array<string, mixed> $stored */
-            $stored = $form->data()->only(array_keys($extraFields))->all();
-            $merged = $this->mergeStoredDataForValidation($stored, $incoming);
-
-            (new ConditionalFieldsValidator)
-                ->fields($blueprint->fields()->addValues($merged))
-                ->withConditionValues($merged)
-                ->validate();
-
-            /** @var array<string, mixed> $processed */
-            $processed = $blueprint->fields()->addValues($incoming)
-                ->process()->values()
-                ->only(array_keys($incoming))
-                ->all();
-
-            return $processed;
-        } catch (ValidationException $e) {
-            $messages = [];
-            foreach ($e->errors() as $field => $fieldErrors) {
-                $messages[] = "{$field}: " . implode(', ', $fieldErrors);
-            }
-
-            return implode('; ', $messages);
-        } catch (\Throwable $e) {
-            return 'Failed to process form settings: ' . $e->getMessage();
-        }
-    }
-
-    /**
-     * @param  array<string, array<string, mixed>>  $extraFields
-     */
-    private function extraSettingsBlueprint(array $extraFields): BlueprintObject
-    {
-        $fields = [];
-        foreach ($extraFields as $handle => $config) {
-            $fields[] = ['handle' => $handle, 'field' => $config];
-        }
-
-        /** @var BlueprintObject $blueprint */
-        $blueprint = Blueprint::make()->setContents([
-            'tabs' => ['main' => ['sections' => [['fields' => $fields]]]],
-        ]);
-
-        return $blueprint;
-    }
-
-    /**
-     * Config fields addons registered with Form::appendConfigFields(), keyed
-     * by handle. The core settings are already excluded by Statamic.
-     *
-     * @return array<string, array<string, mixed>>
-     */
-    private function extraConfigFields(string $formHandle): array
-    {
-        $fields = [];
-
-        foreach (FormFacade::extraConfigFor($formHandle) as $section) {
-            if (! is_array($section) || ! is_array($section['fields'] ?? null)) {
-                continue;
-            }
-
-            foreach ($section['fields'] as $key => $field) {
-                if (! is_array($field)) {
-                    continue;
-                }
-
-                // Fields arrive keyed by handle, or as {handle, field} pairs.
-                if (is_string($field['handle'] ?? null) && is_array($field['field'] ?? null)) {
-                    /** @var array<string, mixed> $config */
-                    $config = $field['field'];
-                    $fields[$field['handle']] = $config;
-                } elseif (is_string($key)) {
-                    /** @var array<string, mixed> $field */
-                    $fields[$key] = $field;
-                }
-            }
-        }
-
-        return $fields;
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function presentForm(Form $form): array
-    {
-        $handle = $this->formHandle($form);
-        $email = $form->email();
-
-        /** @var array<string, mixed> $extra */
-        $extra = $form->data()->except(self::CORE_SETTINGS)->all();
-
-        $blueprintExists = Blueprint::find('forms.' . $handle) !== null;
-
-        return [
-            'handle' => $handle,
-            'data' => array_merge([
-                'title' => $form->title(),
-                'honeypot' => $form->honeypot(),
-                'store' => $form->store(),
-                'email' => is_array($email) ? $this->normalizeEmailList($email) : [],
-            ], $extra),
-            'blueprint' => [
-                'namespace' => 'forms',
-                'handle' => $handle,
-                'exists' => $blueprintExists,
-                'fields' => $this->blueprintFieldHandles($form),
-            ],
-        ];
-    }
-
-    /**
-     * @param  array<mixed>  $email
-     *
-     * @return array<int, mixed>
-     */
-    private function normalizeEmailList(array $email): array
-    {
-        return array_key_exists('to', $email) ? [$email] : array_values($email);
-    }
-
-    /**
-     * The form's field handles, asked of the form itself. Since Statamic 6.44
-     * a form keeps its fields in its own file and deletes forms/{handle}.yaml
-     * on save, so reading that blueprint found nothing after the first save.
-     * Form::blueprint() resolves the fields wherever this version keeps them.
-     *
-     * @return array<int, string>
-     */
-    private function blueprintFieldHandles(Form $form): array
-    {
-        $blueprint = $form->blueprint();
-
-        if (! $blueprint instanceof BlueprintObject) {
-            return [];
-        }
-
-        $handles = [];
-        foreach ($blueprint->fields()->all()->keys() as $key) {
-            if (is_string($key)) {
-                $handles[] = $key;
-            }
-        }
-
-        return $handles;
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function mailerNames(): array
-    {
-        $mailers = config('mail.mailers');
-
-        return is_array($mailers) ? array_map('strval', array_keys($mailers)) : [];
-    }
-
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function validateHandle(string $handle): ?array
-    {
-        $validator = Validator::make(['handle' => $handle], ['handle' => ['required', 'string', new Handle]]);
-
-        if ($validator->fails()) {
-            return $this->createErrorResponse(
-                "Invalid form handle '{$handle}': use letters, numbers and single underscores, starting with a letter"
-            )->toArray();
-        }
-
-        return null;
-    }
-
-    private function formHandle(Form $form): string
-    {
-        $handle = $form->handle();
-
-        return is_string($handle) ? $handle : '';
-    }
-
-    private function findForm(string $handle): ?Form
-    {
-        /** @var mixed $form */
-        $form = FormFacade::find($handle);
-
-        return $form instanceof Form ? $form : null;
-    }
-
-    /**
-     * @return array<int, Form>
-     */
-    private function allForms(): array
-    {
-        $forms = [];
-
-        foreach (FormFacade::all() as $form) {
-            if ($form instanceof Form) {
-                $forms[] = $form;
-            }
-        }
-
-        return $forms;
-    }
-
-    public function getActions(): array
-    {
-        return [
-            'list' => 'List forms with a summary of their settings',
-            'get' => 'Get a form\'s settings, its blueprint fields and the addon settings it accepts',
-            'create' => 'Create a form with settings',
-            'update' => 'Update a form\'s settings (only the keys sent change)',
-            'delete' => 'Delete a form and its stored submissions',
-        ];
-    }
-
     public function getTypes(): array
     {
+        return [];
+    }
+
+    protected function actions(): array
+    {
         return [
-            'Form' => 'Form configuration: title, honeypot, submission storage and email notifications',
+            RouterAction::read('list', 'List readable forms', optional: ['limit', 'cursor']),
+            RouterAction::read('get', 'Read a form definition, without connector secrets or submissions', needs: ['form'], optional: ['fields']),
+            RouterAction::edit('create', 'Create a form with title and optional fields, honeypot, store and connections in data', needs: ['form', 'data']),
+            RouterAction::edit('update', 'Change supplied settings; data.fields replaces the definition, each data.connections handle replaces that connector\'s connection list', needs: ['form', 'data'], optional: ['expected_version']),
+            RouterAction::read('list_submissions', 'Page through submissions in one site; filters accepts status, date_from and date_to (ISO 8601)', needs: ['form'], optional: ['site', 'filters', 'limit', 'cursor']),
+            RouterAction::read('get_submission', 'Read one submission belonging to the named form and site', needs: ['form', 'id'], optional: ['site']),
+            RouterAction::read('export', 'Export filtered submissions as cursor-paged JSON records; follow next_cursor to continue', needs: ['form'], optional: ['site', 'filters', 'limit', 'cursor']),
+            RouterAction::read('summary', 'Count submissions by status in one site, respecting the same filters as list_submissions', needs: ['form'], optional: ['site', 'filters']),
+            RouterAction::delete('delete_submission', 'Permanently delete one submission; does not return its field values', needs: ['form', 'id'], optional: ['site', 'expected_version']),
+            RouterAction::edit('mark_spam', 'Mark a finalized submission as spam; partial submissions are refused', needs: ['form', 'id'], optional: ['site', 'expected_version']),
         ];
+    }
+
+    protected function defineSchema(JsonSchemaContract $schema): array
+    {
+        return parent::defineSchema($schema) + [
+            'form' => JsonSchema::string()->description('Form handle, including the new handle on create.'),
+            'id' => JsonSchema::string()->description('Submission id returned by list_submissions.'),
+            'site' => JsonSchema::string()->description('Submission site. Defaults to the default site; never spans sites.'),
+            'data' => JsonSchema::object()->description('title, store (boolean), honeypot (field name or null), fields (stored sections/pages shape), connections (connector handle to connection list). Unknown settings are refused. Connector configuration is write-only.'),
+            'filters' => JsonSchema::object()->description('status: finalized (default), partial, spam or any; date_from/date_to: inclusive ISO 8601 timestamps. No arbitrary submission-field filters.'),
+            'expected_version' => JsonSchema::string()->description('Version from the last read. A different stored version refuses the write.'),
+            'limit' => JsonSchema::integer()->description('Page size, default 50, maximum 500.'),
+            'cursor' => JsonSchema::string()->description('next_cursor from the previous page with the same arguments.'),
+        ];
+    }
+
+    protected function getRequiredTokenScope(string $action): ?TokenScope
+    {
+        return match ($action) {
+            'list', 'get' => TokenScope::FormsRead,
+            'create', 'update', 'mark_spam' => TokenScope::FormsWrite,
+            'delete_submission' => TokenScope::SubmissionsDelete,
+            default => TokenScope::SubmissionsRead,
+        };
+    }
+
+    protected function additionalTokenScopes(string $action, array $arguments): array
+    {
+        return $action === 'mark_spam' ? [TokenScope::SubmissionsRead] : [];
+    }
+
+    public function availableToCaller(): bool
+    {
+        return $this->discoverableActions() !== [];
+    }
+
+    protected function resolveResourceHandle(array $arguments): ?string
+    {
+        return is_string($arguments['form'] ?? null) ? $arguments['form'] : null;
+    }
+
+    protected function getRequiredPermissions(string $action, array $arguments): array
+    {
+        $handle = $this->resolveResourceHandle($arguments);
+        $edit = ['configure forms', 'edit forms', ...($handle ? ["edit {$handle} form"] : [])];
+        $view = ['configure forms', 'view form submissions', ...($handle ? ["view {$handle} form submissions"] : [])];
+
+        return match ($action) {
+            'list' => [], // Filter each form with the native view policy.
+            'get' => [[...$edit, 'configure form fields', ...$view]],
+            'create' => [['configure forms', 'create forms']],
+            // Exact per-setting policies run in authorizeAction, before approval/replay.
+            'update' => [[...$edit, 'configure form fields']],
+            'delete_submission' => [['configure forms', 'delete form submissions', ...($handle ? ["delete {$handle} form submissions"] : [])]],
+            'mark_spam' => [['configure forms', 'manage form spam', ...($handle ? ["manage {$handle} form spam"] : [])], $view],
+            default => [$view],
+        };
+    }
+
+    protected function authorizeAction(array $arguments): void
+    {
+        Validator::make($arguments, [
+            'form' => ['sometimes', 'string', 'regex:/^[a-zA-Z_][a-zA-Z0-9_-]*$/D'],
+            'id' => ['sometimes', 'string'],
+            'site' => ['sometimes', 'string'],
+            'data' => ['sometimes', 'array'],
+        ])->validate();
+        if (isset($arguments['site']) && ! Site::get($this->getStringArgument($arguments, 'site')) instanceof \Statamic\Sites\Site) {
+            throw new ToolFailure(ErrorCode::NotFound, 'Site not found.', 'site');
+        }
+        $action = $arguments['action'];
+        if ($action === 'list') {
+            return;
+        }
+        if ($action === 'create') {
+            if ($this->isWebContext()) {
+                Gate::authorize('create', Form::class);
+                $form = Forms::make($this->getStringArgument($arguments, 'form'));
+                foreach (array_keys(is_array($arguments['data'] ?? null) ? $arguments['data'] : []) as $key) {
+                    if ($key !== 'title') {
+                        Gate::authorize(match ($key) {
+                            'fields' => 'editFields', 'connections' => 'editConnections', default => 'edit',
+                        }, $form);
+                    }
+                }
+            }
+
+            return;
+        }
+        $form = $this->findForm($arguments);
+        if ($this->isWebContext()) {
+            if ($action === 'update') {
+                foreach (array_keys(is_array($arguments['data'] ?? null) ? $arguments['data'] : []) as $key) {
+                    Gate::authorize(match ($key) {
+                        'fields' => 'editFields', 'connections' => 'editConnections', default => 'edit',
+                    }, $form);
+                }
+            } elseif ($action === 'get') {
+                Gate::authorize('view', $form);
+            } else {
+                Gate::authorize('view', Site::get($this->resolveSiteHandle($arguments)));
+                Gate::authorize(match ($action) {
+                    'delete_submission' => 'deleteSubmissions', 'mark_spam' => 'manageSpam', default => 'viewSubmissions',
+                }, $form);
+            }
+        }
+        if (isset($arguments['id'])) {
+            $replayingDelete = $action === 'delete_submission' && (isset($arguments['idempotency_key']) || isset($arguments['approval_id']));
+            $this->findSubmission($form, $arguments, allowMissing: $replayingDelete);
+        }
+    }
+
+    protected function executeAction(array $arguments): array
+    {
+        $action = $arguments['action'];
+        if (isset($arguments['expected_version'])) {
+            return $this->writeIfVersionMatches($arguments['expected_version'], 'form record',
+                $this->getStringArgument($arguments, 'form') . ':' . $this->getStringArgument($arguments, 'id'),
+                fn (): string => $this->currentResourceVersion($arguments) ?? '',
+                fn (): array => $this->dispatch($arguments));
+        }
+
+        return $this->dispatch($arguments);
+    }
+
+    /** @param array<string, mixed> $arguments
+     * @return array<string, mixed>
+     */
+    private function dispatch(array $arguments): array
+    {
+        $action = $arguments['action'];
+        if ($action === 'list') {
+            $forms = Forms::all()->filter(fn (Form $form): bool => app(ResourcePolicy::class)->canAccess('forms', $form->handle(), 'read')
+                && ($this->isCliContext() || Gate::allows('view', $form)))->sortBy->handle()->values();
+            $page = $this->getPaginationArgs($arguments, 50, 500);
+
+            return ['items' => $forms->slice($page['offset'], $page['limit'])->map(fn (Form $form): array => $this->presentForm($form))->values()->all(),
+                'total' => $forms->count(), 'next_cursor' => $this->nextCursor($forms->count(), $page['offset'] + $page['limit'], $arguments)];
+        }
+        if ($action === 'create') {
+            if (Forms::find($this->getStringArgument($arguments, 'form')) instanceof Form) {
+                throw new ToolFailure(ErrorCode::Validation, 'This form already exists.', 'form');
+            }
+            if (! Statamic::pro() && Forms::all()->isNotEmpty()) {
+                throw new ToolFailure(ErrorCode::Forbidden, 'Statamic Pro is required for more than one form.');
+            }
+            $form = Forms::make($this->getStringArgument($arguments, 'form'));
+            $this->saveForm($form, is_array($arguments['data']) ? $arguments['data'] : [], true);
+
+            return ['form' => $this->presentForm($this->findForm($arguments))];
+        }
+        $form = $this->findForm($arguments);
+        if ($action === 'get' || $action === 'update') {
+            if ($action === 'update') {
+                $this->saveForm($form, is_array($arguments['data']) ? $arguments['data'] : []);
+                $form = $this->findForm($arguments);
+            }
+
+            return ['form' => $this->presentForm($form)];
+        }
+        if (in_array($action, ['list_submissions', 'export', 'summary'], true)) {
+            return $this->readSubmissions($form, $arguments);
+        }
+        $submission = $this->findSubmission($form, $arguments);
+        if ($action === 'delete_submission') {
+            $receipt = ['id' => (string) $submission->id(), 'form' => $form->handle(), 'site' => $submission->site()->handle(),
+                'version' => $this->submissionVersion($submission), 'deleted' => true];
+            $this->persistStatamic(fn () => $submission->delete(), ['stache']);
+
+            return ['submission' => $receipt];
+        }
+        if ($action === 'mark_spam') {
+            if ($submission->isPartial()) {
+                throw new ToolFailure(ErrorCode::Validation, 'A partial submission cannot be marked as spam.');
+            }
+            $this->persistStatamic(fn () => $submission->markAsSpam()->save(), ['stache']);
+            $submission = $this->findSubmission($form, $arguments);
+        }
+
+        return ['submission' => $this->presentSubmission($submission)];
+    }
+
+    /** @param array<string, mixed> $arguments */
+    private function findForm(array $arguments): Form
+    {
+        $form = Forms::find($this->getStringArgument($arguments, 'form'));
+        if (! $form instanceof Form) {
+            throw new ToolFailure(ErrorCode::NotFound, 'Form not found.', 'form');
+        }
+
+        return $form;
+    }
+
+    /**
+     * @param  array<string, mixed>  $arguments
+     *
+     * @return ($allowMissing is true ? Submission|null : Submission)
+     */
+    private function findSubmission(Form $form, array $arguments, bool $allowMissing = false): ?Submission
+    {
+        $submission = $form->submission($this->getStringArgument($arguments, 'id'));
+        if ($allowMissing && ! $submission instanceof Submission) {
+            return null;
+        }
+        if (! $submission instanceof Submission || $submission->form()->handle() !== $form->handle()
+            || $submission->site()->handle() !== $this->resolveSiteHandle($arguments)) {
+            throw new ToolFailure(ErrorCode::NotFound, 'Submission not found in this form and site.', 'id');
+        }
+
+        return $submission;
+    }
+
+    /** @param array<string, mixed> $data */
+    private function saveForm(Form $form, array $data, bool $creating = false): void
+    {
+        Validator::make(['data' => $data], [
+            'data' => ['required', 'array:title,honeypot,store,fields,connections'],
+            'data.title' => [$creating ? 'required' : 'sometimes', 'string', 'max:255'],
+            'data.honeypot' => ['sometimes', 'nullable', 'string', 'regex:/^[a-zA-Z_][a-zA-Z0-9_]*$/D'],
+            'data.store' => ['sometimes', 'boolean'],
+            'data.fields' => ['sometimes', 'array'],
+            'data.connections' => ['sometimes', 'array'],
+        ])->validate();
+        if (isset($data['store']) && ! is_bool($data['store'])) {
+            throw new ToolFailure(ErrorCode::Validation, 'store must be a boolean.', 'data.store');
+        }
+        if (is_array($data['fields'] ?? null)) {
+            $denied = app(ResourcePolicy::class)->getDeniedFields('forms');
+            if (app(FormDefinition::class)->containsDeniedFields($form->formFields()->contents(), $denied)) {
+                throw new ToolFailure(ErrorCode::Forbidden, 'Cannot replace a form definition containing protected fields.');
+            }
+            $fields = app(FormDefinition::class)->validate($data['fields']);
+            if (app(FormDefinition::class)->containsDeniedFields($fields->contents(), $denied)) {
+                throw new ToolFailure(ErrorCode::Forbidden, 'The form definition contains protected fields.');
+            }
+            $form->formFields($fields->contents());
+        }
+        $honeypot = array_key_exists('honeypot', $data) ? ($data['honeypot'] ?? 'honeypot') : $form->honeypot();
+        if ($form->formFields()->fields()->has($honeypot)) {
+            throw new ToolFailure(ErrorCode::Validation, 'The honeypot must not be a real form field.', 'data.honeypot');
+        }
+        $connections = $form->connections();
+        foreach (is_array($data['connections'] ?? null) ? $data['connections'] : [] as $handle => $values) {
+            $connector = is_string($handle) ? FormConnector::find($handle)?->forForm($form) : null;
+            if ($connector === null || ! is_array($values) || ! array_is_list($values)) {
+                throw new ToolFailure(ErrorCode::Validation, 'Each connection must name an installed connector and provide a list.', 'data.connections');
+            }
+            // Third-party validation/processing may echo submitted credentials.
+            // No connector exception or validation value is safe to return.
+            try {
+                Validator::make($values, $connector->rules())->validate();
+                $connections->put($handle, $connector->process($values));
+            } catch (\Throwable) {
+                throw new ToolFailure(ErrorCode::Validation, 'Connector configuration is invalid. Check its requirements in the Control Panel.', 'data.connections');
+            }
+        }
+        foreach (['title', 'honeypot', 'store'] as $key) {
+            if (array_key_exists($key, $data)) {
+                $form->{$key}($data[$key]);
+            }
+        }
+        $form->connections($connections);
+        $this->persistStatamic(fn () => $form->save());
+    }
+
+    /** @return array<string, mixed> */
+    private function presentForm(Form $form): array
+    {
+        $fields = $form->formFields()->contents();
+        $denied = app(ResourcePolicy::class)->getDeniedFields('forms');
+
+        return ['handle' => $form->handle(), 'title' => $form->title(), 'honeypot' => $form->honeypot(), 'store' => $form->store(),
+            'fields' => app(FormDefinition::class)->readable($fields, $denied),
+            'connections' => $form->connections()->map(fn ($items, $handle): array => ['connector' => $handle, 'count' => count($items)])->values()->all(),
+            'version' => $this->formVersion($form)];
+    }
+
+    private function formVersion(Form $form): string
+    {
+        // Legacy email connections acquire random ids on every hydration.
+        // Exclude connection ids; configuration and list order remain versioned.
+        $connections = $form->connections()->map(fn (array $items): array => array_map(
+            fn (array $item): array => Arr::except($item, ['id']), $items,
+        ))->all();
+
+        return self::resourceVersion([$form->title(), $form->honeypot(), $form->store(), $form->data()->all(), $form->formFields()->contents(), $connections]);
+    }
+
+    private function submissionVersion(Submission $submission): string
+    {
+        return self::resourceVersion([$submission->id(), $submission->form()->handle(), $submission->fileData()]);
+    }
+
+    protected function filterOutputFields(array $result): array
+    {
+        // This path also handles stored approval/idempotency results. Apply
+        // today's field policy, not the policy when the result was recorded.
+        $result = app(ResourcePolicy::class)->filterFields('forms', $result);
+
+        return app(FormDefinition::class)->filterResult($result, app(ResourcePolicy::class)->getDeniedFields('forms'));
+    }
+
+    protected function currentResourceVersion(array $arguments): ?string
+    {
+        if (($arguments['action'] ?? null) === 'create') {
+            return null;
+        }
+        $form = $this->findForm($arguments);
+        if (! isset($arguments['id'])) {
+            return $this->formVersion($form);
+        }
+        $submission = $this->findSubmission($form, $arguments, allowMissing: $arguments['action'] === 'delete_submission');
+
+        return $submission === null ? null : $this->submissionVersion($submission);
+    }
+
+    /** @return array<string, mixed> */
+    private function presentSubmission(Submission $submission): array
+    {
+        $data = array_filter($submission->data()->all(), fn ($key): bool => is_string($key) && ! str_starts_with($key, '_'), ARRAY_FILTER_USE_KEY);
+
+        return ['id' => (string) $submission->id(), 'form' => $submission->form()->handle(), 'site' => $submission->site()->handle(),
+            'status' => $submission->status(), 'date' => $submission->date()->toIso8601String(),
+            'data' => app(ResourcePolicy::class)->filterFields('forms', $data), 'version' => $this->submissionVersion($submission)];
+    }
+
+    /** @param array<string, mixed> $arguments
+     * @return array<string, mixed>
+     */
+    private function readSubmissions(Form $form, array $arguments): array
+    {
+        $filters = $arguments['filters'] ?? [];
+        Validator::make(['filters' => $filters], [
+            'filters' => ['array:status,date_from,date_to'],
+            'filters.status' => ['sometimes', Rule::in(['finalized', 'partial', 'spam', 'any'])],
+            'filters.date_from' => ['sometimes', 'string', 'date'], 'filters.date_to' => ['sometimes', 'string', 'date', ...(is_array($filters) && isset($filters['date_from']) ? ['after_or_equal:filters.date_from'] : [])],
+        ])->validate();
+        $filters = is_array($filters) ? $filters : [];
+        $site = $this->resolveSiteHandle($arguments);
+        $query = $form->querySubmissions()->whereStatus($this->getStringArgument($filters, 'status', 'finalized'));
+        // Older default-site submissions have no _site field.
+        $query->where(function ($query) use ($site): void {
+            $query->where('_site', $site);
+            if ($site === $this->resolveSiteHandle([])) {
+                $query->orWhereNull('_site');
+            }
+        });
+        foreach (['date_from' => '>=', 'date_to' => '<='] as $key => $operator) {
+            if (is_string($filters[$key] ?? null)) {
+                $query->where('date', $operator, Carbon::parse($filters[$key]));
+            }
+        }
+        if ($arguments['action'] === 'summary') {
+            return ['summary' => ['form' => $form->handle(), 'site' => $site, 'total' => (clone $query)->count(),
+                'finalized' => (clone $query)->whereStatus('finalized')->count(),
+                'partial' => (clone $query)->whereStatus('partial')->count(), 'spam' => (clone $query)->whereStatus('spam')->count()]];
+        }
+        $page = $this->getPaginationArgs($arguments, 50, 500);
+        $total = (clone $query)->count();
+        $items = $query->orderBy('date')->orderBy('id')->offset($page['offset'])->limit($page['limit'])->get();
+
+        return ['items' => $items->map(fn (Submission $submission): array => $this->presentSubmission($submission))->values()->all(),
+            'total' => $total, 'next_cursor' => $this->nextCursor($total, $page['offset'] + $page['limit'], $arguments)];
     }
 }

@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property string $client_id
  * @property string $user_id
  * @property array<int, string> $scopes
+ * @property array{grant_id: string, actions: array<string, string>, scopes: array<string, string>}|null $capabilities
  * @property Carbon $expires_at
  * @property bool $used
  * @property Carbon|null $created_at
@@ -29,6 +30,7 @@ class OAuthRefreshTokenModel extends Model
         'client_id',
         'user_id',
         'scopes',
+        'capabilities',
         'expires_at',
         'used',
     ];
@@ -40,6 +42,7 @@ class OAuthRefreshTokenModel extends Model
     {
         return [
             'scopes' => 'array',
+            'capabilities' => 'array',
             'expires_at' => 'datetime',
             'used' => 'boolean',
         ];

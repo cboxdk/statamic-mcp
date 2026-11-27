@@ -12,14 +12,12 @@ use Cboxdk\StatamicMcp\Mcp\Tools\Routers\EntriesRouter;
 use Cboxdk\StatamicMcp\Storage\Tokens\DatabaseTokenStore;
 use Cboxdk\StatamicMcp\Tests\Concerns\CreatesAuthenticatedUser;
 use Cboxdk\StatamicMcp\Tests\TestCase;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
 use Statamic\Facades\Collection;
 
 class PermissionGatingTest extends TestCase
 {
     use CreatesAuthenticatedUser;
-    use RefreshDatabase;
 
     public function test_regular_user_denied_admin_page(): void
     {
@@ -74,7 +72,7 @@ class PermissionGatingTest extends TestCase
         $result = $tokenService->createToken(
             'test-user-id',
             'Expired Token',
-            [TokenScope::ContentRead],
+            [TokenScope::EntriesRead],
             \Illuminate\Support\Carbon::now()->addMinute(),
         );
 

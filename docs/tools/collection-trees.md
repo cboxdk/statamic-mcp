@@ -7,7 +7,7 @@ weight: 45
 # Collection trees and entry parents
 
 Collection metadata does not describe the page hierarchy. Request a site-specific
-collection tree with:
+collection tree through `statamic-structures-read` with:
 
 ```json
 {"action":"get","resource_type":"collection","handle":"pages","site":"default","include_tree":true}
@@ -19,21 +19,22 @@ receive basic editing metadata; collection configuration remains an administrato
 operation.
 
 To create or update an entry under a parent, pass `data.parent` to
-`statamic-entries`. Use an entry ID from the same collection and site, or `null`
+`statamic-entries-write`. Use an entry ID from the same collection and site, or `null`
 for the top level. Omit the field to leave the existing parent unchanged.
 
 ```json
 {"action":"update","collection":"pages","id":"CHILD_ID","site":"default","data":{"parent":"PARENT_ID"}}
 ```
 
-Alternatively, move a branch through `statamic-structures`:
+Alternatively, move a branch through `statamic-structures-admin`:
 
 ```json
-{"action":"update","resource_type":"collection","handle":"pages","site":"default","data":{"entry":"CHILD_ID","parent":"PARENT_ID"}}
+{"action":"move","resource_type":"collection","handle":"pages","site":"default","data":{"entry":"CHILD_ID","parent":"PARENT_ID"}}
 ```
 
-The structures router is discoverable with `search_tools` and callable through
-`execute_tools`. This operation moves the existing subtree; it does not accept a
+The structures tools are listed by default. When `catalog.searchable` is enabled,
+they are reachable through `search_tools` and `execute_tools` instead.
+This operation moves the existing subtree; it does not accept a
 replacement tree or mix a move with collection settings. Sibling-position editing
 is outside this API. The returned parent is the saved parent; top-level entries
 return `null`, including entries immediately below a configured collection root.
@@ -43,7 +44,7 @@ entry or assigning itself as its parent is refused.
 
 Moves require collection reorder rights, permission to edit the moved entries,
 an accessible site and parent, the entries/structures resource policies and both
-`entries:write` and `structures:write` scopes. Tree reads require both read scopes.
+`entries:write` and `structures:admin` scopes. Tree reads require both read scopes.
 Invalid IDs, cross-site/collection parents, cycles, root moves, excessive depth and
 URI collisions fail explicitly. Existing authentication and confirmation behavior
 is unchanged.

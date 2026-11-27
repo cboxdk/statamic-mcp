@@ -4,13 +4,19 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
+use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
+use Cboxdk\StatamicMcp\Mcp\Exceptions\ToolFailure;
+use Cboxdk\StatamicMcp\Mcp\Support\ContentSearch;
+use Cboxdk\StatamicMcp\Mcp\Support\StaticCacheMaintenance;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\JsonSchema\JsonSchema;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Validator;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Attributes\Title;
@@ -25,7 +31,7 @@ use Statamic\Sites\Site;
 
 #[Name('statamic-system')]
 #[Title('Statamic System')]
-#[Description('Statamic system operations: environment info, health checks, cache management, and configuration. Actions: info, health, cache_status, cache_clear, cache_warm, config_get, config_set.')]
+#[Description('Statamic system: site information, health checks, cache state and cache maintenance, and MCP configuration.')]
 class SystemRouter extends BaseRouter
 {
     protected function getDomain(): string
@@ -33,59 +39,44 @@ class SystemRouter extends BaseRouter
         return 'system';
     }
 
-    public function getActions(): array
+    protected function actions(): array
     {
         return [
-            'info' => 'Get comprehensive system information and status',
-            'health' => 'Perform system health checks and diagnostics',
-            'cache_status' => 'Check cache status and statistics',
-            'cache_clear' => 'Clear system caches for optimization',
-            'cache_warm' => 'Warm system caches for performance',
-            'config_get' => 'Get system configuration values',
-            'config_set' => 'Set system configuration values',
+            RouterAction::read('info', 'System information: sites, content counts and environment', optional: ['include_details', 'include_performance']),
+            RouterAction::read('health', 'Run the health checks and report what they found', optional: []),
+            RouterAction::read('cache_status', 'Report the state of each cache, or of one', optional: ['cache_type']),
+            RouterAction::admin('cache_clear', 'Clear a cache; cache_type defaults to all', optional: ['cache_type']),
+            RouterAction::admin('cache_warm', 'Warm stache, queue static pages, or both (all). Defaults to stache. Static warming requires an asynchronous queue.', optional: ['cache_type']),
+            RouterAction::admin('invalidate_urls', 'Invalidate specific static-cache URLs within configured sites.', needs: ['urls']),
+            RouterAction::read('config_get', 'Read an MCP configuration value', needs: ['config_key']),
+            RouterAction::read('search', 'Search a configured index for readable entries, terms and assets. Domains with protected fields are omitted to prevent search-value leaks.', needs: ['handle', 'query'], optional: ['site', 'limit', 'cursor']),
+            RouterAction::admin('reindex', 'Rebuild a configured search index; native queues may finish later. Requires approval by default.', needs: ['handle'], optional: ['site']),
         ];
     }
 
     public function getTypes(): array
     {
-        return [
-            'system' => 'Overall system information and status',
-            'cache' => 'System cache components and management',
-            'config' => 'System configuration and settings',
-            'health' => 'System health checks and diagnostics',
-        ];
+        return [];
     }
 
     protected function defineSchema(JsonSchemaContract $schema): array
     {
         return array_merge(parent::defineSchema($schema), [
-            'action' => JsonSchema::string()
-                ->description(
-                    'Action to perform. Required params per action: '
-                    . 'info (no params), '
-                    . 'health (no params), '
-                    . 'cache_status (optional: include_details), '
-                    . 'cache_clear (cache_type), '
-                    . 'cache_warm (cache_type), '
-                    . 'config_get (config_key), '
-                    . 'config_set (config_key, config_value)'
-                )
-                ->enum(['info', 'health', 'cache_status', 'cache_clear', 'cache_warm', 'config_get', 'config_set'])
-                ->required(),
-            'resource_type' => JsonSchema::string()
-                ->description('System component type. Optional — most actions do not require this.')
-                ->enum(['system', 'cache', 'config', 'health']),
             'cache_type' => JsonSchema::string()
-                ->description('Cache type to clear or warm. "all" clears everything, "stache" for content index, "static" for static page cache, "views" for compiled views')
-                ->enum(['all', 'stache', 'static', 'views', 'app', 'config', 'route']),
+                ->description('Cache type: stache, static pages, glide images, views, app, config or route. cache_warm supports only stache, static and all.')
+                ->enum(['all', 'stache', 'static', 'glide', 'views', 'app', 'config', 'route']),
+            'urls' => JsonSchema::array()->items(JsonSchema::string())->description('Absolute site URLs to invalidate. No wildcards, credentials or dot segments. Maximum 500.'),
             'config_key' => JsonSchema::string()
                 ->description('Laravel/Statamic configuration key in dot notation. Example: "statamic.mcp.web.enabled", "app.name"'),
-            'config_value' => JsonSchema::string()
-                ->description('Value to set for the configuration key. Type must match expected config type'),
             'include_details' => JsonSchema::boolean()
                 ->description('Include detailed metrics and diagnostic information'),
             'include_performance' => JsonSchema::boolean()
                 ->description('Include performance metrics like response times and memory usage'),
+            'handle' => JsonSchema::string()->description('Configured Statamic search index handle.'),
+            'query' => JsonSchema::string()->description('Text to search for.')->min(1)->max(1000),
+            'site' => JsonSchema::string()->description('Restrict search results or index rebuild to this site.'),
+            'limit' => JsonSchema::integer()->description('Maximum search results per page, from 1 to 500.')->min(1)->max(500),
+            'cursor' => JsonSchema::string()->description('Opaque next_cursor returned by the previous search page.'),
         ]);
     }
 
@@ -106,10 +97,47 @@ class SystemRouter extends BaseRouter
             'cache_status' => $this->getCacheStatus($arguments),
             'cache_clear' => $this->clearCache($arguments),
             'cache_warm' => $this->warmCache($arguments),
+            'invalidate_urls' => $this->invalidateUrls($arguments),
             'config_get' => $this->getConfig($arguments),
-            'config_set' => $this->setConfig($arguments),
+            'search' => $this->search($arguments),
+            'reindex' => $this->reindex($arguments),
             default => $this->createErrorResponse("Unknown system action: {$action}")->toArray(),
         };
+    }
+
+    /** @param array<string, mixed> $arguments
+     * @return array<string, mixed>
+     */
+    private function search(array $arguments): array
+    {
+        $items = app(ContentSearch::class)->search($this->getStringArgument($arguments, 'handle'),
+            isset($arguments['site']) ? $this->getStringArgument($arguments, 'site') : null,
+            $this->getStringArgument($arguments, 'query'));
+        ['limit' => $limit, 'offset' => $offset] = $this->getPaginationArgs($arguments);
+
+        return $this->buildPage(array_slice($items, $offset, $limit), count($items), $offset, $arguments);
+    }
+
+    /** @param array<string, mixed> $arguments
+     * @return array<string, mixed>
+     */
+    private function reindex(array $arguments): array
+    {
+        $indexes = app(ContentSearch::class)->indexes($this->getStringArgument($arguments, 'handle'),
+            isset($arguments['site']) ? $this->getStringArgument($arguments, 'site') : null);
+        $names = [];
+        foreach ($indexes as $index) {
+            $this->persistStatamic(fn () => $index->update(), []);
+            $names[] = $index->name();
+        }
+
+        return ['indexes' => $names, 'status' => 'submitted'];
+    }
+
+    protected function writesReachOutside(): bool
+    {
+        // The operator may configure a hosted search driver such as Algolia.
+        return true;
     }
 
     /**
@@ -119,60 +147,50 @@ class SystemRouter extends BaseRouter
      */
     private function getSystemInfo(array $arguments): array
     {
-        try {
-            $includeDetails = $this->getBooleanArgument($arguments, 'include_details', false);
-            $includePerformance = $this->getBooleanArgument($arguments, 'include_performance', false);
-
-            $info = [
-                'statamic_version' => $this->getStatamicVersion(),
-                'laravel_version' => app()->version(),
-                'php_version' => PHP_VERSION,
-                'environment' => app()->environment(),
-                'debug_mode' => config('app.debug'),
-                'timezone' => config('app.timezone'),
-            ];
-
-            if ($includeDetails) {
-                /** @var Collection<int|string, Site> $allSites */
-                $allSites = \Statamic\Facades\Site::all();
-                $info = array_merge($info, [
-                    'sites' => $allSites->map(function ($site) {
-                        return [
-                            'handle' => $site->handle(),
-                            'name' => $site->name(),
-                            'url' => $site->url(),
-                            'locale' => $site->locale(),
-                        ];
-                    })->all(),
-                    'collections_count' => \Statamic\Facades\Collection::handles()->count(),
-                    'taxonomies_count' => Taxonomy::handles()->count(),
-                    'users_count' => User::all()->count(),
-                    'asset_containers_count' => AssetContainer::all()->count(),
-                    'navigation_count' => Nav::all()->count(),
-                    'global_sets_count' => GlobalSet::all()->count(),
-                    'form_count' => Form::all()->count(),
-                    'blueprint_count' => Blueprint::in('collections')->count()
-                        + Blueprint::in('taxonomies')->count()
-                        + Blueprint::in('globals')->count(),
-                ]);
-            }
-
-            if ($includePerformance) {
-                $info = array_merge($info, [
-                    'memory_usage' => [
-                        'current' => memory_get_usage(true),
-                        'peak' => memory_get_peak_usage(true),
-                        'limit' => (string) (ini_get('memory_limit') ?: '-1'),
-                    ],
-                    'execution_time' => microtime(true) - LARAVEL_START,
-                    'opcache_enabled' => function_exists('opcache_get_status') && (bool) opcache_get_status(),
-                ]);
-            }
-
-            return ['system_info' => $info];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to get system info: {$e->getMessage()}")->toArray();
+        $includeDetails = $this->getBooleanArgument($arguments, 'include_details', false);
+        $includePerformance = $this->getBooleanArgument($arguments, 'include_performance', false);
+        $info = [
+            'environment' => app()->environment(),
+            'debug_mode' => config('app.debug'),
+            'timezone' => config('app.timezone'),
+        ];
+        if ($includeDetails) {
+            /** @var Collection<int|string, Site> $allSites */
+            $allSites = \Statamic\Facades\Site::all();
+            $info = array_merge($info, [
+                'sites' => $allSites->map(function ($site) {
+                    return [
+                        'handle' => $site->handle(),
+                        'name' => $site->name(),
+                        'url' => $site->url(),
+                        'locale' => $site->locale(),
+                    ];
+                })->all(),
+                'collections_count' => \Statamic\Facades\Collection::handles()->count(),
+                'taxonomies_count' => Taxonomy::handles()->count(),
+                'users_count' => User::all()->count(),
+                'asset_containers_count' => AssetContainer::all()->count(),
+                'navigation_count' => Nav::all()->count(),
+                'global_sets_count' => GlobalSet::all()->count(),
+                'form_count' => Form::all()->count(),
+                'blueprint_count' => Blueprint::in('collections')->count()
+                    + Blueprint::in('taxonomies')->count()
+                    + Blueprint::in('globals')->count(),
+            ]);
         }
+        if ($includePerformance) {
+            $info = array_merge($info, [
+                'memory_usage' => [
+                    'current' => memory_get_usage(true),
+                    'peak' => memory_get_peak_usage(true),
+                    'limit' => (string) (ini_get('memory_limit') ?: '-1'),
+                ],
+                'execution_time' => microtime(true) - LARAVEL_START,
+                'opcache_enabled' => function_exists('opcache_get_status') && (bool) opcache_get_status(),
+            ]);
+        }
+
+        return ['system_info' => $info];
     }
 
     /**
@@ -182,77 +200,67 @@ class SystemRouter extends BaseRouter
      */
     private function getHealthStatus(array $arguments): array
     {
+        $health = [
+            'overall_status' => 'healthy',
+            'checks' => [],
+            'timestamp' => now()->toISOString(),
+        ];
+        // Database connection check
         try {
-            $health = [
-                'overall_status' => 'healthy',
-                'checks' => [],
-                'timestamp' => now()->toISOString(),
-            ];
-
-            // Database connection check
-            try {
-                \DB::connection()->getPdo();
-                $health['checks']['database'] = ['status' => 'healthy', 'message' => 'Database connection successful'];
-            } catch (\Exception $e) {
-                $health['checks']['database'] = ['status' => 'unhealthy', 'message' => "Database connection failed: {$e->getMessage()}"];
-                $health['overall_status'] = 'unhealthy';
-            }
-
-            // Cache connection check
-            try {
-                Cache::put('health_check', 'test', 1);
-                $testValue = Cache::get('health_check');
-                if ($testValue === 'test') {
-                    $health['checks']['cache'] = ['status' => 'healthy', 'message' => 'Cache system working'];
-                } else {
-                    $health['checks']['cache'] = ['status' => 'degraded', 'message' => 'Cache system not responding correctly'];
-                    $health['overall_status'] = 'degraded';
-                }
-                Cache::forget('health_check');
-            } catch (\Exception $e) {
-                $health['checks']['cache'] = ['status' => 'unhealthy', 'message' => "Cache system failed: {$e->getMessage()}"];
-                $health['overall_status'] = 'unhealthy';
-            }
-
-            // Storage check
-            try {
-                $storageWritable = is_writable(storage_path());
-                $health['checks']['storage'] = [
-                    'status' => $storageWritable ? 'healthy' : 'unhealthy',
-                    'message' => $storageWritable ? 'Storage directory writable' : 'Storage directory not writable',
-                ];
-                if (! $storageWritable) {
-                    $health['overall_status'] = 'unhealthy';
-                }
-            } catch (\Exception $e) {
-                $health['checks']['storage'] = ['status' => 'unhealthy', 'message' => "Storage check failed: {$e->getMessage()}"];
-                $health['overall_status'] = 'unhealthy';
-            }
-
-            // Memory check
-            $memoryUsage = memory_get_usage(true);
-            $memoryLimit = $this->parseBytes((string) (ini_get('memory_limit') ?: '-1'));
-            $memoryPercentage = ($memoryUsage / $memoryLimit) * 100;
-
-            if ($memoryPercentage > 90) {
-                $health['checks']['memory'] = ['status' => 'unhealthy', 'message' => "Memory usage critical: {$memoryPercentage}%"];
-                $health['overall_status'] = 'unhealthy';
-            } elseif ($memoryPercentage > 80) {
-                $health['checks']['memory'] = ['status' => 'degraded', 'message' => "Memory usage high: {$memoryPercentage}%"];
-                if ($health['overall_status'] === 'healthy') {
-                    $health['overall_status'] = 'degraded';
-                }
-            } else {
-                $health['checks']['memory'] = ['status' => 'healthy', 'message' => "Memory usage normal: {$memoryPercentage}%"];
-            }
-
-            // Stache status check - basic health indicator
-            $health['checks']['stache'] = ['status' => 'healthy', 'message' => 'Stache cache operational'];
-
-            return ['health' => $health];
+            \DB::connection()->getPdo();
+            $health['checks']['database'] = ['status' => 'healthy', 'message' => 'Database connection successful'];
         } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to get health status: {$e->getMessage()}")->toArray();
+            $health['checks']['database'] = ['status' => 'unhealthy', 'message' => "Database connection failed: {$e->getMessage()}"];
+            $health['overall_status'] = 'unhealthy';
         }
+        // Cache connection check
+        try {
+            Cache::put('health_check', 'test', 1);
+            $testValue = Cache::get('health_check');
+            if ($testValue === 'test') {
+                $health['checks']['cache'] = ['status' => 'healthy', 'message' => 'Cache system working'];
+            } else {
+                $health['checks']['cache'] = ['status' => 'degraded', 'message' => 'Cache system not responding correctly'];
+                $health['overall_status'] = 'degraded';
+            }
+            Cache::forget('health_check');
+        } catch (\Exception $e) {
+            $health['checks']['cache'] = ['status' => 'unhealthy', 'message' => "Cache system failed: {$e->getMessage()}"];
+            $health['overall_status'] = 'unhealthy';
+        }
+        // Storage check
+        try {
+            $storageWritable = is_writable(storage_path());
+            $health['checks']['storage'] = [
+                'status' => $storageWritable ? 'healthy' : 'unhealthy',
+                'message' => $storageWritable ? 'Storage directory writable' : 'Storage directory not writable',
+            ];
+            if (! $storageWritable) {
+                $health['overall_status'] = 'unhealthy';
+            }
+        } catch (\Exception $e) {
+            $health['checks']['storage'] = ['status' => 'unhealthy', 'message' => "Storage check failed: {$e->getMessage()}"];
+            $health['overall_status'] = 'unhealthy';
+        }
+        // Memory check
+        $memoryUsage = memory_get_usage(true);
+        $memoryLimit = $this->parseBytes((string) (ini_get('memory_limit') ?: '-1'));
+        $memoryPercentage = ($memoryUsage / $memoryLimit) * 100;
+        if ($memoryPercentage > 90) {
+            $health['checks']['memory'] = ['status' => 'unhealthy', 'message' => "Memory usage critical: {$memoryPercentage}%"];
+            $health['overall_status'] = 'unhealthy';
+        } elseif ($memoryPercentage > 80) {
+            $health['checks']['memory'] = ['status' => 'degraded', 'message' => "Memory usage high: {$memoryPercentage}%"];
+            if ($health['overall_status'] === 'healthy') {
+                $health['overall_status'] = 'degraded';
+            }
+        } else {
+            $health['checks']['memory'] = ['status' => 'healthy', 'message' => "Memory usage normal: {$memoryPercentage}%"];
+        }
+        // Stache status check - basic health indicator
+        $health['checks']['stache'] = ['status' => 'healthy', 'message' => 'Stache cache operational'];
+
+        return ['health' => $health];
     }
 
     /**
@@ -262,27 +270,20 @@ class SystemRouter extends BaseRouter
      */
     private function getCacheStatus(array $arguments): array
     {
-        try {
-            $cacheType = is_string($arguments['cache_type'] ?? null) ? $arguments['cache_type'] : 'all';
-
-            $status = [
-                'timestamp' => now()->toISOString(),
-                'caches' => [],
-            ];
-
-            /** @var array<int, string> $cacheTypes */
-            $cacheTypes = $cacheType === 'all'
-                ? ['stache', 'static', 'views', 'app', 'config', 'route']
-                : [$cacheType];
-
-            foreach ($cacheTypes as $type) {
-                $status['caches'][$type] = $this->getCacheTypeStatus($type);
-            }
-
-            return ['cache_status' => $status];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to get cache status: {$e->getMessage()}")->toArray();
+        $cacheType = is_string($arguments['cache_type'] ?? null) ? $arguments['cache_type'] : 'all';
+        $status = [
+            'timestamp' => now()->toISOString(),
+            'caches' => [],
+        ];
+        /** @var array<int, string> $cacheTypes */
+        $cacheTypes = $cacheType === 'all'
+            ? ['stache', 'static', 'views', 'app', 'config', 'route']
+            : [$cacheType];
+        foreach ($cacheTypes as $type) {
+            $status['caches'][$type] = $this->getCacheTypeStatus($type);
         }
+
+        return ['cache_status' => $status];
     }
 
     /**
@@ -293,31 +294,24 @@ class SystemRouter extends BaseRouter
     private function clearCache(array $arguments): array
     {
         if (! $this->hasPermission('manage', 'system')) {
-            return $this->createErrorResponse('Permission denied: Cannot clear cache')->toArray();
+            return $this->createErrorResponse('Permission denied: Cannot clear cache', code: ErrorCode::Forbidden)->toArray();
+        }
+        $cacheType = is_string($arguments['cache_type'] ?? null) ? $arguments['cache_type'] : 'all';
+        /** @var array<string, array<string, mixed>> $cleared */
+        $cleared = [];
+        /** @var array<int, string> $cacheTypes */
+        $cacheTypes = $cacheType === 'all'
+            ? ['stache', 'static', 'glide', 'views', 'app', 'config', 'route']
+            : [$cacheType];
+        foreach ($cacheTypes as $type) {
+            $result = $this->clearCacheType($type);
+            $cleared[$type] = $result;
         }
 
-        try {
-            $cacheType = is_string($arguments['cache_type'] ?? null) ? $arguments['cache_type'] : 'all';
-            /** @var array<string, array<string, mixed>> $cleared */
-            $cleared = [];
-
-            /** @var array<int, string> $cacheTypes */
-            $cacheTypes = $cacheType === 'all'
-                ? ['stache', 'static', 'views', 'app', 'config', 'route']
-                : [$cacheType];
-
-            foreach ($cacheTypes as $type) {
-                $result = $this->clearCacheType($type);
-                $cleared[$type] = $result;
-            }
-
-            return [
-                'cache_cleared' => $cleared,
-                'timestamp' => now()->toISOString(),
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to clear cache: {$e->getMessage()}")->toArray();
-        }
+        return [
+            'cache_cleared' => $cleared,
+            'timestamp' => now()->toISOString(),
+        ];
     }
 
     /**
@@ -328,31 +322,40 @@ class SystemRouter extends BaseRouter
     private function warmCache(array $arguments): array
     {
         if (! $this->hasPermission('manage', 'system')) {
-            return $this->createErrorResponse('Permission denied: Cannot warm cache')->toArray();
+            return $this->createErrorResponse('Permission denied: Cannot warm cache', code: ErrorCode::Forbidden)->toArray();
+        }
+        $cacheType = $arguments['cache_type'] ?? 'stache';
+        if (! in_array($cacheType, ['stache', 'static', 'all'], true)) {
+            throw new ToolFailure(ErrorCode::Validation, 'Warming supports stache, static or all.', 'cache_type');
+        }
+        $warmed = [];
+        if ($cacheType === 'static' || $cacheType === 'all') {
+            $maintenance = app(StaticCacheMaintenance::class);
+            $urls = $maintenance->warmableUrls();
+            $this->persistStatamic(fn () => $maintenance->queueWarm($urls), []);
+            $warmed['static'] = ['status' => 'queued', 'urls' => count($urls)];
+        }
+        if ($cacheType === 'stache' || $cacheType === 'all') {
+            $this->persistStatamic(fn () => Artisan::call('statamic:stache:warm'), []);
+            $warmed['stache'] = ['status' => 'warmed', 'command' => 'statamic:stache:warm'];
         }
 
-        try {
-            $cacheType = $arguments['cache_type'] ?? 'stache';
-            $warmed = [];
+        return [
+            'cache_warmed' => $warmed,
+            'timestamp' => now()->toISOString(),
+        ];
+    }
 
-            if ($cacheType === 'stache' || $cacheType === 'all') {
-                // Warm Stache cache
-                Artisan::call('statamic:stache:warm');
-                $warmed['stache'] = ['status' => 'warmed', 'command' => 'statamic:stache:warm'];
-            }
+    /** @param array<string, mixed> $arguments
+     * @return array<string, mixed>
+     */
+    private function invalidateUrls(array $arguments): array
+    {
+        Validator::make($arguments, ['urls' => ['required', 'array', 'list', 'min:1', 'max:500'], 'urls.*' => ['required', 'string']])->validate();
+        $urls = is_array($arguments['urls']) ? array_values(array_filter($arguments['urls'], is_string(...))) : [];
+        $this->persistStatamic(fn () => app(StaticCacheMaintenance::class)->invalidate($urls), []);
 
-            if ($cacheType === 'static' || $cacheType === 'all') {
-                // Static cache warming would go here if available
-                $warmed['static'] = ['status' => 'skipped', 'reason' => 'No warming command available'];
-            }
-
-            return [
-                'cache_warmed' => $warmed,
-                'timestamp' => now()->toISOString(),
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to warm cache: {$e->getMessage()}")->toArray();
-        }
+        return ['urls' => array_values(array_unique($urls)), 'status' => 'invalidated'];
     }
 
     /**
@@ -363,119 +366,39 @@ class SystemRouter extends BaseRouter
     private function getConfig(array $arguments): array
     {
         if (! $this->hasPermission('view', 'system')) {
-            return $this->createErrorResponse('Permission denied: Cannot get config')->toArray();
+            return $this->createErrorResponse('Permission denied: Cannot get config', code: ErrorCode::Forbidden)->toArray();
         }
-
-        try {
-            $configKey = is_string($arguments['config_key'] ?? null) ? $arguments['config_key'] : null;
-
-            if (! $configKey) {
-                return $this->createErrorResponse('Config key is required')->toArray();
-            }
-
-            // Security: Only allow reading from specific safe config keys
-            // Deliberately restrictive — no broad namespace access, no app.url (reveals infrastructure)
-            $safeKeys = [
-                'app.name',
-                'statamic.mcp.web.enabled',
-                'statamic.mcp.web.path',
-                'statamic.mcp.dashboard.enabled',
-                'statamic.mcp.oauth.enabled',
-                'statamic.cp.route',
-            ];
-
-            $allowed = collect($safeKeys)->some(function ($safeKey) use ($configKey) {
-                // Exact match or match with dot separator to prevent partial key injection
-                return $configKey === $safeKey || str_starts_with($configKey, $safeKey . '.');
-            });
-
-            if (! $allowed) {
-                return $this->createErrorResponse("Access to config key '{$configKey}' is restricted")->toArray();
-            }
-
-            $value = Config::get($configKey);
-
-            // Redact values that look like secrets even within safe config namespaces
-            $value = self::redactSensitiveConfigValues($value);
-
-            return [
-                'config' => [
-                    'key' => $configKey,
-                    'value' => $value,
-                ],
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to get config: {$e->getMessage()}")->toArray();
+        $configKey = is_string($arguments['config_key'] ?? null) ? $arguments['config_key'] : null;
+        if (! $configKey) {
+            return $this->createErrorResponse('Config key is required')->toArray();
         }
-    }
-
-    /**
-     * @param  array<string, mixed>  $arguments
-     *
-     * @return array<string, mixed>
-     */
-    private function setConfig(array $arguments): array
-    {
-        if (! $this->hasPermission('manage', 'system')) {
-            return $this->createErrorResponse('Permission denied: Cannot set config')->toArray();
+        // Security: Only allow reading from specific safe config keys
+        // Deliberately restrictive — no broad namespace access, no app.url (reveals infrastructure)
+        $safeKeys = [
+            'app.name',
+            'statamic.mcp.web.enabled',
+            'statamic.mcp.web.path',
+            'statamic.mcp.dashboard.enabled',
+            'statamic.mcp.oauth.enabled',
+            'statamic.cp.route',
+        ];
+        $allowed = collect($safeKeys)->some(function ($safeKey) use ($configKey) {
+            // Exact match or match with dot separator to prevent partial key injection
+            return $configKey === $safeKey || str_starts_with($configKey, $safeKey . '.');
+        });
+        if (! $allowed) {
+            return $this->createErrorResponse("Access to config key '{$configKey}' is restricted", code: ErrorCode::Forbidden, field: 'config_key')->toArray();
         }
+        $value = Config::get($configKey);
+        // Redact values that look like secrets even within safe config namespaces
+        $value = self::redactSensitiveConfigValues($value);
 
-        try {
-            $configKey = is_string($arguments['config_key'] ?? null) ? $arguments['config_key'] : null;
-            $configValue = $arguments['config_value'] ?? null;
-
-            if (! $configKey) {
-                return $this->createErrorResponse('Config key is required')->toArray();
-            }
-
-            // Security: config_set is only available in CLI context to prevent
-            // remote configuration tampering via web MCP endpoints
-            if ($this->isWebContext()) {
-                return $this->createErrorResponse('config_set is only available in CLI context for security reasons')->toArray();
-            }
-
-            // Security: Only allow setting runtime config for non-security keys
-            // Deliberately excludes security.force_web_mode and security.audit_logging
-            // to prevent MCP tools from weakening their own security controls
-            $allowedKeys = [
-                'statamic.mcp.tools',
-            ];
-
-            $allowed = collect($allowedKeys)->some(function ($allowedKey) use ($configKey) {
-                // Exact match or match with dot separator to prevent partial key injection
-                return $configKey === $allowedKey || str_starts_with($configKey, $allowedKey . '.');
-            });
-
-            if (! $allowed) {
-                return $this->createErrorResponse("Setting config key '{$configKey}' is restricted")->toArray();
-            }
-
-            // Parse value as JSON if it looks like JSON
-            if (is_string($configValue) && (str_starts_with($configValue, '{') || str_starts_with($configValue, '['))) {
-                $configValue = json_decode($configValue, true);
-                if (json_last_error() !== JSON_ERROR_NONE) {
-                    return $this->createErrorResponse('Invalid JSON value provided')->toArray();
-                }
-            }
-
-            // Validate config value size to prevent memory abuse
-            $serialized = json_encode($configValue);
-            if ($serialized !== false && strlen($serialized) > 10000) {
-                return $this->createErrorResponse('Config value too large (maximum 10KB allowed)')->toArray();
-            }
-
-            Config::set($configKey, $configValue);
-
-            return [
-                'config' => [
-                    'key' => $configKey,
-                    'value' => $configValue,
-                    'updated' => true,
-                ],
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to set config: {$e->getMessage()}")->toArray();
-        }
+        return [
+            'config' => [
+                'key' => $configKey,
+                'value' => $value,
+            ],
+        ];
     }
 
     // Helper Methods
@@ -535,6 +458,7 @@ class SystemRouter extends BaseRouter
         return match ($type) {
             'stache' => $this->runArtisanCommand('statamic:stache:clear'),
             'static' => $this->runArtisanCommand('statamic:static:clear'),
+            'glide' => $this->runArtisanCommand('statamic:glide:clear'),
             'views' => $this->runArtisanCommand('view:clear'),
             'app' => $this->runArtisanCommand('cache:clear'),
             'config' => $this->runArtisanCommand('config:clear'),
@@ -621,8 +545,8 @@ class SystemRouter extends BaseRouter
         // 'super' will never match a real permission, so only super admins (who bypass
         // permission checks entirely in checkWebPermissions) can execute them.
         return match ($action) {
-            'info', 'health', 'cache_status', 'config_get' => ['access utilities'],
-            'cache_clear', 'cache_warm', 'config_set' => ['super'],
+            'info', 'health', 'cache_status', 'config_get', 'search' => ['access utilities'],
+            'cache_clear', 'cache_warm', 'reindex' => ['super'],
             default => ['super'],
         };
     }

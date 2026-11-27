@@ -5,11 +5,11 @@ declare(strict_types=1);
 use Cboxdk\StatamicMcp\Auth\TokenScope;
 
 // ---------------------------------------------------------------------------
-// 1. All 23 cases exist with correct string values
+// 1. All 33 cases exist with correct string values
 // ---------------------------------------------------------------------------
 
-it('has exactly 23 cases', function (): void {
-    expect(TokenScope::cases())->toHaveCount(23);
+it('has exactly 33 cases', function (): void {
+    expect(TokenScope::cases())->toHaveCount(33);
 });
 
 it('maps every case to its correct string value', function (TokenScope $scope, string $expected): void {
@@ -20,22 +20,32 @@ it('maps every case to its correct string value', function (TokenScope $scope, s
     'ContentWrite' => [TokenScope::ContentWrite, 'content:write'],
     'StructuresRead' => [TokenScope::StructuresRead, 'structures:read'],
     'StructuresWrite' => [TokenScope::StructuresWrite, 'structures:write'],
+    'StructuresAdmin' => [TokenScope::StructuresAdmin, 'structures:admin'],
     'AssetsRead' => [TokenScope::AssetsRead, 'assets:read'],
     'AssetsWrite' => [TokenScope::AssetsWrite, 'assets:write'],
+    'AssetsDelete' => [TokenScope::AssetsDelete, 'assets:delete'],
     'UsersRead' => [TokenScope::UsersRead, 'users:read'],
     'UsersWrite' => [TokenScope::UsersWrite, 'users:write'],
+    'UsersAdmin' => [TokenScope::UsersAdmin, 'users:admin'],
     'SystemRead' => [TokenScope::SystemRead, 'system:read'],
     'SystemWrite' => [TokenScope::SystemWrite, 'system:write'],
+    'SystemAdmin' => [TokenScope::SystemAdmin, 'system:admin'],
     'BlueprintsRead' => [TokenScope::BlueprintsRead, 'blueprints:read'],
     'BlueprintsWrite' => [TokenScope::BlueprintsWrite, 'blueprints:write'],
+    'BlueprintsAdmin' => [TokenScope::BlueprintsAdmin, 'blueprints:admin'],
     'EntriesRead' => [TokenScope::EntriesRead, 'entries:read'],
     'EntriesWrite' => [TokenScope::EntriesWrite, 'entries:write'],
+    'EntriesPublish' => [TokenScope::EntriesPublish, 'entries:publish'],
+    'EntriesDelete' => [TokenScope::EntriesDelete, 'entries:delete'],
     'TermsRead' => [TokenScope::TermsRead, 'terms:read'],
     'TermsWrite' => [TokenScope::TermsWrite, 'terms:write'],
+    'TermsDelete' => [TokenScope::TermsDelete, 'terms:delete'],
     'GlobalsRead' => [TokenScope::GlobalsRead, 'globals:read'],
     'GlobalsWrite' => [TokenScope::GlobalsWrite, 'globals:write'],
     'FormsRead' => [TokenScope::FormsRead, 'forms:read'],
     'FormsWrite' => [TokenScope::FormsWrite, 'forms:write'],
+    'SubmissionsRead' => [TokenScope::SubmissionsRead, 'submissions:read'],
+    'SubmissionsDelete' => [TokenScope::SubmissionsDelete, 'submissions:delete'],
     'ContentFacadeRead' => [TokenScope::ContentFacadeRead, 'content-facade:read'],
     'ContentFacadeWrite' => [TokenScope::ContentFacadeWrite, 'content-facade:write'],
 ]);
@@ -56,26 +66,28 @@ it('returns the correct label for each case', function (TokenScope $scope, strin
     expect($scope->label())->toBe($expected);
 })->with([
     'FullAccess' => [TokenScope::FullAccess, 'Full Access'],
-    'ContentRead' => [TokenScope::ContentRead, 'Read Content'],
-    'ContentWrite' => [TokenScope::ContentWrite, 'Write Content'],
+    'ContentRead' => [TokenScope::ContentRead, 'Read Content (v3, retired)'],
+    'ContentWrite' => [TokenScope::ContentWrite, 'Write Content (v3, retired)'],
     'StructuresRead' => [TokenScope::StructuresRead, 'Read Structures'],
-    'StructuresWrite' => [TokenScope::StructuresWrite, 'Write Structures'],
+    'StructuresWrite' => [TokenScope::StructuresWrite, 'Write Structures (v3, replaced)'],
+    'StructuresAdmin' => [TokenScope::StructuresAdmin, 'Administer Structures'],
     'AssetsRead' => [TokenScope::AssetsRead, 'Read Assets'],
-    'AssetsWrite' => [TokenScope::AssetsWrite, 'Write Assets'],
+    'AssetsWrite' => [TokenScope::AssetsWrite, 'Edit Assets'],
     'UsersRead' => [TokenScope::UsersRead, 'Read Users'],
-    'UsersWrite' => [TokenScope::UsersWrite, 'Write Users'],
+    'UsersWrite' => [TokenScope::UsersWrite, 'Write Users (v3, replaced)'],
+    'UsersAdmin' => [TokenScope::UsersAdmin, 'Administer Users'],
     'SystemRead' => [TokenScope::SystemRead, 'Read System'],
-    'SystemWrite' => [TokenScope::SystemWrite, 'Write System'],
+    'SystemWrite' => [TokenScope::SystemWrite, 'Write System (v3, replaced)'],
+    'SystemAdmin' => [TokenScope::SystemAdmin, 'Administer System'],
     'BlueprintsRead' => [TokenScope::BlueprintsRead, 'Read Blueprints'],
-    'BlueprintsWrite' => [TokenScope::BlueprintsWrite, 'Write Blueprints'],
+    'BlueprintsWrite' => [TokenScope::BlueprintsWrite, 'Write Blueprints (v3, replaced)'],
+    'BlueprintsAdmin' => [TokenScope::BlueprintsAdmin, 'Administer Blueprints'],
     'EntriesRead' => [TokenScope::EntriesRead, 'Read Entries'],
-    'EntriesWrite' => [TokenScope::EntriesWrite, 'Write Entries'],
+    'EntriesWrite' => [TokenScope::EntriesWrite, 'Edit Entries'],
     'TermsRead' => [TokenScope::TermsRead, 'Read Terms'],
-    'TermsWrite' => [TokenScope::TermsWrite, 'Write Terms'],
+    'TermsWrite' => [TokenScope::TermsWrite, 'Edit Terms'],
     'GlobalsRead' => [TokenScope::GlobalsRead, 'Read Globals'],
     'GlobalsWrite' => [TokenScope::GlobalsWrite, 'Write Globals'],
-    'FormsRead' => [TokenScope::FormsRead, 'Read Forms'],
-    'FormsWrite' => [TokenScope::FormsWrite, 'Write Forms'],
     'ContentFacadeRead' => [TokenScope::ContentFacadeRead, 'Read Content Facade'],
     'ContentFacadeWrite' => [TokenScope::ContentFacadeWrite, 'Write Content Facade'],
 ]);
@@ -92,36 +104,38 @@ it('returns the correct group for each case', function (TokenScope $scope, strin
     'ContentWrite' => [TokenScope::ContentWrite, 'content'],
     'StructuresRead' => [TokenScope::StructuresRead, 'structures'],
     'StructuresWrite' => [TokenScope::StructuresWrite, 'structures'],
+    'StructuresAdmin' => [TokenScope::StructuresAdmin, 'structures'],
     'AssetsRead' => [TokenScope::AssetsRead, 'assets'],
     'AssetsWrite' => [TokenScope::AssetsWrite, 'assets'],
     'UsersRead' => [TokenScope::UsersRead, 'users'],
     'UsersWrite' => [TokenScope::UsersWrite, 'users'],
+    'UsersAdmin' => [TokenScope::UsersAdmin, 'users'],
     'SystemRead' => [TokenScope::SystemRead, 'system'],
     'SystemWrite' => [TokenScope::SystemWrite, 'system'],
+    'SystemAdmin' => [TokenScope::SystemAdmin, 'system'],
     'BlueprintsRead' => [TokenScope::BlueprintsRead, 'blueprints'],
     'BlueprintsWrite' => [TokenScope::BlueprintsWrite, 'blueprints'],
+    'BlueprintsAdmin' => [TokenScope::BlueprintsAdmin, 'blueprints'],
     'EntriesRead' => [TokenScope::EntriesRead, 'entries'],
     'EntriesWrite' => [TokenScope::EntriesWrite, 'entries'],
     'TermsRead' => [TokenScope::TermsRead, 'terms'],
     'TermsWrite' => [TokenScope::TermsWrite, 'terms'],
     'GlobalsRead' => [TokenScope::GlobalsRead, 'globals'],
     'GlobalsWrite' => [TokenScope::GlobalsWrite, 'globals'],
-    'FormsRead' => [TokenScope::FormsRead, 'forms'],
-    'FormsWrite' => [TokenScope::FormsWrite, 'forms'],
     'ContentFacadeRead' => [TokenScope::ContentFacadeRead, 'content-facade'],
     'ContentFacadeWrite' => [TokenScope::ContentFacadeWrite, 'content-facade'],
 ]);
 
 // ---------------------------------------------------------------------------
-// 4. all() returns all 23 cases
+// 4. all() returns all 33 cases
 // ---------------------------------------------------------------------------
 
-it('returns all 23 cases from all()', function (): void {
+it('returns all 33 cases from all()', function (): void {
     $all = TokenScope::all();
 
     expect($all)
         ->toBeArray()
-        ->toHaveCount(23)
+        ->toHaveCount(33)
         ->each->toBeInstanceOf(TokenScope::class);
 });
 
@@ -141,22 +155,24 @@ it('resolves valid scope strings via tryFrom', function (string $value): void {
     'content:write',
     'structures:read',
     'structures:write',
+    'structures:admin',
     'assets:read',
     'assets:write',
     'users:read',
     'users:write',
+    'users:admin',
     'system:read',
     'system:write',
+    'system:admin',
     'blueprints:read',
     'blueprints:write',
+    'blueprints:admin',
     'entries:read',
     'entries:write',
     'terms:read',
     'terms:write',
     'globals:read',
     'globals:write',
-    'forms:read',
-    'forms:write',
     'content-facade:read',
     'content-facade:write',
 ]);
@@ -179,7 +195,7 @@ it('returns null from tryFrom for invalid scope strings', function (string $valu
 // ---------------------------------------------------------------------------
 
 it('has exactly a read and write scope for each domain', function (): void {
-    $domains = ['content', 'structures', 'assets', 'users', 'system', 'blueprints', 'entries', 'terms', 'globals', 'forms', 'content-facade'];
+    $domains = ['content', 'structures', 'assets', 'users', 'system', 'blueprints', 'entries', 'terms', 'globals', 'content-facade'];
 
     foreach ($domains as $domain) {
         $readScope = TokenScope::tryFrom("{$domain}:read");
@@ -230,4 +246,21 @@ it('resolves the wildcard string to FullAccess', function (): void {
 
 it('places FullAccess in the access group', function (): void {
     expect(TokenScope::FullAccess->group())->toBe('access');
+});
+
+it('maps a domain write to its admin scope where one exists', function (): void {
+    expect(TokenScope::writeFor('structures'))->toBe(TokenScope::StructuresAdmin)
+        ->and(TokenScope::writeFor('system'))->toBe(TokenScope::SystemAdmin)
+        ->and(TokenScope::writeFor('entries'))->toBe(TokenScope::EntriesWrite)
+        ->and(TokenScope::writeFor('globals'))->toBe(TokenScope::GlobalsWrite)
+        ->and(TokenScope::writeFor('nonsense'))->toBeNull();
+});
+
+it('names what v4 changed for a v3 token', function (): void {
+    expect(TokenScope::v3Changes(['entries:read', 'globals:write']))->toBe([])
+        ->and(TokenScope::v3Changes(['*']))->toBe(['full_access' => ['*']])
+        ->and(TokenScope::v3Changes(['users:write', 'structures:write', 'entries:write', 'entries:publish', 'terms:write']))->toBe([
+            'replaced' => ['users:write', 'structures:write'],
+            'publish_delete' => ['entries:delete', 'terms:delete'],
+        ]);
 });

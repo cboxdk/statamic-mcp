@@ -23,6 +23,21 @@ it('returns boolean shape for toggle', function (): void {
     expect($spec)->toMatchArray(['wire_format' => 'boolean', 'shape' => 'boolean']);
 });
 
+it('reports configured core field boundaries without inventing resource ids', function (): void {
+    $spec = new FieldFormatSpec;
+    expect($spec->for(makeField('width')))->toMatchArray(['allowed_values' => [25, 33, 50, 66, 75, 100], 'example' => 25]);
+    expect($spec->for(makeField('width', ['options' => [20, 80]]))['allowed_values'])->toBe([20, 80]);
+    expect($spec->for(makeField('range', ['min' => -2.5, 'max' => 7, 'step' => .5])))
+        ->toMatchArray(['wire_format' => 'number', 'min' => -2.5, 'max' => 7, 'step' => .5, 'example' => -2.5]);
+    expect($spec->for(makeField('range')))->toMatchArray(['wire_format' => 'integer', 'min' => 0, 'max' => 100, 'step' => 1]);
+    expect($spec->for(makeField('assets', ['container' => 'photos', 'max_files' => 1])))
+        ->toMatchArray(['container' => 'photos', 'max_files' => 1, 'wire_format' => 'string']);
+    expect($spec->for(makeField('dictionary', ['dictionary' => 'countries', 'max_items' => 1])))
+        ->toMatchArray(['dictionary' => 'countries', 'wire_format' => 'scalar']);
+    expect($spec->for(makeField('dictionary', ['dictionary' => 'countries'])))
+        ->toMatchArray(['dictionary' => 'countries', 'wire_format' => 'array']);
+});
+
 it('returns markdown shape with strict no-prosemirror rule', function (): void {
     $spec = (new FieldFormatSpec)->for(makeField('markdown'));
 
@@ -179,12 +194,29 @@ it('reports array shape for multi-select', function (): void {
     expect($spec['allowed_values'])->toBe(['a', 'b', 'c']);
 });
 
-it('describes relationship fields with array of UUIDs', function (): void {
-    $spec = (new FieldFormatSpec)->for(makeField('entries'));
+it('describes entries fields as entry ids from their collections', function (): void {
+    $spec = (new FieldFormatSpec)->for(makeField('entries', ['collections' => ['blog']]));
 
-    expect($spec['shape'])->toBe('relationship_ids');
+    expect($spec['shape'])->toBe('entry_ids');
     expect($spec['wire_format'])->toBe('array');
-    expect($spec['item_format'])->toBe('uuid_string');
+    expect($spec['item_format'])->toBe('entry_id');
+    expect($spec['collections'])->toBe(['blog']);
+});
+
+it('describes a single-taxonomy terms field as slugs, never UUIDs', function (): void {
+    $spec = (new FieldFormatSpec)->for(makeField('terms', ['taxonomies' => ['tags']]));
+
+    expect($spec['shape'])->toBe('term_references');
+    expect($spec['item_format'])->toBe('term_slug');
+    expect($spec['taxonomies'])->toBe(['tags']);
+    expect(implode(' ', $spec['common_mistakes']))->toContain('UUID');
+});
+
+it('describes a multi-taxonomy terms field as taxonomy::slug', function (): void {
+    $spec = (new FieldFormatSpec)->for(makeField('terms', ['taxonomies' => ['tags', 'topics']]));
+
+    expect($spec['item_format'])->toBe('taxonomy::slug');
+    expect($spec['examples'][0])->toBe(['tags::php', 'topics::news']);
 });
 
 it('describes table fields with cell scalars', function (): void {

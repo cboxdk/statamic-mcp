@@ -25,6 +25,18 @@ class UserDashboardTest extends TestCase
             ->assertRedirect();
     }
 
+    public function test_client_snippets_validate_the_mode_and_do_not_take_a_secret(): void
+    {
+        $this->actingAsAdmin();
+        $this->getJson(cp_route('statamic-mcp.config.show', ['client' => 'claude-code']) . '?mode=oauth&token=do-not-echo')
+            ->assertOk()->assertJsonPath('mode', 'oauth')
+            ->assertJsonPath('config.mcpServers.statamic.type', 'http')->assertDontSee('do-not-echo');
+        $this->getJson(cp_route('statamic-mcp.config.show', ['client' => 'chatgpt']) . '?mode=bearer')
+            ->assertUnprocessable()->assertJsonValidationErrors('mode');
+        $this->getJson(cp_route('statamic-mcp.config.show', ['client' => 'vscode']) . '?mode=bearer')
+            ->assertOk()->assertJsonPath('config.servers.statamic.headers.Authorization', 'Bearer <YOUR_TOKEN>');
+    }
+
     public function test_dashboard_props_include_tokens_scopes_and_clients(): void
     {
         $response = $this->actingAsAdmin()

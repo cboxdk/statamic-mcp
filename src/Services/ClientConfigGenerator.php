@@ -55,6 +55,7 @@ class ClientConfigGenerator
         return [
             'mcpServers' => [
                 'statamic' => [
+                    'type' => 'http',
                     'url' => $this->normalizeUrl($baseUrl),
                     'headers' => [
                         'Authorization' => "Bearer {$token}",
@@ -71,7 +72,8 @@ class ClientConfigGenerator
     {
         $url = $this->normalizeUrl($baseUrl);
 
-        return "claude mcp add statamic --transport http --url \"{$url}\" --header \"Authorization: Bearer {$token}\"";
+        return 'claude mcp add --transport http statamic ' . escapeshellarg($url)
+            . ' --header ' . escapeshellarg("Authorization: Bearer {$token}");
     }
 
     /**
@@ -105,9 +107,9 @@ class ClientConfigGenerator
     public function forChatGpt(string $baseUrl, #[\SensitiveParameter] string $token): array
     {
         return [
-            'note' => 'ChatGPT requires OAuth 2.0 — Bearer tokens are not supported.',
+            'note' => __('statamic-mcp::messages.chatgpt_oauth'),
             'endpoint' => $this->normalizeUrl($baseUrl),
-            'auth' => 'OAuth 2.0 (configured in ChatGPT web app)',
+            'auth' => __('statamic-mcp::messages.chatgpt_auth'),
         ];
     }
 
@@ -154,54 +156,159 @@ class ClientConfigGenerator
     /**
      * Get a list of all supported MCP clients with descriptions.
      *
-     * @return array<string, array{name: string, description: string, method: string, cli_method: string|null, config_file: string|null}>
+     * @return array<string, array{name: string, description: string, method: string, cli_method: string|null, config_file: string|null, modes: list<string>}>
      */
     public function getAvailableClients(): array
     {
         return [
             'claude-desktop' => [
                 'name' => 'Claude Desktop',
-                'description' => 'Anthropic Claude desktop application',
+                'description' => __('statamic-mcp::messages.clients.claude-desktop'),
                 'method' => 'forClaudeDesktop',
                 'cli_method' => null,
                 'config_file' => 'claude_desktop_config.json',
+                'modes' => ['oauth', 'bearer', 'stdio'],
             ],
             'claude-code' => [
                 'name' => 'Claude Code',
-                'description' => 'Claude Code CLI — terminal-based AI assistant',
+                'description' => __('statamic-mcp::messages.clients.claude-code'),
                 'method' => 'forClaudeCode',
                 'cli_method' => 'cliForClaudeCode',
                 'config_file' => '.mcp.json',
+                'modes' => ['bearer', 'oauth', 'stdio'],
             ],
             'cursor' => [
                 'name' => 'Cursor',
-                'description' => 'AI-powered code editor with MCP support',
+                'description' => __('statamic-mcp::messages.clients.cursor'),
                 'method' => 'forCursor',
                 'cli_method' => null,
                 'config_file' => '.cursor/mcp.json',
+                'modes' => ['bearer', 'oauth', 'stdio'],
             ],
             'chatgpt' => [
                 'name' => 'ChatGPT',
-                'description' => 'OpenAI ChatGPT with MCP server integration',
+                'description' => __('statamic-mcp::messages.clients.chatgpt'),
                 'method' => 'forChatGpt',
                 'cli_method' => null,
                 'config_file' => null,
+                'modes' => ['oauth'],
             ],
             'windsurf' => [
                 'name' => 'Windsurf',
-                'description' => 'Codeium Windsurf code editor with MCP support',
+                'description' => __('statamic-mcp::messages.clients.windsurf'),
                 'method' => 'forWindsurf',
                 'cli_method' => null,
                 'config_file' => '~/.codeium/windsurf/mcp_config.json',
+                'modes' => ['bearer', 'stdio'],
+            ],
+            'vscode' => [
+                'name' => 'VS Code',
+                'description' => __('statamic-mcp::messages.clients.vscode'),
+                'method' => 'forVsCode',
+                'cli_method' => null,
+                'config_file' => '.vscode/mcp.json',
+                'modes' => ['bearer', 'oauth', 'stdio'],
+            ],
+            'codex' => [
+                'name' => 'Codex',
+                'description' => __('statamic-mcp::messages.clients.codex'),
+                'method' => 'forCodex',
+                'cli_method' => null,
+                'config_file' => '~/.codex/config.toml',
+                'modes' => ['bearer', 'oauth', 'stdio'],
             ],
             'generic' => [
-                'name' => 'Other',
-                'description' => 'Standard MCP client with streamable HTTP transport',
+                'name' => __('statamic-mcp::messages.other_client'),
+                'description' => __('statamic-mcp::messages.clients.generic'),
                 'method' => 'forGeneric',
                 'cli_method' => null,
                 'config_file' => null,
+                'modes' => ['bearer', 'stdio'],
             ],
         ];
+    }
+
+    /** @return array<string, mixed> */
+    public function forVsCode(string $baseUrl, #[\SensitiveParameter] string $token): array
+    {
+        return ['servers' => ['statamic' => [
+            'type' => 'http', 'url' => $this->normalizeUrl($baseUrl),
+            'headers' => ['Authorization' => "Bearer {$token}"],
+        ]]];
+    }
+
+    /** @return array<string, mixed> */
+    public function forCodex(string $baseUrl, #[\SensitiveParameter] string $token): array
+    {
+        return ['mcp_servers' => ['statamic' => [
+            'url' => $this->normalizeUrl($baseUrl),
+            'http_headers' => ['Authorization' => "Bearer {$token}"],
+        ]]];
+    }
+
+    /**
+     * Generate a copyable snippet without ever receiving a credential from the CP.
+     * The browser fills the placeholder from its one-time token response.
+     *
+     * @return array<string, mixed>
+     */
+    public function snippet(string $client, string $mode, string $baseUrl): array
+    {
+        $info = $this->getAvailableClients()[$client] ?? null;
+        if ($info === null || ! in_array($mode, $info['modes'], true)) {
+            throw new \InvalidArgumentException(__('statamic-mcp::messages.unsupported_client'));
+        }
+        $url = $this->normalizeUrl($baseUrl);
+        $map = match ($client) {
+            'vscode' => 'servers',
+            'codex' => 'mcp_servers',
+            default => 'mcpServers',
+        };
+        $cli = null;
+        $configFile = $info['config_file'];
+        if ($mode === 'stdio') {
+            $server = ['command' => 'php', 'args' => ['/path/to/site/artisan', 'mcp:start', 'statamic']];
+            if (in_array($client, ['claude-code', 'vscode'], true)) {
+                $server = ['type' => 'stdio', ...$server];
+            }
+            $config = [$map => ['statamic' => $server]];
+            $cli = match ($client) {
+                'claude-code' => 'claude mcp add --transport stdio statamic -- php /path/to/site/artisan mcp:start statamic',
+                'codex' => 'codex mcp add statamic -- php /path/to/site/artisan mcp:start statamic',
+                default => null,
+            };
+        } elseif ($mode === 'oauth') {
+            $server = ['url' => $url];
+            if (in_array($client, ['claude-code', 'vscode'], true)) {
+                $server = ['type' => 'http', ...$server];
+            }
+            $config = in_array($client, ['chatgpt', 'claude-desktop'], true) ? null : [$map => ['statamic' => $server]];
+            if ($config === null) {
+                $configFile = null;
+            }
+            $cli = match ($client) {
+                'claude-code' => 'claude mcp add --transport http statamic ' . escapeshellarg($url),
+                'codex' => 'codex mcp add statamic --url ' . escapeshellarg($url) . "\ncodex mcp login statamic",
+                default => null,
+            };
+        } else {
+            $method = $info['method'];
+            /** @var array<string, mixed> $config */
+            $config = $this->{$method}($baseUrl, '<YOUR_TOKEN>');
+            $cli = $client === 'claude-code' ? $this->cliForClaudeCode($baseUrl, '<YOUR_TOKEN>') : null;
+        }
+
+        $snippet = $config === null ? null : json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        if ($client === 'codex') {
+            $quote = fn (string $value): string => json_encode($value, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+            $snippet = "[mcp_servers.statamic]\n" . ($mode === 'stdio'
+                ? "command = \"php\"\nargs = [\"/path/to/site/artisan\", \"mcp:start\", \"statamic\"]"
+                : 'url = ' . $quote($url) . ($mode === 'bearer' ? "\nhttp_headers = { Authorization = \"Bearer <YOUR_TOKEN>\" }" : ''));
+        }
+
+        return ['client' => $client, 'name' => $info['name'], 'description' => $info['description'],
+            'mode' => $mode, 'endpoint' => $url, 'config' => $config, 'snippet' => $snippet,
+            'format' => $client === 'codex' ? 'TOML' : 'JSON', 'config_file' => $configFile, 'cli' => $cli];
     }
 
     /**

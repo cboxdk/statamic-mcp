@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Cboxdk\StatamicMcp\Mcp\Servers\StatamicMcpServer;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Laravel\Mcp\Server\Contracts\Transport;
+use Laravel\Mcp\Server\Prompt;
 use Mockery\MockInterface;
 
 class StatamicMcpServerTest extends TestCase
@@ -76,7 +77,7 @@ class StatamicMcpServerTest extends TestCase
         $tools = $this->getServerTools($server);
 
         expect($tools)->toBeArray();
-        expect(count($tools))->toBe(12);
+        expect(count($tools))->toBe(11);
 
         foreach ($tools as $toolClass) {
             // Test that the tool class exists and can be instantiated
@@ -106,15 +107,11 @@ class StatamicMcpServerTest extends TestCase
 
         expect($prompts)->toBeArray();
 
-        foreach ($prompts as $promptClass) {
-            expect(class_exists($promptClass))
-                ->toBeTrue("Prompt class {$promptClass} does not exist");
-
-            $prompt = app($promptClass);
-
-            expect($prompt)
-                ->toBeInstanceOf($promptClass);
+        foreach ($prompts as $prompt) {
+            expect($prompt)->toBeInstanceOf(Prompt::class);
         }
+        expect(array_map(fn ($prompt) => $prompt->name(), $prompts))
+            ->toBe(['write_entry', 'translate_entry', 'edit_page_builder', 'model_content']);
     }
 
     public function test_mcp_server_tool_definitions_are_valid()
@@ -166,7 +163,7 @@ class StatamicMcpServerTest extends TestCase
         $server = $this->getServer();
         $tools = $this->getServerTools($server);
         // Updated for hyphen-based naming: statamic-domain or statamic-domain-action
-        $expectedCategories = ['entries', 'terms', 'globals', 'forms', 'content-facade', 'structures', 'assets', 'users', 'system', 'system-discover', 'system-schema', 'blueprints'];
+        $expectedCategories = ['entries', 'terms', 'globals', 'content-facade', 'structures', 'assets', 'users', 'system', 'discover', 'blueprints', 'forms'];
         $foundCategories = [];
 
         foreach ($tools as $toolClass) {

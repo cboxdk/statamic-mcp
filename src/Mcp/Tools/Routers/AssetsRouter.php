@@ -5,9 +5,14 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
+use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
+use Cboxdk\StatamicMcp\Mcp\Exceptions\ToolFailure;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ChecksResourceVersions;
+use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
 use Cboxdk\StatamicMcp\Support\Http\FetchRefused;
 use Cboxdk\StatamicMcp\Support\Http\OutboundFetcher;
+use Cboxdk\StatamicMcp\Support\McpConfig;
 use Illuminate\Contracts\JsonSchema\JsonSchema as JsonSchemaContract;
 use Illuminate\Http\UploadedFile;
 use Illuminate\JsonSchema\JsonSchema;
@@ -22,30 +27,39 @@ use Statamic\Contracts\Assets\AssetContainer as AssetContainerContract;
 use Statamic\Contracts\Auth\User;
 use Statamic\Facades\Asset;
 use Statamic\Facades\AssetContainer;
+use Statamic\Facades\Pattern;
 use Statamic\Rules\AllowedFile;
 use Statamic\Support\Str;
 
 #[Name('statamic-assets')]
 #[Title('Statamic Assets')]
-#[Description('Manage Statamic assets and asset containers. Set resource_type to "container" or "asset", then choose an action. Actions: list, get, create, update, delete, move, copy, upload.')]
+#[Description('Statamic assets and asset containers: files, their metadata, and where they are stored.')]
 class AssetsRouter extends BaseRouter
 {
+    use ChecksResourceVersions;
+
     protected function getDomain(): string
     {
         return 'assets';
     }
 
-    public function getActions(): array
+    /** An upload can fetch a URL the client names. */
+    protected function writesReachOutside(): bool
+    {
+        return true;
+    }
+
+    protected function actions(): array
     {
         return [
-            'list' => 'List assets or containers with filtering options',
-            'get' => 'Get specific asset or container details',
-            'create' => 'Create new asset containers or create assets from inline content (base64 or raw text)',
-            'update' => 'Update asset metadata or container configuration',
-            'delete' => 'Delete assets or containers',
-            'move' => 'Move assets to different locations',
-            'copy' => 'Copy assets to different locations',
-            'upload' => 'Upload a file to a container: from a URL the server fetches (source_url), from base64 content, or from a local file_path (CLI clients)',
+            RouterAction::read('list', 'List containers, or the assets in one container', optional: ['container', 'folder', 'recursive', 'include_details', 'include_counts', 'limit', 'cursor']),
+            RouterAction::read('get', 'Get a container, or an asset by its path', needs: ['container'], optional: ['path', 'include_counts', 'fields']),
+            RouterAction::edit('create', 'Create a container (its settings in data), or an asset from inline content (filename, content, encoding)', needs: ['container'], optional: ['data', 'filename', 'content', 'encoding']),
+            RouterAction::edit('update', 'Update a container\'s settings, or an asset\'s metadata by its path', needs: ['container', 'data'], optional: ['path']),
+            RouterAction::delete('delete', 'Delete a container, or an asset by its path', needs: ['container'], optional: ['path']),
+            RouterAction::edit('move', 'Move or rename an asset', ['asset'], needs: ['container', 'path', 'destination']),
+            RouterAction::edit('copy', 'Copy an asset', ['asset'], needs: ['container', 'path', 'destination']),
+            RouterAction::edit('upload', 'Upload a file into a container: source_url (the server fetches it), content with encoding and filename, or file_path (local stdio only)', ['asset'], needs: ['container', 'source_url|content|file_path'], optional: ['filename', 'encoding', 'folder', 'data']),
         ];
     }
 
@@ -60,30 +74,10 @@ class AssetsRouter extends BaseRouter
     protected function defineSchema(JsonSchemaContract $schema): array
     {
         return array_merge(parent::defineSchema($schema), [
-            'action' => JsonSchema::string()
-                ->description(
-                    'Action to perform. Required params per action: '
-                    . 'list (resource_type; container for assets), '
-                    . 'get (resource_type; container + path for assets, handle for containers), '
-                    . 'create (resource_type; container + filename + content for assets, handle for containers), '
-                    . 'update (resource_type; container + path + data for assets, handle + data for containers), '
-                    . 'delete (resource_type; container + path for assets, handle for containers), '
-                    . 'move (resource_type=asset, container, path, destination), '
-                    . 'copy (resource_type=asset, container, path, destination), '
-                    . 'upload (resource_type=asset, container, optional folder; source_url to fetch from the web, OR content+encoding+filename, OR file_path for local CLI clients)'
-                )
-                ->enum(['list', 'get', 'create', 'update', 'delete', 'move', 'copy', 'upload'])
-                ->required(),
-            'resource_type' => JsonSchema::string()
-                ->description('Type of asset resource. "container" for storage containers, "asset" for individual files within containers.')
-                ->enum(['container', 'asset'])
-                ->required(),
             'container' => JsonSchema::string()
-                ->description('Asset container handle. Required for asset operations. Example: "images", "documents"'),
+                ->description('Asset container handle: the container to act on, or for container create the new container\'s handle. Example: "images", "documents"'),
             'path' => JsonSchema::string()
                 ->description('Asset path within the container including filename. Example: "blog/hero.jpg", "docs/guide.pdf"'),
-            'handle' => JsonSchema::string()
-                ->description('Deprecated — use "container" for container operations. Container handle'),
             'data' => JsonSchema::object()
                 ->description('Asset or container metadata. For assets: field values like alt, title. For containers: configuration like title, disk.'),
             'destination' => JsonSchema::string()
@@ -105,10 +99,12 @@ class AssetsRouter extends BaseRouter
                 ->description('Include extended metadata (size, mime type, dimensions for images) in response'),
             'include_counts' => JsonSchema::boolean()
                 ->description('Include asset and folder counts. Can be slow with large containers — omit for faster responses'),
+            'limit' => JsonSchema::integer()
+                ->description('Maximum assets to return (default: 50, max: 500)'),
+            'cursor' => JsonSchema::string()
+                ->description('next_cursor from the previous page. Keep the other arguments unchanged. Omit to start again.'),
             'recursive' => JsonSchema::boolean()
                 ->description('Include assets in subdirectories of the listed folder. Default: false (only the folder itself, the container root when no folder is given)'),
-            'filters' => JsonSchema::object()
-                ->description('Filter conditions for list operations as key-value pairs. Supported: "folder", the same as the folder argument'),
         ]);
     }
 
@@ -183,49 +179,42 @@ class AssetsRouter extends BaseRouter
      */
     private function listContainers(array $arguments): array
     {
-        try {
-            $includeDetails = $this->getBooleanArgument($arguments, 'include_details', true);
-            $includeCounts = $this->getBooleanArgument($arguments, 'include_counts', false);
-            // An unscoped list has no handle for the outer permission and
-            // resource-policy checks to key on, so each container is checked here.
-            $containers = AssetContainer::all()->filter(
-                fn ($container): bool => $container instanceof AssetContainerContract && $this->canListContainer($container->handle())
-            )->map(function (AssetContainerContract $container) use ($includeDetails, $includeCounts) {
-                $data = [
-                    'handle' => $container->handle(),
-                    'title' => $container->title(),
-                    'disk' => $container->diskHandle(),
-                ];
-
-                if ($includeDetails) {
-                    $permissions = $this->getContainerPermissions($container);
-                    $data = array_merge($data, [
-                        'blueprint' => $container->blueprint()?->handle(),
-                        'url' => $container->url(),
-                        'path' => $container->path(),
-                        'allow_uploads' => $permissions['allow_uploads'],
-                        'allow_downloading' => $permissions['allow_downloading'],
-                        'allow_renaming' => $permissions['allow_renaming'],
-                        'allow_moving' => $permissions['allow_moving'],
-                        'create_folders' => $permissions['create_folders'],
-                        'search_index' => $this->getContainerSearchIndex($container),
-                    ]);
-
-                    if ($includeCounts) {
-                        $data['asset_count'] = $this->getContainerAssetCount($container);
-                    }
-                }
-
-                return $data;
-            })->values()->all();
-
-            return [
-                'containers' => $containers,
-                'total' => count($containers),
+        $includeDetails = $this->getBooleanArgument($arguments, 'include_details', true);
+        $includeCounts = $this->getBooleanArgument($arguments, 'include_counts', false);
+        // An unscoped list has no handle for the outer permission and
+        // resource-policy checks to key on, so each container is checked here.
+        $containers = AssetContainer::all()->filter(
+            fn ($container): bool => $container instanceof AssetContainerContract && $this->canListContainer($container->handle())
+        )->map(function (AssetContainerContract $container) use ($includeDetails, $includeCounts) {
+            $data = [
+                'handle' => $container->handle(),
+                'title' => $container->title(),
+                'disk' => $container->diskHandle(),
             ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to list containers: {$e->getMessage()}")->toArray();
-        }
+
+            if ($includeDetails) {
+                $permissions = $this->getContainerPermissions($container);
+                $data = array_merge($data, [
+                    'blueprint' => $container->blueprint()?->handle(),
+                    'url' => $container->url(),
+                    'path' => $container->path(),
+                    'allow_uploads' => $permissions['allow_uploads'],
+                    'allow_downloading' => $permissions['allow_downloading'],
+                    'allow_renaming' => $permissions['allow_renaming'],
+                    'allow_moving' => $permissions['allow_moving'],
+                    'create_folders' => $permissions['create_folders'],
+                    'search_index' => $this->getContainerSearchIndex($container),
+                ]);
+
+                if ($includeCounts) {
+                    $data['asset_count'] = $this->getContainerAssetCount($container);
+                }
+            }
+
+            return $data;
+        })->values()->all();
+
+        return $this->paginateItems($containers, $arguments);
     }
 
     /**
@@ -235,40 +224,41 @@ class AssetsRouter extends BaseRouter
      */
     private function getContainer(array $arguments): array
     {
-        try {
-            $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
-            $container = AssetContainer::find($handle);
-
-            if (! $container) {
-                return $this->createErrorResponse("Asset container not found: {$handle}")->toArray();
-            }
-
-            $permissions = $this->getContainerPermissions($container);
-            $includeCounts = $this->getBooleanArgument($arguments, 'include_counts', true);
-            $data = [
-                'handle' => $container->handle(),
-                'title' => $container->title(),
-                'disk' => $container->diskHandle(),
-                'blueprint' => $container->blueprint()?->handle(),
-                'url' => $container->url(),
-                'path' => $container->path(),
-                'allow_uploads' => $permissions['allow_uploads'],
-                'allow_downloading' => $permissions['allow_downloading'],
-                'allow_renaming' => $permissions['allow_renaming'],
-                'allow_moving' => $permissions['allow_moving'],
-                'create_folders' => $permissions['create_folders'],
-                'search_index' => $this->getContainerSearchIndex($container),
-            ];
-
-            if ($includeCounts) {
-                $data['asset_count'] = $this->getContainerAssetCount($container);
-                $data['folder_count'] = $this->getContainerFolderCount($container);
-            }
-
-            return ['container' => $data];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to get container: {$e->getMessage()}")->toArray();
+        $handle = is_string($arguments['container'] ?? null) ? $arguments['container'] : '';
+        $container = AssetContainer::find($handle);
+        if (! $container) {
+            return $this->missingResource('Asset container', $handle, 'container', AssetContainer::all()->map->handle()->all(), $arguments)->toArray();
         }
+        $includeCounts = $this->getBooleanArgument($arguments, 'include_counts', true);
+        $data = $this->containerRecord($container);
+        if ($includeCounts) {
+            $data['asset_count'] = $this->getContainerAssetCount($container);
+            $data['folder_count'] = $this->getContainerFolderCount($container);
+        }
+
+        return ['container' => $data];
+    }
+
+    /** @return array<string, mixed> */
+    private function containerRecord(AssetContainerContract $container): array
+    {
+        $permissions = $this->getContainerPermissions($container);
+        $data = [
+            'handle' => $container->handle(),
+            'title' => $container->title(),
+            'disk' => $container->diskHandle(),
+            'blueprint' => $container->blueprint()?->handle(),
+            'url' => $container->url(),
+            'path' => $container->path(),
+            'allow_uploads' => $permissions['allow_uploads'],
+            'allow_downloading' => $permissions['allow_downloading'],
+            'allow_renaming' => $permissions['allow_renaming'],
+            'allow_moving' => $permissions['allow_moving'],
+            'create_folders' => $permissions['create_folders'],
+            'search_index' => $this->getContainerSearchIndex($container),
+        ];
+
+        return [...$data, 'version' => self::resourceVersion($container->fileData())];
     }
 
     /**
@@ -278,47 +268,38 @@ class AssetsRouter extends BaseRouter
      */
     private function createContainer(array $arguments): array
     {
-        try {
-            $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
-            $handle = is_string($data['handle'] ?? null) ? $data['handle'] : (is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '');
-
-            if (! $handle) {
-                return $this->createErrorResponse('Container handle is required')->toArray();
-            }
-
-            $existsError = $this->checkHandleNotExists(AssetContainer::find($handle), 'Container', $handle);
-            if ($existsError !== null) {
-                return $existsError;
-            }
-
-            $container = AssetContainer::make($handle);
-
-            // Set configuration
-            if (isset($data['title'])) {
-                $container->title(is_string($data['title']) ? $data['title'] : '');
-            }
-            if (isset($data['disk'])) {
-                $container->disk(is_string($data['disk']) ? $data['disk'] : '');
-            }
-
-            // Set permissions
-            $this->setContainerPermissions($container, $data);
-
-            $container->save();
-
-            // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
-
-            return [
-                'container' => [
-                    'handle' => $container->handle(),
-                    'title' => $container->title(),
-                    'created' => true,
-                ],
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to create container: {$e->getMessage()}")->toArray();
+        $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
+        $handle = is_string($arguments['container'] ?? null) ? $arguments['container'] : '';
+        if (! $handle) {
+            return $this->createErrorResponse('Container handle is required')->toArray();
         }
+        if (array_key_exists('handle', $data) && $data['handle'] !== $handle) {
+            return $this->createErrorResponse('The new container\'s handle is the container argument; data.handle may only repeat it.')->toArray();
+        }
+        $existsError = $this->checkHandleNotExists(AssetContainer::find($handle), 'Container', $handle);
+        if ($existsError !== null) {
+            return $existsError;
+        }
+        $container = AssetContainer::make($handle);
+        // Set configuration
+        if (isset($data['title'])) {
+            $container->title(is_string($data['title']) ? $data['title'] : '');
+        }
+        if (isset($data['disk'])) {
+            $container->disk(is_string($data['disk']) ? $data['disk'] : '');
+        }
+        // Set permissions
+        $this->setContainerPermissions($container, $data);
+        $this->persistStatamic(fn () => $container->save());
+        // Clear caches
+        $this->clearCachesAfterWrite(['stache']);
+
+        return [
+            'container' => [
+                ...$this->containerRecord($container),
+                'created' => true,
+            ],
+        ];
     }
 
     /**
@@ -328,41 +309,31 @@ class AssetsRouter extends BaseRouter
      */
     private function updateContainer(array $arguments): array
     {
-        try {
-            $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
-            $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
-
-            $container = AssetContainer::find($handle);
-            if (! $container) {
-                return $this->createErrorResponse("Asset container not found: {$handle}")->toArray();
-            }
-
-            // Update basic configuration
-            if (isset($data['title'])) {
-                $container->title(is_string($data['title']) ? $data['title'] : '');
-            }
-            if (isset($data['disk'])) {
-                $container->disk(is_string($data['disk']) ? $data['disk'] : '');
-            }
-
-            // Update permissions
-            $this->setContainerPermissions($container, $data);
-
-            $container->save();
-
-            // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
-
-            return [
-                'container' => [
-                    'handle' => $container->handle(),
-                    'title' => $container->title(),
-                    'updated' => true,
-                ],
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to update container: {$e->getMessage()}")->toArray();
+        $handle = is_string($arguments['container'] ?? null) ? $arguments['container'] : '';
+        $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
+        $container = AssetContainer::find($handle);
+        if (! $container) {
+            return $this->missingResource('Asset container', $handle, 'container', AssetContainer::all()->map->handle()->all(), $arguments)->toArray();
         }
+        // Update basic configuration
+        if (isset($data['title'])) {
+            $container->title(is_string($data['title']) ? $data['title'] : '');
+        }
+        if (isset($data['disk'])) {
+            $container->disk(is_string($data['disk']) ? $data['disk'] : '');
+        }
+        // Update permissions
+        $this->setContainerPermissions($container, $data);
+        $this->persistStatamic(fn () => $container->save());
+        // Clear caches
+        $this->clearCachesAfterWrite(['stache']);
+
+        return [
+            'container' => [
+                ...$this->containerRecord($container),
+                'updated' => true,
+            ],
+        ];
     }
 
     /**
@@ -372,34 +343,27 @@ class AssetsRouter extends BaseRouter
      */
     private function deleteContainer(array $arguments): array
     {
-        try {
-            $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
-            $container = AssetContainer::find($handle);
-
-            if (! $container) {
-                return $this->createErrorResponse("Asset container not found: {$handle}")->toArray();
-            }
-
-            // Check for existing assets
-            $assetCount = $container->assets()->count();
-            if ($assetCount > 0) {
-                return $this->createErrorResponse("Cannot delete container '{$handle}' - it contains {$assetCount} assets")->toArray();
-            }
-
-            $container->delete();
-
-            // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
-
-            return [
-                'container' => [
-                    'handle' => $handle,
-                    'deleted' => true,
-                ],
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to delete container: {$e->getMessage()}")->toArray();
+        $handle = is_string($arguments['container'] ?? null) ? $arguments['container'] : '';
+        $container = AssetContainer::find($handle);
+        if (! $container) {
+            return $this->missingResource('Asset container', $handle, 'container', AssetContainer::all()->map->handle()->all(), $arguments)->toArray();
         }
+        // Check for existing assets
+        $assetCount = $container->assets()->count();
+        if ($assetCount > 0) {
+            return $this->createErrorResponse("Cannot delete container '{$handle}' - it contains {$assetCount} assets")->toArray();
+        }
+        $snapshot = $this->containerRecord($container);
+        $this->persistStatamic(fn () => $container->delete());
+        // Clear caches
+        $this->clearCachesAfterWrite(['stache']);
+
+        return [
+            'container' => [
+                ...$snapshot,
+                'deleted' => true,
+            ],
+        ];
     }
 
     // Asset Operations
@@ -411,75 +375,58 @@ class AssetsRouter extends BaseRouter
      */
     private function listAssets(array $arguments): array
     {
-        try {
-            $container = is_string($arguments['container'] ?? null) ? $arguments['container'] : null;
-            $includeDetails = $this->getBooleanArgument($arguments, 'include_details', true);
-            $recursive = $this->getBooleanArgument($arguments, 'recursive', false);
-
-            if (! $container) {
-                return $this->createErrorResponse('Container handle is required for listing assets')->toArray();
-            }
-
-            $assetContainer = AssetContainer::find($container);
-            if (! $assetContainer) {
-                return $this->createErrorResponse("Asset container not found: {$container}")->toArray();
-            }
-
-            $filters = is_array($arguments['filters'] ?? null) ? $arguments['filters'] : [];
-            $folder = $this->assetFolder($arguments['folder'] ?? $filters['folder'] ?? null);
-            if ($folder === null) {
-                return $this->createErrorResponse("folder must be a path inside the container, such as 'uploads/cases', without '.' or '..' segments")->toArray();
-            }
-
-            // Statamic reports root assets with folder '/', not ''. Its own
-            // assets() resolves the root and subfolders, recursive or not.
-            $allAssets = $assetContainer->assets($folder === '' ? '/' : $folder, $recursive);
-
-            $total = $allAssets->count();
-            $limit = $this->getIntegerArgument($arguments, 'limit', 50, 1, 500);
-            $offset = $this->getIntegerArgument($arguments, 'offset', 0, 0);
-
-            $assets = $allAssets->skip($offset)->take($limit)->map(function ($asset) use ($includeDetails) {
-                if (! $asset instanceof AssetContract) {
-                    return null;
-                }
-
-                $data = [
-                    'id' => $asset->id(),
-                    'path' => $asset->path(),
-                    'basename' => $asset->basename(),
-                    'extension' => $asset->extension(),
-                    'url' => $asset->url(),
-                ];
-
-                if ($includeDetails) {
-                    $data['size'] = $asset->size();
-                    $data['mime_type'] = $asset->mimeType();
-                    $data['is_image'] = $asset->isImage();
-
-                    if ($asset->isImage()) {
-                        $data['width'] = $asset->width();
-                        $data['height'] = $asset->height();
-                        $data['alt'] = $this->getAssetAlt($asset);
-                    }
-                }
-
-                return $data;
-            })->filter()->values()->all();
-
-            return [
-                'assets' => $assets,
-                'pagination' => [
-                    'total' => $total,
-                    'limit' => $limit,
-                    'offset' => $offset,
-                    'has_more' => ($offset + $limit) < $total,
-                ],
-                'container' => $container,
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to list assets: {$e->getMessage()}")->toArray();
+        $container = is_string($arguments['container'] ?? null) ? $arguments['container'] : null;
+        $includeDetails = $this->getBooleanArgument($arguments, 'include_details', true);
+        $recursive = $this->getBooleanArgument($arguments, 'recursive', false);
+        if (! $container) {
+            return $this->createErrorResponse('Container handle is required for listing assets')->toArray();
         }
+        $assetContainer = AssetContainer::find($container);
+        if (! $assetContainer) {
+            return $this->missingResource('Asset container', $container, 'container', AssetContainer::all()->map->handle()->all(), $arguments)->toArray();
+        }
+        $folder = $this->assetFolder($arguments['folder'] ?? null);
+        if ($folder === null) {
+            return $this->createErrorResponse("folder must be a path inside the container, such as 'uploads/cases', without '.' or '..' segments")->toArray();
+        }
+        // Mirror AssetContainer::assets() folder semantics, but paginate before
+        // materializing assets (also works with the Eloquent repository).
+        $query = $assetContainer->queryAssets();
+        if (! $recursive) {
+            $query->where('folder', $folder === '' ? '/' : $folder);
+        } elseif ($folder !== '') {
+            $query->where('path', 'like', Pattern::sqlLikeQuote($folder) . '/%');
+        }
+        $total = $query->count();
+        ['limit' => $limit, 'offset' => $offset] = $this->getPaginationArgs($arguments);
+        $assets = $query->orderBy('path')->offset($offset)->limit($limit)->get()->map(function (AssetContract $asset) use ($includeDetails): array {
+            $data = [
+                'id' => $asset->id(),
+                'path' => $asset->path(),
+                'basename' => $asset->basename(),
+                'extension' => $asset->extension(),
+                'url' => $asset->url(),
+            ];
+
+            if ($includeDetails) {
+                $data['size'] = $asset->size();
+                $data['mime_type'] = $asset->mimeType();
+                $data['is_image'] = $asset->isImage();
+
+                if ($asset->isImage()) {
+                    $data['width'] = $asset->width();
+                    $data['height'] = $asset->height();
+                    $data['alt'] = $this->getAssetAlt($asset);
+                }
+            }
+
+            return $data;
+        })->filter()->values()->all();
+
+        return [
+            ...$this->buildPage($assets, $total, $offset, $arguments),
+            'container' => $container,
+        ];
     }
 
     /**
@@ -489,45 +436,49 @@ class AssetsRouter extends BaseRouter
      */
     private function getAsset(array $arguments): array
     {
-        try {
-            $container = is_string($arguments['container'] ?? null) ? $arguments['container'] : null;
-            $path = is_string($arguments['path'] ?? null) ? $arguments['path'] : null;
-
-            if (! $container || ! $path) {
-                return $this->createErrorResponse('Both container and path are required')->toArray();
-            }
-
-            $asset = Asset::find($container . '::' . $path);
-            if (! $asset) {
-                return $this->createErrorResponse("Asset not found: {$container}::{$path}")->toArray();
-            }
-
-            $data = [
-                'id' => $asset->id(),
-                'path' => $asset->path(),
-                'basename' => $asset->basename(),
-                'filename' => $asset->filename(),
-                'extension' => $asset->extension(),
-                'url' => $asset->url(),
-                'container' => $asset->containerHandle(),
-                'folder' => $asset->folder(),
-                'size' => $asset->size(),
-                'last_modified' => $asset->lastModified()->timestamp ?? null,
-                'mime_type' => $asset->mimeType(),
-                'is_image' => $asset->isImage(),
-                'is_video' => $asset->isVideo(),
-                'is_audio' => $asset->isAudio(),
-                'width' => $asset->width(),
-                'height' => $asset->height(),
-                'alt' => $this->getAssetAlt($asset),
-                'title' => $this->getAssetTitle($asset),
-                'data' => $asset->data()->all(),
-            ];
-
-            return ['asset' => $data];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to get asset: {$e->getMessage()}")->toArray();
+        $container = is_string($arguments['container'] ?? null) ? $arguments['container'] : null;
+        $path = is_string($arguments['path'] ?? null) ? $arguments['path'] : null;
+        if (! $container || ! $path) {
+            return $this->createErrorResponse('Both container and path are required')->toArray();
         }
+        $asset = Asset::find($container . '::' . $path);
+        if (! $asset) {
+            return $this->missingResource('Asset', "{$container}::{$path}", 'path')->toArray();
+        }
+
+        return ['asset' => $this->assetRecord($asset)];
+    }
+
+    /** @return array<string, mixed> */
+    private function assetRecord(AssetContract $asset): array
+    {
+        $data = [
+            'id' => $asset->id(),
+            'path' => $asset->path(),
+            'basename' => $asset->basename(),
+            'filename' => $asset->filename(),
+            'extension' => $asset->extension(),
+            'url' => $asset->url(),
+            'container' => $asset->containerHandle(),
+            'folder' => $asset->folder(),
+            'size' => $asset->size(),
+            'last_modified' => $asset->lastModified()->timestamp ?? null,
+            'mime_type' => $asset->mimeType(),
+            'is_image' => $asset->isImage(),
+            'is_video' => $asset->isVideo(),
+            'is_audio' => $asset->isAudio(),
+            'width' => $asset->width(),
+            'height' => $asset->height(),
+            'alt' => $this->getAssetAlt($asset),
+            'title' => $this->getAssetTitle($asset),
+            'data' => $asset->data()->all(),
+        ];
+
+        // URLs can be signed and expire; they are not part of the stored record.
+        return [...$data, 'version' => self::resourceVersion([
+            'id' => $data['id'], 'data' => $data['data'],
+            'size' => $data['size'], 'last_modified' => $data['last_modified'],
+        ])];
     }
 
     /**
@@ -537,85 +488,62 @@ class AssetsRouter extends BaseRouter
      */
     private function createAsset(array $arguments): array
     {
-        try {
-            $container = is_string($arguments['container'] ?? null) ? $arguments['container'] : null;
-            $filename = is_string($arguments['filename'] ?? null) ? $arguments['filename'] : null;
-            $content = is_string($arguments['content'] ?? null) ? $arguments['content'] : null;
-            $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
-
-            if (! $container || ! $filename) {
-                return $this->createErrorResponse('Container and filename are required')->toArray();
-            }
-
-            // Prevent path traversal in filename
-            if ($filename !== basename($filename)) {
-                return $this->createErrorResponse('Filename must not contain path separators or traversal sequences')->toArray();
-            }
-
-            $assetContainer = AssetContainer::find($container);
-            if (! $assetContainer) {
-                return $this->createErrorResponse("Asset container not found: {$container}")->toArray();
-            }
-
-            // Validate file size (default 10MB limit, configurable)
-            /** @var int $maxSizeBytes */
-            $maxSizeBytes = config('statamic.mcp.security.max_upload_size', 10 * 1024 * 1024);
-
-            // Handle content creation
-            if ($content) {
-                $encoding = is_string($arguments['encoding'] ?? null) ? $arguments['encoding'] : 'raw';
-
-                if ($encoding === 'base64') {
-                    $decodedContent = base64_decode($content, true);
-                    if ($decodedContent === false) {
-                        return $this->createErrorResponse('Invalid base64 content provided')->toArray();
-                    }
-                } else {
-                    $decodedContent = $content;
-                }
-
-                if (strlen($decodedContent) > $maxSizeBytes) {
-                    $maxSizeMB = round($maxSizeBytes / 1024 / 1024, 1);
-
-                    return $this->createErrorResponse("File size exceeds maximum allowed size of {$maxSizeMB}MB")->toArray();
-                }
-
-                $stored = $this->storeContent($assetContainer, '', $filename, $decodedContent);
-                if (is_string($stored)) {
-                    return $this->createErrorResponse($stored)->toArray();
-                }
-                $asset = $stored;
-            } else {
-                return $this->createErrorResponse('Content is required to create an asset. Provide file content with encoding parameter (base64 or raw).')->toArray();
-            }
-
-            // Set additional data
-            foreach ($data as $key => $value) {
-                $asset->set($key, $value);
-            }
-
-            $asset->save();
-
-            // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
-
-            return [
-                'asset' => [
-                    'id' => $asset->id(),
-                    'path' => $asset->path(),
-                    'filename' => $asset->filename(),
-                    'basename' => $asset->basename(),
-                    'extension' => $asset->extension(),
-                    'size' => $asset->size(),
-                    'mime_type' => $asset->mimeType(),
-                    'url' => $asset->url(),
-                    'data' => $asset->data()->all(),
-                ],
-                'created' => true,
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to create asset: {$e->getMessage()}")->toArray();
+        $container = is_string($arguments['container'] ?? null) ? $arguments['container'] : null;
+        $filename = is_string($arguments['filename'] ?? null) ? $arguments['filename'] : null;
+        $content = is_string($arguments['content'] ?? null) ? $arguments['content'] : null;
+        $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
+        if (! $container || ! $filename) {
+            return $this->createErrorResponse('Container and filename are required')->toArray();
         }
+        // Prevent path traversal in filename
+        if ($filename !== basename($filename)) {
+            return $this->createErrorResponse('Filename must not contain path separators or traversal sequences')->toArray();
+        }
+        $assetContainer = AssetContainer::find($container);
+        if (! $assetContainer) {
+            return $this->missingResource('Asset container', $container, 'container', AssetContainer::all()->map->handle()->all(), $arguments)->toArray();
+        }
+        // Validate file size (default 10MB limit, configurable)
+        $maxSizeBytes = McpConfig::int('security.max_upload_size', 10 * 1024 * 1024);
+        // Handle content creation
+        if ($content) {
+            $encoding = is_string($arguments['encoding'] ?? null) ? $arguments['encoding'] : 'raw';
+
+            if ($encoding === 'base64') {
+                $decodedContent = base64_decode($content, true);
+                if ($decodedContent === false) {
+                    return $this->createErrorResponse('Invalid base64 content provided')->toArray();
+                }
+            } else {
+                $decodedContent = $content;
+            }
+
+            if (strlen($decodedContent) > $maxSizeBytes) {
+                $maxSizeMB = round($maxSizeBytes / 1024 / 1024, 1);
+
+                return $this->createErrorResponse("File size exceeds maximum allowed size of {$maxSizeMB}MB")->toArray();
+            }
+
+            $stored = $this->storeContent($assetContainer, '', $filename, $decodedContent);
+            if (is_string($stored)) {
+                return $this->createErrorResponse($stored)->toArray();
+            }
+            $asset = $stored;
+        } else {
+            return $this->createErrorResponse('Content is required to create an asset. Provide file content with encoding parameter (base64 or raw).')->toArray();
+        }
+        // Set additional data
+        foreach ($data as $key => $value) {
+            $asset->set($key, $value);
+        }
+        $this->persistStatamic(fn () => $asset->save());
+        // Clear caches
+        $this->clearCachesAfterWrite(['stache']);
+
+        return [
+            'asset' => $this->assetRecord($asset),
+            'created' => true,
+        ];
     }
 
     /**
@@ -625,44 +553,36 @@ class AssetsRouter extends BaseRouter
      */
     private function updateAsset(array $arguments): array
     {
-        try {
-            $container = is_string($arguments['container'] ?? null) ? $arguments['container'] : null;
-            $path = is_string($arguments['path'] ?? null) ? $arguments['path'] : null;
-            $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
-
-            if (! $container || ! $path) {
-                return $this->createErrorResponse('Both container and path are required')->toArray();
-            }
-
-            $asset = Asset::find($container . '::' . $path);
-            if (! $asset) {
-                return $this->createErrorResponse("Asset not found: {$container}::{$path}")->toArray();
-            }
-
-            // Update asset data
-            foreach ($data as $key => $value) {
-                match ($key) {
-                    'alt' => $asset->set('alt', $value),
-                    'title' => $asset->set('title', $value),
-                    default => $asset->set($key, $value),
-                };
-            }
-
-            $asset->save();
-
-            // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
-
-            return [
-                'asset' => [
-                    'id' => $asset->id(),
-                    'path' => $asset->path(),
-                    'updated' => true,
-                ],
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to update asset: {$e->getMessage()}")->toArray();
+        $container = is_string($arguments['container'] ?? null) ? $arguments['container'] : null;
+        $path = is_string($arguments['path'] ?? null) ? $arguments['path'] : null;
+        $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
+        if (! $container || ! $path) {
+            return $this->createErrorResponse('Both container and path are required')->toArray();
         }
+        $asset = Asset::find($container . '::' . $path);
+        if (! $asset) {
+            return $this->missingResource('Asset', "{$container}::{$path}", 'path')->toArray();
+        }
+        // Keep a rejected candidate out of the repository-held instance.
+        $asset = clone $asset;
+        // Update asset data
+        foreach ($data as $key => $value) {
+            match ($key) {
+                'alt' => $asset->set('alt', $value),
+                'title' => $asset->set('title', $value),
+                default => $asset->set($key, $value),
+            };
+        }
+        $this->persistStatamic(fn () => $asset->save());
+        // Clear caches
+        $this->clearCachesAfterWrite(['stache']);
+
+        return [
+            'asset' => [
+                ...$this->assetRecord($asset),
+                'updated' => true,
+            ],
+        ];
     }
 
     /**
@@ -672,34 +592,26 @@ class AssetsRouter extends BaseRouter
      */
     private function deleteAsset(array $arguments): array
     {
-        try {
-            $container = is_string($arguments['container'] ?? null) ? $arguments['container'] : null;
-            $path = is_string($arguments['path'] ?? null) ? $arguments['path'] : null;
-
-            if (! $container || ! $path) {
-                return $this->createErrorResponse('Both container and path are required')->toArray();
-            }
-
-            $asset = Asset::find($container . '::' . $path);
-            if (! $asset) {
-                return $this->createErrorResponse("Asset not found: {$container}::{$path}")->toArray();
-            }
-
-            $assetId = $asset->id();
-            $asset->delete();
-
-            // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
-
-            return [
-                'asset' => [
-                    'id' => $assetId,
-                    'deleted' => true,
-                ],
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to delete asset: {$e->getMessage()}")->toArray();
+        $container = is_string($arguments['container'] ?? null) ? $arguments['container'] : null;
+        $path = is_string($arguments['path'] ?? null) ? $arguments['path'] : null;
+        if (! $container || ! $path) {
+            return $this->createErrorResponse('Both container and path are required')->toArray();
         }
+        $asset = Asset::find($container . '::' . $path);
+        if (! $asset) {
+            return $this->missingResource('Asset', "{$container}::{$path}", 'path')->toArray();
+        }
+        $snapshot = $this->assetRecord($asset);
+        $this->persistStatamic(fn () => $asset->delete());
+        // Clear caches
+        $this->clearCachesAfterWrite(['stache']);
+
+        return [
+            'asset' => [
+                ...$snapshot,
+                'deleted' => true,
+            ],
+        ];
     }
 
     /**
@@ -709,53 +621,50 @@ class AssetsRouter extends BaseRouter
      */
     private function moveAsset(array $arguments): array
     {
-        try {
-            $container = is_string($arguments['container'] ?? null) ? $arguments['container'] : null;
-            $path = is_string($arguments['path'] ?? null) ? $arguments['path'] : null;
-            $destination = is_string($arguments['destination'] ?? null) ? $arguments['destination'] : null;
-
-            if (! $container || ! $path || ! $destination) {
-                return $this->createErrorResponse('Container, path, and destination are required')->toArray();
-            }
-
-            $containerObj = AssetContainer::find($container);
-            if (! $containerObj) {
-                return $this->createErrorResponse("Asset container not found: {$container}")->toArray();
-            }
-
-            // Check container permissions
-            if (! $this->containerAllows($containerObj, 'move')) {
-                return $this->createErrorResponse("Container '{$container}' does not allow moving assets")->toArray();
-            }
-
-            $asset = Asset::find($container . '::' . $path);
-            if (! $asset) {
-                return $this->createErrorResponse("Asset not found: {$container}::{$path}")->toArray();
-            }
-
-            $target = $this->assetDestination($asset, $destination);
-            if (is_string($target)) {
-                return $this->createErrorResponse($target)->toArray();
-            }
-
-            $oldPath = $asset->path();
-            $asset->move($target['folder'], $target['filename']);
-            $asset->save();
-
-            // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
-
-            return [
-                'asset' => [
-                    'id' => $asset->id(),
-                    'old_path' => $oldPath,
-                    'new_path' => $asset->path(),
-                    'moved' => true,
-                ],
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to move asset: {$e->getMessage()}")->toArray();
+        $container = is_string($arguments['container'] ?? null) ? $arguments['container'] : null;
+        $path = is_string($arguments['path'] ?? null) ? $arguments['path'] : null;
+        $destination = is_string($arguments['destination'] ?? null) ? $arguments['destination'] : null;
+        if (! $container || ! $path || ! $destination) {
+            return $this->createErrorResponse('Container, path, and destination are required')->toArray();
         }
+        $containerObj = AssetContainer::find($container);
+        if (! $containerObj) {
+            return $this->missingResource('Asset container', $container, 'container', AssetContainer::all()->map->handle()->all(), $arguments)->toArray();
+        }
+        // Check container permissions
+        if (! $this->containerAllows($containerObj, 'move')) {
+            return $this->createErrorResponse("Container '{$container}' does not allow moving assets")->toArray();
+        }
+        $asset = Asset::find($container . '::' . $path);
+        if (! $asset) {
+            return $this->missingResource('Asset', "{$container}::{$path}", 'path')->toArray();
+        }
+        $target = $this->assetDestination($asset, $destination);
+        if (is_string($target)) {
+            return $this->createErrorResponse($target)->toArray();
+        }
+        $oldPath = $asset->path();
+        $this->persistStatamic(function () use ($asset, $target, $oldPath): void {
+            $asset->move($target['folder'], $target['filename']);
+            // Native move() ignores a filesystem adapter's false return.
+            // Verify the file rather than reporting a metadata-only move.
+            $disk = $asset->container()->disk();
+            if (! $disk->exists($asset->path()) || ($oldPath !== $asset->path() && $disk->exists($oldPath))) {
+                throw new ToolFailure(ErrorCode::OutcomeUnknown, 'Asset move could not be verified. Reconcile the source and destination before retrying.');
+            }
+        });
+        $this->persistStatamic(fn () => $asset->save());
+        // Clear caches
+        $this->clearCachesAfterWrite(['stache']);
+
+        return [
+            'asset' => [
+                ...$this->assetRecord($asset),
+                'old_path' => $oldPath,
+                'new_path' => $asset->path(),
+                'moved' => true,
+            ],
+        ];
     }
 
     /**
@@ -765,57 +674,44 @@ class AssetsRouter extends BaseRouter
      */
     private function copyAsset(array $arguments): array
     {
-        try {
-            $container = is_string($arguments['container'] ?? null) ? $arguments['container'] : null;
-            $path = is_string($arguments['path'] ?? null) ? $arguments['path'] : null;
-            $destination = is_string($arguments['destination'] ?? null) ? $arguments['destination'] : null;
-
-            if (! $container || ! $path || ! $destination) {
-                return $this->createErrorResponse('Container, path, and destination are required')->toArray();
-            }
-
-            $asset = Asset::find($container . '::' . $path);
-            if (! $asset) {
-                return $this->createErrorResponse("Asset not found: {$container}::{$path}")->toArray();
-            }
-
-            $target = $this->assetDestination($asset, $destination);
-            if (is_string($target)) {
-                return $this->createErrorResponse($target)->toArray();
-            }
-
-            // Statamic's Asset has no copy(); this used to call one and fail
-            // every time. Copy the file, then give the new asset the same data.
-            $newPath = ltrim($target['folder'] . '/' . AssetUploader::getSafeFilename($target['filename']) . '.' . $asset->extension(), '/');
-            $disk = $asset->container()->disk();
-
-            if ($disk->exists($newPath)) {
-                return $this->createErrorResponse("An asset already exists at {$container}::{$newPath}")->toArray();
-            }
-
-            $disk->copy($asset->path(), $newPath);
-
-            $newAsset = $asset->container()->makeAsset($newPath);
-            $newAsset->data($asset->data()->all());
-            $newAsset->save();
-
-            // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
-
-            return [
-                'original' => [
-                    'id' => $asset->id(),
-                    'path' => $asset->path(),
-                ],
-                'copy' => [
-                    'id' => $newAsset->id(),
-                    'path' => $newAsset->path(),
-                    'copied' => true,
-                ],
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to copy asset: {$e->getMessage()}")->toArray();
+        $container = is_string($arguments['container'] ?? null) ? $arguments['container'] : null;
+        $path = is_string($arguments['path'] ?? null) ? $arguments['path'] : null;
+        $destination = is_string($arguments['destination'] ?? null) ? $arguments['destination'] : null;
+        if (! $container || ! $path || ! $destination) {
+            return $this->createErrorResponse('Container, path, and destination are required')->toArray();
         }
+        $asset = Asset::find($container . '::' . $path);
+        if (! $asset) {
+            return $this->missingResource('Asset', "{$container}::{$path}", 'path')->toArray();
+        }
+        $target = $this->assetDestination($asset, $destination);
+        if (is_string($target)) {
+            return $this->createErrorResponse($target)->toArray();
+        }
+        // Statamic's Asset has no copy(); this used to call one and fail
+        // every time. Copy the file, then give the new asset the same data.
+        $newPath = ltrim($target['folder'] . '/' . AssetUploader::getSafeFilename($target['filename']) . '.' . $asset->extension(), '/');
+        $disk = $asset->container()->disk();
+        if ($disk->exists($newPath)) {
+            return $this->createErrorResponse("An asset already exists at {$container}::{$newPath}")->toArray();
+        }
+        $this->persistStatamic(fn () => $disk->copy($asset->path(), $newPath));
+        $newAsset = $asset->container()->makeAsset($newPath);
+        $newAsset->data($asset->data()->all());
+        $this->persistStatamic(fn () => $newAsset->save());
+        // Clear caches
+        $this->clearCachesAfterWrite(['stache']);
+
+        return [
+            'original' => [
+                'id' => $asset->id(),
+                'path' => $asset->path(),
+            ],
+            'copy' => [
+                ...$this->assetRecord($newAsset),
+                'copied' => true,
+            ],
+        ];
     }
 
     /**
@@ -825,140 +721,116 @@ class AssetsRouter extends BaseRouter
      */
     private function uploadAsset(array $arguments): array
     {
-        try {
-            $container = is_string($arguments['container'] ?? null) ? $arguments['container'] : null;
-            $file_path = is_string($arguments['file_path'] ?? null) ? $arguments['file_path'] : null;
-            $filename = is_string($arguments['filename'] ?? null) ? $arguments['filename'] : null;
-            $content = is_string($arguments['content'] ?? null) ? $arguments['content'] : null;
-            $sourceUrl = is_string($arguments['source_url'] ?? null) && $arguments['source_url'] !== '' ? $arguments['source_url'] : null;
-            $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
-
-            if (! $container) {
-                return $this->createErrorResponse('Container is required')->toArray();
-            }
-
-            if (count(array_filter([$file_path, $content, $sourceUrl])) > 1) {
-                return $this->createErrorResponse('Send one of source_url, content or file_path, not several')->toArray();
-            }
-
-            $folder = $this->assetFolder($arguments['folder'] ?? null);
-            if ($folder === null) {
-                return $this->createErrorResponse("folder must be a path inside the container, such as 'uploads/cases', without '.' or '..' segments")->toArray();
-            }
-
-            if (! $file_path && ! $content && ! $sourceUrl) {
-                return $this->createErrorResponse('One of source_url (fetch from a URL), content with encoding+filename (base64), or file_path (local CLI) is required')->toArray();
-            }
-
-            $assetContainer = AssetContainer::find($container);
-            if (! $assetContainer) {
-                return $this->createErrorResponse("Asset container not found: {$container}")->toArray();
-            }
-
-            if ($sourceUrl !== null) {
-                $stored = $this->importFromUrl($assetContainer, $folder, $sourceUrl, $filename);
-                if (is_string($stored)) {
-                    return $this->createErrorResponse($stored)->toArray();
-                }
-                $asset = $stored;
-            } elseif ($content) {
-                // Remote upload via base64/raw content (for MCP clients like ChatGPT that can't access the filesystem)
-                if (! $filename) {
-                    return $this->createErrorResponse('filename is required when uploading via content')->toArray();
-                }
-
-                if ($filename !== basename($filename)) {
-                    return $this->createErrorResponse('Filename must not contain path separators or traversal sequences')->toArray();
-                }
-
-                $encoding = is_string($arguments['encoding'] ?? null) ? $arguments['encoding'] : 'raw';
-
-                if ($encoding === 'base64') {
-                    $decodedContent = base64_decode($content, true);
-                    if ($decodedContent === false) {
-                        return $this->createErrorResponse('Invalid base64 content provided')->toArray();
-                    }
-                } else {
-                    $decodedContent = $content;
-                }
-
-                /** @var int $maxSizeBytes */
-                $maxSizeBytes = config('statamic.mcp.security.max_upload_size', 10 * 1024 * 1024);
-                if (strlen($decodedContent) > $maxSizeBytes) {
-                    $maxSizeMB = round($maxSizeBytes / 1024 / 1024, 1);
-
-                    return $this->createErrorResponse("File size exceeds maximum allowed size of {$maxSizeMB}MB")->toArray();
-                }
-
-                $stored = $this->storeContent($assetContainer, $folder, $filename, $decodedContent);
-                if (is_string($stored)) {
-                    return $this->createErrorResponse($stored)->toArray();
-                }
-                $asset = $stored;
-            } else {
-                // Local file upload (CLI MCP clients with filesystem access)
-                if ($file_path === null) {
-                    return $this->createErrorResponse('file_path is required')->toArray();
-                }
-
-                // file_path reads a server-local file; it is for the trusted
-                // local CLI server only. A remote/web caller could otherwise
-                // copy files out of storage/app into a container, so refuse it
-                // outside CLI context — remote clients use source_url or content.
-                if (! $this->isCliContext()) {
-                    return $this->createErrorResponse('file_path uploads are only available to the local CLI server; use source_url or content instead.')->toArray();
-                }
-
-                $realPath = realpath($file_path);
-                $allowedBase = realpath(storage_path('app'));
-                if ($realPath === false || ! $allowedBase || ! str_starts_with($realPath, $allowedBase . DIRECTORY_SEPARATOR)) {
-                    return $this->createErrorResponse('file_path must be within the storage/app directory for security')->toArray();
-                }
-
-                if (! file_exists($file_path)) {
-                    return $this->createErrorResponse("File not found: {$file_path}")->toArray();
-                }
-
-                $filename = $filename ?? basename($file_path);
-
-                if ($filename !== basename($filename)) {
-                    return $this->createErrorResponse('Filename must not contain path separators or traversal sequences')->toArray();
-                }
-
-                $stored = $this->storeFile($assetContainer, $folder, $filename, $realPath);
-                if (is_string($stored)) {
-                    return $this->createErrorResponse($stored)->toArray();
-                }
-                $asset = $stored;
-            }
-
-            // Set additional data
-            foreach ($data as $key => $value) {
-                $asset->set($key, $value);
-            }
-
-            $asset->save();
-
-            // Clear caches
-            $this->clearCachesAfterWrite(['stache']);
-
-            return [
-                'asset' => [
-                    'id' => $asset->id(),
-                    'path' => $asset->path(),
-                    'filename' => $asset->filename(),
-                    'basename' => $asset->basename(),
-                    'extension' => $asset->extension(),
-                    'size' => $asset->size(),
-                    'mime_type' => $asset->mimeType(),
-                    'url' => $asset->url(),
-                    'data' => $asset->data()->all(),
-                ],
-                'uploaded' => true,
-            ];
-        } catch (\Exception $e) {
-            return $this->createErrorResponse("Failed to upload asset: {$e->getMessage()}")->toArray();
+        $container = is_string($arguments['container'] ?? null) ? $arguments['container'] : null;
+        $file_path = is_string($arguments['file_path'] ?? null) ? $arguments['file_path'] : null;
+        $filename = is_string($arguments['filename'] ?? null) ? $arguments['filename'] : null;
+        $content = is_string($arguments['content'] ?? null) ? $arguments['content'] : null;
+        $sourceUrl = is_string($arguments['source_url'] ?? null) && $arguments['source_url'] !== '' ? $arguments['source_url'] : null;
+        $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
+        if (! $container) {
+            return $this->createErrorResponse('Container is required')->toArray();
         }
+        if (count(array_filter([$file_path, $content, $sourceUrl])) > 1) {
+            return $this->createErrorResponse('Send one of source_url, content or file_path, not several')->toArray();
+        }
+        $folder = $this->assetFolder($arguments['folder'] ?? null);
+        if ($folder === null) {
+            return $this->createErrorResponse("folder must be a path inside the container, such as 'uploads/cases', without '.' or '..' segments")->toArray();
+        }
+        if (! $file_path && ! $content && ! $sourceUrl) {
+            return $this->createErrorResponse('One of source_url (fetch from a URL), content with encoding+filename (base64), or file_path (local CLI) is required')->toArray();
+        }
+        $assetContainer = AssetContainer::find($container);
+        if (! $assetContainer) {
+            return $this->missingResource('Asset container', $container, 'container', AssetContainer::all()->map->handle()->all(), $arguments)->toArray();
+        }
+        if ($sourceUrl !== null) {
+            $stored = $this->importFromUrl($assetContainer, $folder, $sourceUrl, $filename);
+            if (is_string($stored)) {
+                return $this->createErrorResponse($stored)->toArray();
+            }
+            $asset = $stored;
+        } elseif ($content) {
+            // Remote upload via base64/raw content (for MCP clients like ChatGPT that can't access the filesystem)
+            if (! $filename) {
+                return $this->createErrorResponse('filename is required when uploading via content')->toArray();
+            }
+
+            if ($filename !== basename($filename)) {
+                return $this->createErrorResponse('Filename must not contain path separators or traversal sequences')->toArray();
+            }
+
+            $encoding = is_string($arguments['encoding'] ?? null) ? $arguments['encoding'] : 'raw';
+
+            if ($encoding === 'base64') {
+                $decodedContent = base64_decode($content, true);
+                if ($decodedContent === false) {
+                    return $this->createErrorResponse('Invalid base64 content provided')->toArray();
+                }
+            } else {
+                $decodedContent = $content;
+            }
+
+            $maxSizeBytes = McpConfig::int('security.max_upload_size', 10 * 1024 * 1024);
+            if (strlen($decodedContent) > $maxSizeBytes) {
+                $maxSizeMB = round($maxSizeBytes / 1024 / 1024, 1);
+
+                return $this->createErrorResponse("File size exceeds maximum allowed size of {$maxSizeMB}MB")->toArray();
+            }
+
+            $stored = $this->storeContent($assetContainer, $folder, $filename, $decodedContent);
+            if (is_string($stored)) {
+                return $this->createErrorResponse($stored)->toArray();
+            }
+            $asset = $stored;
+        } else {
+            // Local file upload (CLI MCP clients with filesystem access)
+            if ($file_path === null) {
+                return $this->createErrorResponse('file_path is required')->toArray();
+            }
+
+            // file_path reads a server-local file; it is for the trusted
+            // local CLI server only. A remote/web caller could otherwise
+            // copy files out of storage/app into a container, so refuse it
+            // outside CLI context — remote clients use source_url or content.
+            if (! $this->isCliContext()) {
+                return $this->createErrorResponse('file_path uploads are only available to the local CLI server; use source_url or content instead.')->toArray();
+            }
+
+            $realPath = realpath($file_path);
+            $allowedBase = realpath(storage_path('app'));
+            if ($realPath === false || ! $allowedBase || ! str_starts_with($realPath, $allowedBase . DIRECTORY_SEPARATOR)) {
+                return $this->createErrorResponse('file_path must be within the storage/app directory for security')->toArray();
+            }
+
+            if (! file_exists($file_path)) {
+                return $this->missingResource('File', $file_path, 'file_path')->toArray();
+            }
+
+            $filename = $filename ?? basename($file_path);
+
+            if ($filename !== basename($filename)) {
+                return $this->createErrorResponse('Filename must not contain path separators or traversal sequences')->toArray();
+            }
+
+            $stored = $this->storeFile($assetContainer, $folder, $filename, $realPath);
+            if (is_string($stored)) {
+                return $this->createErrorResponse($stored)->toArray();
+            }
+            $asset = $stored;
+        }
+        // Set additional data
+        foreach ($data as $key => $value) {
+            $asset->set($key, $value);
+        }
+        $this->persistStatamic(fn () => $asset->save());
+        // Clear caches
+        $this->clearCachesAfterWrite(['stache']);
+
+        return [
+            'asset' => $this->assetRecord($asset),
+            'uploaded' => true,
+        ];
     }
 
     /**
@@ -1008,8 +880,7 @@ class AssetsRouter extends BaseRouter
         $allowedHosts = config('statamic.mcp.security.url_import.allowed_hosts', []);
         /** @var int $timeout */
         $timeout = config('statamic.mcp.security.url_import.timeout', 15);
-        /** @var int $maxBytes */
-        $maxBytes = config('statamic.mcp.security.max_upload_size', 10 * 1024 * 1024);
+        $maxBytes = McpConfig::int('security.max_upload_size', 10 * 1024 * 1024);
 
         $fetcher = new OutboundFetcher(blockPrivate: (bool) config('statamic.mcp.security.url_import.block_private_ips', true));
 
@@ -1069,7 +940,7 @@ class AssetsRouter extends BaseRouter
             return $refused;
         }
 
-        $asset = $container->makeAsset($folder === '' ? $filename : "{$folder}/{$filename}")->upload($file);
+        $asset = $this->persistStatamic(fn () => $container->makeAsset($folder === '' ? $filename : "{$folder}/{$filename}")->upload($file));
 
         if (! $asset instanceof AssetContract) {
             return 'The upload was cancelled by an AssetCreating listener.';
@@ -1193,8 +1064,7 @@ class AssetsRouter extends BaseRouter
             : ['configure asset containers'];
 
         if ($type === 'container') {
-            // getContainer() acts on `handle`, so the permission is keyed on it.
-            $handle = is_string($arguments['handle'] ?? null) ? $arguments['handle'] : '';
+            $handle = $container;
 
             return match ($action) {
                 // listContainers() filters per container.
@@ -1346,26 +1216,17 @@ class AssetsRouter extends BaseRouter
     }
 
     /**
-     * The resource policy must see the same container the action acts on:
-     * `data.handle ?? handle` for a container create, `handle` for every other
-     * container action, `container` for an asset action. The default resolver
-     * tries `container` before `handle`, so a container create carrying an
-     * allowed `container` alongside a denied `data.handle` slipped past; and
-     * preferring `data.handle` for update and delete let an allowed name there
-     * cover a denied `handle`.
+     * The resource policy must see the container the action acts on, which
+     * in v4 is always `container`: for an asset, the container it lives in;
+     * for a container action, the container itself (a create's new handle
+     * included). v3 read `handle` or `data.handle` for containers, and the
+     * priority between them let an allowed name cover a denied one.
      *
      * @param  array<string, mixed>  $arguments
      */
     protected function resolveResourceHandle(array $arguments): ?string
     {
-        if (($arguments['resource_type'] ?? null) === 'container') {
-            $data = is_array($arguments['data'] ?? null) ? $arguments['data'] : [];
-            $raw = ($arguments['action'] ?? null) === 'create'
-                ? $data['handle'] ?? $arguments['handle'] ?? null
-                : $arguments['handle'] ?? null;
-        } else {
-            $raw = $arguments['container'] ?? null;
-        }
+        $raw = $arguments['container'] ?? null;
 
         return is_string($raw) && $raw !== '' ? $raw : null;
     }

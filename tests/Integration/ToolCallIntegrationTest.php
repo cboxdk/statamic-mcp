@@ -55,9 +55,9 @@ class ToolCallIntegrationTest extends TestCase
         ]);
 
         $this->assertTrue($result['success']);
-        $this->assertArrayHasKey('entries', $result['data']);
-        $this->assertCount(2, $result['data']['entries']);
-        $this->assertArrayHasKey('pagination', $result['data']);
+        $this->assertArrayHasKey('items', $result['data']);
+        $this->assertCount(2, $result['data']['items']);
+        $this->assertArrayHasKey('next_cursor', $result['data']);
     }
 
     public function test_entries_get_with_valid_id_returns_entry_data(): void
@@ -139,11 +139,11 @@ class ToolCallIntegrationTest extends TestCase
         ]);
 
         $this->assertTrue($result['success']);
-        $this->assertArrayHasKey('blueprints', $result['data']);
-        $this->assertNotEmpty($result['data']['blueprints']);
+        $this->assertArrayHasKey('items', $result['data']);
+        $this->assertNotEmpty($result['data']['items']);
 
         /** @var array<int, array<string, mixed>> $blueprints */
-        $blueprints = $result['data']['blueprints'];
+        $blueprints = $result['data']['items'];
         $handles = collect($blueprints)->pluck('handle')->toArray();
         $this->assertContains($this->collectionHandle, $handles);
     }
@@ -154,7 +154,7 @@ class ToolCallIntegrationTest extends TestCase
             'action' => 'get',
             'handle' => $this->collectionHandle,
             'namespace' => 'collections',
-            'collection_handle' => $this->collectionHandle,
+            'collection' => $this->collectionHandle,
         ]);
 
         $this->assertTrue($result['success']);
@@ -185,21 +185,15 @@ class ToolCallIntegrationTest extends TestCase
             'resource_type' => 'collection',
         ]);
 
-        // Structures list may succeed or return a specific error depending on Stache state
-        if ($result['success']) {
-            $this->assertArrayHasKey('collections', $result['data']);
-        } else {
-            // If it fails, it should fail with a descriptive error (not a crash)
-            $errors = $result['errors'] ?? [$result['error'] ?? 'Unknown error'];
-            $this->assertNotEmpty($errors);
-        }
+        $this->assertTrue($result['success'], json_encode($result));
+        $this->assertArrayHasKey('items', $result['data']);
     }
 
     // -----------------------------------------------------------------------
     // SystemRouter
     // -----------------------------------------------------------------------
 
-    public function test_system_info_returns_version_info(): void
+    public function test_system_info_returns_environment(): void
     {
         $result = $this->systemRouter->execute([
             'action' => 'info',
@@ -209,9 +203,6 @@ class ToolCallIntegrationTest extends TestCase
         $this->assertArrayHasKey('system_info', $result['data']);
 
         $info = $result['data']['system_info'];
-        $this->assertArrayHasKey('statamic_version', $info);
-        $this->assertArrayHasKey('laravel_version', $info);
-        $this->assertArrayHasKey('php_version', $info);
         $this->assertArrayHasKey('environment', $info);
     }
 

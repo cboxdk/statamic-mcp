@@ -4,17 +4,50 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Tests\Feature\OAuth;
 
+use Cboxdk\StatamicMcp\Auth\ScopeAvailability;
 use Cboxdk\StatamicMcp\Auth\TokenService;
+use Cboxdk\StatamicMcp\Tests\Concerns\InteractsWithOAuthConsent;
 use Cboxdk\StatamicMcp\Tests\TestCase;
 use Statamic\Facades\User;
 
 class OAuthFlowTest extends TestCase
 {
+    use InteractsWithOAuthConsent;
+
     /**
      * Test the complete OAuth 2.1 authorization code flow with PKCE end-to-end.
      *
      * This exercises: discovery → registration → authorize → token exchange → validation.
      */
+    /**
+     * A client sends back the `resource` that protected-resource metadata
+     * advertised. On a non-default port (php artisan serve, Docker on 8080)
+     * the authorize endpoint left the port out of what it expected and
+     * refused it with "Invalid resource parameter", so no client could finish.
+     */
+    public function test_authorize_accepts_the_advertised_resource_on_a_non_default_port(): void
+    {
+        config()->set('app.url', 'https://cms.example.com');
+        $origin = 'http://mcp.test:8080';
+        $resource = $this->getJson($origin . '/.well-known/oauth-protected-resource')->json('resource');
+        $this->assertSame($origin . '/mcp/statamic', $resource);
+
+        $redirectUri = 'https://example.com/callback';
+        $clientId = $this->postJson($origin . '/mcp/oauth/register', ['client_name' => 'PortClient', 'redirect_uris' => [$redirectUri]])->json('client_id');
+        $user = User::make()->id('oauth-port-user')->email('port@example.com')->makeSuper();
+        $user->save();
+
+        $query = ['response_type' => 'code', 'client_id' => $clientId, 'redirect_uri' => $redirectUri, 'scope' => 'entries:read',
+            'code_challenge' => rtrim(strtr(base64_encode(hash('sha256', 'verifier', true)), '+/', '-_'), '='),
+            'code_challenge_method' => 'S256', 'state' => 's'];
+        $authorize = $origin . '/' . trim((string) config('statamic.cp.route', 'cp'), '/') . '/mcp/oauth/authorize?';
+
+        $this->actingAs($user, 'web')->get($authorize . http_build_query($query + ['resource' => $resource]))->assertOk();
+        // Another port is still another resource.
+        $this->actingAs($user, 'web')->get($authorize . http_build_query($query + ['resource' => 'http://mcp.test:9090/mcp/statamic']))
+            ->assertStatus(400)->assertSee('invalid_target');
+    }
+
     public function test_complete_oauth_flow(): void
     {
         // ── Step 1: Protected Resource Discovery ──
@@ -61,6 +94,7 @@ class OAuthFlowTest extends TestCase
 
         // ── Step 6: GET Authorize (Consent Page) ──
         $authorizeParams = http_build_query([
+            'resource' => $prData['resource'],
             'response_type' => 'code',
             'client_id' => $clientId,
             'redirect_uri' => $redirectUri,
@@ -82,6 +116,8 @@ class OAuthFlowTest extends TestCase
         // ── Step 7: POST Authorize (Approve) ──
         $approveResponse = $this->actingAs($user, 'web')
             ->post($authorizeUrl, [
+                'resource' => $prData['resource'],
+                'consent_offer' => $this->consentOfferFrom($consentResponse),
                 'decision' => 'approve',
                 'client_id' => $clientId,
                 'redirect_uri' => $redirectUri,
@@ -89,7 +125,8 @@ class OAuthFlowTest extends TestCase
                 'code_challenge' => $codeChallenge,
                 'code_challenge_method' => 'S256',
                 'scope' => '*',
-                'scopes' => ['*'],
+                // The consent screen spells `*` out; approving posts that list.
+                'scopes' => $this->app->make(ScopeAvailability::class)->expandFullAccess($user, ['*']),
             ]);
 
         $approveResponse->assertRedirect();
@@ -103,10 +140,12 @@ class OAuthFlowTest extends TestCase
         $this->assertIsString($parsedUrl['query'] ?? null, 'Redirect URL must contain a query string');
         parse_str($parsedUrl['query'], $queryParams);
         $this->assertArrayHasKey('code', $queryParams);
+        $this->assertSame($asData['issuer'], $queryParams['iss']);
         $authorizationCode = $queryParams['code'];
 
         // ── Step 8: Token Exchange ──
         $tokenResponse = $this->post('/mcp/oauth/token', [
+            'resource' => $prData['resource'],
             'grant_type' => 'authorization_code',
             'code' => $authorizationCode,
             'redirect_uri' => $redirectUri,
@@ -130,6 +169,9 @@ class OAuthFlowTest extends TestCase
 
         $this->assertNotNull($mcpTokenData, 'The OAuth access token must be a valid MCP token');
         $this->assertSame('oauth-e2e-user', $mcpTokenData->userId);
-        $this->assertContains('*', $mcpTokenData->scopes);
+        // Full access is stored as today's explicit list, never as `*`.
+        $this->assertNotContains('*', $mcpTokenData->scopes);
+        $this->assertContains('entries:publish', $mcpTokenData->scopes);
+        $this->assertContains('users:admin', $mcpTokenData->scopes);
     }
 }

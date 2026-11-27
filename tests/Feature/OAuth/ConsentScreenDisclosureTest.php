@@ -36,18 +36,19 @@ class ConsentScreenDisclosureTest extends TestCase
         $this->client = $driver->registerClient('Desk client', [$this->redirectUri]);
     }
 
-    private function authorize(): TestResponse
+    private function authorize(string $scope = 'entries:read'): TestResponse
     {
         $cpRoute = trim((string) config('statamic.cp.route', 'cp'), '/');
 
         return $this->get("/{$cpRoute}/mcp/oauth/authorize?" . http_build_query([
             'response_type' => 'code',
+            'resource' => 'http://localhost/mcp/statamic',
             'client_id' => $this->client->clientId,
             'redirect_uri' => $this->redirectUri,
             'code_challenge' => self::CODE_CHALLENGE,
             'code_challenge_method' => 'S256',
             'state' => 'st',
-            'scope' => 'entries:read',
+            'scope' => $scope,
         ]));
     }
 
@@ -56,7 +57,20 @@ class ConsentScreenDisclosureTest extends TestCase
         $response = $this->authorize()->assertOk();
 
         $response->assertSee('desk.example.com');
-        $response->assertSee('registered itself', false);
+        $this->assertFalse($response->viewData('page')['props']['client']['verified']);
+    }
+
+    public function test_delete_and_admin_require_a_choice_even_for_wildcard_and_configured_defaults(): void
+    {
+        config(['statamic.mcp.oauth.default_scopes' => ['entries:read', 'entries:delete', 'users:admin']]);
+        foreach (['*', 'entries:read entries:delete users:admin'] as $scope) {
+            $props = $this->authorize($scope)->assertOk()->viewData('page')['props'];
+            $this->assertContains('entries:read', $props['defaultScopes']);
+            $this->assertNotContains('entries:delete', $props['defaultScopes']);
+            $this->assertNotContains('users:admin', $props['defaultScopes']);
+            $this->assertContains('users:admin', array_column($props['scopes'], 'value'));
+            $this->assertSame('user@example.com', $props['userName']);
+        }
     }
 
     public function test_the_consent_screen_cannot_be_framed(): void

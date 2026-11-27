@@ -1,7 +1,7 @@
 {
     "bomFormat": "CycloneDX",
     "specVersion": "1.5",
-    "serialNumber": "urn:uuid:d1bf737e-6b80-7d35-5f16-d7d5bcd27ec1",
+    "serialNumber": "urn:uuid:86c04927-1726-917f-ba2a-d78bbd7cd260",
     "version": 1,
     "metadata": {
         "tools": [
@@ -581,11 +581,11 @@
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/inertiajs/inertia-laravel@v3.8.0",
+            "bom-ref": "pkg:composer/inertiajs/inertia-laravel@v3.7.0",
             "group": "inertiajs",
             "name": "inertia-laravel",
-            "version": "v3.8.0",
-            "purl": "pkg:composer/inertiajs/inertia-laravel@v3.8.0",
+            "version": "v3.7.0",
+            "purl": "pkg:composer/inertiajs/inertia-laravel@v3.7.0",
             "scope": "required",
             "licenses": [
                 {
@@ -598,7 +598,7 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "ee6aa7a7cb0dc384573abec561a96fea4dc64af9"
+                    "content": "9d3f9060c1614565eb4d3a3208015ed01de347bb"
                 }
             ]
         },
@@ -752,11 +752,11 @@
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/laravel/framework@v13.44.1",
+            "bom-ref": "pkg:composer/laravel/framework@v13.43.0",
             "group": "laravel",
             "name": "framework",
-            "version": "v13.44.1",
-            "purl": "pkg:composer/laravel/framework@v13.44.1",
+            "version": "v13.43.0",
+            "purl": "pkg:composer/laravel/framework@v13.43.0",
             "scope": "required",
             "licenses": [
                 {
@@ -769,17 +769,17 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "8a8c4a84852869e13190d89f9da873cd9a70f14c"
+                    "content": "72aa7e151062e218704d8660f407e6070040d8bc"
                 }
             ]
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/laravel/mcp@v1.3.0",
+            "bom-ref": "pkg:composer/laravel/mcp@v1.2.1",
             "group": "laravel",
             "name": "mcp",
-            "version": "v1.3.0",
-            "purl": "pkg:composer/laravel/mcp@v1.3.0",
+            "version": "v1.2.1",
+            "purl": "pkg:composer/laravel/mcp@v1.2.1",
             "scope": "required",
             "licenses": [
                 {
@@ -792,7 +792,7 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "f63967363cd6a41b50036cb9250beab21ee8b1c4"
+                    "content": "a8057f222549e42384d49482042d762a547aaf2a"
                 }
             ]
         },
@@ -844,11 +844,11 @@
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/laravel/prompts@v0.3.28",
+            "bom-ref": "pkg:composer/laravel/prompts@v0.3.27",
             "group": "laravel",
             "name": "prompts",
-            "version": "v0.3.28",
-            "purl": "pkg:composer/laravel/prompts@v0.3.28",
+            "version": "v0.3.27",
+            "purl": "pkg:composer/laravel/prompts@v0.3.27",
             "scope": "required",
             "licenses": [
                 {
@@ -861,7 +861,7 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "72247703c4d4ac1d6122955c90433aa9429bd236"
+                    "content": "abdfc75a1ae6c6f21522daed50da7124cbff09d2"
                 }
             ]
         },
@@ -913,11 +913,11 @@
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/league/commonmark@2.10.9",
+            "bom-ref": "pkg:composer/league/commonmark@2.10.7",
             "group": "league",
             "name": "commonmark",
-            "version": "2.10.9",
-            "purl": "pkg:composer/league/commonmark@2.10.9",
+            "version": "2.10.7",
+            "purl": "pkg:composer/league/commonmark@2.10.7",
             "scope": "required",
             "licenses": [
                 {
@@ -930,7 +930,7 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "ab5ff8c80fd69abaeb4d57d7711d389248f219e4"
+                    "content": "8eb53e906fd60c67038d22f1f1cab420ed58b8be"
                 }
             ]
         },
@@ -959,11 +959,11 @@
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/league/csv@9.30.0",
+            "bom-ref": "pkg:composer/league/csv@9.29.1",
             "group": "league",
             "name": "csv",
-            "version": "9.30.0",
-            "purl": "pkg:composer/league/csv@9.30.0",
+            "version": "9.29.1",
+            "purl": "pkg:composer/league/csv@9.29.1",
             "scope": "required",
             "licenses": [
                 {
@@ -976,7 +976,7 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "710d3c7db4a50691951b0465a10c552e08a56c07"
+                    "content": "fb9ea14460001b62fcb54d8ac247cc501f60e6e0"
                 }
             ]
         },
@@ -1388,6 +1388,75 @@
                 {
                     "alg": "SHA-1",
                     "content": "9b85ae4d802403bfc004ea633ce542bc262ee5c3"
+                }
+            ]
+        },
+        {
+            "type": "library",
+            "bom-ref": "pkg:composer/opis/json-schema@2.6.2",
+            "group": "opis",
+            "name": "json-schema",
+            "version": "2.6.2",
+            "purl": "pkg:composer/opis/json-schema@2.6.2",
+            "scope": "required",
+            "licenses": [
+                {
+                    "license": {
+                        "id": "Apache-2.0"
+                    }
+                }
+            ],
+            "description": "Json Schema Validator for PHP",
+            "hashes": [
+                {
+                    "alg": "SHA-1",
+                    "content": "b87b424da3fbeaab09567910fda48dc88d9dcbd8"
+                }
+            ]
+        },
+        {
+            "type": "library",
+            "bom-ref": "pkg:composer/opis/string@2.1.0",
+            "group": "opis",
+            "name": "string",
+            "version": "2.1.0",
+            "purl": "pkg:composer/opis/string@2.1.0",
+            "scope": "required",
+            "licenses": [
+                {
+                    "license": {
+                        "id": "Apache-2.0"
+                    }
+                }
+            ],
+            "description": "Multibyte strings as objects",
+            "hashes": [
+                {
+                    "alg": "SHA-1",
+                    "content": "3e4d2aaff518ac518530b89bb26ed40f4503635e"
+                }
+            ]
+        },
+        {
+            "type": "library",
+            "bom-ref": "pkg:composer/opis/uri@1.1.0",
+            "group": "opis",
+            "name": "uri",
+            "version": "1.1.0",
+            "purl": "pkg:composer/opis/uri@1.1.0",
+            "scope": "required",
+            "licenses": [
+                {
+                    "license": {
+                        "id": "Apache-2.0"
+                    }
+                }
+            ],
+            "description": "Build, parse and validate URIs and URI-templates",
+            "hashes": [
+                {
+                    "alg": "SHA-1",
+                    "content": "0f3ca49ab1a5e4a6681c286e0b2cc081b93a7d5a"
                 }
             ]
         },
@@ -1830,11 +1899,11 @@
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/phpstan/phpdoc-parser@2.4.2",
+            "bom-ref": "pkg:composer/phpstan/phpdoc-parser@2.4.1",
             "group": "phpstan",
             "name": "phpdoc-parser",
-            "version": "2.4.2",
-            "purl": "pkg:composer/phpstan/phpdoc-parser@2.4.2",
+            "version": "2.4.1",
+            "purl": "pkg:composer/phpstan/phpdoc-parser@2.4.1",
             "scope": "required",
             "licenses": [
                 {
@@ -1847,7 +1916,7 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "f80e753caa465ab4f93cb265ae32e2e8cb02c3f3"
+                    "content": "af8e840551031d254cfdb3a18a62c3470a309c10"
                 }
             ]
         },
@@ -2865,11 +2934,11 @@
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/statamic/cms@v6.44.0",
+            "bom-ref": "pkg:composer/statamic/cms@v6.43.1",
             "group": "statamic",
             "name": "cms",
-            "version": "v6.44.0",
-            "purl": "pkg:composer/statamic/cms@v6.44.0",
+            "version": "v6.43.1",
+            "purl": "pkg:composer/statamic/cms@v6.43.1",
             "scope": "required",
             "licenses": [
                 {
@@ -2882,7 +2951,7 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "dad88809575288c18cba8f18b2925c7130e45571"
+                    "content": "71387ae6a13659529b135d87b0c5b8eafe2ca7c0"
                 }
             ]
         },
@@ -2956,11 +3025,11 @@
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/symfony/console@v8.1.12",
+            "bom-ref": "pkg:composer/symfony/console@v8.1.11",
             "group": "symfony",
             "name": "console",
-            "version": "v8.1.12",
-            "purl": "pkg:composer/symfony/console@v8.1.12",
+            "version": "v8.1.11",
+            "purl": "pkg:composer/symfony/console@v8.1.11",
             "scope": "required",
             "licenses": [
                 {
@@ -2973,7 +3042,7 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "20d14376137e111569de1f62ba4274731a9c9345"
+                    "content": "5a315b092b81f3e920e9daea1a2ae4c66ed298b9"
                 }
             ]
         },
@@ -3094,11 +3163,11 @@
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/symfony/finder@v8.1.12",
+            "bom-ref": "pkg:composer/symfony/finder@v8.1.11",
             "group": "symfony",
             "name": "finder",
-            "version": "v8.1.12",
-            "purl": "pkg:composer/symfony/finder@v8.1.12",
+            "version": "v8.1.11",
+            "purl": "pkg:composer/symfony/finder@v8.1.11",
             "scope": "required",
             "licenses": [
                 {
@@ -3111,17 +3180,17 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "7022913b72c56ac5123922726aa94f2f98b726ad"
+                    "content": "a2902e479ba5691d20d51d100a715ea19ad2c837"
                 }
             ]
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/symfony/http-foundation@v8.1.12",
+            "bom-ref": "pkg:composer/symfony/http-foundation@v8.1.11",
             "group": "symfony",
             "name": "http-foundation",
-            "version": "v8.1.12",
-            "purl": "pkg:composer/symfony/http-foundation@v8.1.12",
+            "version": "v8.1.11",
+            "purl": "pkg:composer/symfony/http-foundation@v8.1.11",
             "scope": "required",
             "licenses": [
                 {
@@ -3134,17 +3203,17 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "8061f6d6b6ec8fc5075b5f39c8ddca83110da9c6"
+                    "content": "30fa3efe6e736b0d06f5331cc6abe813582c0a26"
                 }
             ]
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/symfony/http-kernel@v8.1.12",
+            "bom-ref": "pkg:composer/symfony/http-kernel@v8.1.11",
             "group": "symfony",
             "name": "http-kernel",
-            "version": "v8.1.12",
-            "purl": "pkg:composer/symfony/http-kernel@v8.1.12",
+            "version": "v8.1.11",
+            "purl": "pkg:composer/symfony/http-kernel@v8.1.11",
             "scope": "required",
             "licenses": [
                 {
@@ -3157,17 +3226,17 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "cd6146b67375122b050c25cfb1a49b6fe6fc4adb"
+                    "content": "460658504e26a2794aa614b4fbe6cf9bac2076fe"
                 }
             ]
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/symfony/lock@v8.1.12",
+            "bom-ref": "pkg:composer/symfony/lock@v8.1.11",
             "group": "symfony",
             "name": "lock",
-            "version": "v8.1.12",
-            "purl": "pkg:composer/symfony/lock@v8.1.12",
+            "version": "v8.1.11",
+            "purl": "pkg:composer/symfony/lock@v8.1.11",
             "scope": "required",
             "licenses": [
                 {
@@ -3180,17 +3249,17 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "2af660644c6a52d5fbb65b459b55f63c13c37066"
+                    "content": "c121c8011a1b85698594cca96da5546cc6c78949"
                 }
             ]
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/symfony/mailer@v8.1.12",
+            "bom-ref": "pkg:composer/symfony/mailer@v8.1.10",
             "group": "symfony",
             "name": "mailer",
-            "version": "v8.1.12",
-            "purl": "pkg:composer/symfony/mailer@v8.1.12",
+            "version": "v8.1.10",
+            "purl": "pkg:composer/symfony/mailer@v8.1.10",
             "scope": "required",
             "licenses": [
                 {
@@ -3203,17 +3272,17 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "535515ab0bdc7efbfb7161fe23c6bf7434e26b93"
+                    "content": "4ba81a8f04fbf0bb1691f7bff760b301f1956fd7"
                 }
             ]
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/symfony/mime@v8.1.12",
+            "bom-ref": "pkg:composer/symfony/mime@v8.1.10",
             "group": "symfony",
             "name": "mime",
-            "version": "v8.1.12",
-            "purl": "pkg:composer/symfony/mime@v8.1.12",
+            "version": "v8.1.10",
+            "purl": "pkg:composer/symfony/mime@v8.1.10",
             "scope": "required",
             "licenses": [
                 {
@@ -3226,7 +3295,7 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "4bf4ecda5ac1f1db2e9a0793675d2fc69d7cc864"
+                    "content": "8d1232052c9cdef170ed9608b3147bca4f61ff69"
                 }
             ]
         },
@@ -3554,11 +3623,11 @@
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/symfony/process@v8.1.12",
+            "bom-ref": "pkg:composer/symfony/process@v8.1.10",
             "group": "symfony",
             "name": "process",
-            "version": "v8.1.12",
-            "purl": "pkg:composer/symfony/process@v8.1.12",
+            "version": "v8.1.10",
+            "purl": "pkg:composer/symfony/process@v8.1.10",
             "scope": "required",
             "licenses": [
                 {
@@ -3571,17 +3640,17 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "4969fe2cf92f0075b070ab2bc0faef2734114bae"
+                    "content": "08aa69fa0998bb65a089f9e148a2c0f8b391398e"
                 }
             ]
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/symfony/property-access@v8.1.12",
+            "bom-ref": "pkg:composer/symfony/property-access@v8.1.11",
             "group": "symfony",
             "name": "property-access",
-            "version": "v8.1.12",
-            "purl": "pkg:composer/symfony/property-access@v8.1.12",
+            "version": "v8.1.11",
+            "purl": "pkg:composer/symfony/property-access@v8.1.11",
             "scope": "required",
             "licenses": [
                 {
@@ -3594,17 +3663,17 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "9fa222376100d95cf2fbd3219bbf2c66e2165461"
+                    "content": "d080c2afa37114d46e4f950ed8593667f01f7cab"
                 }
             ]
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/symfony/property-info@v8.1.12",
+            "bom-ref": "pkg:composer/symfony/property-info@v8.1.11",
             "group": "symfony",
             "name": "property-info",
-            "version": "v8.1.12",
-            "purl": "pkg:composer/symfony/property-info@v8.1.12",
+            "version": "v8.1.11",
+            "purl": "pkg:composer/symfony/property-info@v8.1.11",
             "scope": "required",
             "licenses": [
                 {
@@ -3617,17 +3686,17 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "db26e0db6bb2b548c25b48e3a407c43aaa0fcb1e"
+                    "content": "b5afa379a5b54f15a594c1d45ceaa19969d38a16"
                 }
             ]
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/symfony/routing@v8.1.12",
+            "bom-ref": "pkg:composer/symfony/routing@v8.1.11",
             "group": "symfony",
             "name": "routing",
-            "version": "v8.1.12",
-            "purl": "pkg:composer/symfony/routing@v8.1.12",
+            "version": "v8.1.11",
+            "purl": "pkg:composer/symfony/routing@v8.1.11",
             "scope": "required",
             "licenses": [
                 {
@@ -3640,17 +3709,17 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "55df7515cdd7769113e46dbeba7942c1ccab8590"
+                    "content": "f3fefc6cad3748d538be970ca81b71f06d7aa8b3"
                 }
             ]
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/symfony/serializer@v8.1.12",
+            "bom-ref": "pkg:composer/symfony/serializer@v8.1.11",
             "group": "symfony",
             "name": "serializer",
-            "version": "v8.1.12",
-            "purl": "pkg:composer/symfony/serializer@v8.1.12",
+            "version": "v8.1.11",
+            "purl": "pkg:composer/symfony/serializer@v8.1.11",
             "scope": "required",
             "licenses": [
                 {
@@ -3663,7 +3732,7 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "0d8d656317c5213a0858ad7868fe19e0072f094f"
+                    "content": "05624c94507c3acf065b6486bb626f0d741af459"
                 }
             ]
         },
@@ -3692,11 +3761,11 @@
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/symfony/string@v8.1.12",
+            "bom-ref": "pkg:composer/symfony/string@v8.1.10",
             "group": "symfony",
             "name": "string",
-            "version": "v8.1.12",
-            "purl": "pkg:composer/symfony/string@v8.1.12",
+            "version": "v8.1.10",
+            "purl": "pkg:composer/symfony/string@v8.1.10",
             "scope": "required",
             "licenses": [
                 {
@@ -3709,7 +3778,7 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "b3f937ce8203f33efea3cce084ad4a9f0cce97c5"
+                    "content": "6c6110979c0150393bbb336170e286d51ab4d76c"
                 }
             ]
         },
@@ -3738,11 +3807,11 @@
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/symfony/translation@v8.1.12",
+            "bom-ref": "pkg:composer/symfony/translation@v8.1.11",
             "group": "symfony",
             "name": "translation",
-            "version": "v8.1.12",
-            "purl": "pkg:composer/symfony/translation@v8.1.12",
+            "version": "v8.1.11",
+            "purl": "pkg:composer/symfony/translation@v8.1.11",
             "scope": "required",
             "licenses": [
                 {
@@ -3755,17 +3824,17 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "413000a518ef8c989696b7c9b0f75cb2c29779af"
+                    "content": "d065adf56e5508293e80d7c140b0a9e043b63e9c"
                 }
             ]
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/symfony/type-info@v8.1.12",
+            "bom-ref": "pkg:composer/symfony/type-info@v8.1.11",
             "group": "symfony",
             "name": "type-info",
-            "version": "v8.1.12",
-            "purl": "pkg:composer/symfony/type-info@v8.1.12",
+            "version": "v8.1.11",
+            "purl": "pkg:composer/symfony/type-info@v8.1.11",
             "scope": "required",
             "licenses": [
                 {
@@ -3778,7 +3847,7 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "3e38aea07b658dee29691be8f3c3510bee88782c"
+                    "content": "9fd1414061c4bbf953bcfc183b133cbfa0a73c73"
                 }
             ]
         },
@@ -3807,11 +3876,11 @@
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/symfony/var-dumper@v8.1.12",
+            "bom-ref": "pkg:composer/symfony/var-dumper@v8.1.10",
             "group": "symfony",
             "name": "var-dumper",
-            "version": "v8.1.12",
-            "purl": "pkg:composer/symfony/var-dumper@v8.1.12",
+            "version": "v8.1.10",
+            "purl": "pkg:composer/symfony/var-dumper@v8.1.10",
             "scope": "required",
             "licenses": [
                 {
@@ -3824,7 +3893,7 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "f681b9e07afd027556e5b1eda96fcad5a27a2b98"
+                    "content": "3412a5af7d34a19515a77890fc804fe8e50d1a4f"
                 }
             ]
         },
@@ -3853,11 +3922,11 @@
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/symfony/yaml@v8.1.12",
+            "bom-ref": "pkg:composer/symfony/yaml@v8.1.11",
             "group": "symfony",
             "name": "yaml",
-            "version": "v8.1.12",
-            "purl": "pkg:composer/symfony/yaml@v8.1.12",
+            "version": "v8.1.11",
+            "purl": "pkg:composer/symfony/yaml@v8.1.11",
             "scope": "required",
             "licenses": [
                 {
@@ -3870,7 +3939,7 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "deb300ddc3ef3eab0476569fd88d14e3b194881a"
+                    "content": "e8266f55160f674f290a5f567cb55e11e21f921b"
                 }
             ]
         },
@@ -4037,11 +4106,11 @@
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/web-auth/webauthn-lib@5.3.17",
+            "bom-ref": "pkg:composer/web-auth/webauthn-lib@5.3.15",
             "group": "web-auth",
             "name": "webauthn-lib",
-            "version": "5.3.17",
-            "purl": "pkg:composer/web-auth/webauthn-lib@5.3.17",
+            "version": "5.3.15",
+            "purl": "pkg:composer/web-auth/webauthn-lib@5.3.15",
             "scope": "required",
             "licenses": [
                 {
@@ -4054,7 +4123,7 @@
             "hashes": [
                 {
                     "alg": "SHA-1",
-                    "content": "7f38dbcf07cd22ec104fa6eb720df22eb4196b47"
+                    "content": "768fb8cf7bebaad8a08b3015e206dda95e3320fa"
                 }
             ]
         },

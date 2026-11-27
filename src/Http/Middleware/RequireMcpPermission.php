@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Http\Middleware;
 
+use Cboxdk\StatamicMcp\Auth\TokenScope;
+use Cboxdk\StatamicMcp\Auth\TokenService;
+use Cboxdk\StatamicMcp\OAuth\ScopeChallenge;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Closure;
 use Illuminate\Http\Request;
-use Statamic\Contracts\Auth\User;
 use Symfony\Component\HttpFoundation\Response;
 
 class RequireMcpPermission
@@ -32,12 +34,19 @@ class RequireMcpPermission
         /** @var McpTokenData|null $mcpToken */
         $mcpToken = $request->attributes->get('mcp_token');
 
-        // For Basic Auth users (no token), require CP access
-        if (! $mcpToken) {
-            /** @var User|null $statamicUser */
-            $statamicUser = $user;
-            if (! $statamicUser || ! $statamicUser->hasPermission('access cp')) {
-                abort(403, 'CP access required for MCP operations');
+        if (! $mcpToken instanceof McpTokenData || $mcpToken->isExpired()) {
+            abort(403, 'A valid scoped MCP token is required.');
+        }
+
+        $challenge = app(ScopeChallenge::class);
+        $scopes = $challenge->forRequest($request);
+        foreach ($scopes as $scope) {
+            $core = TokenScope::tryFrom($scope);
+            $allowed = $core !== null ? app(TokenService::class)->hasScope($mcpToken, $core) : in_array($scope, $mcpToken->scopes, true);
+            if (! $allowed) {
+                return response()->json(['error' => 'insufficient_scope', 'scope' => implode(' ', $scopes)], 403, [
+                    'WWW-Authenticate' => $challenge->header($request, $scopes, insufficient: true),
+                ]);
             }
         }
 

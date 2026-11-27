@@ -3,9 +3,12 @@
 namespace Cboxdk\StatamicMcp\Tests;
 
 use Cboxdk\StatamicMcp\ServiceProvider;
+use Illuminate\Filesystem\Filesystem;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\File;
 use Laravel\Mcp\Server\McpServiceProvider;
+use Statamic\Exceptions\NotFoundHttpException;
+use Statamic\Statamic;
 use Statamic\Testing\AddonTestCase;
 use Statamic\Testing\Concerns\PreventsSavingStacheItemsToDisk;
 
@@ -14,6 +17,45 @@ abstract class TestCase extends AddonTestCase
     use PreventsSavingStacheItemsToDisk;
 
     protected string $addonServiceProvider = ServiceProvider::class;
+
+    /** @var list<string> */
+    private array $permissionFixtureDirectories = [];
+
+    /**
+     * @param  Application  $app
+     *
+     * @return void
+     */
+    protected function getEnvironmentSetUp($app)
+    {
+        parent::getEnvironmentSetUp($app);
+
+        // Statamic's Stache fixture trait does not isolate roles/groups. Their
+        // default resource files survive tests and can grant stale permissions.
+        $directory = sys_get_temp_dir() . '/mcp-test-permissions-' . bin2hex(random_bytes(8));
+        mkdir($directory, 0700, true);
+        $this->permissionFixtureDirectories[] = $directory;
+        $app['config']->set('statamic.users.repositories.file.paths.roles', $directory . '/roles.yaml');
+        $app['config']->set('statamic.users.repositories.file.paths.groups', $directory . '/groups.yaml');
+        // Forms 2 definitions also bypass the Stache fixture trait.
+        $app['config']->set('statamic.forms.forms', $directory . '/forms');
+        $app['config']->set('statamic.system.fieldsets_path', $directory . '/fieldsets');
+        // Approval/idempotency records must not fill the shared store across tests.
+        $app['config']->set('statamic.mcp.storage.operations_path', $directory . '/operations');
+    }
+
+    protected function tearDown(): void
+    {
+        try {
+            parent::tearDown();
+        } finally {
+            $files = new Filesystem;
+            foreach ($this->permissionFixtureDirectories as $directory) {
+                $files->deleteDirectory($directory);
+            }
+            $this->permissionFixtureDirectories = [];
+        }
+    }
 
     /**
      * Register laravel/mcp's own provider alongside the addon's.
@@ -37,21 +79,31 @@ abstract class TestCase extends AddonTestCase
         ];
     }
 
-    /**
-     * Whether this process has already swept Testbench's blueprint directory.
-     */
-    private static bool $blueprintsSwept = false;
-
     protected function setUp(): void
     {
+        // Statamic keeps pushed CP routes and install callbacks in static lists
+        // that outlive the application. Every test boots a new app, so each one
+        // re-pushed the addon's routes on top of all earlier tests' and then
+        // registered every one of them: per-test time grew with the test count
+        // until CI jobs hit their timeout. One boot per process in production
+        // never sees this.
+        foreach (['cpRoutes', 'webRoutes', 'actionRoutes', 'afterInstalledCallbacks'] as $list) {
+            (new \ReflectionProperty(Statamic::class, $list))->setValue(null, []);
+        }
+        // SEO Pro installs a process-wide 404 callback. The next test may boot
+        // without its provider and repositories, so it must start without it.
+        NotFoundHttpException::renderUsing(fn () => null);
+
         parent::setUp();
 
         self::sweepLeakedBlueprints();
 
-        // Clean OAuth file storage between tests to prevent cross-test pollution
-        $oauthBasePath = storage_path('statamic-mcp/oauth');
-        if (is_dir($oauthBasePath)) {
-            File::deleteDirectory($oauthBasePath);
+        // Grants and OAuth fixtures must not survive into another test or run.
+        foreach (['statamic-mcp/oauth', 'statamic-mcp/tokens'] as $path) {
+            $directory = storage_path($path);
+            if (is_dir($directory)) {
+                File::deleteDirectory($directory);
+            }
         }
     }
 
@@ -68,17 +120,14 @@ abstract class TestCase extends AddonTestCase
      * previous run was still sitting there, which looks exactly like the fix
      * not working.
      *
-     * Swept once per process rather than per test: the point is to start from
-     * a clean slate, and doing it 1,200 times would cost more than it saves.
+     * Swept before every test, not once per process: a blueprint one test
+     * saved into a shared collection (collections/blog/legit_handle.yaml)
+     * became that collection's default blueprint in a later test, and the
+     * GraphQL row of RenderedCacheMatrixTest then failed only in a full run.
+     * With nothing left to accumulate, a sweep touches a handful of files.
      */
     private static function sweepLeakedBlueprints(): void
     {
-        if (self::$blueprintsSwept) {
-            return;
-        }
-
-        self::$blueprintsSwept = true;
-
         $base = __DIR__ . '/../vendor/orchestra/testbench-core/laravel/resources/blueprints';
 
         if (! is_dir($base)) {

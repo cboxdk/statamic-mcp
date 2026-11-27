@@ -23,6 +23,16 @@ class RegistrationController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
+        // This is an OAuth server, not OIDC: application_type is accepted as
+        // metadata. Redirect safety is enforced identically for both types.
+        $applicationType = $request->input('application_type', 'web');
+        if (! in_array($applicationType, ['web', 'native'], true)) {
+            return response()->json([
+                'error' => 'invalid_client_metadata',
+                'error_description' => 'application_type must be web or native.',
+            ], 400);
+        }
+
         /** @var mixed $clientName */
         $clientName = $request->input('client_name');
 
@@ -83,6 +93,7 @@ class RegistrationController extends Controller
             'client_id' => $client->clientId,
             'client_name' => $client->clientName,
             'redirect_uris' => $client->redirectUris,
+            'application_type' => $applicationType,
             'client_id_issued_at' => $client->createdAt->getTimestamp(),
         ], 201);
     }

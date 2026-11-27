@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Contracts;
 
 use Carbon\Carbon;
+use Cboxdk\StatamicMcp\Actions\CapabilitySnapshot;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Illuminate\Support\Collection;
 
@@ -21,6 +22,7 @@ interface TokenStore
         ?Carbon $expiresAt,
         ?string $oauthClientId = null,
         ?string $oauthClientName = null,
+        ?CapabilitySnapshot $capabilities = null,
     ): McpTokenData;
 
     public function findByHash(string $tokenHash): ?McpTokenData;
@@ -30,10 +32,13 @@ interface TokenStore
     /**
      * Update token fields. Supported keys: name, scopes, expiresAt, tokenHash.
      * When tokenHash is updated, FileTokenStore MUST also update its hash index.
+     * expectedScopes is an optional list of scopes to compare atomically with
+     * the mutation; throw if they changed. Never persist this precondition.
      *
      * @param  array<string, mixed>  $data
+     * @param  list<string>|null  $expectedScopes
      */
-    public function update(string $id, array $data): ?McpTokenData;
+    public function update(string $id, array $data, ?array $expectedScopes = null): ?McpTokenData;
 
     public function delete(string $id): bool;
 

@@ -40,6 +40,7 @@ function createMockGuardUser(string $id = 'user-1'): StatamicUserContract
 {
     $user = Mockery::mock(StatamicUserContract::class, Authenticatable::class);
     $user->shouldReceive('getAuthIdentifier')->andReturn($id);
+    $user->shouldReceive('get')->with('status')->andReturn(null)->byDefault();
 
     return $user;
 }
@@ -74,7 +75,7 @@ describe('extractBearerToken', function () {
     it('extracts token correctly from valid Bearer header', function () {
         $mcpToken = new McpTokenData(
             id: 'token-1', userId: 'user-1', name: 'Test',
-            tokenHash: 'hash', scopes: ['*'], lastUsedAt: null,
+            tokenHash: 'hash', scopes: ['entries:read'], lastUsedAt: null,
             expiresAt: null, createdAt: Carbon::now(),
         );
 
@@ -106,7 +107,7 @@ describe('user', function () {
     it('returns Authenticatable user for a valid token', function () {
         $mcpToken = new McpTokenData(
             id: 'token-1', userId: 'user-1', name: 'Test',
-            tokenHash: 'hash', scopes: ['*'], lastUsedAt: null,
+            tokenHash: 'hash', scopes: ['entries:read'], lastUsedAt: null,
             expiresAt: null, createdAt: Carbon::now(),
         );
 
@@ -131,7 +132,7 @@ describe('user', function () {
     it('caches user on subsequent calls and only validates once', function () {
         $mcpToken = new McpTokenData(
             id: 'token-1', userId: 'user-1', name: 'Test',
-            tokenHash: 'hash', scopes: ['*'], lastUsedAt: null,
+            tokenHash: 'hash', scopes: ['entries:read'], lastUsedAt: null,
             expiresAt: null, createdAt: Carbon::now(),
         );
 
@@ -175,7 +176,7 @@ describe('user', function () {
     it('returns null when token is valid but user does not exist', function () {
         $mcpToken = new McpTokenData(
             id: 'token-1', userId: 'deleted-user', name: 'Test',
-            tokenHash: 'hash', scopes: ['*'], lastUsedAt: null,
+            tokenHash: 'hash', scopes: ['entries:read'], lastUsedAt: null,
             expiresAt: null, createdAt: Carbon::now(),
         );
 
@@ -194,6 +195,26 @@ describe('user', function () {
 
         expect($guard->user())->toBeNull();
     });
+    it('refuses a deactivated account and a v3 full-access token', function () {
+        $tokenService = Mockery::mock(TokenService::class);
+        $tokenService->shouldReceive('validateToken')->with('inactive-token')->andReturn(new McpTokenData(
+            id: 'token-2', userId: 'inactive-user', name: 'Test', tokenHash: 'hash', scopes: ['entries:read'],
+            lastUsedAt: null, expiresAt: null, createdAt: Carbon::now(),
+        ));
+        $tokenService->shouldReceive('validateToken')->with('legacy-token')->andReturn(new McpTokenData(
+            id: 'token-3', userId: 'user-1', name: 'Test', tokenHash: 'hash', scopes: ['*', 'entries:read'],
+            lastUsedAt: null, expiresAt: null, createdAt: Carbon::now(),
+        ));
+        $inactive = createMockGuardUser('inactive-user');
+        $inactive->shouldReceive('get')->with('status')->andReturn('inactive');
+        User::shouldReceive('find')->with('inactive-user')->andReturn($inactive);
+        User::shouldReceive('find')->with('user-1')->andReturn(createMockGuardUser('user-1'));
+
+        expect(createGuard('Bearer inactive-token', $tokenService)->user())->toBeNull()
+            ->and(createGuard(null, $tokenService)->validate(['token' => 'inactive-token']))->toBeFalse()
+            ->and(createGuard('Bearer legacy-token', $tokenService)->user())->toBeNull()
+            ->and(createGuard(null, $tokenService)->validate(['token' => 'legacy-token']))->toBeFalse();
+    });
 });
 
 // ---------------------------------------------------------------------------
@@ -204,7 +225,7 @@ describe('check and guest', function () {
     it('check returns true when authenticated', function () {
         $mcpToken = new McpTokenData(
             id: 'token-1', userId: 'user-1', name: 'Test',
-            tokenHash: 'hash', scopes: ['*'], lastUsedAt: null,
+            tokenHash: 'hash', scopes: ['entries:read'], lastUsedAt: null,
             expiresAt: null, createdAt: Carbon::now(),
         );
 
@@ -280,7 +301,7 @@ describe('validate', function () {
     it('returns true for valid token credentials', function () {
         $mcpToken = new McpTokenData(
             id: 'token-1', userId: 'user-1', name: 'Test',
-            tokenHash: 'hash', scopes: ['*'], lastUsedAt: null,
+            tokenHash: 'hash', scopes: ['entries:read'], lastUsedAt: null,
             expiresAt: null, createdAt: Carbon::now(),
         );
 
@@ -290,6 +311,7 @@ describe('validate', function () {
             ->once()
             ->andReturn($mcpToken);
 
+        User::shouldReceive('find')->with('user-1')->andReturn(createMockGuardUser('user-1'));
         $guard = createGuard(null, $tokenService);
 
         expect($guard->validate(['token' => 'valid-token']))->toBeTrue();

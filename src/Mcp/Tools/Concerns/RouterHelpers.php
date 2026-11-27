@@ -4,16 +4,20 @@ declare(strict_types=1);
 
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Concerns;
 
+use Cboxdk\StatamicMcp\Actions\ActionEffect;
+use Cboxdk\StatamicMcp\Auth\ResourcePolicy;
 use Cboxdk\StatamicMcp\Auth\TokenScope;
-use Cboxdk\StatamicMcp\Auth\TokenService;
+use Cboxdk\StatamicMcp\Authorization\McpCall;
+use Cboxdk\StatamicMcp\Integration\IntegrationRegistry;
+use Cboxdk\StatamicMcp\Mcp\DataTransferObjects\ErrorCode;
 use Cboxdk\StatamicMcp\Mcp\ExtraTools;
-use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
+use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
 use Cboxdk\StatamicMcp\Support\McpContext;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Statamic\Contracts\Auth\User;
 use Statamic\Facades\Site;
+use Statamic\Fields\Blueprint;
 
 /**
  * Router helper methods for common functionality across all routers.
@@ -86,93 +90,51 @@ trait RouterHelpers
     }
 
     /**
-     * Check permissions for web context operations.
-     *
-     * Nested permission model:
-     * 1. MCP token scopes (does the token allow this domain/action?)
-     * 2. Statamic user permissions (does the underlying user have CMS rights?)
+     * This call as McpAuthorizer needs to know it.
      *
      * @param  array<string, mixed>  $arguments
-     *
-     * @return array<string, mixed>|null
      */
-    protected function checkWebPermissions(string $action, array $arguments): ?array
+    public function describeCall(string $action, array $arguments): McpCall
     {
-        /** @var User|null $user */
-        $user = auth()->user();
+        $scope = $this->getRequiredTokenScope($action);
+        $scopes = $scope === null ? [] : [$scope];
 
-        if (! $user) {
-            return $this->createErrorResponse('Permission denied: Authentication required')->toArray();
+        // Publishing and deleting need their own scope on top of write, in
+        // the domains that have one.
+        $extra = match ($this->declaredAction($action)?->effect) {
+            ActionEffect::Publish => TokenScope::tryFrom($this->getDomain() . ':publish'),
+            ActionEffect::Delete => TokenScope::tryFrom($this->getDomain() . ':delete'),
+            default => null,
+        };
+        if ($scope !== null && $extra !== null) {
+            $scopes[] = $extra;
         }
 
-        // Layer 1: Check MCP token scopes
-        /** @var McpTokenData|null $mcpToken */
-        $mcpToken = request()->attributes->get('mcp_token');
-
-        if ($mcpToken) {
-            $requiredScope = $this->getRequiredTokenScope($action);
-
-            // A tool another package added, in a domain this package has no
-            // scope for, would otherwise need none. Fail closed: only a
-            // full-access token may reach it.
-            if ($requiredScope === null && ExtraTools::isRegistered(static::class)) {
-                $requiredScope = TokenScope::FullAccess;
-            }
-
-            /** @var TokenService $tokenService */
-            $tokenService = app(TokenService::class);
-            if ($requiredScope && ! $tokenService->hasScope($mcpToken, $requiredScope)) {
-                Log::warning('MCP permission denied: token missing scope', [
-                    'domain' => $this->getDomain(),
-                    'action' => $action,
-                    'required_scope' => $requiredScope->value,
-                    'token_id' => $mcpToken->id,
-                    'ip' => request()->ip(),
-                ]);
-
-                return $this->createErrorResponse(
-                    "Token missing required scope: {$requiredScope->value}"
-                )->toArray();
-            }
+        $scopes = array_values(array_unique([...$scopes, ...$this->additionalTokenScopes($action, $arguments)], SORT_REGULAR));
+        $binding = app(IntegrationRegistry::class)->binding(static::class, $action);
+        if ($binding !== null) {
+            $scopes = $this->declaredAction($action)->scopes ?? [];
         }
 
-        // Layer 2: Check Statamic user permissions
-        // Super admins pass all Statamic permission checks
-        if ($user->isSuper()) {
-            return null;
-        }
+        return new McpCall(
+            domain: $this->getDomain(),
+            action: $action,
+            scopes: $scopes,
+            permissions: $this->getRequiredPermissions($action, $arguments),
+            handle: $this->resolveResourceHandle($arguments),
+            mode: $this->isWriteAction($action) ? 'write' : 'read',
+            extraTool: ExtraTools::isRegistered(static::class),
+            capability: $binding,
+            site: is_string($arguments['site'] ?? null) ? $arguments['site'] : null,
+        );
+    }
 
-        $requiredPermissions = $this->getRequiredPermissions($action, $arguments);
-
-        // A tool another package added that declares no Statamic permission
-        // would otherwise be open to every Control Panel user, through Basic
-        // Auth or any token carrying its scope. Fail closed, as the scope
-        // check above does: only a super admin may reach it until the router
-        // says which permission it needs.
-        if ($requiredPermissions === [] && ExtraTools::isRegistered(static::class)) {
-            $requiredPermissions = ['super'];
-        }
-
-        foreach ($requiredPermissions as $permission) {
-            // A nested list is satisfied by any one of its permissions.
-            $granted = is_array($permission)
-                ? array_filter($permission, fn (string $alternative): bool => $user->hasPermission($alternative)) !== []
-                : $user->hasPermission($permission);
-
-            if (! $granted) {
-                Log::warning('MCP permission denied: missing Statamic permission', [
-                    'domain' => $this->getDomain(),
-                    'action' => $action,
-                    'missing_permission' => is_array($permission) ? implode(' | ', $permission) : $permission,
-                    'user_id' => method_exists($user, 'id') ? $user->id() : $user->getAuthIdentifier(),
-                    'ip' => request()->ip(),
-                ]);
-
-                return $this->createErrorResponse("Permission denied: Cannot {$action} " . $this->getDomain())->toArray();
-            }
-        }
-
-        return null;
+    /** @param array<string, mixed> $arguments
+     * @return list<TokenScope>
+     */
+    protected function additionalTokenScopes(string $action, array $arguments): array
+    {
+        return [];
     }
 
     /**
@@ -182,15 +144,10 @@ trait RouterHelpers
     protected function getRequiredTokenScope(string $action): ?TokenScope
     {
         $domain = $this->getDomain();
-        $isWrite = in_array($action, [
-            'create', 'generate', 'update', 'delete', 'publish', 'unpublish', 'localize',
-            'activate', 'deactivate', 'assign_role', 'remove_role',
-            'move', 'copy', 'upload', 'configure',
-            'cache_clear', 'cache_warm', 'config_set',
-            'restore_revision', 'publish_working_copy',
-        ]);
+        // One classification for scope and resource policy: the action's declared effect.
+        $isWrite = $this->isWriteAction($action);
 
-        return TokenScope::tryFrom("{$domain}:" . ($isWrite ? 'write' : 'read'));
+        return $isWrite ? TokenScope::writeFor($domain) : TokenScope::tryFrom("{$domain}:read");
     }
 
     /**
@@ -236,13 +193,13 @@ trait RouterHelpers
         }
 
         if (! is_string($arguments['site'])) {
-            return $this->createErrorResponse('Site handle must be a string')->toArray();
+            return $this->createErrorResponse('Site handle must be a string', field: 'site')->toArray();
         }
 
         /** @var Collection<int|string, \Statamic\Sites\Site> $allSites */
         $allSites = Site::all();
         if (! $allSites->map->handle()->contains($arguments['site'])) {
-            return $this->createErrorResponse("Invalid site handle: {$arguments['site']}")->toArray();
+            return $this->createErrorResponse("Invalid site handle: {$arguments['site']}", code: ErrorCode::NotFound, field: 'site')->toArray();
         }
 
         return null;
@@ -264,6 +221,86 @@ trait RouterHelpers
     }
 
     /**
+     * Check a list action's filters before they reach the query.
+     *
+     * The Stache builds an index for every key it is queried by, records the
+     * key in the store's `_indexes` and keeps that index up to date on every
+     * later save. An unknown key is therefore not a harmless empty result but
+     * a permanent cost on the site, so only field handles of the given
+     * blueprints and the named properties are accepted, each with a scalar
+     * value. Denied fields were already removed from the filters by
+     * `filterInputFields()` and are not offered here.
+     *
+     * @param  array<mixed>  $filters
+     * @param  iterable<Blueprint>  $blueprints
+     * @param  list<string>  $properties
+     *
+     * @return array<string, mixed>|null Error response if invalid, null if valid
+     */
+    protected function validateListFilters(array $filters, iterable $blueprints, array $properties): ?array
+    {
+        if ($filters === []) {
+            return null;
+        }
+
+        $handles = $properties;
+        foreach ($blueprints as $blueprint) {
+            foreach ($blueprint->fields()->all()->keys() as $handle) {
+                $handles[] = (string) $handle;
+            }
+        }
+
+        /** @var ResourcePolicy $policy */
+        $policy = app(ResourcePolicy::class);
+        $allowed = array_values(array_diff(array_unique($handles), $policy->getDeniedFields($this->getDomain())));
+        sort($allowed);
+
+        $unknown = array_values(array_filter(
+            array_keys($filters),
+            static fn (int|string $key): bool => ! in_array($key, $allowed, true),
+        ));
+
+        if ($unknown !== []) {
+            return $this->createErrorResponse(
+                'Unknown filter key(s): ' . implode(', ', array_map(strval(...), $unknown))
+                . '. Filter by one of: ' . implode(', ', $allowed) . '.'
+            )->toArray();
+        }
+
+        foreach ($filters as $key => $value) {
+            if ($value !== null && ! is_scalar($value)) {
+                return $this->createErrorResponse(
+                    "Filter '{$key}' must be a string, number, boolean or null; it matches the stored value exactly."
+                )->toArray();
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Sorting creates Stache indexes just like filtering: only declared,
+     * readable fields may be used. The caller adds id as a stable tie-breaker.
+     *
+     * @param  iterable<Blueprint>  $blueprints
+     * @param  list<string>  $properties
+     *
+     * @return array{string, string}
+     */
+    protected function listSort(mixed $sort, iterable $blueprints, array $properties): array
+    {
+        $sort ??= 'id:asc';
+        if (! is_string($sort) || preg_match('/^([a-zA-Z_][a-zA-Z0-9_]*)(?::(asc|desc))?$/D', $sort, $parts) !== 1) {
+            throw ValidationException::withMessages(['sort' => 'Use field:asc or field:desc, for example title:asc.']);
+        }
+        if ($this->validateListFilters([$parts[1] => null], $blueprints, $properties) !== null) {
+            throw ValidationException::withMessages(['sort' => 'Sort must name a readable blueprint field or supported record property.']);
+        }
+
+        return [$parts[1], $parts[2] ?? 'asc'];
+    }
+
+    /**
      * Format a ValidationException into a standardized error response.
      *
      * @return array<string, mixed>
@@ -275,11 +312,17 @@ trait RouterHelpers
             $errors[] = "{$field}: " . implode(', ', $fieldErrors);
         }
 
-        return $this->createErrorResponse('Field validation failed: ' . implode('; ', $errors))->toArray();
+        $field = array_key_first($e->errors());
+
+        return $this->createErrorResponse('Field validation failed: ' . implode('; ', $errors), field: $field === null ? null : (string) $field)->toArray();
     }
 
     /**
      * Get domain name - must be implemented by concrete router classes.
      */
     abstract protected function getDomain(): string;
+
+    abstract protected function isWriteAction(string $action): bool;
+
+    abstract public function declaredAction(string $action): ?RouterAction;
 }

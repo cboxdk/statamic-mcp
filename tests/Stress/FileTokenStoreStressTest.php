@@ -54,7 +54,7 @@ class FileTokenStoreStressTest extends TestCase
         for ($i = 0; $i < 500; $i++) {
             $hash = 'hash_consistency_' . $i;
             $hashes[] = $hash;
-            $store->create('user-stress', "Token {$i}", $hash, ['content:read'], null);
+            $store->create('user-stress', "Token {$i}", $hash, ['entries:read'], null);
         }
 
         // Random sample of 10 hashes should all be findable
@@ -162,7 +162,7 @@ class FileTokenStoreStressTest extends TestCase
             $hash = 'cycle_hash_' . $i . '_' . bin2hex(random_bytes(4));
 
             // Create
-            $token = $store->create('user-cycle', "Cycle Token {$i}", $hash, ['content:read'], null);
+            $token = $store->create('user-cycle', "Cycle Token {$i}", $hash, ['entries:read'], null);
             $this->assertNotNull($store->findByHash($hash), "Token should be findable after create (cycle {$i})");
 
             // Update (rename) the token

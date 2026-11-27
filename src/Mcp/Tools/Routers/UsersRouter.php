@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Cboxdk\StatamicMcp\Mcp\Tools\Routers;
 
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Concerns\ChecksResourceVersions;
+use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesGroups;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesRoles;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\Concerns\HandlesUsers;
@@ -16,9 +18,10 @@ use Laravel\Mcp\Server\Attributes\Title;
 
 #[Name('statamic-users')]
 #[Title('Statamic Users & Roles')]
-#[Description('Manage Statamic users, roles, and user groups. Set resource_type first, then choose an action. Actions: list, get, search, create, update, delete, activate, deactivate, assign_role, remove_role.')]
+#[Description('Statamic users, roles and user groups, and who holds which role.')]
 class UsersRouter extends BaseRouter
 {
+    use ChecksResourceVersions;
     use HandlesGroups;
     use HandlesRoles;
     use HandlesUsers;
@@ -28,19 +31,21 @@ class UsersRouter extends BaseRouter
         return 'users';
     }
 
-    public function getActions(): array
+    protected function actions(): array
     {
+        $who = ['id|email'];
+
         return [
-            'list' => 'List users, roles, or groups with filtering',
-            'get' => 'Get specific user, role, or group details',
-            'create' => 'Create new user, role, or group',
-            'update' => 'Update existing user, role, or group',
-            'delete' => 'Delete user, role, or group',
-            'activate' => 'Activate user account',
-            'deactivate' => 'Deactivate user account',
-            'search' => 'Search and filter users by name, email, role, group, or status',
-            'assign_role' => 'Assign role to user',
-            'remove_role' => 'Remove role from user',
+            RouterAction::read('list', 'List users, roles or groups', optional: ['include_details', 'include_permissions', 'limit', 'cursor']),
+            RouterAction::read('get', 'Get a user by id or email, or a role or group by handle', optional: ['id', 'email', 'handle', 'include_details', 'include_permissions', 'fields']),
+            RouterAction::admin('create', 'Create a user (email, name and password in data), or a role or group (handle; title, permissions or roles in data)', needs: ['data'], optional: ['handle']),
+            RouterAction::admin('update', 'Update a user (id or email), or a role or group (handle). Changing your own email or password over HTTP also needs data.current_password', needs: ['data'], optional: ['id', 'email', 'handle']),
+            RouterAction::admin('delete', 'Delete a user (id or email), or a role or group (handle)', optional: ['id', 'email', 'handle']),
+            RouterAction::admin('activate', 'Activate a user account', ['user'], needs: $who),
+            RouterAction::admin('deactivate', 'Deactivate a user account and revoke its MCP tokens', ['user'], needs: $who, optional: ['reason']),
+            RouterAction::read('search', 'Search users by name or email and filter them', ['user'], optional: ['query', 'role', 'group', 'super', 'status', 'include_details', 'limit', 'cursor']),
+            RouterAction::admin('assign_role', 'Give a user a role', ['user'], needs: [...$who, 'role']),
+            RouterAction::admin('remove_role', 'Take a role from a user', ['user'], needs: [...$who, 'role']),
         ];
     }
 
@@ -56,38 +61,20 @@ class UsersRouter extends BaseRouter
     protected function defineSchema(JsonSchemaContract $schema): array
     {
         return array_merge(parent::defineSchema($schema), [
-            'action' => JsonSchema::string()
-                ->description(
-                    'Action to perform. Required params per action: '
-                    . 'list (resource_type; optional: limit, offset), '
-                    . 'get (resource_type; id or email for users, handle for roles/groups), '
-                    . 'search (resource_type=user; optional: query, role, group, super, status), '
-                    . 'create (resource_type, data), '
-                    . 'update (resource_type; id/email for users, handle for roles/groups; data), '
-                    . 'delete (resource_type; id/email for users, handle for roles/groups), '
-                    . 'activate (resource_type=user, id or email), '
-                    . 'deactivate (resource_type=user, id or email), '
-                    . 'assign_role (resource_type=user, id or email, role), '
-                    . 'remove_role (resource_type=user, id or email, role)'
-                )
-                ->enum(['list', 'get', 'create', 'update', 'delete', 'activate', 'deactivate', 'search', 'assign_role', 'remove_role'])
-                ->required(),
-            'resource_type' => JsonSchema::string()
-                ->description('Type of user resource. "user" for accounts, "role" for permission roles, "group" for user groups')
-                ->enum(['user', 'role', 'group'])
-                ->required(),
             'id' => JsonSchema::string()
                 ->description('User UUID or resource identifier. Use email as alternative for user operations'),
             'email' => JsonSchema::string()
                 ->description('User email address. Alternative to id for user operations. Required in data for user creation'),
             'handle' => JsonSchema::string()
-                ->description('Role or group handle in snake_case. Required for role/group get, update, delete'),
+                ->description('Role or group handle in snake_case, for create the new one\'s handle. Example: "editor"'),
             'data' => JsonSchema::object()
                 ->description(
-                    'Resource data. For users: {"email": "...", "name": "...", "password": "..."}. '
+                    'Resource data. For users: {"email": "...", "name": "...", "password": "..."}; changing your own email or password over HTTP also needs "current_password". '
                     . 'For roles: {"handle": "...", "title": "...", "permissions": [...]}. '
                     . 'For groups: {"handle": "...", "title": "...", "roles": [...]}'
                 ),
+            'reason' => JsonSchema::string()
+                ->description('Why the account is deactivated; stored on the user. Default: "deactivated"'),
             'role' => JsonSchema::string()
                 ->description('Role handle for assign_role/remove_role actions. Example: "editor", "author"'),
             'query' => JsonSchema::string()
@@ -105,10 +92,8 @@ class UsersRouter extends BaseRouter
                 ->description('Include resolved permission list for roles'),
             'limit' => JsonSchema::integer()
                 ->description('Maximum number of results to return (default: 100, max: 500)'),
-            'offset' => JsonSchema::integer()
-                ->description('Number of results to skip for pagination'),
-            'filters' => JsonSchema::object()
-                ->description('Additional filter conditions'),
+            'cursor' => JsonSchema::string()
+                ->description('next_cursor from the previous page. Keep the other arguments unchanged. Omit to start again.'),
         ]);
     }
 

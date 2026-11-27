@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\EntriesRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\StructuresRouter;
+use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
 use Statamic\Facades\Blink;
 use Statamic\Facades\Blueprint;
 use Statamic\Facades\Collection;
 use Statamic\Facades\Entry;
 use Statamic\Facades\Role;
 use Statamic\Facades\User;
+use Symfony\Component\Yaml\Yaml;
 
 function collectionTreeRegressionFixture(string $route = '/{parent_uri}/{slug}'): void
 {
@@ -36,6 +38,99 @@ function collectionTreeRegressionFixture(string $route = '/{parent_uri}/{slug}')
     Blink::flush();
 }
 
+it('separates collection settings from moves and refuses mixed writes without changing either', function () {
+    collectionTreeRegressionFixture();
+    $router = new StructuresRouter;
+    $collection = Collection::find('tree_pages');
+    $treePath = $collection->structure()->in('default')->path();
+    $treeBefore = file_get_contents($treePath);
+    $settingsBefore = file_get_contents($collection->path());
+
+    foreach ([
+        ['action' => 'update', 'data' => ['entry' => 'child', 'parent' => 'b']],
+        ['action' => 'move', 'data' => ['entry' => 'child', 'parent' => 'b', 'title' => 'Changed']],
+    ] as $arguments) {
+        $result = $router->execute($arguments + ['resource_type' => 'collection', 'handle' => 'tree_pages']);
+        expect($result['success'])->toBeFalse()
+            ->and(file_get_contents($treePath))->toBe($treeBefore)
+            ->and(file_get_contents($collection->path()))->toBe($settingsBefore);
+    }
+
+    // These settings used to require configure. Updating them must preserve the tree.
+    $result = $router->execute([
+        'action' => 'update', 'resource_type' => 'collection', 'handle' => 'tree_pages',
+        'data' => ['structure' => ['root' => false, 'max_depth' => 6]],
+    ]);
+    expect($result['success'])->toBeTrue()
+        ->and(Yaml::parseFile($collection->path())['structure']['max_depth'])->toBe(6)
+        ->and(file_get_contents($treePath))->toBe($treeBefore);
+});
+
+it('can enable and disable collection ordering through update', function () {
+    Collection::make('ordered')->title('Ordered')->save();
+    $router = new StructuresRouter;
+    foreach ([true, false] as $orderable) {
+        $result = $router->execute([
+            'action' => 'update', 'resource_type' => 'collection', 'handle' => 'ordered',
+            'data' => ['orderable' => $orderable],
+        ]);
+        expect($result['success'])->toBeTrue();
+        $saved = Yaml::parseFile(Collection::find('ordered')->path());
+        expect(isset($saved['structure']))->toBe($orderable);
+    }
+});
+
+it('enforces both scopes and policies on the explicit collection move', function (array $scopes, string $policy, string $field, string $error, string $code) {
+    collectionTreeRegressionFixture();
+    config([
+        'statamic.editions.pro' => true,
+        'statamic.mcp.security.force_web_mode' => true,
+        'statamic.mcp.web.enabled' => true,
+        'statamic.mcp.confirmation.enabled' => false,
+    ]);
+    $user = User::make()->email('move@example.test')->makeSuper();
+    $user->save();
+    $this->actingAs($user);
+    request()->attributes->set('mcp_token', new McpTokenData(
+        'move-token', $user->id(), 'Move', '', $scopes, null, null, now(),
+    ));
+    if ($policy !== '') {
+        config(["statamic.mcp.tools.{$policy}.resources.write" => ['other']]);
+    }
+    if ($field !== '') {
+        config(["statamic.mcp.tools.{$field}.denied_fields" => ['parent']]);
+    }
+    $path = Collection::find('tree_pages')->structure()->in('default')->path();
+    $before = file_get_contents($path);
+    $result = (new StructuresRouter)->execute([
+        'action' => 'move', 'resource_type' => 'collection', 'handle' => 'tree_pages',
+        'data' => ['entry' => 'child', 'parent' => 'b'],
+    ]);
+    expect($result['success'])->toBeFalse()
+        ->and($result['error']['code'])->toBe($code)
+        ->and(json_encode($result))->toContain($error)
+        ->and(file_get_contents($path))->toBe($before);
+})->with([
+    'no entries scope' => [['structures:admin'], '', '', 'entries:write', 'SCOPE_MISSING'],
+    'no structures scope' => [['entries:write'], '', '', 'structures:admin', 'SCOPE_MISSING'],
+    'entries policy' => [['entries:write', 'structures:admin'], 'entries', '', 'entries resource policy', 'FORBIDDEN'],
+    'structures policy' => [['entries:write', 'structures:admin'], 'structures', '', 'resource policy', 'FORBIDDEN'],
+    'entries field policy' => [['entries:write', 'structures:admin'], '', 'entries', 'Tree changes are denied', 'FORBIDDEN'],
+    'structures field policy' => [['entries:write', 'structures:admin'], '', 'structures', 'Tree changes are denied', 'FORBIDDEN'],
+]);
+
+it('returns the same permitted tree and version after a move and a read', function (string $domain, string $field) {
+    collectionTreeRegressionFixture();
+    config(["statamic.mcp.tools.{$domain}.denied_fields" => [$field]]);
+    $router = new StructuresRouter;
+    $where = ['resource_type' => 'collection', 'handle' => 'tree_pages'];
+    $move = $router->execute(['action' => 'move', ...$where, 'data' => ['entry' => 'child', 'parent' => 'b']]);
+    $read = $router->execute(['action' => 'get', ...$where, 'include_tree' => true, 'include_counts' => false]);
+    expect($move['success'])->toBeTrue(json_encode($move))->and($read['success'])->toBeTrue(json_encode($read))
+        ->and($move['data']['collection'])->toEqual(array_diff_key($read['data']['collection'], ['entry_count' => true]));
+    expect($move['data']['collection'])->not->toHaveKey('site');
+})->with([['entries', 'site'], ['structures', 'site']]);
+
 it('hides denied parent metadata on entry reads and content writes', function (string $domain) {
     collectionTreeRegressionFixture();
     config(["statamic.mcp.tools.{$domain}.denied_fields" => ['parent']]);
@@ -44,11 +139,18 @@ it('hides denied parent metadata on entry reads and content writes', function (s
     foreach (['get', 'update'] as $action) {
         $result = $router->execute([
             'action' => $action, 'collection' => 'tree_pages', 'id' => 'child',
-            'data' => ['title' => 'Updated'],
+            ...($action === 'update' ? ['data' => ['title' => 'Updated']] : []),
         ]);
         expect($result['success'])->toBeTrue()
             ->and($result['data']['entry'])->not->toHaveKey('parent');
     }
+    $refused = $router->execute([
+        'action' => 'update', 'collection' => 'tree_pages', 'id' => 'child',
+        'data' => ['parent' => 'b'],
+    ]);
+    expect($refused['success'])->toBeFalse()
+        ->and($refused['error']['code'])->toBe('FORBIDDEN')
+        ->and($refused['error']['field'])->toBe('parent');
 })->with(['entries', 'structures']);
 
 it('filters collection trees for every caller and both field policies', function (string $context, string $domain) {
@@ -239,7 +341,7 @@ it('moves a published entry without publishing or discarding its working copy', 
 
     $workingCopy = $router->execute([
         'action' => 'get', 'collection' => 'tree_pages', 'id' => 'child',
-        'version' => 'working_copy',
+        'revision_state' => 'working_copy',
     ]);
     expect($workingCopy['success'])->toBeTrue()
         ->and($workingCopy['data']['entry']['data']['title'])->toBe('Unpublished change')

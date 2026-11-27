@@ -89,7 +89,7 @@ class SeoProWritesTest extends TestCase
         $result = (new BlueprintsRouter)->execute([
             'action' => 'get', 'handle' => 'seo',
             'namespace' => $isEntry ? 'collections' : 'taxonomies',
-            $isEntry ? 'collection_handle' : 'taxonomy_handle' => $args[$isEntry ? 'collection' : 'taxonomy'],
+            $isEntry ? 'collection' : 'taxonomy' => $args[$isEntry ? 'collection' : 'taxonomy'],
         ]);
         $this->assertTrue($result['success'], json_encode($result));
         $field = collect($result['data']['blueprint']['fields'])->firstWhere('handle', 'seo');
@@ -168,8 +168,10 @@ class SeoProWritesTest extends TestCase
             [false, false],
             [['title' => '', 'description' => '0', 'robots' => []], ['title' => '', 'description' => '0', 'robots' => []]],
             [['enabled' => false], false],
-            // An empty SEO object inherits defaults; Statamic omits empty root arrays.
-            [[], null],
+            // An empty SEO object inherits defaults. The saved item holds []
+            // until the Stache is rebuilt from the file, where Statamic omits
+            // empty root arrays; both mean inherit.
+            [[], 'inherit'],
             [['title' => ['source' => 'custom', 'value' => '']], ['title' => '']],
         ];
         foreach ($cases as $index => [$seo, $expected]) {
@@ -177,6 +179,11 @@ class SeoProWritesTest extends TestCase
             $this->assertTrue($result['success'], json_encode($result));
             $record = $kind === 'entries' ? Entry::query()->where('slug', 'new-' . $index)->first() : Term::query()->where('slug', 'new-' . $index)->first();
             $actual = $record->get('seo');
+            if ($expected === 'inherit') {
+                $this->assertContains($actual, [[], null]);
+
+                continue;
+            }
             if (is_array($expected) && is_array($actual)) {
                 ksort($expected);
                 ksort($actual);

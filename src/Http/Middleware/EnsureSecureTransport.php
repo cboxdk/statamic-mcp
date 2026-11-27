@@ -24,7 +24,7 @@ class EnsureSecureTransport
     public function handle(Request $request, Closure $next): Response
     {
         /** @var bool $requireHttps */
-        $requireHttps = config('statamic.mcp.web.require_https', false);
+        $requireHttps = config('statamic.mcp.web.require_https', true);
 
         if (! $requireHttps) {
             return $next($request);
