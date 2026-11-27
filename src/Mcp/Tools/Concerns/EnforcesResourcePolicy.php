@@ -118,7 +118,7 @@ trait EnforcesResourcePolicy
         }
 
         // Filter nested 'data' within domain-specific wrapper keys (e.g. entry.data, term.data)
-        foreach (['entry', 'term', 'global', 'asset', 'copy', 'user'] as $wrapper) {
+        foreach (['entry', 'term', 'global', 'asset', 'copy', 'user', 'form'] as $wrapper) {
             if (! isset($result[$wrapper]) || ! is_array($result[$wrapper])) {
                 continue;
             }

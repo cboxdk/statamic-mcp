@@ -162,6 +162,22 @@ lifecycle timing and rejection-observation changes below remain under verificati
 - Allow editors to restore revisions as drafts or working copies without requiring publication rights, matching Statamic's control panel.
 - Use Statamic's actual role and user-group permissions for all corresponding MCP operations, including non-super administrators.
 
+## [3.7.0] - 2026-11-26
+
+### Added
+
+- **`statamic-forms`: create forms and change their settings** (#100, thanks @SteJW). Until now a form could only have its fields edited, through its blueprint. The new router lists, reads, creates, updates and deletes forms, covering the settings the Control Panel's *Configure Form* screen edits: title, honeypot, whether submissions are stored, email notifications, and any settings an addon registers with `Form::appendConfigFields()`. `update` changes only the keys it is sent; unknown keys are refused. It requires Statamic's `configure forms` permission and the new `forms:read`/`forms:write` token scopes; `delete`, which also removes the form's submissions, goes through the confirmation gate. Toggle it with `STATAMIC_MCP_TOOL_FORMS_ENABLED`, and restrict it per form with `tools.forms.resources`. It is reached through `search_tools`/`execute_tools`. Submissions are not exposed.
+
+### Fixed
+
+- **Updates no longer fail on a stored single-item `form`, `collections` or other relationship field** (#102, thanks @timluigjes). Every relationship fieldtype validates as a list, but with `max_items: 1` Statamic stores a bare handle, which the Control Panel wraps before it submits. The server only wrapped `entries`, `terms` and `users`, so an entry, term or global holding e.g. `form: contact` (at the top level or inside a replicator, bard, grid or group set) could not be updated at all: "The Form field must be an array". Every relationship fieldtype is now wrapped the same way, and stored values keep their shape. A sanitizer registered with `FieldtypeExtensions` for such a fieldtype still takes precedence.
+
+## [3.6.3] - 2026-11-23
+
+### Security
+
+- **Term actions stay within the sites the user may access.** Statamic's `TermPolicy` checks the site only when a term is created; the Control Panel keeps every other term screen to the user's sites through its site selector, which MCP does not have. Over the web endpoint, an editor limited to one site could therefore list, read, create and update terms in another site through `statamic-terms`. Every term action now checks the site it reaches, and `delete` checks the site of the term it resolves. The local stdio server is unchanged.
+
 ## [3.6.2] - 2026-11-23
 
 ### Fixed

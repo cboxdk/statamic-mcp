@@ -20,6 +20,7 @@ use Statamic\Fieldtypes\Bard;
 use Statamic\Fieldtypes\Date;
 use Statamic\Fieldtypes\Grid;
 use Statamic\Fieldtypes\Group;
+use Statamic\Fieldtypes\Relationship;
 use Statamic\Fieldtypes\Replicator;
 use Statamic\Fieldtypes\Terms;
 
@@ -275,10 +276,14 @@ trait SanitizesFieldData
             'terms', 'taxonomy', 'entries', 'users' => $allowLegacyCoercion
                 ? $this->sanitizeRelationshipValue($value)
                 : $this->resolveReferences($field, $this->sanitizeRelationshipValue($value), $path),
-            'checkboxes', 'collections', 'navs', 'sites', 'form', 'user_roles', 'user_groups' => $this->sanitizeRelationshipValue($value),
-            default => in_array($field->type(), self::STRING_FIELDTYPES, true)
-                ? $this->sanitizeStringValue($field, $value, $allowLegacyCoercion, $path)
-                : $value,
+            'checkboxes' => $this->sanitizeRelationshipValue($value),
+            default => match (true) {
+                // Every Relationship validates as a list, including addon subclasses.
+                // Statamic unwraps max_items: 1 again when processing the save (#102).
+                $field->fieldtype() instanceof Relationship => $this->sanitizeRelationshipValue($value),
+                in_array($field->type(), self::STRING_FIELDTYPES, true) => $this->sanitizeStringValue($field, $value, $allowLegacyCoercion, $path),
+                default => $value,
+            },
         };
     }
 

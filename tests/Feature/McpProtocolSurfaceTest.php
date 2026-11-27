@@ -10,6 +10,7 @@ use Cboxdk\StatamicMcp\Mcp\Tools\Routers\AssetsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\BlueprintsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\ContentFacadeRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\EntriesRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\FormsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\GlobalsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\StructuresRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\SystemRouter;
@@ -75,6 +76,7 @@ class McpProtocolSurfaceTest extends TestCase
             'entries' => [EntriesRouter::class, ['action' => 'list', 'collection' => self::COLLECTION]],
             'terms' => [TermsRouter::class, ['action' => 'list', 'taxonomy' => self::TAXONOMY]],
             'globals' => [GlobalsRouter::class, ['action' => 'list']],
+            'forms' => [FormsRouter::class, ['action' => 'list']],
             'blueprints' => [BlueprintsRouter::class, ['action' => 'list']],
             'structures' => [StructuresRouter::class, ['action' => 'list', 'resource_type' => 'collection']],
             'assets' => [AssetsRouter::class, ['action' => 'list', 'resource_type' => 'container']],

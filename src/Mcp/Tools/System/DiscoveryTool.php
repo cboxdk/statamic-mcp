@@ -15,6 +15,7 @@ use Cboxdk\StatamicMcp\Mcp\Tools\BaseRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\BaseStatamicTool;
 use Cboxdk\StatamicMcp\Mcp\Tools\RouterAction;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\AssetsRouter;
+use Cboxdk\StatamicMcp\Mcp\Tools\Routers\FormsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\GlobalsRouter;
 use Cboxdk\StatamicMcp\Mcp\Tools\Routers\StructuresRouter;
 use Cboxdk\StatamicMcp\Storage\Tokens\McpTokenData;
@@ -44,7 +45,8 @@ class DiscoveryTool extends BaseStatamicTool
         'entries' => ['entry', 'entries', 'content', 'article', 'page', 'post', 'publish', 'draft'],
         'terms' => ['term', 'terms', 'taxonomy', 'tag', 'category'],
         'globals' => ['global', 'globals', 'site settings', 'footer', 'header', 'seo'],
-        'forms' => ['form', 'submission', 'survey', 'spam', 'connector'],
+        // Substring matching: a bare 'form' also matches 'format' and 'platform'.
+        'forms' => ['forms', 'a form', 'the form', 'contact form', 'form setting', 'form notification', 'honeypot', 'submission', 'survey', 'spam', 'connector'],
         'blueprints' => ['blueprint', 'field', 'schema', 'fieldset', 'fieldtype', 'scan'],
         'structures' => ['collection', 'navigation', 'nav', 'structure', 'taxonomy setup', 'site config'],
         'assets' => ['asset', 'file', 'image', 'media', 'upload', 'container', 'storage'],
@@ -209,6 +211,7 @@ class DiscoveryTool extends BaseStatamicTool
             'sites' => [new StructuresRouter, 'site'],
             'asset_containers' => [new AssetsRouter, 'container'],
             'global_sets' => [new GlobalsRouter, null],
+            'forms' => [new FormsRouter, null],
         ] as $key => [$router, $type]) {
             $arguments = ['action' => 'list', 'limit' => 50];
             if ($type !== null) {

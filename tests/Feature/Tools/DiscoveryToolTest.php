@@ -40,6 +40,14 @@ describe('DiscoveryTool', function () {
         expect($result['data']['discovery']['available_tools'])->not->toBeEmpty();
     });
 
+    it('recommends forms for form work rather than format questions', function () {
+        foreach (['configure a form' => true, 'explain field format' => false] as $intent => $expected) {
+            $result = (new DiscoveryTool)->execute(['intent' => $intent]);
+            $names = array_column($result['data']['discovery']['recommended_tools'], 'tool');
+            expect(in_array('statamic-forms-read', $names, true))->toBe($expected);
+        }
+    });
+
     it('handles empty intent gracefully', function () {
         $tool = new DiscoveryTool;
         $result = $tool->execute(['intent' => '']);
